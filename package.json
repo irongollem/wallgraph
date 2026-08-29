@@ -1,15 +1,21 @@
 {
-  "name": "floorplan",
-  "private": true,
+  "name": "wallgraph",
   "version": "0.1.0",
+  "private": true,
+  "description": "A free, browser-based floorplan editor. mm-exact, wall-graph based, zero runtime dependencies.",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
     "dev": "node scripts/build.mjs --watch --serve",
-    "build": "tsc --noEmit && node scripts/build.mjs",
-    "typecheck": "tsc --noEmit"
+    "build": "npm run typecheck && node scripts/build.mjs",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "test": "tsx tests/core.test.ts",
+    "check": "npm run typecheck && npm test"
   },
   "devDependencies": {
-    "typescript": "^5.6.0",
-    "esbuild": "^0.24.0"
+    "@types/node": "^26.4.0",
+    "esbuild": "^0.24.0",
+    "tsx": "^4.23.12",
+    "typescript": "^5.6.0"
   }
 }

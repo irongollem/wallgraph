@@ -7,10 +7,10 @@ See [PLAN.md](PLAN.md) for the architecture and roadmap.
 ## Develop
 
 ```sh
-npm install        # typescript + esbuild only
-npm run dev        # watch build + http://localhost:5173
+npm install        # dev-only deps; the shipped bundle has zero dependencies
+npm run dev        # watch build + http://localhost:5173  (PORT=3000 to change port)
+npm run check      # typecheck + engine tests
 npm run build      # typecheck + bundle to dist/index.html (single file)
-npx tsx tests/core.test.ts   # engine tests
 ```
 
 `dist/index.html` is fully self-contained — host it anywhere static.
@@ -75,3 +75,18 @@ src/input      tool state machine, snapping, typed input
 src/ui         toolbar + property panel
 src/io         autosave + JSON import/export
 ```
+
+## License
+
+Copyright © 2026 Jeffrey Ernst.
+
+Wallgraph is licensed under the [GNU AGPL v3](LICENSE). You may use, modify and
+self-host it freely; if you run a modified version as a network service, the AGPL
+requires you to offer that version's source to its users. Embedding Wallgraph in
+another application (the Astro/Vue examples above included) puts that application
+under the AGPL too.
+
+**Commercial licensing is available.** If the AGPL doesn't fit — you want to embed
+Wallgraph in a closed-source product or offer it as a hosted service without
+publishing your changes — open an issue to start the conversation. As sole copyright
+holder I can grant separate commercial terms.

@@ -2,7 +2,7 @@
 // theta is the signed included angle. bulge 0 = straight. Positive bulge bows the
 // wall toward perp(chord direction) (visually: to the right of a->b on screen,
 // since y is down). One number, stable under node moves.
-import { Vec, add, sub, scale, len, norm, perp, mid, angleOf, dist, v } from "./vec";
+import { Vec, add, sub, scale, norm, perp, mid, angleOf, dist, v } from "./vec";
 
 export interface ArcInfo {
   center: Vec;

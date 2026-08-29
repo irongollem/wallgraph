@@ -9,20 +9,26 @@ operational summary — the invariants you must not break and the commands that 
 ## Commands
 
 ```sh
-npm install                  # typescript + esbuild only
-npm run dev                  # esbuild watch + static server on http://localhost:5173
-npm run build                # tsc --noEmit && bundle -> dist/index.html (single file, ~69 kB)
-npm run typecheck            # tsc --noEmit
-npx tsx tests/core.test.ts   # engine tests — 19 checks, exits non-zero on failure
+npm install        # 4 dev-only deps; the shipped bundle has zero dependencies
+npm run dev        # esbuild watch + static server on http://localhost:5173 (PORT overrides)
+npm run check      # typecheck + tests — run this before every commit
+npm run build      # typecheck + bundle -> dist/index.html (single file, ~69 kB)
+npm run typecheck  # tsc over src/ (browser) and tests/ (node) separately
+npm test           # engine tests — 19 checks, exits non-zero on failure
 ```
 
-`tsx` is intentionally *not* a devDependency — `npx` fetches it on demand, keeping the
-dependency list at two packages. `dist/index.html` is fully self-contained (CSS + JS
-inlined); host it on any static server.
+`dist/index.html` is fully self-contained (CSS + JS inlined); host it on any static
+server. CI runs `typecheck`, `test`, `build`, and asserts the bundle references no
+external URL.
 
-Always run **both** `npx tsx tests/core.test.ts` and `npm run build` before committing —
-the tests cover the geometry engine, and `tsc` is `strict` with
-`noUncheckedIndexedAccess`, so indexing always needs `!` or a guard.
+Two tsconfigs on purpose: [tsconfig.json](tsconfig.json) covers `src/` with `"types": []`
+so browser code cannot accidentally reach for node globals;
+[tsconfig.test.json](tsconfig.test.json) adds `tests/` with node types. `npm run
+typecheck` runs both — if you only run bare `tsc --noEmit`, tests are not checked.
+
+`strict` is on with `noUncheckedIndexedAccess` (indexing needs `!` or a guard) plus
+`noUnusedLocals`/`noUnusedParameters` — prefix a genuinely unused parameter with `_`
+rather than adding a `void x;` statement.
 
 ## The one idea
 
@@ -129,9 +135,9 @@ The `draw(ctx)` contract in [defs.ts](src/render/symbols/defs.ts) is strict:
 
 ## Gotchas
 
-- **`package.json` is still named `floorplan`** and autosave uses the key
-  `floorplan-doc-v1`. Renaming the storage key silently discards every user's saved plan —
-  if you rename it, migrate.
+- **Autosave uses the storage key `floorplan-doc-v1`**, from before the project was named
+  Wallgraph. Renaming that key silently discards every user's saved plan — if you rename
+  it, migrate the old key first.
 - **`Store.mutate()` coalesces** same-`coalesceKey` mutations within 900 ms into one undo
   step. Drags rely on this; pass a stable key for continuous gestures and `undefined` for
   discrete edits.
@@ -150,6 +156,18 @@ The `draw(ctx)` contract in [defs.ts](src/render/symbols/defs.ts) is strict:
 - **Rendering is immediate-mode and full-redraw**, coalesced through one
   `requestAnimationFrame`. Documents at this scale redraw in well under a frame; don't add
   dirty-rect machinery until profiling says otherwise.
+
+## Licensing constraint
+
+Wallgraph is **AGPL-3.0-only**, dual-licensed — Jeffrey Ernst is sole copyright holder and
+sells commercial exceptions. Two consequences for changes here:
+
+- **Keep the runtime dependency count at zero.** It's not just a size goal any more: every
+  vendored or npm runtime dependency adds a copyright holder, which erodes the ability to
+  grant commercial licenses. Dev-only deps (`typescript`, `esbuild`, `tsx`, `@types/node`)
+  are fine — they don't ship in `dist/index.html`.
+- **Don't paste in code from other projects** without checking its licence. AGPL-incompatible
+  or unattributed code would have to be torn out later.
 
 ## Deliberate P0 cuts
 

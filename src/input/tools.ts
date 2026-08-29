@@ -4,11 +4,10 @@ import { Store } from "../model/store";
 import { Floor, Wall, Opening, PlanNode, newId, DOOR_DEFAULT_WIDTH, WINDOW_DEFAULT_WIDTH, PASSAGE_DEFAULT_WIDTH, OpeningKind } from "../model/doc";
 import { nodeAt, splitWall, nearestWall, wallLength, mergeNodes, deleteWall, clampOpening, cleanOrphanNodes } from "../model/ops";
 import { Viewport } from "../render/viewport";
-import { Vec, v, add, sub, scale, norm, perp, dist, angleOf, fromAngle, dot } from "../geometry/vec";
-import { arcPointAt, arcTangentAt, bulgeFromSagitta, sagittaFromBulge } from "../geometry/arc";
+import { Vec, v, add, sub, scale, norm, perp, dist, angleOf, fromAngle, dot, pointInPolygon } from "../geometry/vec";
+import { arcPointAt, arcTangentAt, bulgeFromSagitta } from "../geometry/arc";
 import { getSymbol } from "../render/symbols";
 import { drawLabel, COLORS } from "../render/draw";
-import { pointInPolygon } from "../geometry/vec";
 import { Resolved } from "../core/resolve";
 
 export type ToolName = "select" | "wall" | "door" | "window" | "passage" | "symbol";
@@ -35,7 +34,6 @@ export class Tools {
   private chainStart: Vec | null = null;
   private chainStartNode: string | null = null;
   private cursor: Vec = v(0, 0);
-  private cursorScreen: Vec = v(0, 0);
   lengthBuffer = "";
   private drag: DragState | null = null;
   private snap: SnapResult | null = null;
@@ -53,7 +51,7 @@ export class Tools {
   ) {
     canvas.addEventListener("pointerdown", e => this.onDown(e));
     canvas.addEventListener("pointermove", e => this.onMove(e));
-    canvas.addEventListener("pointerup", e => this.onUp(e));
+    canvas.addEventListener("pointerup", () => this.onUp());
     canvas.addEventListener("wheel", e => this.onWheel(e), { passive: false });
     canvas.addEventListener("contextmenu", e => { e.preventDefault(); this.cancel(); });
     window.addEventListener("keydown", e => this.onKey(e));
@@ -163,7 +161,6 @@ export class Tools {
 
   private onMove(e: PointerEvent): void {
     const s = this.screenOf(e);
-    this.cursorScreen = s;
     const w = this.vp.toWorld(s);
     this.cursor = w;
 
@@ -173,7 +170,7 @@ export class Tools {
     this.requestRender();
   }
 
-  private onUp(e: PointerEvent): void {
+  private onUp(): void {
     if (!this.drag) return;
     const d = this.drag;
     this.drag = null;
@@ -189,7 +186,6 @@ export class Tools {
       }, "nodedrop");
     }
     this.requestRender();
-    void e;
   }
 
   // ---- wall tool ----
@@ -341,8 +337,6 @@ export class Tools {
     for (const rw of res.walls.values()) {
       for (const og of rw.openings) {
         if (dist(og.center, w) <= Math.max(og.opening.width / 2, tol)) {
-          const { d } = { d: dist(og.center, w) };
-          void d;
           this.store.select({ kind: "opening", id: og.opening.id, wallId: rw.wall.id });
           this.drag = { kind: "opening", id: og.opening.id, wallId: rw.wall.id, startWorld: w, moved: false };
           return;
@@ -780,4 +774,3 @@ function fromAngleRot(p: Vec, ang: number): Vec {
   const c = Math.cos(ang), s = Math.sin(ang);
   return v(p.x * c - p.y * s, p.x * s + p.y * c);
 }
-export { sagittaFromBulge };

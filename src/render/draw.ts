@@ -1,14 +1,13 @@
 // Full scene render. Immediate mode: redraw everything on change (documents at
 // this scale render in well under a frame). Layers: grid, rooms, walls,
 // opening decorations, symbols, selection, labels (labels in screen space).
-import { Floor, Opening } from "../model/doc";
-import { Resolved, ResolvedWall, OpeningGeom } from "../core/resolve";
+import { Floor, SymbolInstance } from "../model/doc";
+import { Resolved, OpeningGeom } from "../core/resolve";
 import { Room } from "../core/rooms";
 import { Selection } from "../model/store";
 import { Viewport } from "./viewport";
-import { Vec, add, sub, scale, perp, v, mid, angleOf, dist } from "../geometry/vec";
+import { Vec, add, sub, scale, perp, v, angleOf, dist } from "../geometry/vec";
 import { getSymbol } from "./symbols";
-import { SymbolInstance } from "../model/doc";
 
 export const COLORS = {
   bg: "#f4f2ec",
@@ -293,4 +292,3 @@ export function drawLabel(ctx: CanvasRenderingContext2D, vp: Viewport, world: Ve
   ctx.fillText(text, s.x, s.y - 6);
   ctx.restore();
 }
-export { mid };

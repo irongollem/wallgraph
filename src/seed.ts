@@ -23,18 +23,17 @@ export function seedDoc(): PlanDoc {
   const nTL = N(0, 0), nTM = N(4800, 0), nTR = N(8000, 0);
   const nBR = N(8000, 5400), nBM = N(4800, 5400), nBL = N(0, 5400);
   const top1 = W(nTL, nTM, 300);
-  const top2 = W(nTM, nTR, 300);
+  W(nTM, nTR, 300);
   const right = W(nTR, nBR, 300);
-  const bottom1 = W(nBR, nBM, 300);
+  W(nBR, nBM, 300);
   const bottom2 = W(nBM, nBL, 300);
   const left = W(nBL, nTL, 300);
-  void top2; void bottom1;
 
   // Interior: bedroom wall at x=4800 (top to bottom), 100mm.
   const inner = W(nTM, nBM, 100);
 
-  // Bathroom inside bedroom: wall at y=2400 from x=4800 to x=8000... make it
-  // partial with a curved feature wall instead: quarter-curve from inner wall to right wall.
+  // Bathroom: a curved feature wall bowing from the inner wall across to the
+  // right wall, splitting both at y=2300.
   const nC1 = N(4800, 2300), nC2 = N(8000, 2300);
   // Split inner wall at nC1 by rebuilding: inner runs nTM->nBM; replace with two.
   inner.b = nC1;

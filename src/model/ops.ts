@@ -3,8 +3,7 @@
 // wrap them in store.mutate().
 import { Floor, PlanNode, Wall, Opening, Id, newId } from "./doc";
 import { Vec, dist, distToSeg, v } from "../geometry/vec";
-import { arcLength } from "../geometry/arc";
-import * as arcMod from "../geometry/arc";
+import { arcLength, arcPointAt, arcFlatten } from "../geometry/arc";
 
 export const NODE_MERGE_TOL = 1; // mm
 
@@ -31,7 +30,7 @@ export function splitWall(f: Floor, w: Wall, tMm: number): PlanNode {
   const tt = Math.max(1, Math.min(L - 1, tMm));
   // Split point on the centerline (arc-aware).
   const frac = tt / L;
-  const p = arcMod.arcPointAt(v(a.x, a.y), v(b.x, b.y), w.bulge, frac);
+  const p = arcPointAt(v(a.x, a.y), v(b.x, b.y), w.bulge, frac);
   const mid = nodeAt(f, p, 0.5);
   // Bulge split: approximate by preserving sagitta proportionally. For straight walls this is exact (0).
   let bulge1 = 0, bulge2 = 0;
@@ -98,8 +97,7 @@ export function nearestWall(f: Floor, p: Vec, tol: number): { wall: Wall; d: num
       if (d <= tol && (!best || d < best.d)) best = { wall: w, d, tMm: t * dist(A, B) };
     } else {
       // Sample the flattened arc.
-      const pts = arcMod.arcFlatten(A, B, w.bulge, 2);
-      const L = arcMod.arcLength(A, B, w.bulge);
+      const pts = arcFlatten(A, B, w.bulge, 2);
       let acc = 0;
       for (let i = 0; i + 1 < pts.length; i++) {
         const s0 = pts[i]!, s1 = pts[i + 1]!;
