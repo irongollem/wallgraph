@@ -1,0 +1,783 @@
+// Tool state machine + snapping + typed-mm input. Owns pointer/keyboard handling
+// for the canvas; rendering of previews goes through getPreview()/getSnap().
+import { Store } from "../model/store";
+import { Floor, Wall, Opening, PlanNode, newId, DOOR_DEFAULT_WIDTH, WINDOW_DEFAULT_WIDTH, PASSAGE_DEFAULT_WIDTH, OpeningKind } from "../model/doc";
+import { nodeAt, splitWall, nearestWall, wallLength, mergeNodes, deleteWall, clampOpening, cleanOrphanNodes } from "../model/ops";
+import { Viewport } from "../render/viewport";
+import { Vec, v, add, sub, scale, norm, perp, dist, angleOf, fromAngle, dot } from "../geometry/vec";
+import { arcPointAt, arcTangentAt, bulgeFromSagitta, sagittaFromBulge } from "../geometry/arc";
+import { getSymbol } from "../render/symbols";
+import { drawLabel, COLORS } from "../render/draw";
+import { pointInPolygon } from "../geometry/vec";
+import { Resolved } from "../core/resolve";
+
+export type ToolName = "select" | "wall" | "door" | "window" | "passage" | "symbol";
+
+export interface SnapResult { p: Vec; kind: "node" | "wall" | "grid" | "free"; wall?: Wall; tMm?: number; node?: PlanNode }
+
+interface DragState {
+  kind: "node" | "wall" | "symbol" | "bow" | "opening" | "pan";
+  id?: string;
+  wallId?: string;
+  startWorld: Vec;
+  orig?: unknown;
+  moved: boolean;
+  lastScreen?: Vec;
+}
+
+export class Tools {
+  tool: ToolName = "select";
+  symbolType = "socket-single";
+  ortho = true;
+  showDims = false; // always show wall measurements (clickable), not only on selection
+  lastThickness = 100;
+
+  private chainStart: Vec | null = null;
+  private chainStartNode: string | null = null;
+  private cursor: Vec = v(0, 0);
+  private cursorScreen: Vec = v(0, 0);
+  lengthBuffer = "";
+  private drag: DragState | null = null;
+  private snap: SnapResult | null = null;
+  private dimRects: Array<{ x: number; y: number; w: number; h: number; wallId: string }> = [];
+  private dimInput: HTMLInputElement | null = null;
+  hint = "";
+
+  constructor(
+    private store: Store,
+    private vp: Viewport,
+    private canvas: HTMLCanvasElement,
+    private requestRender: () => void,
+    private getResolved: () => Resolved,
+    private onToolChange: () => void,
+  ) {
+    canvas.addEventListener("pointerdown", e => this.onDown(e));
+    canvas.addEventListener("pointermove", e => this.onMove(e));
+    canvas.addEventListener("pointerup", e => this.onUp(e));
+    canvas.addEventListener("wheel", e => this.onWheel(e), { passive: false });
+    canvas.addEventListener("contextmenu", e => { e.preventDefault(); this.cancel(); });
+    window.addEventListener("keydown", e => this.onKey(e));
+  }
+
+  setTool(t: ToolName, symbolType?: string): void {
+    this.tool = t;
+    if (symbolType) this.symbolType = symbolType;
+    this.cancel(false);
+    this.updateHint();
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  cancel(render = true): void {
+    this.chainStart = null;
+    this.chainStartNode = null;
+    this.lengthBuffer = "";
+    this.drag = null;
+    if (render) this.requestRender();
+  }
+
+  private screenOf(e: PointerEvent | WheelEvent): Vec {
+    const r = this.canvas.getBoundingClientRect();
+    return v(e.clientX - r.left, e.clientY - r.top);
+  }
+
+  private get floor(): Floor { return this.store.floor; }
+
+  // ---- snapping ----
+  private computeSnap(raw: Vec, forWall: boolean): SnapResult {
+    const f = this.floor;
+    const tolNode = 12 / this.vp.pxPerMm;
+    const tolWall = 9 / this.vp.pxPerMm;
+    let p = raw;
+
+    // Ortho constraint first when chaining a wall (direction), then snap along it.
+    let orthoDir: Vec | null = null;
+    if (forWall && this.chainStart && this.ortho) {
+      const d = sub(raw, this.chainStart);
+      const ang = Math.round(angleOf(d) / (Math.PI / 4)) * (Math.PI / 4);
+      orthoDir = fromAngle(ang);
+      p = add(this.chainStart, scale(orthoDir, dot(d, orthoDir)));
+    }
+
+    // Node snap (on the constrained point OR raw — prefer raw so nodes win).
+    for (const n of f.nodes) {
+      if (dist(v(n.x, n.y), raw) <= tolNode) return { p: v(n.x, n.y), kind: "node", node: n };
+    }
+    // Wall snap.
+    const nw = nearestWall(f, p, tolWall);
+    if (nw) {
+      const a = f.nodes.find(n => n.id === nw.wall.a)!;
+      const b = f.nodes.find(n => n.id === nw.wall.b)!;
+      const L = wallLength(f, nw.wall);
+      const pos = arcPointAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, Math.max(0, Math.min(1, nw.tMm / L)));
+      return { p: pos, kind: "wall", wall: nw.wall, tMm: nw.tMm };
+    }
+    // Grid snap.
+    const g = this.store.doc.gridMm;
+    if (orthoDir) {
+      // snap length along the ortho direction to grid
+      const l = Math.round(dist(p, this.chainStart!) / g) * g;
+      return { p: add(this.chainStart!, scale(orthoDir, l)), kind: "grid" };
+    }
+    return { p: v(Math.round(p.x / g) * g, Math.round(p.y / g) * g), kind: "grid" };
+  }
+
+  getSnap(): Vec | null { return this.snap?.p ?? null; }
+
+  // ---- pointer handlers ----
+  private onWheel(e: WheelEvent): void {
+    e.preventDefault();
+    const s = this.screenOf(e);
+    this.vp.zoomAt(s, Math.exp(-e.deltaY * 0.0015));
+    this.requestRender();
+  }
+
+  private onDown(e: PointerEvent): void {
+    this.canvas.setPointerCapture(e.pointerId);
+    const s = this.screenOf(e);
+    const w = this.vp.toWorld(s);
+    if (e.button === 1 || e.button === 2 || (e.button === 0 && e.getModifierState("Space"))) {
+      this.drag = { kind: "pan", startWorld: w, moved: false, lastScreen: s };
+      return;
+    }
+    if (e.button !== 0) return;
+
+    if (this.tool === "select") {
+      const hit = this.dimRects.find(r => s.x >= r.x && s.x <= r.x + r.w && s.y >= r.y && s.y <= r.y + r.h);
+      if (hit) {
+        e.preventDefault();
+        this.closeDimInput();
+        this.openDimInput(hit);
+        return;
+      }
+    }
+    switch (this.tool) {
+      case "wall": this.wallClick(); break;
+      case "door": this.placeOpening("door"); break;
+      case "window": this.placeOpening("window"); break;
+      case "passage": this.placeOpening("passage"); break;
+      case "symbol": this.placeSymbol(); break;
+      case "select": this.selectDown(s, w); break;
+    }
+  }
+
+  private onMove(e: PointerEvent): void {
+    const s = this.screenOf(e);
+    this.cursorScreen = s;
+    const w = this.vp.toWorld(s);
+    this.cursor = w;
+
+    if (this.drag) { this.dragMove(s, w); return; }
+
+    this.snap = this.tool === "select" ? null : this.computeSnap(w, this.tool === "wall");
+    this.requestRender();
+  }
+
+  private onUp(e: PointerEvent): void {
+    if (!this.drag) return;
+    const d = this.drag;
+    this.drag = null;
+    if (d.kind === "node" && d.moved) {
+      // Merge if dropped onto another node.
+      this.store.mutate(doc => {
+        const f = doc.floors[0]!;
+        const me = f.nodes.find(n => n.id === d.id);
+        if (!me) return;
+        for (const n of f.nodes) {
+          if (n.id !== me.id && dist(v(n.x, n.y), v(me.x, me.y)) <= 1) { mergeNodes(f, n.id, me.id); break; }
+        }
+      }, "nodedrop");
+    }
+    this.requestRender();
+    void e;
+  }
+
+  // ---- wall tool ----
+  private wallClick(): void {
+    const snap = this.snap ?? this.computeSnap(this.cursor, true);
+    let target = snap.p;
+    if (this.chainStart && this.lengthBuffer) {
+      const mm = parseFloat(this.lengthBuffer);
+      if (isFinite(mm) && mm > 0) {
+        const dir = norm(sub(target, this.chainStart));
+        target = add(this.chainStart, scale(dir, mm));
+      }
+    }
+    if (!this.chainStart) {
+      this.store.mutate(doc => {
+        const f = doc.floors[0]!;
+        const n = this.anchorNode(f, snap, target);
+        this.chainStart = v(n.x, n.y);
+        this.chainStartNode = n.id;
+      });
+    } else {
+      if (dist(target, this.chainStart) < 10) return;
+      this.store.mutate(doc => {
+        const f = doc.floors[0]!;
+        const startId = this.chainStartNode!;
+        const endSnap = this.lengthBuffer ? null : snap;
+        const nEnd = endSnap ? this.anchorNode(f, endSnap, target) : nodeAt(f, target);
+        if (nEnd.id === startId) return;
+        f.walls.push({ id: newId("w"), a: startId, b: nEnd.id, thickness: this.lastThickness, bulge: 0, openings: [] });
+        this.chainStart = v(nEnd.x, nEnd.y);
+        this.chainStartNode = nEnd.id;
+      });
+      this.lengthBuffer = "";
+    }
+    this.updateHint();
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /** Node for a snap target: existing node, split wall, or new node. */
+  private anchorNode(f: Floor, snap: SnapResult, p: Vec): PlanNode {
+    if (snap.kind === "node" && snap.node) return f.nodes.find(n => n.id === snap.node!.id)!;
+    if (snap.kind === "wall" && snap.wall && snap.tMm !== undefined) {
+      const wall = f.walls.find(x => x.id === snap.wall!.id);
+      if (wall) {
+        const L = wallLength(f, wall);
+        if (snap.tMm > 40 && snap.tMm < L - 40) return splitWall(f, wall, snap.tMm);
+      }
+    }
+    return nodeAt(f, p);
+  }
+
+  // ---- openings ----
+  private placeOpening(kind: OpeningKind): void {
+    const f = this.floor;
+    const nw = nearestWall(f, this.cursor, 30 / this.vp.pxPerMm);
+    if (!nw) return;
+    const width = kind === "door" ? DOOR_DEFAULT_WIDTH : kind === "window" ? WINDOW_DEFAULT_WIDTH : PASSAGE_DEFAULT_WIDTH;
+    const o: Opening = {
+      id: newId("o"), kind, t: Math.round(nw.tMm / 10) * 10, width,
+      ...(kind === "door" ? { hinge: "a" as const, swingIn: true } : {}),
+      ...(kind === "window" ? { windowType: "fixed" as const } : {}),
+    };
+    this.store.mutate(doc => {
+      const fl = doc.floors[0]!;
+      const wall = fl.walls.find(x => x.id === nw.wall.id);
+      if (!wall) return;
+      clampOpening(fl, wall, o);
+      wall.openings.push(o);
+    });
+    this.store.select({ kind: "opening", id: o.id, wallId: nw.wall.id });
+  }
+
+  // ---- symbols ----
+  private symbolPose(): { x: number; y: number; rotation: number; wallId?: string } {
+    const def = getSymbol(this.symbolType);
+    const f = this.floor;
+    if (def?.wallMounted) {
+      const nw = nearestWall(f, this.cursor, 60 / this.vp.pxPerMm + 500);
+      if (nw) {
+        const a = f.nodes.find(n => n.id === nw.wall.a)!;
+        const b = f.nodes.find(n => n.id === nw.wall.b)!;
+        const L = wallLength(f, nw.wall);
+        const frac = Math.max(0, Math.min(1, nw.tMm / L));
+        const pOn = arcPointAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, frac);
+        const tan = arcTangentAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, frac);
+        const n = perp(tan);
+        const side = dot(sub(this.cursor, pOn), n) >= 0 ? 1 : -1;
+        const anchor = add(pOn, scale(n, (nw.wall.thickness / 2) * side));
+        const outN = scale(n, side);
+        return { x: Math.round(anchor.x), y: Math.round(anchor.y), rotation: angleOf(outN) - Math.PI / 2, wallId: nw.wall.id };
+      }
+    }
+    const g = this.store.doc.gridMm;
+    return { x: Math.round(this.cursor.x / g) * g, y: Math.round(this.cursor.y / g) * g, rotation: 0 };
+  }
+
+  private placeSymbol(): void {
+    const pose = this.symbolPose();
+    const id = newId("s");
+    this.store.mutate(doc => {
+      doc.floors[0]!.symbols.push({ id, type: this.symbolType, ...pose });
+    });
+    this.store.select({ kind: "symbol", id });
+  }
+
+  // ---- select tool ----
+  private selectDown(s: Vec, w: Vec): void {
+    this.lengthBuffer = "";
+    this.closeDimInput();
+    const f = this.floor;
+    const res = this.getResolved();
+    const tol = 10 / this.vp.pxPerMm;
+
+    // Bow handle of selected wall?
+    const selWall = this.store.sel?.kind === "wall" ? f.walls.find(x => x.id === this.store.sel!.id) : undefined;
+    if (selWall) {
+      const a = f.nodes.find(n => n.id === selWall.a)!, b = f.nodes.find(n => n.id === selWall.b)!;
+      const handle = arcPointAt(v(a.x, a.y), v(b.x, b.y), selWall.bulge, 0.5);
+      if (dist(w, handle) <= tol * 1.5) {
+        this.drag = { kind: "bow", id: selWall.id, startWorld: w, moved: false };
+        return;
+      }
+    }
+
+    // Nodes.
+    for (const n of f.nodes) {
+      if (dist(v(n.x, n.y), w) <= tol) {
+        this.store.select({ kind: "node", id: n.id });
+        this.drag = { kind: "node", id: n.id, startWorld: w, moved: false };
+        return;
+      }
+    }
+    // Symbols.
+    for (let i = f.symbols.length - 1; i >= 0; i--) {
+      const sym = f.symbols[i]!;
+      const def = getSymbol(sym.type);
+      if (!def) continue;
+      // inverse transform
+      const local = this.toLocal(w, sym.x, sym.y, sym.rotation, !!sym.mirrored);
+      const y0 = def.wallMounted ? 0 : -def.depth / 2;
+      if (local.x >= -def.width / 2 - 30 && local.x <= def.width / 2 + 30 && local.y >= y0 - 30 && local.y <= y0 + def.depth + 30) {
+        this.store.select({ kind: "symbol", id: sym.id });
+        this.drag = { kind: "symbol", id: sym.id, startWorld: w, moved: false };
+        return;
+      }
+    }
+    // Openings (near their centerline center).
+    for (const rw of res.walls.values()) {
+      for (const og of rw.openings) {
+        if (dist(og.center, w) <= Math.max(og.opening.width / 2, tol)) {
+          const { d } = { d: dist(og.center, w) };
+          void d;
+          this.store.select({ kind: "opening", id: og.opening.id, wallId: rw.wall.id });
+          this.drag = { kind: "opening", id: og.opening.id, wallId: rw.wall.id, startWorld: w, moved: false };
+          return;
+        }
+      }
+    }
+    // Walls (point in outline).
+    for (const rw of res.walls.values()) {
+      if (pointInPolygon(w, rw.outline)) {
+        this.store.select({ kind: "wall", id: rw.wall.id });
+        this.drag = { kind: "wall", id: rw.wall.id, startWorld: w, moved: false };
+        return;
+      }
+    }
+    this.store.select(null);
+    this.drag = { kind: "pan", startWorld: w, moved: false, lastScreen: s };
+  }
+
+  private toLocal(p: Vec, x: number, y: number, rot: number, mirrored: boolean): Vec {
+    let d = sub(p, v(x, y));
+    d = fromAngleRot(d, -rot);
+    if (mirrored) d = v(-d.x, d.y);
+    return d;
+  }
+
+  private dragMove(s: Vec, w: Vec): void {
+    const d = this.drag!;
+    d.moved = true;
+    const g = this.store.doc.gridMm;
+
+    if (d.kind === "pan") {
+      if (d.lastScreen) this.vp.panPx(s.x - d.lastScreen.x, s.y - d.lastScreen.y);
+      d.lastScreen = s;
+      this.requestRender();
+      return;
+    }
+    if (d.kind === "node") {
+      const snap = this.computeSnap(w, false);
+      this.store.mutate(doc => {
+        const n = doc.floors[0]!.nodes.find(x => x.id === d.id);
+        if (n) { n.x = Math.round(snap.p.x); n.y = Math.round(snap.p.y); }
+      }, "drag" + d.id);
+    } else if (d.kind === "wall") {
+      const delta = sub(w, d.startWorld);
+      const dx = Math.round(delta.x / g) * g, dy = Math.round(delta.y / g) * g;
+      if (dx !== 0 || dy !== 0) {
+        d.startWorld = add(d.startWorld, v(dx, dy));
+        this.store.mutate(doc => {
+          const f = doc.floors[0]!;
+          const wall = f.walls.find(x => x.id === d.id);
+          if (!wall) return;
+          for (const nid of [wall.a, wall.b]) {
+            const n = f.nodes.find(x => x.id === nid);
+            if (n) { n.x += dx; n.y += dy; }
+          }
+        }, "drag" + d.id);
+      }
+    } else if (d.kind === "symbol") {
+      this.store.mutate(doc => {
+        const sym = doc.floors[0]!.symbols.find(x => x.id === d.id);
+        if (!sym) return;
+        const saveType = this.symbolType;
+        this.symbolType = sym.type;
+        const pose = this.symbolPose();
+        this.symbolType = saveType;
+        Object.assign(sym, pose);
+        if (!getSymbol(sym.type)?.wallMounted) delete sym.wallId;
+      }, "drag" + d.id);
+    } else if (d.kind === "bow") {
+      this.store.mutate(doc => {
+        const f = doc.floors[0]!;
+        const wall = f.walls.find(x => x.id === d.id);
+        if (!wall) return;
+        const a = f.nodes.find(n => n.id === wall.a)!, b = f.nodes.find(n => n.id === wall.b)!;
+        const A = v(a.x, a.y), B = v(b.x, b.y);
+        const chordDir = norm(sub(B, A));
+        const sag = dot(sub(w, scale(add(A, B), 0.5)), perp(chordDir));
+        const snapped = Math.abs(sag) < 60 ? 0 : Math.round(sag / 10) * 10;
+        wall.bulge = bulgeFromSagitta(A, B, snapped);
+      }, "bow" + d.id);
+    } else if (d.kind === "opening") {
+      this.store.mutate(doc => {
+        const f = doc.floors[0]!;
+        const wall = f.walls.find(x => x.id === d.wallId);
+        const o = wall?.openings.find(x => x.id === d.id);
+        if (!wall || !o) return;
+        const nw = nearestWall(f, w, 1e9);
+        if (nw && nw.wall.id === wall.id) {
+          o.t = Math.round(nw.tMm / 10) * 10;
+          clampOpening(f, wall, o);
+        }
+      }, "drag" + d.id);
+    }
+  }
+
+  // ---- keyboard ----
+  private onKey(e: KeyboardEvent): void {
+    const tag = (e.target as HTMLElement)?.tagName;
+    if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+      e.preventDefault();
+      if (e.shiftKey) this.store.redo(); else this.store.undo();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); this.store.redo(); return; }
+    if (e.ctrlKey || e.metaKey) return;
+
+    // Typed mm entry during wall drawing.
+    if (this.tool === "wall" && this.chainStart) {
+      if (/^[0-9.]$/.test(e.key)) { this.lengthBuffer += e.key; this.updateHint(); this.onToolChange(); this.requestRender(); return; }
+      if (e.key === "Backspace") { this.lengthBuffer = this.lengthBuffer.slice(0, -1); this.updateHint(); this.onToolChange(); this.requestRender(); return; }
+      if (e.key === "Enter" && this.lengthBuffer) { this.wallClick(); return; }
+    }
+
+    // Typed mm entry with a wall selected: type digits, Enter resizes it.
+    if (this.tool === "select" && this.store.sel?.kind === "wall") {
+      if (/^[0-9.]$/.test(e.key)) { this.lengthBuffer += e.key; this.updateHint(); this.onToolChange(); this.requestRender(); return; }
+      if (e.key === "Backspace" && this.lengthBuffer) { this.lengthBuffer = this.lengthBuffer.slice(0, -1); this.updateHint(); this.onToolChange(); this.requestRender(); return; }
+      if (e.key === "Enter" && this.lengthBuffer) { this.applyTypedLength(); return; }
+      if (e.key === "Escape" && this.lengthBuffer) { this.lengthBuffer = ""; this.updateHint(); this.onToolChange(); this.requestRender(); return; }
+    }
+
+    switch (e.key) {
+      case "Escape": this.cancel(); this.updateHint(); break;
+      case "v": case "V": this.setTool("select"); break;
+      case "w": case "W": this.setTool("wall"); break;
+      case "d": case "D": this.setTool("door"); break;
+      case "n": case "N": this.setTool("window"); break;
+      case "p": case "P": this.setTool("passage"); break;
+      case "o": case "O": this.ortho = !this.ortho; this.updateHint(); this.onToolChange(); break;
+      case "l": case "L": this.showDims = !this.showDims; this.onToolChange(); this.requestRender(); break;
+      case "r": case "R": this.rotateSelected(); break;
+      case "m": case "M": this.mirrorSelected(); break;
+      case "Delete": case "Backspace": this.deleteSelected(); break;
+    }
+  }
+
+  /** Resize the selected wall to the typed length. */
+  private applyTypedLength(): void {
+    const sel = this.store.sel;
+    const mm = parseFloat(this.lengthBuffer);
+    this.lengthBuffer = "";
+    if (sel?.kind !== "wall" || !isFinite(mm) || mm < 50) { this.updateHint(); this.onToolChange(); return; }
+    this.resizeWall(sel.id, mm);
+    this.updateHint();
+    this.onToolChange();
+  }
+
+  /** Set a wall's length to mm by moving its less-connected endpoint (the free
+   * end), so the rest of the plan stays anchored. Ties move node b. */
+  resizeWall(wallId: string, mm: number): void {
+    if (!isFinite(mm) || mm < 50) return;
+    this.store.mutate(doc => {
+      const f = doc.floors[0]!;
+      const wall = f.walls.find(x => x.id === wallId);
+      if (!wall) return;
+      const a = f.nodes.find(x => x.id === wall.a)!, b = f.nodes.find(x => x.id === wall.b)!;
+      const degA = f.walls.filter(x => x.id !== wall.id && (x.a === wall.a || x.b === wall.a)).length;
+      const degB = f.walls.filter(x => x.id !== wall.id && (x.a === wall.b || x.b === wall.b)).length;
+      const [anchor, moving] = degB <= degA ? [a, b] : [b, a];
+      const AA = v(anchor.x, anchor.y), MM = v(moving.x, moving.y);
+      const L = wallLength(f, wall);
+      const chord = dist(AA, MM);
+      if (chord < 1) return;
+      const dir = norm(sub(MM, AA));
+      // Arcs: bulge is chord-proportional, so scaling the chord scales arc length.
+      const newChord = wall.bulge === 0 ? mm : (chord * mm) / L;
+      const np = add(AA, scale(dir, newChord));
+      moving.x = Math.round(np.x); moving.y = Math.round(np.y);
+    });
+  }
+
+  private openDimInput(rect: { x: number; y: number; w: number; h: number; wallId: string }): void {
+    const f = this.floor;
+    const wall = f.walls.find(x => x.id === rect.wallId);
+    if (!wall) return;
+    const input = document.createElement("input");
+    input.type = "number";
+    input.className = "dim-input";
+    input.value = String(Math.round(wallLength(f, wall)));
+    input.style.left = `${rect.x - 8}px`;
+    input.style.top = `${rect.y - 4}px`;
+    const commit = (): void => {
+      const mm = parseFloat(input.value);
+      this.closeDimInput();
+      if (isFinite(mm)) this.resizeWall(rect.wallId, mm);
+    };
+    input.onkeydown = ev => {
+      ev.stopPropagation();
+      if (ev.key === "Enter") commit();
+      if (ev.key === "Escape") this.closeDimInput();
+    };
+    input.onblur = () => this.closeDimInput();
+    this.canvas.parentElement!.append(input);
+    this.dimInput = input;
+    // Focus after the pointer event's default action, so the canvas doesn't
+    // immediately steal it back and blur-close the input.
+    setTimeout(() => { input.focus(); input.select(); }, 0);
+  }
+
+  private closeDimInput(): void {
+    const input = this.dimInput;
+    this.dimInput = null; // null first: removing a focused input re-fires blur
+    input?.remove();
+  }
+
+  private rotateSelected(): void {
+    const sel = this.store.sel;
+    if (sel?.kind !== "symbol") return;
+    this.store.mutate(doc => {
+      const s = doc.floors[0]!.symbols.find(x => x.id === sel.id);
+      if (s && !getSymbol(s.type)?.wallMounted) s.rotation += Math.PI / 4;
+    });
+  }
+
+  private mirrorSelected(): void {
+    const sel = this.store.sel;
+    if (sel?.kind !== "symbol") return;
+    this.store.mutate(doc => {
+      const s = doc.floors[0]!.symbols.find(x => x.id === sel.id);
+      if (s) s.mirrored = !s.mirrored;
+    });
+  }
+
+  deleteSelected(): void {
+    const sel = this.store.sel;
+    if (!sel) return;
+    this.store.mutate(doc => {
+      const f = doc.floors[0]!;
+      if (sel.kind === "wall") deleteWall(f, sel.id);
+      else if (sel.kind === "node") {
+        f.walls = f.walls.filter(w => w.a !== sel.id && w.b !== sel.id);
+        cleanOrphanNodes(f);
+      } else if (sel.kind === "symbol") f.symbols = f.symbols.filter(s => s.id !== sel.id);
+      else if (sel.kind === "opening") {
+        for (const w of f.walls) w.openings = w.openings.filter(o => o.id !== sel.id);
+      }
+    });
+    this.store.select(null);
+  }
+
+  updateHint(): void {
+    switch (this.tool) {
+      case "wall":
+        this.hint = this.chainStart
+          ? (this.lengthBuffer ? `length: ${this.lengthBuffer} mm — Enter to place` : "click to place · type a length in mm · Esc/right-click to end")
+          : "click to start a wall chain";
+        break;
+      case "select":
+        this.hint = this.store.sel?.kind === "wall"
+          ? (this.lengthBuffer
+            ? `wall length: ${this.lengthBuffer} mm — Enter to apply`
+            : "click the mm value to edit it · or just type a length + Enter · drag the ◆ handle to curve · Del deletes")
+          : "click to select · drag nodes/walls/symbols · drag a selected wall's ◆ handle to curve it · Del deletes";
+        break;
+      case "door": this.hint = "click on a wall to place a door"; break;
+      case "window": this.hint = "click on a wall to place a window"; break;
+      case "passage": this.hint = "click on a wall to place an open passage"; break;
+      case "symbol": this.hint = `click to place ${getSymbol(this.symbolType)?.label ?? this.symbolType} (R rotate, M mirror after placing)`; break;
+    }
+  }
+
+  /** One wall's dimension line + clickable value pill. Registers the pill in dimRects. */
+  private drawDimension(ctx: CanvasRenderingContext2D, vp: Viewport, px: number, wall: Wall, emphasized: boolean): void {
+    const f = this.floor;
+    const a = f.nodes.find(n => n.id === wall.a), b = f.nodes.find(n => n.id === wall.b);
+    if (!a || !b) return;
+    const A = v(a.x, a.y), B = v(b.x, b.y);
+    if (dist(A, B) < 1) return;
+    const dir = norm(sub(B, A));
+    const n = perp(dir);
+    const off = wall.thickness / 2 + 250 + 14 * px;
+    const d0 = add(A, scale(n, off)), d1 = add(B, scale(n, off));
+    ctx.strokeStyle = COLORS.dimension;
+    ctx.globalAlpha = emphasized ? 1 : 0.55;
+    ctx.lineWidth = 1.2 * px;
+    for (const [p0, p1] of [[add(A, scale(n, wall.thickness / 2 + 60)), add(d0, scale(n, 60))],
+                            [add(B, scale(n, wall.thickness / 2 + 60)), add(d1, scale(n, 60))]] as const) {
+      ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+    }
+    ctx.beginPath(); ctx.moveTo(d0.x, d0.y); ctx.lineTo(d1.x, d1.y); ctx.stroke();
+    const ah = 9 * px;
+    for (const [tip, back] of [[d0, dir], [d1, scale(dir, -1)]] as const) {
+      ctx.beginPath();
+      ctx.moveTo(tip.x, tip.y);
+      ctx.lineTo(tip.x + back.x * ah - n.x * ah * 0.4, tip.y + back.y * ah - n.y * ah * 0.4);
+      ctx.moveTo(tip.x, tip.y);
+      ctx.lineTo(tip.x + back.x * ah + n.x * ah * 0.4, tip.y + back.y * ah + n.y * ah * 0.4);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    // Clickable value pill (screen space). Skip the pill when the wall is too
+    // short on screen for it to fit legibly — the line still shows.
+    const wallPx = dist(vp.toScreen(A), vp.toScreen(B));
+    if (wallPx < 46) return;
+    const midW = scale(add(d0, d1), 0.5);
+    const text = `${Math.round(wallLength(f, wall))}`;
+    const sMid = vp.toScreen(midW);
+    ctx.save();
+    ctx.setTransform(vp.dpr, 0, 0, vp.dpr, 0, 0);
+    ctx.font = "600 11px system-ui, sans-serif";
+    const tw = ctx.measureText(text).width;
+    const rx = sMid.x - tw / 2 - 6, ry = sMid.y - 9, rw = tw + 12, rh = 18;
+    ctx.fillStyle = "#ffffff";
+    ctx.strokeStyle = COLORS.dimension;
+    ctx.globalAlpha = emphasized ? 1 : 0.75;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(rx, ry, rw, rh, 5);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = COLORS.dimension;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, sMid.x, sMid.y + 1);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+    this.dimRects.push({ x: rx, y: ry, w: rw, h: rh, wallId: wall.id });
+  }
+
+  /** World-space preview drawing, called inside the world transform. */
+  drawPreview(ctx: CanvasRenderingContext2D, vp: Viewport): void {
+    const px = 1 / vp.pxPerMm;
+    const f = this.floor;
+
+    // Node handles in select mode.
+    if (this.tool === "select") {
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = "#7a7f88";
+      ctx.lineWidth = 1 * px;
+      for (const n of f.nodes) {
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, 3.5 * px, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+      }
+      this.dimRects = [];
+      // Dimension lines with editable values: all walls when toggled on,
+      // otherwise only the selected wall.
+      const selDim = this.store.sel;
+      if (this.showDims) {
+        for (const wall of f.walls) this.drawDimension(ctx, vp, px, wall, wall.id === (selDim?.kind === "wall" ? selDim.id : ""));
+      } else if (selDim?.kind === "wall") {
+        const wall = f.walls.find(x => x.id === selDim.id);
+        if (wall) this.drawDimension(ctx, vp, px, wall, true);
+      }
+      // Bow handle for selected wall.
+      const sel = this.store.sel;
+      if (sel?.kind === "wall" && this.lengthBuffer) {
+        const wall = f.walls.find(x => x.id === sel.id);
+        if (wall) {
+          const a = f.nodes.find(n => n.id === wall.a)!, b = f.nodes.find(n => n.id === wall.b)!;
+          drawLabel(ctx, vp, arcPointAt(v(a.x, a.y), v(b.x, b.y), wall.bulge, 0.5), `${this.lengthBuffer}▎mm`);
+        }
+      }
+      if (sel?.kind === "wall") {
+        const wall = f.walls.find(x => x.id === sel.id);
+        if (wall) {
+          const a = f.nodes.find(n => n.id === wall.a)!, b = f.nodes.find(n => n.id === wall.b)!;
+          const h = arcPointAt(v(a.x, a.y), v(b.x, b.y), wall.bulge, 0.5);
+          ctx.fillStyle = COLORS.select;
+          ctx.beginPath();
+          const r = 5 * px;
+          ctx.moveTo(h.x, h.y - r); ctx.lineTo(h.x + r, h.y); ctx.lineTo(h.x, h.y + r); ctx.lineTo(h.x - r, h.y);
+          ctx.closePath(); ctx.fill();
+        }
+      }
+    }
+
+    // Wall drawing preview.
+    if (this.tool === "wall" && this.chainStart) {
+      const snap = this.snap ?? this.computeSnap(this.cursor, true);
+      let target = snap.p;
+      if (this.lengthBuffer) {
+        const mm = parseFloat(this.lengthBuffer);
+        if (isFinite(mm) && mm > 0) target = add(this.chainStart, scale(norm(sub(target, this.chainStart)), mm));
+      }
+      const th = this.lastThickness;
+      const dir = norm(sub(target, this.chainStart));
+      const n = perp(dir);
+      ctx.fillStyle = "rgba(61,65,72,0.35)";
+      ctx.beginPath();
+      const c0 = add(this.chainStart, scale(n, th / 2)), c1 = add(target, scale(n, th / 2));
+      const c2 = add(target, scale(n, -th / 2)), c3 = add(this.chainStart, scale(n, -th / 2));
+      ctx.moveTo(c0.x, c0.y); ctx.lineTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y); ctx.lineTo(c3.x, c3.y);
+      ctx.closePath(); ctx.fill();
+      const L = Math.round(dist(this.chainStart, target));
+      drawLabel(ctx, vp, scale(add(this.chainStart, target), 0.5),
+        this.lengthBuffer ? `${this.lengthBuffer}▎mm` : `${L} mm`);
+    }
+
+    // Symbol placement ghost.
+    if (this.tool === "symbol") {
+      const def = getSymbol(this.symbolType);
+      if (def) {
+        const pose = this.symbolPose();
+        ctx.save();
+        ctx.translate(pose.x, pose.y);
+        ctx.rotate(pose.rotation);
+        ctx.globalAlpha = 0.5;
+        ctx.strokeStyle = COLORS.symbol;
+        def.draw(ctx);
+        ctx.restore();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // Opening placement ghost.
+    if (this.tool === "door" || this.tool === "window" || this.tool === "passage") {
+      const nw = nearestWall(f, this.cursor, 30 / vp.pxPerMm);
+      if (nw) {
+        const a = f.nodes.find(x => x.id === nw.wall.a)!, b = f.nodes.find(x => x.id === nw.wall.b)!;
+        const L = wallLength(f, nw.wall);
+        const width = this.tool === "door" ? DOOR_DEFAULT_WIDTH : this.tool === "window" ? WINDOW_DEFAULT_WIDTH : PASSAGE_DEFAULT_WIDTH;
+        const t = Math.max(width / 2, Math.min(L - width / 2, nw.tMm));
+        const p0 = arcPointAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, (t - width / 2) / L);
+        const p1 = arcPointAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, (t + width / 2) / L);
+        ctx.strokeStyle = COLORS.snap;
+        ctx.lineWidth = 2 * px;
+        const half = nw.wall.thickness / 2 + 40;
+        for (const p of [p0, p1]) {
+          const tan = arcTangentAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, t / L);
+          const nn = perp(tan);
+          ctx.beginPath();
+          ctx.moveTo(p.x - nn.x * half, p.y - nn.y * half);
+          ctx.lineTo(p.x + nn.x * half, p.y + nn.y * half);
+          ctx.stroke();
+        }
+        drawLabel(ctx, vp, arcPointAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, t / L), `${Math.round(t)} mm from corner`);
+      }
+    }
+  }
+}
+
+function fromAngleRot(p: Vec, ang: number): Vec {
+  const c = Math.cos(ang), s = Math.sin(ang);
+  return v(p.x * c - p.y * s, p.x * s + p.y * c);
+}
+export { sagittaFromBulge };

@@ -1,0 +1,667 @@
+import { SymbolDef, withCtx } from "./defs";
+
+// ---------------------------------------------------------------------------
+// Electrical symbols (Dutch NEN 5152-style installation drawing symbols),
+// drawn at annotation scale (legible on the printed plan), not at physical
+// device footprint. See ./defs.ts for the full drawing contract.
+// ---------------------------------------------------------------------------
+
+const socketSingle: SymbolDef = {
+  type: "socket-single",
+  label: "Socket",
+  category: "electrical",
+  wallMounted: true,
+  width: 220,
+  depth: 300,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      // Wandcontactdoos: stem from the wall with one cup opening into the room
+      // (wine-glass form; the stem foot marks the exact position).
+      const r = 100;
+      const c = 200; // cup circle centre distance from the wall
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, c - r); // stem to the cup's back (apex)
+      ctx.moveTo(r, c);
+      ctx.arc(0, c, r, 0, Math.PI, true); // half-circle, open side facing the room
+      ctx.stroke();
+    });
+  },
+};
+
+const socketDouble: SymbolDef = {
+  type: "socket-double",
+  label: "Double socket",
+  category: "electrical",
+  wallMounted: true,
+  width: 220,
+  depth: 420,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      // Dubbele wandcontactdoos: one stem, two nested cups along it.
+      const r = 100;
+      const c1 = 200, c2 = 320;
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, c1 - r);
+      ctx.moveTo(r, c1);
+      ctx.arc(0, c1, r, 0, Math.PI, true);
+      ctx.moveTo(r, c2);
+      ctx.arc(0, c2, r, 0, Math.PI, true);
+      ctx.stroke();
+    });
+  },
+};
+
+const socketEarthed: SymbolDef = {
+  type: "socket-earthed",
+  label: "Socket (earthed)",
+  category: "electrical",
+  wallMounted: true,
+  width: 220,
+  depth: 300,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      // Same wine-glass form as socket-single, plus a short earthing tick
+      // crossing the stem, parallel to the wall.
+      const r = 100;
+      const c = 200;
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, c - r);
+      ctx.moveTo(r, c);
+      ctx.arc(0, c, r, 0, Math.PI, true);
+      // earthing tick, parallel to the wall, crossing the stem at y=60
+      ctx.moveTo(-45, 60);
+      ctx.lineTo(45, 60);
+      ctx.stroke();
+    });
+  },
+};
+
+const socketFloor: SymbolDef = {
+  type: "socket-floor",
+  label: "Floor socket",
+  category: "electrical",
+  wallMounted: false,
+  width: 320,
+  depth: 320,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      // Vloercontactdoos: the single-socket wine-glass form, re-centred, set
+      // inside a round floor box outline.
+      const r = 100;
+      const cy = 60; // cup centre
+      ctx.moveTo(0, -160);
+      ctx.lineTo(0, -60); // stem
+      ctx.moveTo(r, cy);
+      ctx.arc(0, cy, r, 0, Math.PI, true); // cup
+      ctx.moveTo(150, 0);
+      ctx.arc(0, 0, 150, 0, Math.PI * 2); // floor box
+      ctx.stroke();
+    });
+  },
+};
+
+const switchSingle: SymbolDef = {
+  type: "switch-single",
+  label: "Switch",
+  category: "electrical",
+  wallMounted: true,
+  width: 240,
+  depth: 240,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      const cx = 0;
+      const cy = 90;
+      const r = 70;
+      ctx.moveTo(cx + r, cy);
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      // diagonal line from circle going away from the wall at ~45deg
+      const dirX = Math.cos(Math.PI / 4);
+      const dirY = Math.sin(Math.PI / 4);
+      const startX = cx + dirX * r;
+      const startY = cy + dirY * r;
+      const endX = cx + dirX * (r + 90);
+      const endY = cy + dirY * (r + 90);
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(endX, endY);
+      // short perpendicular tick at the end
+      const perpX = -dirY;
+      const perpY = dirX;
+      const tick = 18;
+      ctx.moveTo(endX - perpX * tick, endY - perpY * tick);
+      ctx.lineTo(endX + perpX * tick, endY + perpY * tick);
+      ctx.stroke();
+    });
+  },
+};
+
+const switchDouble: SymbolDef = {
+  type: "switch-double",
+  label: "Switch (2-pole)",
+  category: "electrical",
+  wallMounted: true,
+  width: 240,
+  depth: 240,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      const cx = 0;
+      const cy = 90;
+      const r = 70;
+      ctx.moveTo(cx + r, cy);
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      const dirX = Math.cos(Math.PI / 4);
+      const dirY = Math.sin(Math.PI / 4);
+      const startX = cx + dirX * r;
+      const startY = cy + dirY * r;
+      const endX = cx + dirX * (r + 90);
+      const endY = cy + dirY * (r + 90);
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(endX, endY);
+      // two parallel perpendicular ticks near the end (2-pole)
+      const perpX = -dirY;
+      const perpY = dirX;
+      const tickHalf = 18; // 36mm tick length
+      for (const t of [r + 90, r + 60]) {
+        const px = cx + dirX * t;
+        const py = cy + dirY * t;
+        ctx.moveTo(px - perpX * tickHalf, py - perpY * tickHalf);
+        ctx.lineTo(px + perpX * tickHalf, py + perpY * tickHalf);
+      }
+      ctx.stroke();
+    });
+  },
+};
+
+const switchSeries: SymbolDef = {
+  type: "switch-series",
+  label: "Series switch",
+  category: "electrical",
+  wallMounted: true,
+  width: 260,
+  depth: 260,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      const cx = 0;
+      const cy = 90;
+      const r = 70;
+      ctx.moveTo(cx + r, cy);
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      const tickHalf = 18;
+      for (const deg of [30, 60]) {
+        const a = (deg * Math.PI) / 180;
+        const dirX = Math.cos(a);
+        const dirY = Math.sin(a);
+        const startX = cx + dirX * r;
+        const startY = cy + dirY * r;
+        const endX = cx + dirX * (r + 90);
+        const endY = cy + dirY * (r + 90);
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(endX, endY);
+        const perpX = -dirY;
+        const perpY = dirX;
+        ctx.moveTo(endX - perpX * tickHalf, endY - perpY * tickHalf);
+        ctx.lineTo(endX + perpX * tickHalf, endY + perpY * tickHalf);
+      }
+      ctx.stroke();
+    });
+  },
+};
+
+const switchTwoWay: SymbolDef = {
+  type: "switch-two-way",
+  label: "Two-way switch",
+  category: "electrical",
+  wallMounted: true,
+  width: 260,
+  depth: 260,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      const cx = 0;
+      const cy = 100;
+      const r = 70;
+      ctx.moveTo(cx + r, cy);
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      // one 45deg axis, extended on BOTH opposite sides of the circle
+      const a = Math.PI / 4;
+      const dirX = Math.cos(a);
+      const dirY = Math.sin(a);
+      const perpX = -dirY;
+      const perpY = dirX;
+      const tickHalf = 18;
+      for (const sign of [1, -1]) {
+        const edgeX = cx + sign * dirX * r;
+        const edgeY = cy + sign * dirY * r;
+        const endX = cx + sign * dirX * (r + 90);
+        const endY = cy + sign * dirY * (r + 90);
+        ctx.moveTo(edgeX, edgeY);
+        ctx.lineTo(endX, endY);
+        ctx.moveTo(endX - perpX * tickHalf, endY - perpY * tickHalf);
+        ctx.lineTo(endX + perpX * tickHalf, endY + perpY * tickHalf);
+      }
+      ctx.stroke();
+    });
+  },
+};
+
+const switchCross: SymbolDef = {
+  type: "switch-cross",
+  label: "Cross switch",
+  category: "electrical",
+  wallMounted: true,
+  width: 260,
+  depth: 260,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      const cx = 0;
+      const cy = 90;
+      const r = 70;
+      ctx.moveTo(cx + r, cy);
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      const tickHalf = 18;
+      // both 45deg axes, both ends of each (4 diagonals total)
+      for (const deg of [45, 135, 225, 315]) {
+        const a = (deg * Math.PI) / 180;
+        const dirX = Math.cos(a);
+        const dirY = Math.sin(a);
+        const edgeX = cx + dirX * r;
+        const edgeY = cy + dirY * r;
+        const endX = cx + dirX * (r + 90);
+        const endY = cy + dirY * (r + 90);
+        ctx.moveTo(edgeX, edgeY);
+        ctx.lineTo(endX, endY);
+        const perpX = -dirY;
+        const perpY = dirX;
+        ctx.moveTo(endX - perpX * tickHalf, endY - perpY * tickHalf);
+        ctx.lineTo(endX + perpX * tickHalf, endY + perpY * tickHalf);
+      }
+      ctx.stroke();
+    });
+  },
+};
+
+const dimmer: SymbolDef = {
+  type: "dimmer",
+  label: "Dimmer",
+  category: "electrical",
+  wallMounted: true,
+  width: 260,
+  depth: 260,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      const cx = 0;
+      const cy = 90;
+      const r = 70;
+      ctx.moveTo(cx + r, cy);
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      const dirX = Math.cos(Math.PI / 4);
+      const dirY = Math.sin(Math.PI / 4);
+      const startX = cx + dirX * r;
+      const startY = cy + dirY * r;
+      const endX = cx + dirX * (r + 90);
+      const endY = cy + dirY * (r + 90);
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(endX, endY);
+      const perpX = -dirY;
+      const perpY = dirX;
+      const tick = 18;
+      ctx.moveTo(endX - perpX * tick, endY - perpY * tick);
+      ctx.lineTo(endX + perpX * tick, endY + perpY * tick);
+      // small right triangle (base 70mm), one leg on the circle edge,
+      // hypotenuse pointing out along the diagonal. Stroked, not filled.
+      const p1x = startX + perpX * 70;
+      const p1y = startY + perpY * 70;
+      const p3x = startX + dirX * 40;
+      const p3y = startY + dirY * 40;
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(p1x, p1y);
+      ctx.lineTo(p3x, p3y);
+      ctx.closePath();
+      ctx.stroke();
+    });
+  },
+};
+
+const switchPull: SymbolDef = {
+  type: "switch-pull",
+  label: "Pull switch",
+  category: "electrical",
+  wallMounted: true,
+  width: 240,
+  depth: 300,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      const cx = 0;
+      const cy = 90;
+      const r = 70;
+      ctx.moveTo(cx + r, cy);
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      const dirX = Math.cos(Math.PI / 4);
+      const dirY = Math.sin(Math.PI / 4);
+      const startX = cx + dirX * r;
+      const startY = cy + dirY * r;
+      const endX = cx + dirX * (r + 90);
+      const endY = cy + dirY * (r + 90);
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(endX, endY);
+      const perpX = -dirY;
+      const perpY = dirX;
+      const tick = 18;
+      ctx.moveTo(endX - perpX * tick, endY - perpY * tick);
+      ctx.lineTo(endX + perpX * tick, endY + perpY * tick);
+      // pull cord: from the circle's room-side edge, further into the room
+      const cordStartY = cy + r;
+      const cordEndY = cordStartY + 70;
+      ctx.moveTo(cx, cordStartY);
+      ctx.lineTo(cx, cordEndY);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(cx, cordEndY, 6, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  },
+};
+
+const pushButton: SymbolDef = {
+  type: "push-button",
+  label: "Push button",
+  category: "electrical",
+  wallMounted: true,
+  width: 200,
+  depth: 200,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      const cx = 0;
+      const cy = 90;
+      ctx.moveTo(cx + 70, cy);
+      ctx.arc(cx, cy, 70, 0, Math.PI * 2);
+      ctx.moveTo(cx + 30, cy);
+      ctx.arc(cx, cy, 30, 0, Math.PI * 2);
+      ctx.stroke();
+    });
+  },
+};
+
+const doorbell: SymbolDef = {
+  type: "doorbell",
+  label: "Doorbell",
+  category: "electrical",
+  wallMounted: true,
+  width: 240,
+  depth: 200,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      // bell dome bulging into the room, chord (mounting side) toward the wall
+      const cy = 110;
+      const r = 90;
+      ctx.moveTo(r, cy);
+      ctx.arc(0, cy, r, 0, Math.PI, false); // dome through (0, cy+r)
+      ctx.closePath(); // chord line back to (r, cy) via (-r, cy)
+      ctx.stroke();
+      // clapper
+      ctx.beginPath();
+      ctx.arc(0, 145, 6, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  },
+};
+
+const lightPoint: SymbolDef = {
+  type: "light-point",
+  label: "Ceiling light",
+  category: "electrical",
+  wallMounted: false,
+  width: 300,
+  depth: 300,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      const half = 150;
+      // crossed diagonals (X), two 300mm lines through the centre
+      ctx.moveTo(-half, -half);
+      ctx.lineTo(half, half);
+      ctx.moveTo(half, -half);
+      ctx.lineTo(-half, half);
+      // circle at centre
+      ctx.moveTo(45, 0);
+      ctx.arc(0, 0, 45, 0, Math.PI * 2);
+      ctx.stroke();
+    });
+  },
+};
+
+const lightWall: SymbolDef = {
+  type: "light-wall",
+  label: "Wall light",
+  category: "electrical",
+  wallMounted: true,
+  width: 300,
+  depth: 300,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      const cy = 150;
+      const half = 150;
+      const r = 45;
+      // crossed diagonals (X), centred at (0, cy)
+      ctx.moveTo(-half, cy - half);
+      ctx.lineTo(half, cy + half);
+      ctx.moveTo(half, cy - half);
+      ctx.lineTo(-half, cy + half);
+      // circle at centre
+      ctx.moveTo(r, cy);
+      ctx.arc(0, cy, r, 0, Math.PI * 2);
+      // stem from the wall to the circle edge
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, cy - r);
+      ctx.stroke();
+    });
+  },
+};
+
+const lightFluor: SymbolDef = {
+  type: "light-fluor",
+  label: "Fluorescent light",
+  category: "electrical",
+  wallMounted: false,
+  width: 1200,
+  depth: 120,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      ctx.rect(-600, -60, 1200, 120);
+      ctx.moveTo(-600, 0);
+      ctx.lineTo(600, 0);
+      ctx.stroke();
+    });
+  },
+};
+
+const lightSpot: SymbolDef = {
+  type: "light-spot",
+  label: "Spotlight",
+  category: "electrical",
+  wallMounted: false,
+  width: 240,
+  depth: 240,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      const r = 80;
+      ctx.moveTo(r, 0);
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      for (const deg of [45, 135, 225, 315]) {
+        const a = (deg * Math.PI) / 180;
+        const cos = Math.cos(a);
+        const sin = Math.sin(a);
+        ctx.moveTo(cos * r, sin * r);
+        ctx.lineTo(cos * (r + 50), sin * (r + 50));
+      }
+      ctx.stroke();
+    });
+  },
+};
+
+const lightEmergency: SymbolDef = {
+  type: "light-emergency",
+  label: "Emergency light",
+  category: "electrical",
+  wallMounted: false,
+  width: 320,
+  depth: 320,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      ctx.rect(-160, -160, 320, 320);
+      const half = 100;
+      ctx.moveTo(-half, -half);
+      ctx.lineTo(half, half);
+      ctx.moveTo(half, -half);
+      ctx.lineTo(-half, half);
+      ctx.moveTo(40, 0);
+      ctx.arc(0, 0, 40, 0, Math.PI * 2);
+      ctx.stroke();
+    });
+  },
+};
+
+const outletTv: SymbolDef = {
+  type: "outlet-tv",
+  label: "TV/CAI outlet",
+  category: "electrical",
+  wallMounted: true,
+  width: 240,
+  depth: 260,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, 120);
+      const deg = 35;
+      const a = (deg * Math.PI) / 180;
+      for (const sign of [1, -1]) {
+        const dirX = sign * Math.sin(a);
+        const dirY = Math.cos(a);
+        ctx.moveTo(0, 120);
+        ctx.lineTo(dirX * 130, 120 + dirY * 130);
+      }
+      ctx.stroke();
+    });
+  },
+};
+
+const outletData: SymbolDef = {
+  type: "outlet-data",
+  label: "Data outlet",
+  category: "electrical",
+  wallMounted: true,
+  width: 240,
+  depth: 260,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, 110);
+      // open square, no far (room-facing) side
+      ctx.moveTo(-60, 110);
+      ctx.lineTo(60, 110);
+      ctx.lineTo(60, 230);
+      ctx.moveTo(-60, 110);
+      ctx.lineTo(-60, 230);
+      ctx.stroke();
+    });
+  },
+};
+
+const distBoard: SymbolDef = {
+  type: "dist-board",
+  label: "Distribution board",
+  category: "electrical",
+  wallMounted: true,
+  width: 500,
+  depth: 250,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      ctx.rect(-250, 0, 500, 250);
+      for (const o of [-150, 0, 150]) {
+        ctx.moveTo(o - 60, 0);
+        ctx.lineTo(o + 60, 250);
+      }
+      ctx.stroke();
+    });
+  },
+};
+
+const thermostat: SymbolDef = {
+  type: "thermostat",
+  label: "Thermostat",
+  category: "electrical",
+  wallMounted: true,
+  width: 240,
+  depth: 240,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      const cx = 0;
+      const cy = 120;
+      const r = 90;
+      ctx.moveTo(cx + r, cy);
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      const a = Math.PI / 4;
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  },
+};
+
+const motionSensor: SymbolDef = {
+  type: "motion-sensor",
+  label: "Motion sensor",
+  category: "electrical",
+  wallMounted: true,
+  width: 280,
+  depth: 220,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      const apexX = 0;
+      const apexY = 10;
+      const a1 = (35 * Math.PI) / 180;
+      const a2 = (145 * Math.PI) / 180;
+      // fan edges
+      ctx.moveTo(apexX, apexY);
+      ctx.lineTo(apexX + Math.cos(a1) * 180, apexY + Math.sin(a1) * 180);
+      ctx.moveTo(apexX, apexY);
+      ctx.lineTo(apexX + Math.cos(a2) * 180, apexY + Math.sin(a2) * 180);
+      // concentric arcs between the fan edges
+      for (const r of [90, 160]) {
+        ctx.moveTo(apexX + Math.cos(a1) * r, apexY + Math.sin(a1) * r);
+        ctx.arc(apexX, apexY, r, a1, a2, false);
+      }
+      ctx.stroke();
+    });
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Registry
+// ---------------------------------------------------------------------------
+
+export const SYMBOLS_ELECTRICAL: SymbolDef[] = [
+  socketSingle,
+  socketDouble,
+  socketEarthed,
+  socketFloor,
+  switchSingle,
+  switchDouble,
+  switchSeries,
+  switchTwoWay,
+  switchCross,
+  dimmer,
+  switchPull,
+  pushButton,
+  doorbell,
+  lightPoint,
+  lightWall,
+  lightFluor,
+  lightSpot,
+  lightEmergency,
+  outletTv,
+  outletData,
+  distBoard,
+  thermostat,
+  motionSensor,
+];
