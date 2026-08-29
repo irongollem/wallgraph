@@ -53,3 +53,4 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
      than mid-syllable. break-word only splits a word that cannot fit alone. */
   hyphens: auto; -webkit-hyphens: auto; overflow-wrap: break-word; }
 .prop-readonly { color: #8a8577; font-variant-numeric: tabular-nums; }
+.prop-note { font: 10px system-ui, sans-serif; color: #8a8577; padding: 1px 2px 4px; }

@@ -17,6 +17,7 @@ export const COLORS = {
   gridMajor: "#c3bfae",  // metre grid: a clearly heavier line, not a shade of the same
   roomFill: "#faf9f5",
   roomLabel: "#8a8577",
+  ghost: "#9aa0a8",   // storey below, drawn under the active one
   hud: "#a7a293",
   wallFill: "#3d4148",
   wallStroke: "#26292e",
@@ -29,6 +30,12 @@ export const COLORS = {
 
 export interface DrawExtras {
   hoverSnap?: Vec | null;
+  /**
+   * The storey below, drawn faintly beneath the active one so walls can be
+   * lined up between floors. Resolved geometry only — it is never hit-tested
+   * or selectable, so an underlay can't be edited by accident.
+   */
+  ghost?: Resolved | null;
   /** False for exports: no grid, and no legend describing one. */
   showGrid?: boolean;
   preview?: ((ctx: CanvasRenderingContext2D, vp: Viewport) => void) | null;
@@ -57,6 +64,21 @@ export function drawScene(
     tracePoly(ctx, r.poly);
     ctx.fillStyle = COLORS.roomFill;
     ctx.fill();
+  }
+
+  // Ghost underlay first, so the active storey draws over it.
+  if (extras.ghost) {
+    ctx.save();
+    ctx.globalAlpha = 0.28;
+    for (const rw of extras.ghost.walls.values()) {
+      for (const piece of rw.pieces) {
+        ctx.beginPath();
+        tracePoly(ctx, piece.poly);
+        ctx.fillStyle = COLORS.ghost;
+        ctx.fill();
+      }
+    }
+    ctx.restore();
   }
 
   // Walls.

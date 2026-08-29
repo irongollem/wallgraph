@@ -195,7 +195,7 @@ export class Tools {
     if (d.kind === "node" && d.moved) {
       // Merge if dropped onto another node.
       this.store.mutate(doc => {
-        const f = doc.floors[0]!;
+        const f = this.store.floorOf(doc);
         const me = f.nodes.find(n => n.id === d.id);
         if (!me) return;
         for (const n of f.nodes) {
@@ -219,7 +219,7 @@ export class Tools {
     }
     if (!this.chainStart) {
       this.store.mutate(doc => {
-        const f = doc.floors[0]!;
+        const f = this.store.floorOf(doc);
         const n = this.anchorNode(f, snap, target);
         this.chainStart = v(n.x, n.y);
         this.chainStartNode = n.id;
@@ -227,7 +227,7 @@ export class Tools {
     } else {
       if (dist(target, this.chainStart) < 10) return;
       this.store.mutate(doc => {
-        const f = doc.floors[0]!;
+        const f = this.store.floorOf(doc);
         const startId = this.chainStartNode!;
         const endSnap = this.lengthBuffer ? null : snap;
         const nEnd = endSnap ? this.anchorNode(f, endSnap, target) : nodeAt(f, target);
@@ -268,7 +268,7 @@ export class Tools {
       ...(kind === "window" ? { windowType: "fixed" as const } : {}),
     };
     this.store.mutate(doc => {
-      const fl = doc.floors[0]!;
+      const fl = this.store.floorOf(doc);
       const wall = fl.walls.find(x => x.id === nw.wall.id);
       if (!wall) return;
       clampOpening(fl, wall, o);
@@ -327,7 +327,7 @@ export class Tools {
     const pose = this.symbolPose();
     const id = newId("s");
     this.store.mutate(doc => {
-      doc.floors[0]!.symbols.push({ id, type: this.symbolType, ...pose });
+      this.store.floorOf(doc).symbols.push({ id, type: this.symbolType, ...pose });
     });
     this.store.select({ kind: "symbol", id });
   }
@@ -429,7 +429,7 @@ export class Tools {
     if (d.kind === "node") {
       const snap = this.computeSnap(w, false);
       this.store.mutate(doc => {
-        const n = doc.floors[0]!.nodes.find(x => x.id === d.id);
+        const n = this.store.floorOf(doc).nodes.find(x => x.id === d.id);
         if (n) { n.x = Math.round(snap.p.x); n.y = Math.round(snap.p.y); }
       }, "drag" + d.id);
     } else if (d.kind === "wall") {
@@ -438,7 +438,7 @@ export class Tools {
       if (dx !== 0 || dy !== 0) {
         d.startWorld = add(d.startWorld, v(dx, dy));
         this.store.mutate(doc => {
-          const f = doc.floors[0]!;
+          const f = this.store.floorOf(doc);
           const wall = f.walls.find(x => x.id === d.id);
           if (!wall) return;
           for (const nid of [wall.a, wall.b]) {
@@ -449,7 +449,7 @@ export class Tools {
       }
     } else if (d.kind === "symbol") {
       this.store.mutate(doc => {
-        const sym = doc.floors[0]!.symbols.find(x => x.id === d.id);
+        const sym = this.store.floorOf(doc).symbols.find(x => x.id === d.id);
         if (!sym) return;
         const saveType = this.symbolType;
         this.symbolType = sym.type;
@@ -460,7 +460,7 @@ export class Tools {
       }, "drag" + d.id);
     } else if (d.kind === "bow") {
       this.store.mutate(doc => {
-        const f = doc.floors[0]!;
+        const f = this.store.floorOf(doc);
         const wall = f.walls.find(x => x.id === d.id);
         if (!wall) return;
         const a = f.nodes.find(n => n.id === wall.a)!, b = f.nodes.find(n => n.id === wall.b)!;
@@ -472,7 +472,7 @@ export class Tools {
       }, "bow" + d.id);
     } else if (d.kind === "opening") {
       this.store.mutate(doc => {
-        const f = doc.floors[0]!;
+        const f = this.store.floorOf(doc);
         const wall = f.walls.find(x => x.id === d.wallId);
         const o = wall?.openings.find(x => x.id === d.id);
         if (!wall || !o) return;
@@ -545,7 +545,7 @@ export class Tools {
   resizeWall(wallId: string, mm: number): void {
     if (!isFinite(mm) || mm < 50) return;
     this.store.mutate(doc => {
-      const f = doc.floors[0]!;
+      const f = this.store.floorOf(doc);
       const wall = f.walls.find(x => x.id === wallId);
       if (!wall) return;
       const a = f.nodes.find(x => x.id === wall.a)!, b = f.nodes.find(x => x.id === wall.b)!;
@@ -602,7 +602,7 @@ export class Tools {
     const sel = this.store.sel;
     if (sel?.kind !== "symbol") return;
     this.store.mutate(doc => {
-      const s = doc.floors[0]!.symbols.find(x => x.id === sel.id);
+      const s = this.store.floorOf(doc).symbols.find(x => x.id === sel.id);
       if (s && !getSymbol(s.type)?.wallMounted) s.rotation += Math.PI / 4;
     });
   }
@@ -611,7 +611,7 @@ export class Tools {
     const sel = this.store.sel;
     if (sel?.kind !== "symbol") return;
     this.store.mutate(doc => {
-      const s = doc.floors[0]!.symbols.find(x => x.id === sel.id);
+      const s = this.store.floorOf(doc).symbols.find(x => x.id === sel.id);
       if (s) s.mirrored = !s.mirrored;
     });
   }
@@ -620,7 +620,7 @@ export class Tools {
     const sel = this.store.sel;
     if (!sel) return;
     this.store.mutate(doc => {
-      const f = doc.floors[0]!;
+      const f = this.store.floorOf(doc);
       if (sel.kind === "wall") deleteWall(f, sel.id);
       else if (sel.kind === "node") {
         f.walls = f.walls.filter(w => w.a !== sel.id && w.b !== sel.id);

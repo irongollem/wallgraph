@@ -41,17 +41,22 @@ export function mountWallgraph(app: HTMLElement): void {
   const store = new Store();
   const vp = new Viewport();
 
-  // Derived-geometry cache keyed on revision.
+  // Derived-geometry cache keyed on revision. Switching storey goes through
+  // Store.setActiveFloor, which notifies and so bumps revision — that is what
+  // keeps this cache honest across floors without a second key.
   let cachedRev = -1;
   let cachedResolved: Resolved = { walls: new Map() };
   let cachedRooms: Room[] = [];
-  function derived(): { resolved: Resolved; rooms: Room[] } {
+  let cachedGhost: Resolved | null = null;
+  function derived(): { resolved: Resolved; rooms: Room[]; ghost: Resolved | null } {
     if (store.revision !== cachedRev) {
       cachedRev = store.revision;
       cachedResolved = resolveFloor(store.floor);
       cachedRooms = detectRooms(store.floor);
+      const below = store.floorBelow;
+      cachedGhost = below ? resolveFloor(below) : null;
     }
-    return { resolved: cachedResolved, rooms: cachedRooms };
+    return { resolved: cachedResolved, rooms: cachedRooms, ghost: cachedGhost };
   }
 
   let renderQueued = false;
@@ -76,9 +81,10 @@ export function mountWallgraph(app: HTMLElement): void {
       canvas.style.height = rect.height + "px";
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const { resolved, rooms } = derived();
+    const { resolved, rooms, ghost } = derived();
     drawScene(ctx, vp, rect.width, rect.height, store.floor, resolved, rooms, store.sel, {
       hoverSnap: tools.getSnap(),
+      ghost,
       preview: (c, viewport) => tools.drawPreview(c, viewport),
     }, store.doc.gridMm, areaModeOf(store.doc));
   }

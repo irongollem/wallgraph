@@ -142,11 +142,37 @@ export class Panel {
 
   /** Keys spelled out rather than built from the result, so they stay greppable. */
   private async savePng(): Promise<void> {
-    const result = await exportPng(this.store.doc);
+    const result = await exportPng(this.store.doc, this.store.activeFloor);
     this.flash(t(result === "saved" ? "status.pngSaved"
       : result === "copied" ? "status.pngCopied"
       : result === "empty" ? "status.pngEmpty"
       : "status.pngFailed"));
+  }
+
+  /**
+   * Storey picker plus add/duplicate/rename/delete. Floors are listed top-down
+   * (highest first) because that is how a stack of storeys reads on paper,
+   * while the document stores floors[0] as the lowest.
+   */
+  private renderFloors(
+    selRow: (l: string, v: string, o: Array<[string, string]>, f: (s: string) => void) => void,
+    btnRow: (l: string, f: () => void) => void,
+    textRow: (l: string, v: string, f: (s: string) => void) => void,
+    noteRow: (text: string) => void,
+  ): void {
+    const floors = this.store.doc.floors;
+    const options = floors
+      .map((f, i) => [String(i), f.name] as [string, string])
+      .reverse();
+    selRow(t("panel.floor"), String(this.store.activeFloor), options,
+      v => this.store.setActiveFloor(Number(v)));
+    textRow(t("panel.floorRename"), this.store.floor.name, n => this.store.renameFloor(n));
+    if (this.store.floorBelow) noteRow(t("panel.floorGhost"));
+    btnRow(t("panel.floorAdd"), () =>
+      this.store.addFloor(t("panel.floorNewName", { n: floors.length + 1 })));
+    btnRow(t("panel.floorDuplicate"), () =>
+      this.store.duplicateFloor(t("panel.floorNewName", { n: floors.length + 1 })));
+    if (floors.length > 1) btnRow(t("panel.floorDelete"), () => this.store.deleteFloor());
   }
 
   private pasteDialog(): void {
@@ -236,6 +262,18 @@ export class Panel {
       );
       p.append(row);
     };
+    const textRow = (label: string, value: string, onCommit: (s: string) => void): void => {
+      const row = el("label", "prop-row");
+      row.append(Object.assign(el("span"), { textContent: label }));
+      const input = el("input") as HTMLInputElement;
+      input.type = "text"; input.value = value;
+      input.onchange = () => { const t2 = input.value.trim(); if (t2) onCommit(t2); };
+      row.append(input);
+      p.append(row);
+    };
+    const noteRow = (text: string): void => {
+      p.append(Object.assign(el("div", "prop-note"), { textContent: text }));
+    };
     const btnRow = (label: string, fn: () => void): void => {
       const b = el("button", "tool-btn small wide") as HTMLButtonElement;
       b.textContent = label; b.onclick = fn;
@@ -244,6 +282,7 @@ export class Panel {
 
     if (!sel) {
       title(t("panel.plan"));
+      this.renderFloors(selRow, btnRow, textRow, noteRow);
       numRow(t("panel.grid"), this.store.doc.gridMm, n => this.store.mutate(d => { d.gridMm = Math.max(1, n); }), 10);
       checkRow(t("tool.gridSnap"), this.tools.snapGrid, b => { this.tools.snapGrid = b; this.store.select(this.store.sel); });
       checkRow(t("tool.angleSnap"), this.tools.ortho, b => { this.tools.ortho = b; });
@@ -266,7 +305,7 @@ export class Panel {
       numRow(t("panel.length"), L, n => {
         if (n < 50) return;
         this.store.mutate(d => {
-          const fl = d.floors[0]!;
+          const fl = this.store.floorOf(d);
           const wall = fl.walls.find(x => x.id === sel.id);
           if (!wall) return;
           const a = fl.nodes.find(x => x.id === wall.a)!, b = fl.nodes.find(x => x.id === wall.b)!;
@@ -282,21 +321,21 @@ export class Panel {
       numRow(t("panel.thickness"), w.thickness, n => {
         this.tools.lastThickness = Math.max(20, n);
         this.store.mutate(d => {
-          const wall = d.floors[0]!.walls.find(x => x.id === sel.id);
+          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
           if (wall) wall.thickness = Math.max(20, n);
         });
       });
       const a = f.nodes.find(x => x.id === w.a)!, b = f.nodes.find(x => x.id === w.b)!;
       numRow(t("panel.sagitta"), sagittaFromBulge(v(a.x, a.y), v(b.x, b.y), w.bulge), n => {
         this.store.mutate(d => {
-          const fl = d.floors[0]!;
+          const fl = this.store.floorOf(d);
           const wall = fl.walls.find(x => x.id === sel.id);
           if (!wall) return;
           const aa = fl.nodes.find(x => x.id === wall.a)!, bb = fl.nodes.find(x => x.id === wall.b)!;
           wall.bulge = bulgeFromSagitta(v(aa.x, aa.y), v(bb.x, bb.y), n);
         });
       }, 50);
-      btnRow(t("panel.deleteWall"), () => { this.store.mutate(d => deleteWall(d.floors[0]!, sel.id)); this.store.select(null); });
+      btnRow(t("panel.deleteWall"), () => { this.store.mutate(d => deleteWall(this.store.floorOf(d), sel.id)); this.store.select(null); });
       return;
     }
 
@@ -308,7 +347,7 @@ export class Panel {
       const wid = wall.id;
       const mutOpening = (fn: (o2: NonNullable<typeof o>, fl2: typeof f, w2: NonNullable<typeof wall>) => void): void => {
         this.store.mutate(d => {
-          const fl = d.floors[0]!;
+          const fl = this.store.floorOf(d);
           const w2 = fl.walls.find(x => x.id === wid);
           const o2 = w2?.openings.find(x => x.id === sel.id);
           if (w2 && o2) { fn(o2, fl, w2); clampOpening(fl, w2, o2); }
@@ -336,11 +375,11 @@ export class Panel {
       if (!s) return;
       title(t("panel.symbol", { type: t("symbol." + s.type) }));
       numRow(t("panel.rotation"), (s.rotation * 180) / Math.PI, n => this.store.mutate(d => {
-        const s2 = d.floors[0]!.symbols.find(x => x.id === sel.id);
+        const s2 = this.store.floorOf(d).symbols.find(x => x.id === sel.id);
         if (s2) s2.rotation = (n * Math.PI) / 180;
       }), 15);
       btnRow(t("panel.mirror"), () => this.store.mutate(d => {
-        const s2 = d.floors[0]!.symbols.find(x => x.id === sel.id);
+        const s2 = this.store.floorOf(d).symbols.find(x => x.id === sel.id);
         if (s2) s2.mirrored = !s2.mirrored;
       }));
       btnRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());
@@ -352,11 +391,11 @@ export class Panel {
       if (!n) return;
       title(t("panel.corner"));
       numRow(t("panel.x"), n.x, val => this.store.mutate(d => {
-        const n2 = d.floors[0]!.nodes.find(x => x.id === sel.id);
+        const n2 = this.store.floorOf(d).nodes.find(x => x.id === sel.id);
         if (n2) n2.x = Math.round(val);
       }));
       numRow(t("panel.y"), n.y, val => this.store.mutate(d => {
-        const n2 = d.floors[0]!.nodes.find(x => x.id === sel.id);
+        const n2 = this.store.floorOf(d).nodes.find(x => x.id === sel.id);
         if (n2) n2.y = Math.round(val);
       }));
       btnRow(t("panel.deleteWithWalls"), () => this.tools.deleteSelected());

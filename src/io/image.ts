@@ -86,8 +86,8 @@ function drawScaleBar(ctx: CanvasRenderingContext2D, pxPerMm: number, w: number,
 }
 
 /** Render the plan to a PNG canvas. Null when there is nothing to draw. */
-function renderPlan(doc: PlanDoc): HTMLCanvasElement | null {
-  const floor = doc.floors[0];
+function renderPlan(doc: PlanDoc, floorIndex = 0): HTMLCanvasElement | null {
+  const floor = doc.floors[floorIndex] ?? doc.floors[0];
   if (!floor) return null;
   const resolved = resolveFloor(floor);
   const bounds = planBounds(floor, resolved);
@@ -115,8 +115,9 @@ function renderPlan(doc: PlanDoc): HTMLCanvasElement | null {
   return cv;
 }
 
-export async function exportPng(doc: PlanDoc): Promise<PngResult> {
-  const cv = renderPlan(doc);
+/** Renders one storey — the one on screen, not always the ground floor. */
+export async function exportPng(doc: PlanDoc, floorIndex = 0): Promise<PngResult> {
+  const cv = renderPlan(doc, floorIndex);
   if (!cv) return "empty";
 
   if (await saveViaHost(FILENAME, () => cv.toDataURL("image/png"))) return "saved";

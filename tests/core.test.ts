@@ -1,5 +1,6 @@
 // Engine sanity tests, run with tsx.
 import { emptyDoc, newId, Wall, GRID_DEFAULT_MM } from "../src/model/doc";
+import { Store } from "../src/model/store";
 import { detectRooms } from "../src/core/rooms";
 import { resolveFloor } from "../src/core/resolve";
 import { arcInfo, arcLength, arcPointAt, arcTangentAt, arcFlatten, bulgeFromSagitta } from "../src/geometry/arc";
@@ -269,6 +270,53 @@ function rectFloor(wallTh = 100) {
   const top = res.walls.get(f.walls[0]!.id)!;
   check("clear span shorter than centerline", top.clearLength < top.length,
     `${top.clearLength} vs ${top.length}`);
+}
+
+// --- multi-floor store ---
+{
+  const st = new Store();
+  st.replace(emptyDoc());
+  check("starts on the only floor", st.activeFloor === 0 && st.doc.floors.length === 1);
+  check("no ghost on the lowest floor", st.floorBelow === null);
+
+  st.addFloor("Floor 2");
+  check("add switches to the new floor", st.doc.floors.length === 2 && st.activeFloor === 1);
+  check("ghost is the storey below", st.floorBelow === st.doc.floors[0]);
+
+  // Edits must land on the ACTIVE floor, not floors[0].
+  st.mutate(d => { st.floorOf(d).nodes.push({ id: newId("n"), x: 1, y: 2 }); });
+  check("edit lands on the active floor",
+    st.doc.floors[1]!.nodes.length === 1 && st.doc.floors[0]!.nodes.length === 0);
+
+  // Duplicating must not share ids, or an edit on one storey would hit another.
+  st.setActiveFloor(0);
+  st.mutate(d => {
+    const f = st.floorOf(d);
+    const a = { id: newId("n"), x: 0, y: 0 }, b = { id: newId("n"), x: 1000, y: 0 };
+    f.nodes.push(a, b);
+    f.walls.push({ id: newId("w"), a: a.id, b: b.id, thickness: 100, bulge: 0, openings: [] });
+  });
+  st.duplicateFloor("Copy");
+  const src = st.doc.floors[0]!, copy = st.doc.floors[1]!;
+  const shared = copy.nodes.some(n => src.nodes.some(m => m.id === n.id))
+              || copy.walls.some(w => src.walls.some(x => x.id === w.id));
+  check("duplicate re-ids everything", !shared);
+  check("duplicate rewires walls to its own nodes",
+    copy.walls.every(w => copy.nodes.some(n => n.id === w.a) && copy.nodes.some(n => n.id === w.b)));
+
+  // Undo can shrink floors[]; the index must never dangle.
+  st.setActiveFloor(st.doc.floors.length - 1);
+  const high = st.activeFloor;
+  st.undo();
+  check("undo clamps the active floor",
+    st.activeFloor <= st.doc.floors.length - 1 && st.activeFloor >= 0,
+    `was ${high}, now ${st.activeFloor} of ${st.doc.floors.length}`);
+  check("floor getter never returns undefined", st.floor !== undefined);
+
+  // The last floor is never removable.
+  while (st.doc.floors.length > 1) st.deleteFloor();
+  st.deleteFloor();
+  check("last floor cannot be deleted", st.doc.floors.length === 1);
 }
 
 console.log(failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURES`);
