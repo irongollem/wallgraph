@@ -141,6 +141,7 @@ export class Tools {
 
   private onDown(e: PointerEvent): void {
     this.canvas.setPointerCapture(e.pointerId);
+    this.hoverSymbol = null; // a name pill has no business sitting under a click or drag
     const s = this.screenOf(e);
     const w = this.vp.toWorld(s);
     if (e.button === 1 || e.button === 2 || (e.button === 0 && e.getModifierState("Space"))) {
@@ -272,24 +273,46 @@ export class Tools {
   }
 
   // ---- symbols ----
-  private symbolPose(): { x: number; y: number; rotation: number; wallId?: string } {
-    const def = getSymbol(this.symbolType);
+  /**
+   * Where a wall-mounted symbol lands for the current cursor: flush to the
+   * nearest wall face, oriented outward. Split out of symbolPose() because the
+   * preview needs `wall`/`tMm`/`side` to measure with, and those must not reach
+   * the document — symbolPose()'s result is spread straight onto a symbol.
+   */
+  private wallSnap(): { wall: Wall; tMm: number; side: 1 | -1; x: number; y: number; rotation: number } | null {
     const f = this.floor;
-    if (def?.wallMounted) {
-      const nw = nearestWall(f, this.cursor, 60 / this.vp.pxPerMm + 500);
-      if (nw) {
-        const a = f.nodes.find(n => n.id === nw.wall.a)!;
-        const b = f.nodes.find(n => n.id === nw.wall.b)!;
-        const L = wallLength(f, nw.wall);
-        const frac = Math.max(0, Math.min(1, nw.tMm / L));
-        const pOn = arcPointAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, frac);
-        const tan = arcTangentAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, frac);
-        const n = perp(tan);
-        const side = dot(sub(this.cursor, pOn), n) >= 0 ? 1 : -1;
-        const anchor = add(pOn, scale(n, (nw.wall.thickness / 2) * side));
-        const outN = scale(n, side);
-        return { x: Math.round(anchor.x), y: Math.round(anchor.y), rotation: angleOf(outN) - Math.PI / 2, wallId: nw.wall.id };
-      }
+    const nw = nearestWall(f, this.cursor, 60 / this.vp.pxPerMm + 500);
+    if (!nw) return null;
+    const a = f.nodes.find(n => n.id === nw.wall.a)!;
+    const b = f.nodes.find(n => n.id === nw.wall.b)!;
+    const L = wallLength(f, nw.wall);
+    const frac = Math.max(0, Math.min(1, nw.tMm / L));
+    const pOn = arcPointAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, frac);
+    const tan = arcTangentAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, frac);
+    const n = perp(tan);
+    const side = dot(sub(this.cursor, pOn), n) >= 0 ? 1 : -1;
+    const anchor = add(pOn, scale(n, (nw.wall.thickness / 2) * side));
+    const outN = scale(n, side);
+    return {
+      wall: nw.wall, tMm: frac * L, side,
+      x: Math.round(anchor.x), y: Math.round(anchor.y), rotation: angleOf(outN) - Math.PI / 2,
+    };
+  }
+
+  /** Which side of a wall the cursor is on at parameter `frac` (0..1). */
+  private cursorSide(wall: Wall, frac: number): 1 | -1 {
+    const f = this.floor;
+    const a = f.nodes.find(n => n.id === wall.a), b = f.nodes.find(n => n.id === wall.b);
+    if (!a || !b) return 1;
+    const A = v(a.x, a.y), B = v(b.x, b.y);
+    const pOn = arcPointAt(A, B, wall.bulge, frac);
+    return dot(sub(this.cursor, pOn), perp(arcTangentAt(A, B, wall.bulge, frac))) >= 0 ? 1 : -1;
+  }
+
+  private symbolPose(): { x: number; y: number; rotation: number; wallId?: string } {
+    if (getSymbol(this.symbolType)?.wallMounted) {
+      const s = this.wallSnap();
+      if (s) return { x: s.x, y: s.y, rotation: s.rotation, wallId: s.wall.id };
     }
     const g = this.gridStep;
     return { x: Math.round(this.cursor.x / g) * g, y: Math.round(this.cursor.y / g) * g, rotation: 0 };
@@ -626,6 +649,83 @@ export class Tools {
     }
   }
 
+  /**
+   * Distances from a point on a wall to both of that wall's ends, as dimension
+   * lines. Drawn while something is being slid along a wall, so "150 mm from
+   * the corner" is a thing you can hit by eye instead of by arithmetic.
+   *
+   * Distances are centerline-to-node, matching `t` and the panel's "from
+   * corner" field — not to the finished inner corner (see the net-area cut in
+   * PLAN.md). Like the wall dimension layer, the line follows the chord on a
+   * curved wall while the numbers are true arc lengths.
+   */
+  private drawWallOffsets(ctx: CanvasRenderingContext2D, vp: Viewport, px: number, wall: Wall, tMm: number, side: 1 | -1, clearMm = 0): void {
+    const f = this.floor;
+    const a = f.nodes.find(n => n.id === wall.a), b = f.nodes.find(n => n.id === wall.b);
+    if (!a || !b) return;
+    const A = v(a.x, a.y), B = v(b.x, b.y);
+    const chord = dist(A, B);
+    const L = wallLength(f, wall);
+    if (chord < 1 || L < 1) return;
+    const t = Math.max(0, Math.min(L, tMm));
+    const dir = norm(sub(B, A));
+    const n = scale(perp(dir), side);
+    // On the cursor's side of the wall, past whatever is being placed there.
+    // The far side is the wrong choice: zoomed in on an exterior wall from
+    // inside, it lands outside the building and off the edge of the canvas.
+    const off = wall.thickness / 2 + clearMm + 90 + 10 * px;
+    const P = add(A, scale(dir, chord * (t / L)));
+    const d0 = add(A, scale(n, off)), dP = add(P, scale(n, off)), d1 = add(B, scale(n, off));
+
+    ctx.strokeStyle = COLORS.dimension;
+    ctx.lineWidth = 1.2 * px;
+    // Extension ticks from the wall face out past the dimension line.
+    for (const [p, d] of [[A, d0], [P, dP], [B, d1]] as const) {
+      const from = add(p, scale(n, wall.thickness / 2 + clearMm + 20)), to = add(d, scale(n, 60));
+      ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.stroke();
+    }
+    ctx.beginPath(); ctx.moveTo(d0.x, d0.y); ctx.lineTo(d1.x, d1.y); ctx.stroke();
+    const ah = 9 * px;
+    for (const [tip, back] of [[d0, dir], [dP, scale(dir, -1)], [dP, dir], [d1, scale(dir, -1)]] as const) {
+      ctx.beginPath();
+      ctx.moveTo(tip.x, tip.y);
+      ctx.lineTo(tip.x + back.x * ah - n.x * ah * 0.4, tip.y + back.y * ah - n.y * ah * 0.4);
+      ctx.moveTo(tip.x, tip.y);
+      ctx.lineTo(tip.x + back.x * ah + n.x * ah * 0.4, tip.y + back.y * ah + n.y * ah * 0.4);
+      ctx.stroke();
+    }
+    // Numbers, dropped per segment when that segment has no room on screen.
+    for (const [from, to, mm] of [[d0, dP, t], [dP, d1, L - t]] as const) {
+      if (dist(vp.toScreen(from), vp.toScreen(to)) < 34) continue;
+      const at = this.visibleMid(vp, from, to);
+      if (at) drawLabel(ctx, vp, at, String(Math.round(mm)));
+    }
+  }
+
+  /**
+   * Midpoint of the on-screen part of a segment. Zooming in to place something
+   * precisely is exactly when a wall end runs off the canvas, and a dimension
+   * whose number sits three screens away is no dimension at all — so the label
+   * slides along to stay visible. Null when the segment is off-screen entirely.
+   */
+  private visibleMid(vp: Viewport, p0: Vec, p1: Vec): Vec | null {
+    const m = 30; // keep the whole pill inside, not just its anchor
+    const lo = m, hiX = this.canvas.clientWidth - m, hiY = this.canvas.clientHeight - m;
+    if (hiX <= lo || hiY <= lo) return null;
+    const s0 = vp.toScreen(p0), s1 = vp.toScreen(p1);
+    const dx = s1.x - s0.x, dy = s1.y - s0.y;
+    // Liang-Barsky against the canvas rect.
+    let t0 = 0, t1 = 1;
+    for (const [p, q] of [[-dx, s0.x - lo], [dx, hiX - s0.x], [-dy, s0.y - lo], [dy, hiY - s0.y]] as const) {
+      if (p === 0) { if (q < 0) return null; continue; }
+      const r = q / p;
+      if (p < 0) { if (r > t1) return null; if (r > t0) t0 = r; }
+      else { if (r < t0) return null; if (r < t1) t1 = r; }
+    }
+    const tm = (t0 + t1) / 2;
+    return v(p0.x + (p1.x - p0.x) * tm, p0.y + (p1.y - p0.y) * tm);
+  }
+
   /** One wall's dimension line + clickable value pill. Registers the pill in dimRects. */
   private drawDimension(ctx: CanvasRenderingContext2D, vp: Viewport, px: number, wall: Wall, emphasized: boolean): void {
     const f = this.floor;
@@ -708,10 +808,24 @@ export class Tools {
         const wall = f.walls.find(x => x.id === selDim.id);
         if (wall) this.drawDimension(ctx, vp, px, wall, true);
       }
+      // Sliding something that is already on a wall: measure it the same way
+      // the placement preview does.
+      const drag = this.drag;
+      if (drag?.kind === "symbol") {
+        const sym = f.symbols.find(x => x.id === drag.id);
+        const sDef = sym && getSymbol(sym.type);
+        const snap = sDef && sDef.wallMounted ? this.wallSnap() : null;
+        if (snap && sDef) this.drawWallOffsets(ctx, vp, px, snap.wall, snap.tMm, snap.side, sDef.depth);
+      } else if (drag?.kind === "opening") {
+        const wall = f.walls.find(x => x.id === drag.wallId);
+        const o = wall?.openings.find(x => x.id === drag.id);
+        if (wall && o) this.drawWallOffsets(ctx, vp, px, wall, o.t, this.cursorSide(wall, o.t / wallLength(f, wall)));
+      }
+
       const sel = this.store.sel;
       // Name the symbol under the cursor, and the selected one — a placed
       // symbol is otherwise an unlabelled line drawing.
-      const namedId = this.hoverSymbol ?? (sel?.kind === "symbol" ? sel.id : null);
+      const namedId = this.hoverSymbol;
       if (namedId) {
         const sym = f.symbols.find(x => x.id === namedId);
         const def = sym && getSymbol(sym.type);
@@ -766,6 +880,9 @@ export class Tools {
     if (this.tool === "symbol") {
       const def = getSymbol(this.symbolType);
       if (def) {
+        // Wall-mounted: how far the anchor sits from each end of the wall.
+        const snap = def.wallMounted ? this.wallSnap() : null;
+        if (snap) this.drawWallOffsets(ctx, vp, px, snap.wall, snap.tMm, snap.side, def.depth);
         const pose = this.symbolPose();
         ctx.save();
         ctx.translate(pose.x, pose.y);
@@ -799,7 +916,9 @@ export class Tools {
           ctx.lineTo(p.x + nn.x * half, p.y + nn.y * half);
           ctx.stroke();
         }
-        drawLabel(ctx, vp, arcPointAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, offset / L), t("hint.fromCorner", { mm: Math.round(offset) }));
+        // Both offsets, rather than the one "from corner" number this used to
+        // show — placing a door 150 mm off a corner is the same job as a socket.
+        this.drawWallOffsets(ctx, vp, px, nw.wall, offset, this.cursorSide(nw.wall, offset / L));
       }
     }
   }

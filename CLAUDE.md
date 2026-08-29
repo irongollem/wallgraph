@@ -154,6 +154,14 @@ The `draw(ctx)` contract in [defs.ts](src/render/symbols/defs.ts) is strict:
   before this keep whatever `gridMm` they stored; the default only applies to new plans.
 - **Grid snapping is a toggle** (`Tools.snapGrid`, G). Off still rounds to whole mm, so
   invariant 1 holds either way — quantise through `Tools.gridStep`, not `doc.gridMm`.
+- **Wall-placement dimensions go on the cursor's side of the wall.**
+  `drawWallOffsets()` in [tools.ts](src/input/tools.ts) draws the two distances to the wall
+  ends while a symbol or opening is slid along it. Two conventions that look arbitrary but
+  aren't: it uses `cursorSide()`/`wallSnap().side`, because the far side lands outside the
+  building and off-canvas when you zoom in on an exterior wall from inside; and labels are
+  placed by `visibleMid()`, which clips the segment to the canvas, because zooming in to
+  place precisely is exactly when a wall end leaves the screen. Distances are
+  centerline-to-node, like `t` and the panel's "from corner".
 - **PNG export re-renders through `drawScene`, it does not screenshot the canvas.**
   [src/io/image.ts](src/io/image.ts) fits an offscreen `Viewport` to `planBounds()` and drives
   the same hidpi path the retina canvas uses (`vp.dpr` + a scaled transform), so screen-space
