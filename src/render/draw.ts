@@ -28,6 +28,39 @@ export const COLORS = {
   dimension: "#2d7de0",
 };
 
+/**
+ * The pens a plan is annotated with, offered as presets by the colour picker.
+ *
+ * A verbouwtekening states the status of the work in colour rather than in
+ * words: what is there in black, what is to be built in red, what is to be
+ * removed in yellow. That is drawing-office convention (it is what a bouwaanvraag
+ * set is read with), not a NEN symbol rule, so these are a starting point and
+ * any colour is allowed — the picker's free swatch is not an escape hatch.
+ *
+ * `hex: null` is the default ink, stored as no colour at all: a plan nobody has
+ * recoloured keeps clean JSON, and COLORS.symbol stays changeable afterwards.
+ * Yellow is drawn as amber because true yellow on the paper-coloured background
+ * is a line you cannot see.
+ */
+export const INKS: ReadonlyArray<{ id: string; hex: string | null }> = [
+  { id: "default", hex: null },
+  { id: "new",     hex: "#d0342c" },
+  { id: "remove",  hex: "#c58a10" },
+  { id: "service", hex: "#2d7de0" },
+];
+
+const HEX = /^#[0-9a-fA-F]{6}$/;
+
+/**
+ * The colour one symbol draws in. Validated rather than trusted: a document can
+ * arrive by paste or by hand-editing, and assigning an invalid string to
+ * `strokeStyle` is silently ignored by canvas — one bad value would repaint the
+ * symbol in whatever colour happened to be set last.
+ */
+export function symbolInk(s: SymbolInstance): string {
+  return s.color && HEX.test(s.color) ? s.color : COLORS.symbol;
+}
+
 export interface DrawExtras {
   hoverSnap?: Vec | null;
   /**
@@ -607,7 +640,9 @@ function drawSymbol(ctx: CanvasRenderingContext2D, s: SymbolInstance, px: number
   if (s.mirrored) ctx.scale(-1, 1);
   // fill follows stroke: a symbol's filled parts -- a position dot, a standard's
   // code character -- have to highlight with the rest of it on selection.
-  ctx.strokeStyle = selected ? COLORS.select : COLORS.symbol;
+  // Selection still overrides the symbol's own pen: the marching-ants box alone
+  // is a weak signal, and a red symbol has to look picked like any other.
+  ctx.strokeStyle = selected ? COLORS.select : symbolInk(s);
   ctx.fillStyle = ctx.strokeStyle;
   def.draw(ctx);
   if (selected) {

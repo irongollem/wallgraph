@@ -140,6 +140,12 @@ The `draw(ctx)` contract in [defs.ts](src/render/symbols/defs.ts) is strict:
 - **Never set `strokeStyle`/`fillStyle`** — the caller owns colour (selection highlighting
   depends on this). `drawSymbol` keeps `fillStyle` equal to `strokeStyle`, so `ctx.fill()`
   is free to use and highlights with the rest of the symbol.
+- **Colour belongs to the instance, not the symbol.** `SymbolInstance.color` ("#rrggbb",
+  absent = the plan's ink) is how a drawing says a socket is new work rather than existing:
+  black is what is there, red what is to be built, yellow what goes — the presets in `INKS`
+  ([draw.ts](src/render/draw.ts)). Read it through `symbolInk()`, never `s.color` directly:
+  canvas *ignores* an invalid `strokeStyle` instead of throwing, so one bad value out of a
+  pasted document would silently paint the symbol in the previous one's colour.
 - **Text only where the standard's mark contains it** — the `k` on a koolzuursneeuwblusser
   triangle, the `RM` in a rookmelder circle. NEN defines those marks *with* the character,
   so dropping it yields a different symbol, not a simpler one; the symbol has to fit the

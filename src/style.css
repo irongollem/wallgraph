@@ -96,6 +96,28 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 .prop-row > span { min-width: 0; overflow-wrap: break-word; }
 .prop-row input, .prop-row select { max-width: 100%; }
 .prop-readonly { color: #8a8577; font-variant-numeric: tabular-nums; padding-right: 9px; }
+
+/* ---------- colour swatches ---------- */
+
+.ink-row { display: flex; align-items: center; gap: 6px; }
+.ink {
+  width: 18px; height: 18px; flex: none; padding: 0; border-radius: 50%;
+  border: 1px solid rgba(43,46,51,.20); background: none; cursor: pointer;
+  transition: transform var(--dur-tap) var(--ease-std), box-shadow var(--dur-quick) var(--ease-std);
+}
+.ink:hover { transform: scale(1.14); }
+/* The selected ring is drawn OUTSIDE the swatch. An inset marker would tint the
+   very thing being judged, which for a colour picker is the whole control. */
+.ink.is-on { box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px #2b2e33; }
+.ink:focus-visible { outline: 2px solid #2d7de0; outline-offset: 3px; }
+/* The free swatch holds a colour like the presets do -- it opens the OS picker
+   at whatever pen is current -- so shape is what separates them: round chips are
+   the four conventions, the dashed square is "any other colour". */
+.ink-custom { border-radius: 5px; border-style: dashed; border-color: rgba(43,46,51,.45); overflow: hidden; }
+.ink-custom.is-on { box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px #2b2e33; }
+.ink-custom::-webkit-color-swatch-wrapper { padding: 0; }
+.ink-custom::-webkit-color-swatch { border: none; border-radius: 3px; }
+.ink-custom::-moz-color-swatch { border: none; border-radius: 3px; }
 .prop-note { font: 10px system-ui, sans-serif; color: #a09a8a; padding: 1px 2px 4px; }
 
 .btn-danger {
@@ -117,6 +139,11 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 .pal-search-box svg { color: #b5afa0; }
 .pal-search-box input { border: none; background: none; width: 100%; font: inherit; color: #2b2e33; outline: none; }
 .pal-scroll { padding: 0 12px 12px; }
+/* Pen strip, directly under the search box: the colour is chosen in the same
+   breath as the symbol, so it sits with the tiles rather than in Plan. */
+.pal-ink { display: flex; align-items: center; gap: 6px; padding-top: 9px; }
+.pal-ink > span { font: 600 10px system-ui, sans-serif; text-transform: uppercase;
+  letter-spacing: 0.08em; color: #a09a8a; margin-right: auto; }
 
 .pal-cat {
   width: 100%; display: flex; align-items: center; gap: 7px; padding: 10px 2px 6px;

@@ -114,6 +114,16 @@ export interface SymbolInstance {
   rotation: number;       // radians
   mirrored?: boolean;
   wallId?: Id;            // set when wall-snapped
+  /**
+   * Pen colour as "#rrggbb". Absent means the plan's default ink, which is why
+   * it is optional rather than defaulted: a plan nobody has recoloured carries
+   * no colour at all, and the default stays a render decision.
+   *
+   * Not decoration. A verbouwtekening says what is new by drawing it in red
+   * over the existing work in black, so the colour carries the same kind of
+   * meaning as a fire rating — it is part of what the symbol states.
+   */
+  color?: string;
 }
 
 export interface Floor {

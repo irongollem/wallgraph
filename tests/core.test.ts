@@ -8,6 +8,7 @@ import { arcInfo, arcLength, arcPointAt, arcTangentAt, arcFlatten, bulgeFromSagi
 import { v, dist, pointInPolygon } from "../src/geometry/vec";
 import { gridSteps, MIN_GRID_PX } from "../src/render/grid";
 import { planBounds, scaleBarMm } from "../src/io/image";
+import { symbolInk, COLORS, INKS } from "../src/render/draw";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ""): void {
@@ -474,6 +475,24 @@ function rectFloor(wallTh = 100) {
     && windowKindOf({ action: "tilt", hinge: "head" })?.id === "uitzet");
   check("a side-hung window is still one kind whichever jamb hinges",
     windowKindOf({ action: "turn", hinge: "b", outward: true })?.id === "draai");
+}
+
+// --- symbol colour ---
+{
+  const sym = (color?: string) => ({ id: "s1", type: "socket-single", x: 0, y: 0, rotation: 0, color });
+  check("no colour draws in the plan ink", symbolInk(sym()) === COLORS.symbol);
+  check("a symbol keeps its own colour", symbolInk(sym("#d0342c")) === "#d0342c");
+  check("uppercase hex is accepted", symbolInk(sym("#D0342C")) === "#D0342C");
+  // Canvas ignores an invalid strokeStyle instead of throwing, so a hand-edited
+  // or pasted document could otherwise paint a symbol in the previous one's
+  // colour -- a wrong colour on a plan that states what is new means the wrong
+  // thing, so anything unparseable falls back rather than being passed through.
+  for (const bad of ["", "red", "#fff", "#12345g", "javascript:alert(1)"])
+    check(`rejects ${JSON.stringify(bad)}`, symbolInk(sym(bad)) === COLORS.symbol);
+  // The presets are what the picker stores, so they must survive that check.
+  check("every preset ink is a storable colour",
+    INKS.every(i => i.hex === null || symbolInk(sym(i.hex)) === i.hex));
+  check("exactly one preset is the default ink", INKS.filter(i => i.hex === null).length === 1);
 }
 
 console.log(failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURES`);

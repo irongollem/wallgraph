@@ -7,7 +7,7 @@ import { Viewport } from "../render/viewport";
 import { Vec, v, add, sub, scale, norm, perp, dist, angleOf, fromAngle, dot, pointInPolygon } from "../geometry/vec";
 import { arcPointAt, arcTangentAt, bulgeFromSagitta } from "../geometry/arc";
 import { getSymbol, SymbolDef, SYMBOL_TYPES } from "../render/symbols";
-import { drawLabel, COLORS } from "../render/draw";
+import { drawLabel, COLORS, symbolInk } from "../render/draw";
 import { Resolved, ResolvedWall } from "../core/resolve";
 import { t } from "../i18n";
 
@@ -32,6 +32,12 @@ export class Tools {
   snapGrid = true;  // round placements to doc.gridMm; off = free 1 mm placement
   showDims = false; // always show wall measurements (clickable), not only on selection
   lastThickness = 100;
+  /**
+   * Pen for the next symbol placed; null = the plan's default ink. Same idea as
+   * lastThickness: the work is "place twenty sockets in red", so the colour is a
+   * standing choice rather than something to set twenty times afterwards.
+   */
+  symbolColor: string | null = null;
 
   private chainStart: Vec | null = null;
   private chainStartNode: string | null = null;
@@ -69,6 +75,13 @@ export class Tools {
     else if (t === "symbol" && !this.symbolType) this.symbolType = SYMBOL_TYPES[0] ?? "";
     this.cancel(false);
     this.updateHint();
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /** Arm a pen. Redraws so the placement ghost shows the colour it will land in. */
+  setSymbolColor(hex: string | null): void {
+    this.symbolColor = hex;
     this.onToolChange();
     this.requestRender();
   }
@@ -329,8 +342,11 @@ export class Tools {
   private placeSymbol(): void {
     const pose = this.symbolPose();
     const id = newId("s");
+    const sym: SymbolInstance = { id, type: this.symbolType, ...pose };
+    // Only when a pen is armed: the default ink is stored as no colour at all.
+    if (this.symbolColor) sym.color = this.symbolColor;
     this.store.mutate(doc => {
-      this.store.floorOf(doc).symbols.push({ id, type: this.symbolType, ...pose });
+      this.store.floorOf(doc).symbols.push(sym);
     });
     this.store.select({ kind: "symbol", id });
   }
@@ -839,7 +855,7 @@ export class Tools {
       if (namedId) {
         const sym = f.symbols.find(x => x.id === namedId);
         const def = sym && getSymbol(sym.type);
-        if (sym && def) drawLabel(ctx, vp, this.symbolLabelPoint(sym, def), t("symbol." + sym.type), COLORS.symbol);
+        if (sym && def) drawLabel(ctx, vp, this.symbolLabelPoint(sym, def), t("symbol." + sym.type), symbolInk(sym));
       }
 
       // Bow handle for selected wall.
@@ -898,7 +914,10 @@ export class Tools {
         ctx.translate(pose.x, pose.y);
         ctx.rotate(pose.rotation);
         ctx.globalAlpha = 0.5;
-        ctx.strokeStyle = COLORS.symbol;
+        // Ghost in the armed pen, and fill with it too — the draw contract keeps
+        // fill equal to stroke, so a symbol with a filled dot obeys it here as well.
+        ctx.strokeStyle = this.symbolColor ?? COLORS.symbol;
+        ctx.fillStyle = ctx.strokeStyle;
         def.draw(ctx);
         ctx.restore();
         ctx.globalAlpha = 1;
