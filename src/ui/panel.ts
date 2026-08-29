@@ -209,6 +209,12 @@ export class Panel {
       selRow(t("panel.windowKind"), kind?.id ?? "", kindOpts, v => writeBack(list => {
         const k = WINDOW_KINDS.find(x => x.id === v);
         if (!k) return;
+        if (k.expandsTo) {
+          // Not one pane: a stolpraam is two leaves, so it replaces the list.
+          list.length = 0;
+          for (const x of k.expandsTo) list.push({ ...x });
+          return;
+        }
         list[i]!.action = k.action;
         list[i]!.hinge = k.hinge;
         list[i]!.outward = k.outward ?? false;
@@ -289,7 +295,12 @@ export class Panel {
         selRow(t("panel.slidesToward"), leaf.slideTo ?? "b",
           [["a", t("panel.hingeA")], ["b", t("panel.hingeB")]],
           v => writeBack(list => { list[i]!.slideTo = v as "a" | "b"; }));
-      if (leaf.action !== "slide")
+      if (leaf.action === "revolve")
+        selRow(t("panel.spin"), leaf.spin ?? "ccw",
+          [["ccw", t("panel.spinCcw")], ["cw", t("panel.spinCw")]],
+          v => writeBack(list => { list[i]!.spin = v as "cw" | "ccw"; }));
+      // A revolving drum has no swing side, and a slider has no swing at all.
+      if (leaf.action !== "slide" && leaf.action !== "revolve")
         selRow(t("panel.swing"), leaf.outward ? "out" : "in",
           [["in", t("panel.swingIn")], ["out", t("panel.swingOut")]],
           v => writeBack(list => { list[i]!.outward = v === "out"; }));
@@ -485,6 +496,22 @@ export class Panel {
       }
       if (o.kind === "window") {
         this.renderSashes(o, wall, mutOpening, selRow, numRow, btnRow, noteRow);
+      }
+      if (o.kind !== "passage") {
+        checkRow(t("panel.powered"), o.powered ?? false,
+          b => mutOpening(o2 => { o2.powered = b || undefined; }));
+        checkRow(t("panel.selfClosing"), o.selfClosing ?? false,
+          b => mutOpening(o2 => { o2.selfClosing = b || undefined; }));
+        selRow(t("panel.fireRating"), o.fireRating?.kind ?? "",
+          [["", t("panel.fireNone")], ["wbd", t("panel.fireWbd")], ["wrd", t("panel.fireWrd")]],
+          v => mutOpening(o2 => {
+            o2.fireRating = v ? { kind: v as "wbd" | "wrd", minutes: o2.fireRating?.minutes ?? 30 } : undefined;
+          }));
+        if (o.fireRating)
+          numRow(t("panel.fireMinutes"), o.fireRating.minutes,
+            n => mutOpening(o2 => {
+              if (o2.fireRating) o2.fireRating.minutes = Math.max(0, Math.round(n));
+            }), 15);
       }
       btnRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());
       return;

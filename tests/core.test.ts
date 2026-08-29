@@ -425,6 +425,12 @@ function rectFloor(wallTh = 100) {
 
   for (const k of DOOR_KINDS)
     check(`door kind ${k.id} round-trips`, doorKindOf(k.sashes)?.id === k.id);
+  check("tourniquet is a named door kind",
+    DOOR_KINDS.some(k => k.id === "tourniquet" && k.sashes[0]!.action === "revolve"));
+  // Rotation sense is a tuning, like hinge side: both senses are one tourniquet.
+  for (const spin of ["cw", "ccw"] as const)
+    check(`tourniquet spinning ${spin} is still a tourniquet`,
+      doorKindOf([{ action: "revolve", spin }])?.id === "tourniquet");
 
   // A double door is two leaves sharing the opening.
   const dbl = sashesOf(door({ width: 1600, sashes: DOOR_KINDS.find(k => k.id === "dubbel")!.sashes }), 1600);
@@ -436,9 +442,21 @@ function rectFloor(wallTh = 100) {
 {
   // Windows: a horizontal hinge IS identity (valraam vs uitzetraam), a jamb
   // hinge is not.
-  for (const k of WINDOW_KINDS)
+  // Single-pane kinds identify themselves from their parts.
+  for (const k of WINDOW_KINDS.filter(k => !k.expandsTo))
     check(`window kind ${k.id} round-trips`,
       windowKindOf({ action: k.action, hinge: k.hinge, outward: k.outward })?.id === k.id);
+  // Multi-pane kinds deliberately do not: a stolpraam IS two draairamen, and
+  // reporting each pane as a draairaam is the honest answer.
+  const stolp = WINDOW_KINDS.find(k => k.id === "stolp")!;
+  check("stolpraam expands to two opposite-hinged leaves",
+    stolp.expandsTo?.length === 2
+    && stolp.expandsTo[0]!.hinge === "a" && stolp.expandsTo[1]!.hinge === "b");
+  check("each stolpraam leaf reads as a draairaam",
+    stolp.expandsTo!.every(x => windowKindOf(x)?.id === "draai"));
+  // The axis split: taatsraam turns in plan, tuimelraam does not.
+  check("taatsraam is the vertical-axis pivot", windowKindOf({ action: "pivot" })?.id === "taats");
+  check("tuimelraam is the horizontal-axis tumble", windowKindOf({ action: "tumble" })?.id === "tuimel");
   check("valraam and uitzetraam stay distinct",
     windowKindOf({ action: "tilt", hinge: "sill" })?.id === "val"
     && windowKindOf({ action: "tilt", hinge: "head" })?.id === "uitzet");

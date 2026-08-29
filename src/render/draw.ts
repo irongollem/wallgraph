@@ -6,7 +6,7 @@ import { Resolved, OpeningGeom } from "../core/resolve";
 import { Room } from "../core/rooms";
 import { Selection } from "../model/store";
 import { Viewport } from "./viewport";
-import { Vec, add, sub, scale, perp, v, angleOf, dist } from "../geometry/vec";
+import { Vec, add, sub, scale, perp, v, angleOf, dist, fromAngle } from "../geometry/vec";
 import { getSymbol } from "./symbols";
 import { t } from "../i18n";
 import { gridSteps, GridSteps } from "./grid";
@@ -250,6 +250,88 @@ function drawDoorLeaf(
     drawFold(ctx, leaf, a, along, n, px, outward);
     return;
   }
+  if (leaf.action === "revolve") {
+    // Tourniquet. The drum spans the opening, so its radius is half the width.
+    // Two arcs form the enclosure along the wall; the quadrants facing each side
+    // of the wall stay open, which is where people walk through. Four leaves sit
+    // at 45 degrees so none of them blocks an opening in the drawn position.
+    const mid = add(a, scale(sub(b, a), 0.5));
+    const rad = w * 0.5;
+    const base = angleOf(along);
+    ctx.lineWidth = 1.2 * px;
+    ctx.setLineDash([]);
+    const QUARTER = Math.PI / 2;
+    const SPAN = QUARTER * 1.1;            // enclosure wall, a little over 90 degrees
+    for (const centre of [base, base + Math.PI]) {
+      ctx.beginPath();
+      ctx.arc(mid.x, mid.y, rad, centre - SPAN / 2, centre + SPAN / 2);
+      ctx.stroke();
+    }
+    ctx.lineWidth = 1.4 * px;
+    for (let i = 0; i < 4; i++) {
+      const ang = base + QUARTER / 2 + i * QUARTER;
+      line(ctx, mid, add(mid, fromAngle(ang, rad)));
+    }
+    // Rotation arrow: a short arc inside the drum with a head on its leading end.
+    const cw = (leaf.spin ?? "ccw") === "cw";
+    const r2 = rad * 0.45;
+    const from = base + QUARTER / 2;
+    const sweep = cw ? QUARTER * 1.2 : -QUARTER * 1.2;
+    ctx.lineWidth = 1 * px;
+    ctx.beginPath();
+    ctx.arc(mid.x, mid.y, r2, from, from + sweep, !cw);
+    ctx.stroke();
+    const tipAng = from + sweep;
+    const tip = add(mid, fromAngle(tipAng, r2));
+    // Tangent at the tip, pointing the way it turns.
+    const tangent = fromAngle(tipAng + (cw ? QUARTER : -QUARTER), 1);
+    const head = Math.min(rad * 0.22, 220);
+    const backTip = add(tip, scale(tangent, -head));
+    line(ctx, tip, add(backTip, scale(perp(tangent), head * 0.45)));
+    line(ctx, tip, add(backTip, scale(perp(tangent), -head * 0.45)));
+    return;
+  }
+  if (leaf.action === "double-acting") {
+    // Doordraaiend: no fixed side, so both swings are drawn — the tapered leaf
+    // on the sheets is the same leaf shown at both extremes.
+    const hingeAtA = (leaf.hinge ?? "a") !== "b";
+    const hinge = hingeAtA ? a : b;
+    const other = hingeAtA ? b : a;
+    const dir = scale(sub(other, hinge), 1 / w);
+    const a0 = angleOf(sub(other, hinge));
+    for (const sign of [1, -1]) {
+      const tip = add(hinge, scale(scale(perp(dir), sign), w));
+      ctx.lineWidth = 1.4 * px;
+      ctx.setLineDash([]);
+      line(ctx, hinge, tip);
+      const a1 = angleOf(sub(tip, hinge));
+      let d = a1 - a0;
+      while (d > Math.PI) d -= 2 * Math.PI;
+      while (d < -Math.PI) d += 2 * Math.PI;
+      ctx.lineWidth = 1 * px;
+      ctx.setLineDash([40, 40]);
+      ctx.beginPath();
+      ctx.arc(hinge.x, hinge.y, w, a0, a0 + d, d < 0);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    return;
+  }
+  if (leaf.action === "overhead") {
+    // Kanteldeur tilts up out of the plan entirely; in plan it is a panel
+    // filling the opening, marked with the axis it tilts about.
+    const face = outward ? scale(n, -1) : n;
+    ctx.lineWidth = 1.2 * px;
+    ctx.setLineDash([]);
+    const off = scale(face, h * 0.45);
+    line(ctx, add(a, off), add(b, off));
+    line(ctx, a, add(a, off));
+    line(ctx, b, add(b, off));
+    ctx.setLineDash([30, 30]);
+    line(ctx, add(a, scale(face, h * 0.9)), add(b, scale(face, h * 0.9)));
+    ctx.setLineDash([]);
+    return;
+  }
   if (leaf.action === "pivot") {
     // Taatsdeur: turns about its own centre, so the leaf is drawn across the
     // opening through the pivot rather than hinged at a jamb.
@@ -385,7 +467,8 @@ function drawSash(
     ctx.stroke();
     ctx.setLineDash([]);
   }
-  if (sash.action === "tilt" || sash.action === "turn-tilt" || sash.action === "pivot") {
+  if (sash.action === "tilt" || sash.action === "turn-tilt" || sash.action === "tumble"
+      || sash.action === "project" || sash.action === "parallel") {
     // A horizontal hinge does not exist in plan — these are section symbols on
     // the sheets. A small chevron at mid-span marks that the pane opens at all,
     // so a valraam is not silently identical to a vast raam. Not NEN; an aid.
@@ -397,6 +480,20 @@ function drawSash(
     ctx.setLineDash(dash);
     line(ctx, add(add(mid, arm), scale(face, depth)), apex);
     line(ctx, add(sub(mid, arm), scale(face, depth)), apex);
+    ctx.setLineDash([]);
+  }
+  if (sash.action === "pivot") {
+    // Taatsraam: vertical axis, so it DOES turn in plan. Leaf drawn across the
+    // opening through its centre, with the swept circle dashed.
+    const mid = add(a, scale(sub(b, a), 0.5));
+    ctx.lineWidth = 1.2 * px;
+    ctx.setLineDash([]);
+    line(ctx, add(mid, scale(face, w * 0.45)), add(mid, scale(face, -w * 0.45)));
+    ctx.setLineDash([30, 30]);
+    ctx.lineWidth = 0.8 * px;
+    ctx.beginPath();
+    ctx.arc(mid.x, mid.y, w * 0.45, 0, Math.PI * 2);
+    ctx.stroke();
     ctx.setLineDash([]);
   }
   if (sash.action === "slide-vertical") {

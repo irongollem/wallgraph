@@ -20,11 +20,17 @@ export type SashAction =
   | "turn"         // draaiend, hinged at a jamb
   | "tilt"         // kiepend: valraam (sill, inward) or uitzetraam (head, outward)
   | "turn-tilt"    // draai-valraam / draai-kiep
-  | "pivot"        // tuimelraam, horizontal centre axis
+  | "pivot"        // taatsraam/taatsdeur, VERTICAL centre axis — turns in plan
+  | "tumble"       // tuimelraam, HORIZONTAL centre axis — section only
+  | "project"      // projectieraam, leaf swings out on arms
+  | "parallel"     // parallel afstelraam, leaf lifts straight off the frame
+  | "double-acting" // doordraaiend: swings both ways (saloon / bommerscharnier)
+  | "overhead"     // kanteldeur, tilts up overhead
   | "slide"        // horizontaal schuivend
   | "slide-vertical" // verticaal schuifraam
   | "turn-slide"   // draai-schuifraam
-  | "fold";        // vouwwand
+  | "fold"         // vouwwand
+  | "revolve";     // tourniquet
 
 /**
  * Which edge a sash hinges on. "a"/"b" are the jambs, in the wall's own a->b
@@ -46,6 +52,8 @@ export interface Sash {
   /** true = naar buiten draaiend (drawn solid), false/absent = naar binnen (dashed). */
   outward?: boolean;
   slideTo?: "a" | "b";
+  /** Rotation sense, revolving doors only. Defaults to counter-clockwise. */
+  spin?: "cw" | "ccw";
 }
 
 export interface Opening {
@@ -65,6 +73,16 @@ export interface Opening {
   /** Panes across the opening, in a->b order. Absent = one sash from windowType. */
   sashes?: Sash[];
   slideTo?: "a" | "b";
+  /** Electrically operated — drawn with a small circle at the drive point. */
+  powered?: boolean;
+  /** Self-closing, as a fire door must be. */
+  selfClosing?: boolean;
+  /**
+   * Fire resistance. "wbd" is weerstand tegen branddoorslag, "wrd" weerstand
+   * tegen rookdoorgang; minutes is the rating. Not a motion, so it lives on the
+   * opening rather than a sash — a double door has one rating, not two.
+   */
+  fireRating?: { kind: "wbd" | "wrd"; minutes: number };
   sillHeight?: number;
   height?: number;
 }
@@ -183,6 +201,13 @@ export interface WindowKind {
   action: SashAction;
   hinge?: HingeEdge;
   outward?: boolean;
+  /**
+   * Kinds that are not one pane. A stolpraam is two leaves closing against each
+   * other, so picking it replaces the whole sash list rather than retyping one
+   * pane. Matching ignores these — a stolpraam reads as two draairamen, which
+   * is what it is.
+   */
+  expandsTo?: Sash[];
 }
 
 export const WINDOW_KINDS: WindowKind[] = [
@@ -191,7 +216,12 @@ export const WINDOW_KINDS: WindowKind[] = [
   { id: "draaiVal",    action: "turn-tilt",      hinge: "a",    outward: false },
   { id: "val",         action: "tilt",           hinge: "sill", outward: false },
   { id: "uitzet",      action: "tilt",           hinge: "head", outward: true },
-  { id: "tuimel",      action: "pivot" },
+  { id: "tuimel",      action: "tumble" },
+  { id: "taats",       action: "pivot" },
+  { id: "projectie",   action: "project",  outward: true },
+  { id: "parallel",    action: "parallel", outward: true },
+  { id: "stolp",       action: "turn",     hinge: "a", outward: false,
+    expandsTo: [{ action: "turn", hinge: "a" }, { action: "turn", hinge: "b" }] },
   { id: "schuifH",     action: "slide" },
   { id: "schuifV",     action: "slide-vertical" },
   { id: "draaiSchuif", action: "turn-slide",     hinge: "a",    outward: false },
@@ -234,6 +264,11 @@ export const DOOR_KINDS: DoorKind[] = [
                                  { action: "slide", slideTo: "b" }] },
   { id: "vouw",        sashes: [{ action: "fold", outward: false }] },
   { id: "taats",       sashes: [{ action: "pivot" }] },
+  { id: "tourniquet",  sashes: [{ action: "revolve", spin: "ccw" }] },
+  { id: "doordraai",   sashes: [{ action: "double-acting", hinge: "a" }] },
+  { id: "saloon",      sashes: [{ action: "double-acting", hinge: "a" },
+                                { action: "double-acting", hinge: "b" }] },
+  { id: "kantel",      sashes: [{ action: "overhead" }] },
 ];
 
 /** Which named door set a sash list matches, or null for a tuned combination. */
