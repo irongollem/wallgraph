@@ -715,7 +715,7 @@ export class Tools {
       if (namedId) {
         const sym = f.symbols.find(x => x.id === namedId);
         const def = sym && getSymbol(sym.type);
-        if (sym && def) drawLabel(ctx, vp, this.symbolLabelPoint(sym, def), def.label, COLORS.symbol);
+        if (sym && def) drawLabel(ctx, vp, this.symbolLabelPoint(sym, def), t("symbol." + sym.type), COLORS.symbol);
       }
 
       // Bow handle for selected wall.

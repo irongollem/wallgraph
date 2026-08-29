@@ -21,6 +21,8 @@ npm run build      # typecheck + bundle to dist/index.html (single file)
 - **V** select — drag corners/walls/symbols; drag a selected wall's ◆ midpoint handle to curve it
 - **D / N / P** door / window / passage — click on a wall; direction, width and offset in the panel
 - **R / M** rotate / mirror a selected symbol · **Del** delete · **Ctrl+Z / Ctrl+Shift+Z** undo / redo
+- Hover a placed symbol to see what it is; click to select and edit it
+- **PNG** exports the plan as an image — framed to the plan, no grid, with a scale bar
 - Scroll to zoom, right-drag or empty-space-drag to pan — the legend bottom-left names the
   document grid and, when the zoom is too far out to draw every cell, the spacing actually drawn
 

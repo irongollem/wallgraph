@@ -88,6 +88,8 @@ src/render/    viewport.ts mm<->px transform, zoom-to-cursor, pan
 src/input/     tools.ts  tool state machine, snapping, typed-mm entry, drag handling
 src/ui/        panel.ts  toolbar, symbol palette, selection-driven property panel
 src/io/        json.ts   guarded localStorage autosave, export/import/clipboard
+               image.ts  PNG export: offscreen re-render, plan bounds, scale bar
+               save.ts   the two file-delivery channels (host capability, blob link)
 src/seed.ts              demo apartment shown on first load
 ```
 
@@ -152,6 +154,12 @@ The `draw(ctx)` contract in [defs.ts](src/render/symbols/defs.ts) is strict:
   before this keep whatever `gridMm` they stored; the default only applies to new plans.
 - **Grid snapping is a toggle** (`Tools.snapGrid`, G). Off still rounds to whole mm, so
   invariant 1 holds either way — quantise through `Tools.gridStep`, not `doc.gridMm`.
+- **PNG export re-renders through `drawScene`, it does not screenshot the canvas.**
+  [src/io/image.ts](src/io/image.ts) fits an offscreen `Viewport` to `planBounds()` and drives
+  the same hidpi path the retina canvas uses (`vp.dpr` + a scaled transform), so screen-space
+  text scales with the image. `planBounds()` walks the *rotated footprint corners* of each
+  symbol — a symmetric box around the anchor pads the frame with empty paper, because a
+  wall-mounted footprint only extends one way. Grid and legend are off via `extras.showGrid`.
 - **Autosave uses the storage key `floorplan-doc-v1`**, from before the project was named
   Wallgraph. Renaming that key silently discards every user's saved plan — if you rename
   it, migrate the old key first.

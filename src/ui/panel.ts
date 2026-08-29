@@ -2,7 +2,7 @@
 import { Store } from "../model/store";
 import { Tools, ToolName } from "../input/tools";
 import { clampOpening, wallLength, deleteWall } from "../model/ops";
-import { SYMBOLS, CATEGORIES, SymbolDef, getSymbol } from "../render/symbols";
+import { SYMBOLS, CATEGORIES, SymbolDef } from "../render/symbols";
 import { sagittaFromBulge, bulgeFromSagitta } from "../geometry/arc";
 import { v, norm, sub, add, scale } from "../geometry/vec";
 import { exportJson, copyJson, importJsonFile, parseDoc, clearAutosave } from "../io/json";
@@ -318,7 +318,7 @@ export class Panel {
     if (sel.kind === "symbol") {
       const s = f.symbols.find(x => x.id === sel.id);
       if (!s) return;
-      title(t("panel.symbol", { type: getSymbol(s.type)?.label ?? s.type }));
+      title(t("panel.symbol", { type: t("symbol." + s.type) }));
       numRow(t("panel.rotation"), (s.rotation * 180) / Math.PI, n => this.store.mutate(d => {
         const s2 = d.floors[0]!.symbols.find(x => x.id === sel.id);
         if (s2) s2.rotation = (n * Math.PI) / 180;
