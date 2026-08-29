@@ -1,0 +1,27 @@
+# Netlify build for plattegrond.crocode.nl
+# The whole app is one self-contained file: `npm run build` typechecks, runs the
+# bundler, and writes dist/index.html with CSS and JS inlined. No other assets.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  # Match CI (.github/workflows/ci.yml) so a green CI means a green deploy.
+  NODE_VERSION = "20"
+
+# dist/index.html IS the application — never let a proxy pin an old copy, or
+# users keep running a stale editor after a deploy.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cache-Control = "no-cache"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    # Plans stay in the browser; the editor needs no device access.
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+    # The bundle references no external URL (CI asserts this), so everything may
+    # come from this origin only. 'unsafe-inline' is required because the build
+    # inlines the script and stylesheet into the HTML. frame-ancestors keeps the
+    # door open for embedding on crocode.nl later without allowing the wider web.
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'self' https://*.crocode.nl https://crocode.nl"
