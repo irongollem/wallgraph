@@ -71,6 +71,18 @@ extrudes directly from the graph.
    (Astro/Vue/etc.) call `mountWallgraph` directly. Don't add module-level side effects to
    [src/main.ts](src/main.ts).
 
+## No legacy
+
+**Nothing here is kept for backwards compatibility.** The project started on 2026-08-29
+and has no users, so a rename deletes the old thing: no id aliases, no migration maps, no
+deprecated fields left resolvable, no "old format" branch. Update every reference and let
+the old name disappear.
+
+That is a cost decision rather than an oversight — a shim added now is permanent weight
+carried for a user who does not exist. **If you think a case genuinely needs
+compatibility, stop and ask before adding it.** Do not infer the answer from the code: it
+changes the day the app has real users, and picking that day is the user's call.
+
 ## Layout
 
 ```text
@@ -184,8 +196,9 @@ The `draw(ctx)` contract in [defs.ts](src/render/symbols/defs.ts) is strict:
   symbol — a symmetric box around the anchor pads the frame with empty paper, because a
   wall-mounted footprint only extends one way. Grid and legend are off via `extras.showGrid`.
 - **Autosave uses the storage key `floorplan-doc-v1`**, from before the project was named
-  Wallgraph. Renaming that key silently discards every user's saved plan — if you rename
-  it, migrate the old key first.
+  Wallgraph. Renaming it drops whatever that key holds — your own browser's plan included —
+  which makes it exactly the kind of case *No legacy* says to raise first. Don't migrate it
+  and don't rename it on your own judgement; ask.
 - **`Store.mutate()` coalesces** same-`coalesceKey` mutations within 900 ms into one undo
   step. Drags rely on this; pass a stable key for continuous gestures and `undefined` for
   discrete edits.
