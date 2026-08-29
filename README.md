@@ -23,6 +23,47 @@ npx tsx tests/core.test.ts   # engine tests
 - **R / M** rotate / mirror a selected symbol · **Del** delete · **Ctrl+Z / Ctrl+Shift+Z** undo / redo
 - Scroll to zoom, right-drag or empty-space-drag to pan
 
+## Embedding in Astro / Vue (or anything else)
+
+The editor is a plain function: give it an element, it builds itself inside.
+No framework runtime, no globals except window key listeners.
+
+```ts
+import { mountWallgraph } from "wallgraph/src/main";  // or a relative path
+import "wallgraph/src/style.css";                     // Vite/Astro handle CSS imports
+
+mountWallgraph(document.getElementById("editor")!);
+```
+
+Astro page (client-side, since it needs the DOM):
+
+```astro
+<div id="editor" style="height: 100vh"></div>
+<script>
+  import { mountWallgraph } from "../lib/wallgraph/src/main";
+  import "../lib/wallgraph/src/style.css";
+  mountWallgraph(document.getElementById("editor")!);
+</script>
+```
+
+Vue component:
+
+```vue
+<template><div ref="host" class="wallgraph-host" /></template>
+<script setup lang="ts">
+import { ref, onMounted } from "vue";
+import { mountWallgraph } from "@/lib/wallgraph/src/main";
+import "@/lib/wallgraph/src/style.css";
+const host = ref<HTMLElement>();
+onMounted(() => mountWallgraph(host.value!));
+</script>
+```
+
+Give the host element a real height (the editor fills it). Note `.app` uses
+`height: 100%`, and document-wide key shortcuts (V/W/D/…) are window-level —
+fine for a dedicated page, something to scope later if it must share a page
+with other inputs.
+
 ## Layout
 
 ```

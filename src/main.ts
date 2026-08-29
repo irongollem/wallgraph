@@ -1,4 +1,5 @@
-// Entry point: DOM layout, render loop, wiring.
+// Editor factory: builds the full editor inside a host element.
+// Standalone page entry is src/boot.ts; frameworks call mountWallgraph directly.
 import { Store } from "./model/store";
 import { resolveFloor, Resolved } from "./core/resolve";
 import { detectRooms, Room } from "./core/rooms";
@@ -10,9 +11,9 @@ import { tryLoadAutosave, scheduleAutosave } from "./io/json";
 import { seedDoc } from "./seed";
 import { v } from "./geometry/vec";
 
-const app = document.getElementById("app")!;
+export function mountWallgraph(app: HTMLElement): void {
 app.innerHTML = "";
-app.className = "app";
+app.classList.add("app");
 
 const side = document.createElement("div");
 side.className = "side";
@@ -94,3 +95,4 @@ store.replace(saved ?? seedDoc());
 })();
 
 requestRender();
+}

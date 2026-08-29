@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 const watch = process.argv.includes("--watch");
 
 const opts = {
-  entryPoints: ["src/main.ts"],
+  entryPoints: ["src/boot.ts"],
   bundle: true,
   format: "iife",
   target: "es2022",
