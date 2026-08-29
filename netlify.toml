@@ -8,7 +8,8 @@
 
 [build.environment]
   # Match CI (.github/workflows/ci.yml) so a green CI means a green deploy.
-  NODE_VERSION = "20"
+  # Node 20 is end-of-life; 24 is the current LTS.
+  NODE_VERSION = "24"
 
 # dist/index.html IS the application — never let a proxy pin an old copy, or
 # users keep running a stale editor after a deploy.
