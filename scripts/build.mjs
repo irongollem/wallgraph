@@ -25,17 +25,12 @@ const DESCRIPTION =
   "place doors, windows and 74 standard plan symbols. Free, no account needed.";
 const SITE_URL = process.env.SITE_URL || process.env.URL || "";
 
-// Inline SVG favicon: keeps the build a single file and avoids a 404 for
-// /favicon.ico. A wall corner in the app's own ink colour.
-const FAVICON =
-  "data:image/svg+xml," +
-  encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">' +
-    '<rect width="32" height="32" rx="6" fill="#f4f2ec"/>' +
-    '<path d="M7 25V10h4v11h14v4z" fill="#3d4148"/>' +
-    '<circle cx="9" cy="12" r="2.4" fill="#e05d2d"/>' +
-    "</svg>",
-  );
+// Favicon: the 32 px PNG inlined as a data URI, so index.html stays a single
+// self-contained file and /favicon.ico stops 404ing on the hosted copy. Built
+// from assets/icon.png by `npm run assets`.
+const FAVICON = existsSync("assets/favicon-32.png")
+  ? "data:image/png;base64," + readFileSync("assets/favicon-32.png").toString("base64")
+  : "";
 
 function emit(result) {
   const js = result.outputFiles[0].text;
@@ -45,6 +40,22 @@ function emit(result) {
   // the one file besides index.html that the hosted copy serves; index.html on
   // its own is still fully self-contained and works offline.
   mkdirSync("dist", { recursive: true });
+  // Hosted extras: real icon files a crawler or an iOS home-screen shortcut
+  // fetches by URL. index.html itself needs none of them — its favicon is
+  // inlined above — so they only ship when we know the site's own origin.
+  let icons = "";
+  if (SITE_URL) {
+    for (const f of ["favicon.ico", "apple-touch-icon.png"]) {
+      if (existsSync(`assets/${f}`)) copyFileSync(`assets/${f}`, `dist/${f}`);
+    }
+    // Relative on purpose: unlike og:image, which crawlers must resolve without
+    // a page context and so has to be absolute, an icon is fetched by the
+    // browser that already has the page. Keeping it relative means the page
+    // references no external origin at all.
+    if (existsSync("assets/apple-touch-icon.png")) {
+      icons = `<link rel="apple-touch-icon" href="/apple-touch-icon.png">\n`;
+    }
+  }
   let ogImage = "";
   if (SITE_URL && existsSync("assets/og.png")) {
     copyFileSync("assets/og.png", "dist/og.png");
@@ -64,7 +75,7 @@ function emit(result) {
 <meta name="description" content="${DESCRIPTION}">
 <meta name="theme-color" content="#f4f2ec">
 <link rel="icon" href="${FAVICON}">
-${canonical}<meta property="og:type" content="website">
+${icons}${canonical}<meta property="og:type" content="website">
 <meta property="og:title" content="${TITLE}">
 <meta property="og:description" content="${DESCRIPTION}">
 <meta property="og:site_name" content="Wallgraph">
@@ -79,20 +90,32 @@ if (watch) {
   const ctx = await context({ ...opts, plugins: [{ name: "emit", setup: b => b.onEnd(emit) }] });
   await ctx.watch();
   if (process.argv.includes("--serve")) {
-    // Single-file app: the only real route is the bundle itself. no-store so a
-    // rebuild shows up on plain reload instead of being served from cache.
+    // Serves whatever is in dist/: index.html plus the icon and og assets a
+    // hosted build emits. no-store so a rebuild shows up on plain reload
+    // instead of being served from cache.
     const http = await import("node:http");
+    const TYPES = {
+      ".html": "text/html", ".png": "image/png", ".ico": "image/x-icon",
+      ".svg": "image/svg+xml", ".json": "application/json", ".txt": "text/plain",
+    };
     const server = http.createServer((req, res) => {
       const path = (req.url ?? "/").split("?")[0];
-      if (path !== "/" && path !== "/index.html") {
-        res.writeHead(404, { "content-type": "text/plain" }).end("not found");
+      // Resolve inside dist/ only; reject any traversal attempt outright.
+      const rel = path === "/" ? "index.html" : path.replace(/^\/+/, "");
+      if (rel.includes("..")) {
+        res.writeHead(400, { "content-type": "text/plain" }).end("bad request");
         return;
       }
+      const ext = rel.slice(rel.lastIndexOf("."));
       try {
-        const body = readFileSync("dist/index.html");
-        res.writeHead(200, { "content-type": "text/html", "cache-control": "no-store" }).end(body);
+        const body = readFileSync(`dist/${rel}`);
+        res.writeHead(200, {
+          "content-type": TYPES[ext] ?? "application/octet-stream",
+          "cache-control": "no-store",
+        }).end(body);
       } catch {
-        res.writeHead(503, { "content-type": "text/plain" }).end("dist/index.html not built yet");
+        res.writeHead(rel === "index.html" ? 503 : 404, { "content-type": "text/plain" })
+          .end(rel === "index.html" ? "dist/index.html not built yet" : "not found");
       }
     });
     server.on("error", err => {

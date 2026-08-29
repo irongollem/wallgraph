@@ -1,12 +1,12 @@
 // Tool state machine + snapping + typed-mm input. Owns pointer/keyboard handling
 // for the canvas; rendering of previews goes through getPreview()/getSnap().
 import { Store } from "../model/store";
-import { Floor, Wall, Opening, PlanNode, newId, DOOR_DEFAULT_WIDTH, WINDOW_DEFAULT_WIDTH, PASSAGE_DEFAULT_WIDTH, OpeningKind } from "../model/doc";
+import { Floor, Wall, Opening, PlanNode, SymbolInstance, newId, DOOR_DEFAULT_WIDTH, WINDOW_DEFAULT_WIDTH, PASSAGE_DEFAULT_WIDTH, OpeningKind } from "../model/doc";
 import { nodeAt, splitWall, nearestWall, wallLength, mergeNodes, deleteWall, clampOpening, cleanOrphanNodes } from "../model/ops";
 import { Viewport } from "../render/viewport";
 import { Vec, v, add, sub, scale, norm, perp, dist, angleOf, fromAngle, dot, pointInPolygon } from "../geometry/vec";
 import { arcPointAt, arcTangentAt, bulgeFromSagitta } from "../geometry/arc";
-import { getSymbol } from "../render/symbols";
+import { getSymbol, SymbolDef } from "../render/symbols";
 import { drawLabel, COLORS } from "../render/draw";
 import { Resolved } from "../core/resolve";
 import { t } from "../i18n";
@@ -38,6 +38,7 @@ export class Tools {
   private cursor: Vec = v(0, 0);
   lengthBuffer = "";
   private drag: DragState | null = null;
+  private hoverSymbol: string | null = null;
   private snap: SnapResult | null = null;
   private dimRects: Array<{ x: number; y: number; w: number; h: number; wallId: string }> = [];
   private dimInput: HTMLInputElement | null = null;
@@ -55,6 +56,7 @@ export class Tools {
     canvas.addEventListener("pointermove", e => this.onMove(e));
     canvas.addEventListener("pointerup", () => this.onUp());
     canvas.addEventListener("wheel", e => this.onWheel(e), { passive: false });
+    canvas.addEventListener("pointerleave", () => { this.hoverSymbol = null; this.requestRender(); });
     canvas.addEventListener("contextmenu", e => { e.preventDefault(); this.cancel(); });
     window.addEventListener("keydown", e => this.onKey(e));
   }
@@ -173,6 +175,9 @@ export class Tools {
 
     if (this.drag) { this.dragMove(s, w); return; }
 
+    // What is this thing? A placed symbol is a bare line drawing, so name the
+    // one under the cursor (see drawPreview).
+    this.hoverSymbol = this.tool === "select" ? this.symbolAt(w)?.id ?? null : null;
     this.snap = this.tool === "select" ? null : this.computeSnap(w, this.tool === "wall");
     this.requestRender();
   }
@@ -327,18 +332,11 @@ export class Tools {
       }
     }
     // Symbols.
-    for (let i = f.symbols.length - 1; i >= 0; i--) {
-      const sym = f.symbols[i]!;
-      const def = getSymbol(sym.type);
-      if (!def) continue;
-      // inverse transform
-      const local = this.toLocal(w, sym.x, sym.y, sym.rotation, !!sym.mirrored);
-      const y0 = def.wallMounted ? 0 : -def.depth / 2;
-      if (local.x >= -def.width / 2 - 30 && local.x <= def.width / 2 + 30 && local.y >= y0 - 30 && local.y <= y0 + def.depth + 30) {
-        this.store.select({ kind: "symbol", id: sym.id });
-        this.drag = { kind: "symbol", id: sym.id, startWorld: w, moved: false };
-        return;
-      }
+    const symHit = this.symbolAt(w);
+    if (symHit) {
+      this.store.select({ kind: "symbol", id: symHit.id });
+      this.drag = { kind: "symbol", id: symHit.id, startWorld: w, moved: false };
+      return;
     }
     // Openings (near their centerline center).
     for (const rw of res.walls.values()) {
@@ -360,6 +358,26 @@ export class Tools {
     }
     this.store.select(null);
     this.drag = { kind: "pan", startWorld: w, moved: false, lastScreen: s };
+  }
+
+  /** Topmost placed symbol whose footprint (plus a 30 mm grab margin) covers `w`. */
+  private symbolAt(w: Vec): SymbolInstance | undefined {
+    const f = this.floor;
+    for (let i = f.symbols.length - 1; i >= 0; i--) {
+      const sym = f.symbols[i]!;
+      const def = getSymbol(sym.type);
+      if (!def) continue;
+      const local = this.toLocal(w, sym.x, sym.y, sym.rotation, !!sym.mirrored); // inverse transform
+      const y0 = def.wallMounted ? 0 : -def.depth / 2;
+      if (local.x >= -def.width / 2 - 30 && local.x <= def.width / 2 + 30 && local.y >= y0 - 30 && local.y <= y0 + def.depth + 30)
+        return sym;
+    }
+    return undefined;
+  }
+
+  /** Where a symbol's name label points: the centre of its footprint. */
+  private symbolLabelPoint(sym: SymbolInstance, def: SymbolDef): Vec {
+    return add(v(sym.x, sym.y), fromAngleRot(v(0, def.wallMounted ? def.depth / 2 : 0), sym.rotation));
   }
 
   private toLocal(p: Vec, x: number, y: number, rot: number, mirrored: boolean): Vec {
@@ -604,7 +622,7 @@ export class Tools {
       case "door": this.hint = t("hint.door"); break;
       case "window": this.hint = t("hint.window"); break;
       case "passage": this.hint = t("hint.passage"); break;
-      case "symbol": this.hint = t("hint.symbol", { label: getSymbol(this.symbolType)?.label ?? this.symbolType }); break;
+      case "symbol": this.hint = t("hint.symbol", { label: getSymbol(this.symbolType) ? t("symbol." + this.symbolType) : this.symbolType }); break;
     }
   }
 
@@ -690,8 +708,17 @@ export class Tools {
         const wall = f.walls.find(x => x.id === selDim.id);
         if (wall) this.drawDimension(ctx, vp, px, wall, true);
       }
-      // Bow handle for selected wall.
       const sel = this.store.sel;
+      // Name the symbol under the cursor, and the selected one — a placed
+      // symbol is otherwise an unlabelled line drawing.
+      const namedId = this.hoverSymbol ?? (sel?.kind === "symbol" ? sel.id : null);
+      if (namedId) {
+        const sym = f.symbols.find(x => x.id === namedId);
+        const def = sym && getSymbol(sym.type);
+        if (sym && def) drawLabel(ctx, vp, this.symbolLabelPoint(sym, def), def.label, COLORS.symbol);
+      }
+
+      // Bow handle for selected wall.
       if (sel?.kind === "wall" && this.lengthBuffer) {
         const wall = f.walls.find(x => x.id === sel.id);
         if (wall) {

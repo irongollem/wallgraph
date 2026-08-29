@@ -2,13 +2,14 @@
 import { Store } from "../model/store";
 import { Tools, ToolName } from "../input/tools";
 import { clampOpening, wallLength, deleteWall } from "../model/ops";
-import { SYMBOLS, CATEGORIES, SymbolDef } from "../render/symbols";
+import { SYMBOLS, CATEGORIES, SymbolDef, getSymbol } from "../render/symbols";
 import { sagittaFromBulge, bulgeFromSagitta } from "../geometry/arc";
 import { v, norm, sub, add, scale } from "../geometry/vec";
 import { exportJson, copyJson, importJsonFile, parseDoc, clearAutosave } from "../io/json";
+import { exportPng } from "../io/image";
 import { seedDoc } from "../seed";
 import { emptyDoc } from "../model/doc";
-import { t, language, changeLanguage, LANGUAGES, on as onI18n, type Lang } from "../i18n";
+import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
 
 export class Panel {
   private toolbar: HTMLElement;
@@ -61,11 +62,11 @@ export class Panel {
 
     const iconBtn = (def: SymbolDef): HTMLButtonElement => {
       const b = el("button", "sym-icon") as HTMLButtonElement;
-      b.title = def.label;
+      b.title = t("symbol." + def.type);
       if (this.tools.tool === "symbol" && this.tools.symbolType === def.type) b.classList.add("active");
       const cv = el("canvas") as HTMLCanvasElement;
       cv.width = 112; cv.height = 112;
-      b.append(cv, Object.assign(el("span"), { textContent: def.label }));
+      b.append(cv, Object.assign(el("span"), { textContent: t("symbol." + def.type) }));
       const ctx = cv.getContext("2d")!;
       ctx.scale(2, 2); // crisp on hidpi
       const pad = 7;
@@ -92,7 +93,7 @@ export class Panel {
       const q = this.searchQ.trim().toLowerCase();
       if (q) {
         const grid = el("div", "sym-grid");
-        for (const def of SYMBOLS.filter(x => x.label.toLowerCase().includes(q) || x.type.includes(q)))
+        for (const def of SYMBOLS.filter(x => matches(x, q)))
           grid.append(iconBtn(def));
         grids.append(grid);
         return;
@@ -130,12 +131,22 @@ export class Panel {
       act(t("action.demo"), t("action.demoTitle"), () => { this.store.replace(seedDoc(), true); this.flash(t("status.demoLoaded")); }),
       act(t("action.save"), t("action.saveTitle"), () => { void exportJson(this.store.doc); }),
       act(t("action.copy"), t("action.copyTitle"), () => { void copyJson(this.store.doc).then(ok => this.flash(ok ? t("status.copied") : t("status.copyFailed"))); }),
+      act(t("action.png"), t("action.pngTitle"), () => { void this.savePng(); }),
       act(t("action.open"), t("action.openTitle"), () => importJsonFile(
         doc => { this.store.replace(doc, true); this.flash(t("status.planLoaded")); },
         () => this.flash(t("status.invalidFile")),
       )),
       act(t("action.paste"), t("action.pasteTitle"), () => this.pasteDialog()),
     );
+  }
+
+  /** Keys spelled out rather than built from the result, so they stay greppable. */
+  private async savePng(): Promise<void> {
+    const result = await exportPng(this.store.doc);
+    this.flash(t(result === "saved" ? "status.pngSaved"
+      : result === "copied" ? "status.pngCopied"
+      : result === "empty" ? "status.pngEmpty"
+      : "status.pngFailed"));
   }
 
   private pasteDialog(): void {
@@ -307,7 +318,7 @@ export class Panel {
     if (sel.kind === "symbol") {
       const s = f.symbols.find(x => x.id === sel.id);
       if (!s) return;
-      title(t("panel.symbol", { type: s.type }));
+      title(t("panel.symbol", { type: getSymbol(s.type)?.label ?? s.type }));
       numRow(t("panel.rotation"), (s.rotation * 180) / Math.PI, n => this.store.mutate(d => {
         const s2 = d.floors[0]!.symbols.find(x => x.id === sel.id);
         if (s2) s2.rotation = (n * Math.PI) / 180;
@@ -335,6 +346,13 @@ export class Panel {
       btnRow(t("panel.deleteWithWalls"), () => this.tools.deleteSelected());
     }
   }
+}
+
+/** True when the query matches the symbol's name in ANY language, or its id. */
+function matches(def: SymbolDef, q: string): boolean {
+  return allTranslations("symbol." + def.type).some(n => n.toLowerCase().includes(q))
+      || def.label.toLowerCase().includes(q)
+      || def.type.includes(q);
 }
 
 function dist2(a: { x: number; y: number }, b: { x: number; y: number }): number {

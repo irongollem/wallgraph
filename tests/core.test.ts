@@ -5,6 +5,7 @@ import { resolveFloor } from "../src/core/resolve";
 import { arcInfo, arcLength, arcPointAt, arcTangentAt, arcFlatten, bulgeFromSagitta } from "../src/geometry/arc";
 import { v, dist } from "../src/geometry/vec";
 import { gridSteps, MIN_GRID_PX } from "../src/render/grid";
+import { planBounds, scaleBarMm } from "../src/io/image";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ""): void {
@@ -157,6 +158,41 @@ function rectFloor(wallTh = 100) {
   check("fine grid drawn as-is when it fits", zoomedIn.minor === 50 && !zoomedIn.stepped);
   check("minor and major never coincide", gridSteps(50, 0.005).major > gridSteps(50, 0.005).minor);
   check("degenerate zoom falls back to gridMm", gridSteps(50, 0).minor === 50);
+}
+
+// --- PNG export framing ---
+{
+  const f = rectFloor(300);   // 4000 x 3000 centerlines, 300mm walls
+  const res = resolveFloor(f);
+  const b = planBounds(f, res)!;
+  // Outer faces, not centerlines: a 300mm wall sticks 150mm past each corner,
+  // so cropping to node bounds would slice the exterior walls in half.
+  check("bounds cover wall outer faces",
+    near(b.min.x, -150, 1) && near(b.min.y, -150, 1) && near(b.max.x, 4150, 1) && near(b.max.y, 3150, 1),
+    JSON.stringify(b));
+
+  // A symbol inside the shell must not inflate the frame — a too-generous
+  // reach per symbol silently pads the exported image with empty paper.
+  f.symbols.push({ id: newId("s"), type: "bath", x: 2000, y: 1500, rotation: 0 });
+  const bIn = planBounds(f, res)!;
+  check("interior symbol does not grow the frame",
+    bIn.min.x === b.min.x && bIn.min.y === b.min.y && bIn.max.x === b.max.x && bIn.max.y === b.max.y,
+    JSON.stringify(bIn));
+
+  // One outside it has to pull the frame out with it.
+  f.symbols.push({ id: newId("s"), type: "bath", x: 5000, y: 1500, rotation: 0 });
+  const b2 = planBounds(f, res)!;
+  check("bounds cover symbols outside the walls", b2.max.x > 5000, String(b2.max.x));
+
+  check("empty floor has no bounds",
+    planBounds({ id: "f", name: "", nodes: [], walls: [], symbols: [] }, { walls: new Map() }) === null);
+
+  // The bar is a round metric length that stays inside a quarter of the image.
+  for (const [pxPerMm, w] of [[0.12, 1200], [0.02, 1200], [0.5, 800]] as const) {
+    const mm = scaleBarMm(pxPerMm, w);
+    check(`scale bar ${mm}mm fits at ${pxPerMm}px/mm`, mm * pxPerMm <= w * 0.25, String(mm * pxPerMm));
+    check(`scale bar ${mm}mm is a round length`, [100, 200, 500, 1000, 2000, 5000, 10000].includes(mm));
+  }
 }
 
 console.log(failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURES`);

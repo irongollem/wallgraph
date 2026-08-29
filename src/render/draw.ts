@@ -29,6 +29,8 @@ export const COLORS = {
 
 export interface DrawExtras {
   hoverSnap?: Vec | null;
+  /** False for exports: no grid, and no legend describing one. */
+  showGrid?: boolean;
   preview?: ((ctx: CanvasRenderingContext2D, vp: Viewport) => void) | null;
 }
 
@@ -41,7 +43,7 @@ export function drawScene(
   ctx.fillStyle = COLORS.bg;
   ctx.fillRect(0, 0, canvasW, canvasH);
 
-  const steps = drawGrid(ctx, vp, canvasW, canvasH, gridMm);
+  const steps = extras.showGrid === false ? null : drawGrid(ctx, vp, canvasW, canvasH, gridMm);
 
   // World-space transform.
   ctx.save();
@@ -99,7 +101,7 @@ export function drawScene(
     ctx.stroke();
   }
 
-  drawGridLegend(ctx, canvasH, gridMm, steps);
+  if (steps) drawGridLegend(ctx, canvasH, gridMm, steps);
 
   // Selected node handle & wall handles drawn by tools layer via preview.
   ctx.restore();

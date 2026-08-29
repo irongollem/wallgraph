@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "test": "tsx tests/core.test.ts && tsx tests/i18n.test.ts",
     "check": "npm run typecheck && npm test",
-    "assets": "rsvg-convert -w 1200 -h 630 assets/og.svg -o assets/og.png && magick assets/og.png -strip -colors 64 PNG8:assets/og.png",
+    "assets": "rsvg-convert -w 1200 -h 630 assets/og.svg -o assets/og.png && magick assets/og.png -strip -colors 64 PNG8:assets/og.png && magick assets/icon.png -resize 32x32 -strip assets/favicon-32.png && magick assets/icon.png -resize 180x180 -background none -strip assets/apple-touch-icon.png && magick assets/icon.png -define icon:auto-resize=48,32,16 assets/favicon.ico",
     "check:bundle": "node scripts/check-selfcontained.mjs"
   },
   "devDependencies": {

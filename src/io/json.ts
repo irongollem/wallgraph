@@ -2,6 +2,7 @@
 // File downloads are sandboxed away in some hosted contexts, so clipboard
 // copy/paste of the document JSON is always offered as a fallback.
 import { PlanDoc } from "../model/doc";
+import { saveViaHost, downloadBlob } from "./save";
 
 const KEY = "floorplan-doc-v1";
 
@@ -27,31 +28,12 @@ export function clearAutosave(): void {
   try { localStorage.removeItem(KEY); } catch { /* ignore */ }
 }
 
-// In the hosted-artifact runtime the page saves through the platform's
-// downloads capability (viewer sees a confirmation); elsewhere a plain
-// download link works. Clipboard copy is the universal fallback.
-type ClaudeUse = { use(name: string): Promise<{ save(r: { filename: string; data: string }): Promise<unknown> } | null> };
-
 export async function exportJson(doc: PlanDoc): Promise<void> {
   const json = JSON.stringify(doc, null, 2);
-  const claude = (window as unknown as { claude?: ClaudeUse }).claude;
-  if (claude?.use) {
-    try {
-      const downloads = await claude.use("downloads");
-      if (downloads) {
-        await downloads.save({ filename: "floorplan.json", data: json });
-        return;
-      }
-    } catch { /* declined or unavailable -> fall through */ }
-  }
-  try {
-    const blob = new Blob([json], { type: "application/json" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "floorplan.json";
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  } catch { /* fall through to clipboard */ }
+  if (await saveViaHost("floorplan.json", () => json)) return;
+  downloadBlob("floorplan.json", new Blob([json], { type: "application/json" }));
+  // Deliberately unconditional: a sandboxed frame swallows the download click
+  // without throwing, and the clipboard is the one channel that always works.
   void copyJson(doc);
 }
 
