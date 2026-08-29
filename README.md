@@ -66,7 +66,7 @@ with other inputs.
 
 ## Layout
 
-```
+```text
 src/geometry   vectors, bulge arcs
 src/model      document schema, store/undo, graph ops (split/merge/clamp)
 src/core       derived geometry: mitered wall outlines, room detection
@@ -90,3 +90,10 @@ under the AGPL too.
 Wallgraph in a closed-source product or offer it as a hosted service without
 publishing your changes — open an issue to start the conversation. As sole copyright
 holder I can grant separate commercial terms.
+
+## Contributing
+
+Pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Because Wallgraph
+is dual-licensed, contributors sign a one-time [CLA](CLA.md) before their first merge.
+You keep the copyright to your work; the CLA grants a non-exclusive right to license
+it, which is what keeps the commercial option open.

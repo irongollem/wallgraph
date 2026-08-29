@@ -1,0 +1,7 @@
+{
+  "_comment": "Contributors who have signed the Wallgraph CLA (see /CLA.md). Add entries only by merging a signing pull request; the CLA check reads this file from the default branch, so a pull request cannot approve its own author.",
+  "cla_version": "1.0",
+  "signatures": [
+    { "username": "irongollem", "name": "Jeffrey Ernst", "date": "2026-08-29", "note": "Maintainer and copyright holder" }
+  ]
+}

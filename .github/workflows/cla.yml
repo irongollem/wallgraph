@@ -1,0 +1,92 @@
+name: CLA
+
+# Runs on pull_request_target so the signature list is always read from the DEFAULT
+# BRANCH, never from the pull request. That is the whole security property: a
+# contributor cannot approve themselves by adding their own name in the same pull
+# request. It also means no pull-request code is ever checked out or executed here.
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      # Default ref for pull_request_target is the base branch. Do NOT add `ref:` —
+      # checking out the pull request head would defeat the check above.
+      - uses: actions/checkout@v4
+
+      - name: Verify the author has signed the CLA
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const pr = context.payload.pull_request;
+            const author = pr.user.login;
+
+            if (pr.user.type === 'Bot' || author.endsWith('[bot]')) {
+              core.info(`${author} is a bot — skipping CLA check.`);
+              return;
+            }
+
+            const registry = JSON.parse(
+              fs.readFileSync('.github/cla-signatures.json', 'utf8')
+            );
+            const signed = registry.signatures.some(
+              s => s.username.toLowerCase() === author.toLowerCase()
+            );
+
+            if (signed) {
+              core.info(`${author} has signed the CLA (v${registry.cla_version}).`);
+              await core.summary
+                .addRaw(`✅ **@${author}** has signed the Wallgraph CLA v${registry.cla_version}.`)
+                .write();
+              return;
+            }
+
+            const marker = '<!-- wallgraph-cla-check -->';
+            const body = [
+              marker,
+              `### ✍️ CLA signature required`,
+              ``,
+              `Hi @${author} — thanks for the pull request! Wallgraph is dual-licensed`,
+              `(AGPL-3.0 publicly, commercial terms on request), so every contributor`,
+              `signs a short CLA before their work can be merged. It is a one-time step`,
+              `that covers all your future contributions, and you keep the copyright to`,
+              `your own work.`,
+              ``,
+              `**To sign:** read [CLA.md](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/CLA.md),`,
+              `then open a separate pull request adding yourself to`,
+              `[\`.github/cla-signatures.json\`](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/.github/cla-signatures.json):`,
+              ``,
+              '```json',
+              `{ "username": "${author}", "name": "Your Full Name", "date": "${new Date().toISOString().slice(0, 10)}" }`,
+              '```',
+              ``,
+              `Title it \`CLA: sign for @${author}\` and include the agreement sentence from`,
+              `CLA.md in the description. Once it is merged, re-run this check and your`,
+              `pull requests will pass.`,
+              ``,
+              `If you are contributing on behalf of an employer, they should also execute`,
+              `the [Corporate CLA](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/CLA-CORPORATE.md).`,
+            ].join('\n');
+
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              { ...context.repo, issue_number: pr.number }
+            );
+            const existing = comments.find(c => c.body.includes(marker));
+            if (!existing) {
+              await github.rest.issues.createComment({
+                ...context.repo, issue_number: pr.number, body,
+              });
+            }
+
+            core.setFailed(
+              `@${author} has not signed the Wallgraph CLA. See the comment on this pull request.`
+            );

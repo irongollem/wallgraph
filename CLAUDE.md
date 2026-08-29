@@ -1,7 +1,11 @@
 # Wallgraph — working notes for Claude
 
 A browser-based, mm-exact floorplan editor. Vanilla TypeScript, canvas rendering,
-**zero runtime dependencies**. `esbuild` + `typescript` are the only devDeps.
+**zero runtime dependencies** — `typescript`, `esbuild`, `tsx` and `@types/node` are
+dev-only and never reach the bundle.
+
+Licensed AGPL-3.0-only with commercial terms available, which makes the dependency count
+and the [CLA](CLA.md) load-bearing rather than cosmetic — see *Licensing constraint* below.
 
 Read [PLAN.md](PLAN.md) for the full architecture rationale and roadmap; this file is the
 operational summary — the invariants you must not break and the commands that verify it.
@@ -69,7 +73,7 @@ extrudes directly from the graph.
 
 ## Layout
 
-```
+```text
 src/geometry/  vec.ts    2D math, polygon area/centroid, line + segment helpers
                arc.ts    bulge arcs: info, length, point/tangent at t, flatten, sagitta
 src/model/     doc.ts    document schema + defaults + id generation
@@ -160,7 +164,7 @@ The `draw(ctx)` contract in [defs.ts](src/render/symbols/defs.ts) is strict:
 ## Licensing constraint
 
 Wallgraph is **AGPL-3.0-only**, dual-licensed — Jeffrey Ernst is sole copyright holder and
-sells commercial exceptions. Two consequences for changes here:
+sells commercial exceptions. Three consequences for changes here:
 
 - **Keep the runtime dependency count at zero.** It's not just a size goal any more: every
   vendored or npm runtime dependency adds a copyright holder, which erodes the ability to
@@ -168,6 +172,13 @@ sells commercial exceptions. Two consequences for changes here:
   are fine — they don't ship in `dist/index.html`.
 - **Don't paste in code from other projects** without checking its licence. AGPL-incompatible
   or unattributed code would have to be torn out later.
+- **Every outside contributor signs the [CLA](CLA.md) before their first merge**, recorded in
+  [`.github/cla-signatures.json`](.github/cla-signatures.json) and enforced by
+  `.github/workflows/cla.yml`. Never merge an unsigned pull request, and never add a name to
+  that file except by merging that contributor's own signing pull request — the check reads
+  the file from the default branch precisely so a PR cannot approve its own author.
+  Employed contributors also need the [Corporate CLA](CLA-CORPORATE.md), since their
+  employer usually owns the copyright.
 
 ## Deliberate P0 cuts
 
