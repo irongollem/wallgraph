@@ -7,6 +7,7 @@ import { sagittaFromBulge, bulgeFromSagitta } from "../geometry/arc";
 import { v, norm, sub, add, scale } from "../geometry/vec";
 import { exportJson, copyJson, importJsonFile, parseDoc, clearAutosave } from "../io/json";
 import { exportPng } from "../io/image";
+import { exportDxf } from "../io/dxf";
 import { seedDoc } from "../seed";
 import { emptyDoc, areaModeOf, sashesOf, windowKindOf, WINDOW_KINDS, doorKindOf, DOOR_KINDS, type AreaMode, type Sash, type HingeEdge, type Opening, type Wall } from "../model/doc";
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
@@ -186,6 +187,7 @@ export class Panel {
       { kind: "sep" },
       { kind: "item", icon: "docSave", label: t("action.save"), hint: "JSON", onPick: () => { void exportJson(this.store.doc); } },
       { kind: "item", icon: "docPng", label: t("action.png"), hint: "PNG", onPick: () => { void this.savePng(); } },
+      { kind: "item", icon: "docDxf", label: t("action.dxf"), hint: "DXF", onPick: () => { void this.saveDxf(); } },
       { kind: "item", icon: "docCopy", label: t("action.copy"), onPick: () => {
         void copyJson(this.store.doc).then(ok => this.flash(ok ? t("status.copied") : t("status.copyFailed")));
       } },
@@ -204,6 +206,14 @@ export class Panel {
       : result === "copied" ? "status.pngCopied"
       : result === "empty" ? "status.pngEmpty"
       : "status.pngFailed"));
+  }
+
+  /** CAD export. Same shape as savePng: one flash, keys spelled out. */
+  private async saveDxf(): Promise<void> {
+    const result = await exportDxf(this.store.doc, this.store.activeFloor);
+    this.flash(t(result === "saved" ? "status.dxfSaved"
+      : result === "empty" ? "status.dxfEmpty"
+      : "status.dxfFailed"));
   }
 
   /**

@@ -29,7 +29,7 @@ export type IconName =
   | "gridSnap" | "angleSnap" | "dimensions"
   | "undo" | "redo" | "dots" | "chevron" | "plus" | "minus" | "close"
   | "trash" | "search" | "floors"
-  | "docNew" | "docDemo" | "docOpen" | "docSave" | "docPng" | "docCopy" | "docPaste";
+  | "docNew" | "docDemo" | "docOpen" | "docSave" | "docPng" | "docDxf" | "docCopy" | "docPaste";
 
 const ICONS: Record<IconName, Shape[]> = {
   select: [P("M5.5 3.2 L5.5 15.4 L8.7 12.4 L10.9 17 L13.2 16 L11 11.4 L15.2 11.2 Z")],
@@ -74,6 +74,13 @@ const ICONS: Record<IconName, Shape[]> = {
     R(3.4, 5, 13.2, 10, 1.2),
     P("M3.4 12.4 L7.4 8.6 L10.6 11.6 L12.8 9.8 L16.6 13.4"),
     C(12.9, 8.1, 1.1, true),
+  ],
+  // Geometry rather than a picture: a wall corner, an arc, and a dimension line
+  // with ticks -- what a CAD file carries that a PNG does not.
+  docDxf: [
+    P("M3.4 4 V13.4 H12.8"),
+    P("M12.8 13.4 A9.4 9.4 0 0 0 3.4 4"),
+    P("M3.4 16.6 H16.6 M3.4 15.4 V17.8 M16.6 15.4 V17.8"),
   ],
   docCopy: [
     R(7.4, 7.4, 9.2, 9.2, 1.4),
