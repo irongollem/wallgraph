@@ -114,8 +114,8 @@ export without knowing about either.
 - [x] more symbols — kitchen and furniture landed; 74 in total
 - [ ] SVG export — needs a second renderer; `drawScene` is canvas-only today
 - [ ] DXF export — the wall graph maps almost directly onto LINE/ARC entities
-- [ ] multi-floor with ghost underlay — the schema already has `floors[]`; the
-      blocker is `Store.floor` hard-coding `doc.floors[0]`
+- [x] multi-floor with ghost underlay — `Store.activeFloor` with add/duplicate/
+      rename/delete; the storey below draws as a non-selectable underlay
 - [ ] dimension *chains* — only single-wall dimensions so far
 
 **P2 — not started.** Trace-over-image underlay with scale calibration, share links
