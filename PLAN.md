@@ -88,24 +88,64 @@ construction. Moving a wall moves its doors. `t` is clamped so jambs stay on the
   (In the hosted-artifact build, file downloads are sandboxed away, so it also offers
   copy-to-clipboard / paste-JSON.)
 
-## Symbol library (`src/render/symbols.ts`)
+## Symbol library (`src/render/symbols/`)
 
-Standard plan symbols, drawn in mm units against a fixed interface
-(`{ type, label, category, wallMounted, width, depth, draw(ctx) }`):
-electrical — single/double socket, switch, ceiling light point; sanitary — toilet,
-sink, bath, shower; heating — radiator. Extending the library = adding one entry.
+74 standard plan symbols, drawn in mm units against a fixed interface
+(`{ type, label, category, wallMounted, width, depth, draw(ctx) }`), one file per
+category and aggregated by `index.ts`: electrical (23), safety (12), sanitary (9),
+water (9), furniture (8), heating (7), kitchen (6). Extending the library = adding
+one entry, plus its name in both languages (a test fails otherwise).
+
+The `draw(ctx)` contract is deliberately narrow — 1 unit = 1 mm, the caller owns
+colour, no text — so symbols compose with selection highlighting and the PNG
+export without knowing about either.
 
 ## Phases
 
-- **P0 (this prototype)**: everything above, single floor.
-- **P1**: dimension-line layer + wall chains, net room areas, PNG/SVG export at true
-  scale, DXF export, multi-floor with ghost underlay, more symbols (kitchen, furniture).
-- **P2**: trace-over-image underlay with scale calibration, share links (one Postgres
-  table), 3D extrusion view (Three.js — the wall graph extrudes directly).
-- **P3**: polish for a public free service — static hosting (≈ €0), optional accounts
-  only if sharing demands it.
+**P0 — done.** Everything above, single floor.
 
-## Known cuts in P0 (deliberate)
+**P1 — in progress.**
+
+- [x] dimension-line layer — clickable mm pills, `L` toggles all-walls, and both
+      distances to the wall ends while placing on a wall
+- [x] net room areas — inner-face polygons per wall thickness, and the document
+      records *which* convention its numbers mean (see Measurement below)
+- [x] PNG export at true scale, with a scale bar
+- [x] more symbols — kitchen and furniture landed; 74 in total
+- [ ] SVG export — needs a second renderer; `drawScene` is canvas-only today
+- [ ] DXF export — the wall graph maps almost directly onto LINE/ARC entities
+- [ ] multi-floor with ghost underlay — the schema already has `floors[]`; the
+      blocker is `Store.floor` hard-coding `doc.floors[0]`
+- [ ] dimension *chains* — only single-wall dimensions so far
+
+**P2 — not started.** Trace-over-image underlay with scale calibration, share links
+(one Postgres table), 3D extrusion view (Three.js — the wall graph extrudes directly).
+
+**P3 — hosting already met, ahead of order.** Live at
+[plattegrond.crocode.nl](https://plattegrond.crocode.nl) on static hosting at ≈ €0,
+deploying from `main`. Optional accounts only if sharing demands it.
+
+## Measurement conventions
+
+Plans are dimensioned both ways and the gap is not small: a 4×3 m room with 300 mm
+walls is 12.00 m² hart-op-hart but 9.99 m² net. So every reported figure names its
+basis rather than leaving a reader to guess.
+
+- `PlanDoc.areaMode` is `"net"` (NEN 2580, inner faces) by default, or `"centerline"`.
+  The canvas legend states which is in force; the Plan panel switches it.
+- A wall shows its centerline length as an editable field and its clear span
+  (dagmaat) read-only beside it. Editing stays on the centerline — that is what the
+  document stores, and a clear span has no single solution for which end moves.
+
+## Known cuts (deliberate)
 
 Sloped/thick-varying walls, wall-to-arc exact miters (tangent approximation instead),
-net room area, stairs, mobile/touch UX, i18n.
+stairs, mobile/touch UX.
+
+*Closed since P0:* net room area, i18n (Dutch/English, Dutch by default).
+
+## Beyond the plan
+
+Shipped because publishing demanded it, not because the roadmap asked: AGPL-3.0
+with a CLA and automated enforcement, CI, a versioned release workflow, social
+preview and icons, and the deployment itself.

@@ -1,8 +1,19 @@
 # Wallgraph
 
+[![CI](https://github.com/irongollem/wallgraph/actions/workflows/ci.yml/badge.svg)](https://github.com/irongollem/wallgraph/actions/workflows/ci.yml)
+[![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+[![Runtime dependencies](https://img.shields.io/badge/runtime%20deps-0-brightgreen.svg)](package.json)
+[![Live](https://img.shields.io/badge/live-plattegrond.crocode.nl-e05d2d.svg)](https://plattegrond.crocode.nl)
+
 A free, browser-based floorplan editor. mm-exact, wall-graph based, zero dependencies at runtime.
 
-See [PLAN.md](PLAN.md) for the architecture and roadmap.
+**→ Try it: [plattegrond.crocode.nl](https://plattegrond.crocode.nl)** — no account, nothing to install.
+
+`npm run build` puts the whole editor in a single `dist/index.html` you can open offline or
+host anywhere static; releases attach that same file as a download.
+
+See [PLAN.md](PLAN.md) for the architecture and roadmap, and
+[CONTRIBUTING.md](CONTRIBUTING.md) if you want to send a patch.
 
 ## Develop
 
