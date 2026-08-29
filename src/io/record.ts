@@ -15,7 +15,8 @@ import { Vec } from "../geometry/vec";
 export type Prim =
   | { kind: "line"; a: Vec; b: Vec }
   | { kind: "poly"; pts: Vec[]; closed: boolean }
-  | { kind: "arc"; c: Vec; r: number; start: number; end: number };
+  /** Angles in degrees, document (y-down) space; sweep is signed and short-way. */
+  | { kind: "arc"; c: Vec; r: number; start: number; sweep: number };
 
 /** 2x3 affine transform, same layout as canvas: [a c e; b d f]. */
 interface M { a: number; b: number; c: number; d: number; e: number; f: number }

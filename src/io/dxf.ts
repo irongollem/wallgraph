@@ -16,12 +16,13 @@
 // context (see recordSymbol) because the library draws them with canvas calls;
 // their arcs flatten to polylines, which is exact enough at symbol scale and
 // avoids guessing how a mirrored, rotated transform maps onto an ARC.
-import { PlanDoc, Floor, Opening, sashesOf, areaModeOf } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf } from "../model/doc";
 import { Vec } from "../geometry/vec";
-import { resolveFloor, ResolvedWall } from "../core/resolve";
+import { resolveFloor } from "../core/resolve";
 import { detectRooms } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
 import { recordSymbol, Prim } from "./record";
+import { openingMarks } from "./marks";
 import { saveViaHost, downloadBlob } from "./save";
 
 export type DxfResult = "saved" | "empty" | "failed";
@@ -182,7 +183,7 @@ function emitPrims(w: DxfWriter, layer: string, prims: Prim[]): void {
   for (const p of prims) {
     if (p.kind === "line") w.line(layer, p.a, p.b);
     else if (p.kind === "poly") w.polyline(layer, p.pts, p.closed);
-    else w.arc(layer, p.c, p.r, p.start, p.end - p.start);
+    else w.arc(layer, p.c, p.r, p.start, p.sweep);
   }
 }
 
@@ -203,7 +204,7 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
     }
     for (const j of resolved.junctions) w.polyline(LAYER.walls, j.poly, true);
 
-    for (const rw of resolved.walls.values()) emitOpenings(w, rw);
+    for (const rw of resolved.walls.values()) emitPrims(w, LAYER.openings, openingMarks(rw));
 
     // Symbols, replayed through the recorder at their placed transform.
     for (const s of floor.symbols) {
@@ -221,55 +222,6 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
     }
   });
   return w.finish();
-}
-
-/**
- * Opening marks. Only the geometry a plan actually shows: jamb lines for every
- * opening, and the swing arc plus leaf for a hinged sash. The arcs go out as
- * real ARC entities, which is the point of exporting to CAD rather than an
- * image.
- */
-function emitOpenings(w: DxfWriter, rw: ResolvedWall): void {
-  for (const og of rw.openings) {
-    const o: Opening = og.opening;
-    const h = og.half;
-    // Jambs: a line across the wall at each end of the hole.
-    w.line(LAYER.openings,
-      { x: og.p0.x + og.n0.x * -h, y: og.p0.y + og.n0.y * -h },
-      { x: og.p0.x + og.n0.x * h, y: og.p0.y + og.n0.y * h });
-    w.line(LAYER.openings,
-      { x: og.p1.x + og.n1.x * -h, y: og.p1.y + og.n1.y * -h },
-      { x: og.p1.x + og.n1.x * h, y: og.p1.y + og.n1.y * h });
-
-    const span = Math.hypot(og.p1.x - og.p0.x, og.p1.y - og.p0.y);
-    if (span <= 1) continue;
-    const along = { x: (og.p1.x - og.p0.x) / span, y: (og.p1.y - og.p0.y) / span };
-    let cursor = 0;
-    for (const sash of sashesOf(o, span)) {
-      const a = { x: og.p0.x + along.x * cursor, y: og.p0.y + along.y * cursor };
-      const b = { x: og.p0.x + along.x * (cursor + sash.width), y: og.p0.y + along.y * (cursor + sash.width) };
-      cursor += sash.width;
-      const swings = sash.action === "turn" || sash.action === "turn-tilt"
-        || sash.action === "turn-slide" || sash.action === "double-acting";
-      if (!swings || sash.width <= 1) continue;
-      const hingeAtA = (sash.hinge ?? "a") !== "b";
-      const hinge = hingeAtA ? a : b;
-      const other = hingeAtA ? b : a;
-      const dir = { x: (other.x - hinge.x) / sash.width, y: (other.y - hinge.y) / sash.width };
-      // perp() is (x,y) -> (-y,x); outward flips it.
-      const sign = sash.outward === true ? -1 : 1;
-      const swing = { x: -dir.y * sign, y: dir.x * sign };
-      const tip = { x: hinge.x + swing.x * sash.width, y: hinge.y + swing.y * sash.width };
-      w.line(LAYER.openings, hinge, tip);
-      const start = Math.atan2(other.y - hinge.y, other.x - hinge.x) * 180 / Math.PI;
-      const end = Math.atan2(tip.y - hinge.y, tip.x - hinge.x) * 180 / Math.PI;
-      // Short way round, matching drawDoorLeaf — a door swings 90 degrees, not 270.
-      let sweep = end - start;
-      while (sweep > 180) sweep -= 360;
-      while (sweep < -180) sweep += 360;
-      w.arc(LAYER.openings, hinge, sash.width, start, sweep);
-    }
-  }
 }
 
 const FILENAME = "floorplan.dxf";

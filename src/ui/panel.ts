@@ -8,9 +8,11 @@ import { v, norm, sub, add, scale } from "../geometry/vec";
 import { exportJson, copyJson, importJsonFile, parseDoc, clearAutosave } from "../io/json";
 import { exportPng } from "../io/image";
 import { exportDxf } from "../io/dxf";
+import { exportSvg } from "../io/svg";
 import { seedDoc } from "../seed";
 import { emptyDoc, areaModeOf, sashesOf, windowKindOf, WINDOW_KINDS, doorKindOf, DOOR_KINDS, type AreaMode, type Sash, type HingeEdge, type Opening, type Wall } from "../model/doc";
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
+import { COLORS, INKS } from "../render/draw";
 import { icon, type IconName } from "./icons";
 import { openMenu, type MenuEntry } from "./menu";
 import { Palette } from "./palette";
@@ -187,6 +189,7 @@ export class Panel {
       { kind: "sep" },
       { kind: "item", icon: "docSave", label: t("action.save"), hint: "JSON", onPick: () => { void exportJson(this.store.doc); } },
       { kind: "item", icon: "docPng", label: t("action.png"), hint: "PNG", onPick: () => { void this.savePng(); } },
+      { kind: "item", icon: "docSvg", label: t("action.svg"), hint: "SVG", onPick: () => { void this.saveSvg(); } },
       { kind: "item", icon: "docDxf", label: t("action.dxf"), hint: "DXF", onPick: () => { void this.saveDxf(); } },
       { kind: "item", icon: "docCopy", label: t("action.copy"), onPick: () => {
         void copyJson(this.store.doc).then(ok => this.flash(ok ? t("status.copied") : t("status.copyFailed")));
@@ -206,6 +209,14 @@ export class Panel {
       : result === "copied" ? "status.pngCopied"
       : result === "empty" ? "status.pngEmpty"
       : "status.pngFailed"));
+  }
+
+  /** Vector artwork. Same shape as savePng: one flash, keys spelled out. */
+  private async saveSvg(): Promise<void> {
+    const result = await exportSvg(this.store.doc, this.store.activeFloor);
+    this.flash(t(result === "saved" ? "status.svgSaved"
+      : result === "empty" ? "status.svgEmpty"
+      : "status.svgFailed"));
   }
 
   /** CAD export. Same shape as savePng: one flash, keys spelled out. */
@@ -273,6 +284,7 @@ export class Panel {
       this.renderProps(this.props);
     }
     this.palette.syncActive();
+    this.palette.syncInk();
   }
 
   /**
@@ -524,12 +536,57 @@ export class Panel {
     const noteRow = (text: string): void => {
       p.append(Object.assign(el("div", "prop-note"), { textContent: text }));
     };
+    /**
+     * Colour picker: the convention's pens as swatches plus a free one. Chips
+     * rather than a <select>, because the value IS a colour — naming it in a
+     * dropdown puts a word between the user and the thing they are choosing.
+     * `null` is the default ink and is stored as no colour at all.
+     */
+    const colorRow = (label: string, value: string | null, onCommit: (hex: string | null) => void): void => {
+      const row = el("div", "prop-row");
+      row.append(Object.assign(el("span"), { textContent: label }));
+      const chips = el("div", "ink-row");
+      for (const ink of INKS) {
+        const b = el("button", "ink") as HTMLButtonElement;
+        b.type = "button";
+        const name = t("panel.ink" + ink.id[0]!.toUpperCase() + ink.id.slice(1));
+        b.title = name;
+        b.setAttribute("aria-label", name);
+        const on = ink.hex === value;
+        b.setAttribute("aria-pressed", String(on));
+        if (on) b.classList.add("is-on");
+        b.style.background = ink.hex ?? COLORS.symbol;
+        b.onclick = () => onCommit(ink.hex);
+        chips.append(b);
+      }
+      // Anything the presets do not cover. `input` fires while the OS picker is
+      // being dragged, which is what makes the plan preview live; the caller
+      // coalesces those into one undo step.
+      const custom = el("input", "ink ink-custom") as HTMLInputElement;
+      custom.type = "color";
+      custom.value = value ?? COLORS.symbol;
+      custom.title = t("panel.inkCustom");
+      custom.setAttribute("aria-label", t("panel.inkCustom"));
+      if (value !== null && !INKS.some(i => i.hex === value)) custom.classList.add("is-on");
+      // Same guard a number scrub needs, for the same reason: every commit
+      // notifies the store, and a pane rebuild would swap this input out from
+      // under an open picker -- after which its remaining events go nowhere.
+      // Blur is the end, not `change`: Chrome fires change per pick while the
+      // dialog is still open. main.ts redraws the canvas either way, so the
+      // plan still previews live.
+      custom.onfocus = () => { this.scrubbing = true; };
+      custom.onblur = () => { this.scrubbing = false; this.refreshToolbar(); };
+      custom.oninput = () => onCommit(custom.value);
+      chips.append(custom);
+      row.append(chips);
+      p.append(row);
+    };
     const btnRow = (label: string, fn: () => void): void => {
       const b = el("button", "tool-btn small wide") as HTMLButtonElement;
       b.textContent = label; b.onclick = fn;
       p.append(b);
     };
-    return { numRow, selRow, textRow, noteRow, btnRow };
+    return { numRow, selRow, textRow, noteRow, btnRow, colorRow };
   }
 
   /**
@@ -576,7 +633,7 @@ export class Panel {
     p.replaceChildren();
     const sel = this.store.sel;
     const f = this.store.floor;
-    const { numRow, selRow, noteRow, btnRow } = this.rowKit(p);
+    const { numRow, selRow, noteRow, btnRow, colorRow } = this.rowKit(p);
 
     const secHead = (label: string, opts: { sel?: boolean; later?: boolean } = {}): void => {
       const wrap = el("div", "sec" + (opts.later ? " sec-later" : ""));
@@ -725,6 +782,17 @@ export class Panel {
         const s2 = this.store.floorOf(d).symbols.find(x => x.id === sel.id);
         if (s2) s2.rotation = (n * Math.PI) / 180;
       }), 15);
+      // Changing a symbol's colour also arms the pen, the way editing a wall's
+      // thickness sets the thickness of the next wall: recolouring one socket is
+      // nearly always the first of a run of them.
+      colorRow(t("panel.color"), s.color ?? null, hex => {
+        this.tools.symbolColor = hex;
+        this.store.mutate(d => {
+          const s2 = this.store.floorOf(d).symbols.find(x => x.id === sel.id);
+          if (!s2) return;
+          if (hex) s2.color = hex; else delete s2.color;
+        }, "color:" + sel.id);   // one undo step for a drag through the OS picker
+      });
       btnRow(t("panel.mirror"), () => this.store.mutate(d => {
         const s2 = this.store.floorOf(d).symbols.find(x => x.id === sel.id);
         if (s2) s2.mirrored = !s2.mirrored;

@@ -29,7 +29,7 @@ export type IconName =
   | "gridSnap" | "angleSnap" | "dimensions"
   | "undo" | "redo" | "dots" | "chevron" | "plus" | "minus" | "close"
   | "trash" | "search" | "floors"
-  | "docNew" | "docDemo" | "docOpen" | "docSave" | "docPng" | "docDxf" | "docCopy" | "docPaste";
+  | "docNew" | "docDemo" | "docOpen" | "docSave" | "docPng" | "docDxf" | "docSvg" | "docCopy" | "docPaste";
 
 const ICONS: Record<IconName, Shape[]> = {
   select: [P("M5.5 3.2 L5.5 15.4 L8.7 12.4 L10.9 17 L13.2 16 L11 11.4 L15.2 11.2 Z")],
@@ -81,6 +81,13 @@ const ICONS: Record<IconName, Shape[]> = {
     P("M3.4 4 V13.4 H12.8"),
     P("M12.8 13.4 A9.4 9.4 0 0 0 3.4 4"),
     P("M3.4 16.6 H16.6 M3.4 15.4 V17.8 M16.6 15.4 V17.8"),
+  ],
+  // Vector artwork: a curve with its control points, the universal shorthand
+  // for "this scales" as against docPng's raster frame.
+  docSvg: [
+    P("M3 15.6 C3 7.6 15.6 12.4 15.6 4.4"),
+    C(3, 15.6, 1.6, true),
+    C(15.6, 4.4, 1.6, false),
   ],
   docCopy: [
     R(7.4, 7.4, 9.2, 9.2, 1.4),
