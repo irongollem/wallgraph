@@ -119,8 +119,17 @@ export without knowing about either.
 - [x] dimension *chains* — one run per facade, openings and piers in
       sequence with an overall beneath; interior walls keep their own dimension
 
-**P2 — not started.** Trace-over-image underlay with scale calibration, share links
-(one Postgres table), 3D extrusion view (Three.js — the wall graph extrudes directly).
+**P2 — not started.**
+
+- [ ] multi-select and bulk edit — rubber band and shift-click. `Store.sel` is a
+      single `{ kind, id }` today, so this is two jobs rather than one: a selection
+      *set*, and a property pane that can say what a field means for N objects
+      (mixed values, and which of them an edit writes). Recolouring twenty already
+      placed sockets at once is the case that asks for it — one at a time works,
+      but only one at a time.
+- [ ] trace-over-image underlay with scale calibration
+- [ ] share links (one Postgres table)
+- [ ] 3D extrusion view (Three.js — the wall graph extrudes directly)
 
 **P3 — hosting already met, ahead of order.** Live at
 [plattegrond.crocode.nl](https://plattegrond.crocode.nl) on static hosting at ≈ €0,

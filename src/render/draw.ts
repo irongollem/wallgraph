@@ -24,6 +24,8 @@ export const COLORS = {
   opening: "#3d4148",
   symbol: "#4a5568",
   select: "#e05d2d",
+  /** COLORS.select at low alpha: the selection wash behind a picked symbol. */
+  selectWash: "rgba(224,93,45,0.13)",
   snap: "#2d7de0",
   dimension: "#2d7de0",
 };
@@ -657,18 +659,27 @@ function drawSymbol(ctx: CanvasRenderingContext2D, s: SymbolInstance, px: number
   ctx.translate(s.x, s.y);
   ctx.rotate(s.rotation);
   if (s.mirrored) ctx.scale(-1, 1);
+  // Selection marks the FRAME, never the symbol itself. Walls and openings do
+  // repaint on selection, but they carry no colour of their own; a symbol does,
+  // and it is usually being picked right now -- painting it orange would mean
+  // the only way to see the colour you chose is to deselect the thing you are
+  // choosing it for. So: a wash behind, marching ants around, ink untouched.
+  const bx = -def.width / 2 - 30, by = (def.wallMounted ? 0 : -def.depth / 2) - 30;
+  const bw = def.width + 60, bh = def.depth + 60;
+  if (selected) {
+    ctx.fillStyle = COLORS.selectWash;
+    ctx.fillRect(bx, by, bw, bh);
+  }
   // fill follows stroke: a symbol's filled parts -- a position dot, a standard's
-  // code character -- have to highlight with the rest of it on selection.
-  // Selection still overrides the symbol's own pen: the marching-ants box alone
-  // is a weak signal, and a red symbol has to look picked like any other.
-  ctx.strokeStyle = selected ? COLORS.select : symbolInk(s);
+  // code character -- are part of the drawing and take its colour.
+  ctx.strokeStyle = symbolInk(s);
   ctx.fillStyle = ctx.strokeStyle;
   def.draw(ctx);
   if (selected) {
     ctx.strokeStyle = COLORS.select;
     ctx.lineWidth = 1.5 * px;
     ctx.setLineDash([30, 30]);
-    ctx.strokeRect(-def.width / 2 - 30, (def.wallMounted ? 0 : -def.depth / 2) - 30, def.width + 60, def.depth + 60);
+    ctx.strokeRect(bx, by, bw, bh);
     ctx.setLineDash([]);
   }
   ctx.restore();
