@@ -217,31 +217,98 @@ function drawOpening(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number,
 function drawDoor(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number, color: string): void {
   const o = og.opening;
   const w = dist(og.p0, og.p1);
-  const hingeAtStart = (o.hinge ?? "a") === "a";
-  const hinge = hingeAtStart ? og.p0 : og.p1;
-  const other = hingeAtStart ? og.p1 : og.p0;
-  const along = scale(sub(other, hinge), 1 / w);      // hinge -> latch, unit
-  const side = perp(along);                            // one side of the wall
-  const swing = (o.swingIn ?? true) ? side : scale(side, -1);
-  // Door leaf fully open (90°): from hinge, perpendicular to the wall.
-  const tip = add(hinge, scale(swing, w));
+  if (w <= 1) return;
+  const along = scale(sub(og.p1, og.p0), 1 / w);
   ctx.strokeStyle = color;
+  const sashes = sashesOf(o, w);
+  let cursor = 0;
+  for (const leaf of sashes) {
+    const a = add(og.p0, scale(along, cursor));
+    const b = add(og.p0, scale(along, cursor + leaf.width));
+    cursor += leaf.width;
+    drawDoorLeaf(ctx, leaf, a, b, along, og.n0, og.half, px);
+  }
+}
+
+/**
+ * One door leaf. Drawn heavier than a window sash and with the swing arc dashed,
+ * which is the usual weight difference between a door and a window on a plan.
+ */
+function drawDoorLeaf(
+  ctx: CanvasRenderingContext2D, leaf: Sash & { width: number },
+  a: Vec, b: Vec, along: Vec, n: Vec, h: number, px: number,
+): void {
+  const w = leaf.width;
+  if (w <= 1) return;
+  const outward = leaf.outward === true;
+
+  if (leaf.action === "slide") {
+    drawSlideArrow(ctx, a, b, along, n, h, px, leaf.slideTo ?? "b");
+    return;
+  }
+  if (leaf.action === "fold") {
+    drawFold(ctx, leaf, a, along, n, px, outward);
+    return;
+  }
+  if (leaf.action === "pivot") {
+    // Taatsdeur: turns about its own centre, so the leaf is drawn across the
+    // opening through the pivot rather than hinged at a jamb.
+    const mid = add(a, scale(sub(b, a), 0.5));
+    const face = outward ? scale(n, -1) : n;
+    ctx.lineWidth = 1.4 * px;
+    ctx.setLineDash([]);
+    line(ctx, add(mid, scale(face, w * 0.5)), add(mid, scale(face, -w * 0.5)));
+    ctx.setLineDash([40, 40]);
+    ctx.lineWidth = 1 * px;
+    ctx.beginPath();
+    ctx.arc(mid.x, mid.y, w * 0.5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    return;
+  }
+  // Hinged leaf: fully open at 90 degrees, plus its quarter swing arc.
+  const hingeAtA = (leaf.hinge ?? "a") !== "b";
+  const hinge = hingeAtA ? a : b;
+  const other = hingeAtA ? b : a;
+  const dir = scale(sub(other, hinge), 1 / w);
+  const swing = outward ? scale(perp(dir), -1) : perp(dir);
+  const tip = add(hinge, scale(swing, w));
   ctx.lineWidth = 1.4 * px;
-  ctx.beginPath();
-  ctx.moveTo(hinge.x, hinge.y);
-  ctx.lineTo(tip.x, tip.y);
-  ctx.stroke();
-  // Quarter-circle swing arc from latch jamb to leaf tip.
+  ctx.setLineDash([]);
+  line(ctx, hinge, tip);
   const a0 = angleOf(sub(other, hinge));
   const a1 = angleOf(sub(tip, hinge));
-  ctx.beginPath();
-  ctx.setLineDash([40, 40]);
-  // pick the short way round
   let d = a1 - a0;
   while (d > Math.PI) d -= 2 * Math.PI;
   while (d < -Math.PI) d += 2 * Math.PI;
+  ctx.lineWidth = 1 * px;
+  ctx.setLineDash([40, 40]);
+  ctx.beginPath();
   ctx.arc(hinge.x, hinge.y, w, a0, a0 + d, d < 0);
   ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+/** Concertina leaves, shared by vouwwand windows and folding doors. */
+function drawFold(
+  ctx: CanvasRenderingContext2D, sash: Sash & { width: number },
+  a: Vec, along: Vec, n: Vec, px: number, outward: boolean,
+): void {
+  const w = sash.width;
+  const face = outward ? scale(n, -1) : n;
+  const leaves = Math.max(2, Math.round(w / 700));
+  const step = w / leaves;
+  const depth = Math.min(step * 0.8, 500);
+  ctx.lineWidth = 1.2 * px;
+  ctx.setLineDash(outward ? [] : [30, 30]);
+  for (let i = 0; i < leaves; i++) {
+    const p0 = add(a, scale(along, i * step));
+    const p1 = add(a, scale(along, (i + 1) * step));
+    const peak = add(add(p0, scale(along, step * 0.5)),
+                     scale(face, i % 2 === 0 ? depth : depth * 0.25));
+    line(ctx, p0, peak);
+    line(ctx, peak, p1);
+  }
   ctx.setLineDash([]);
 }
 
@@ -340,22 +407,7 @@ function drawSash(
     ctx.setLineDash([]);
     line(ctx, add(mid, scale(n, -h * 0.5)), add(mid, scale(n, h * 0.5)));
   }
-  if (sash.action === "fold") {
-    // Vouwwand: leaves concertina, so draw the panes as a zigzag off the wall.
-    const leaves = Math.max(2, Math.round(w / 700));
-    const step = w / leaves;
-    const depth = Math.min(step * 0.8, 500);
-    ctx.lineWidth = 1.2 * px;
-    ctx.setLineDash(dash);
-    for (let i = 0; i < leaves; i++) {
-      const p0 = add(a, scale(along, i * step));
-      const p1 = add(a, scale(along, (i + 1) * step));
-      const peak = add(add(p0, scale(along, step * 0.5)), scale(face, i % 2 === 0 ? depth : depth * 0.25));
-      line(ctx, p0, peak);
-      line(ctx, peak, p1);
-    }
-    ctx.setLineDash([]);
-  }
+  if (sash.action === "fold") drawFold(ctx, sash, a, along, n, px, outward);
 }
 
 /** Sliding-panel marks: two offset panels and an arrow on the moving one. */

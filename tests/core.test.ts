@@ -1,7 +1,7 @@
 // Engine sanity tests, run with tsx.
 import { emptyDoc, newId, Wall, GRID_DEFAULT_MM } from "../src/model/doc";
 import { Store } from "../src/model/store";
-import { sashesOf, type Opening } from "../src/model/doc";
+import { sashesOf, doorKindOf, windowKindOf, DOOR_KINDS, WINDOW_KINDS, type Opening } from "../src/model/doc";
 import { detectRooms } from "../src/core/rooms";
 import { resolveFloor } from "../src/core/resolve";
 import { arcInfo, arcLength, arcPointAt, arcTangentAt, arcFlatten, bulgeFromSagitta } from "../src/geometry/arc";
@@ -401,6 +401,49 @@ function rectFloor(wallTh = 100) {
   // sashes wins over a stale windowType, so the two can never disagree.
   check("sashes override a legacy windowType",
     sashesOf(mk({ windowType: "sliding", sashes: [{ action: "fold" }] }), 2000)[0]!.action === "fold");
+}
+
+// --- doors get sashes too, and named kinds survive tuning ---
+{
+  const door = (o: Partial<Opening>): Opening =>
+    ({ id: "o", kind: "door", t: 1000, width: 900, ...o } as Opening);
+
+  // A door with no sashes is a hinged leaf. Defaulting to "fixed" — which the
+  // window-only fallback did — silently erased every existing door's swing.
+  const legacy = sashesOf(door({ hinge: "b", swingIn: true }), 900);
+  check("legacy door is one hinged leaf",
+    legacy.length === 1 && legacy[0]!.action === "turn" && legacy[0]!.hinge === "b",
+    JSON.stringify(legacy));
+  check("passage has no leaf action",
+    sashesOf({ id: "o", kind: "passage", t: 1, width: 900 } as Opening, 900)[0]!.action === "fixed");
+
+  // Hinge side and swing are tunings, not identity: all four read as one door.
+  for (const hinge of ["a", "b"] as const)
+    for (const swingIn of [true, false])
+      check(`door hinge=${hinge} swingIn=${swingIn} is still a single door`,
+        doorKindOf(sashesOf(door({ hinge, swingIn }), 900))?.id === "enkel");
+
+  for (const k of DOOR_KINDS)
+    check(`door kind ${k.id} round-trips`, doorKindOf(k.sashes)?.id === k.id);
+
+  // A double door is two leaves sharing the opening.
+  const dbl = sashesOf(door({ width: 1600, sashes: DOOR_KINDS.find(k => k.id === "dubbel")!.sashes }), 1600);
+  check("double door has two leaves of half the width",
+    dbl.length === 2 && dbl.every(l => Math.abs(l.width - 800) < 1e-6), JSON.stringify(dbl.map(l => l.width)));
+  check("double door leaves hinge on opposite jambs",
+    dbl[0]!.hinge === "a" && dbl[1]!.hinge === "b");
+}
+{
+  // Windows: a horizontal hinge IS identity (valraam vs uitzetraam), a jamb
+  // hinge is not.
+  for (const k of WINDOW_KINDS)
+    check(`window kind ${k.id} round-trips`,
+      windowKindOf({ action: k.action, hinge: k.hinge, outward: k.outward })?.id === k.id);
+  check("valraam and uitzetraam stay distinct",
+    windowKindOf({ action: "tilt", hinge: "sill" })?.id === "val"
+    && windowKindOf({ action: "tilt", hinge: "head" })?.id === "uitzet");
+  check("a side-hung window is still one kind whichever jamb hinges",
+    windowKindOf({ action: "turn", hinge: "b", outward: true })?.id === "draai");
 }
 
 console.log(failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURES`);

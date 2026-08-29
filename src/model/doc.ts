@@ -155,6 +155,10 @@ export function sashesOf(o: Opening, openingWidth: number): Array<Sash & { width
 
 function legacySash(o: Opening): Sash {
   const outward = o.swingIn === false;
+  // A door with no sashes is a single hinged leaf — windowType says nothing
+  // about it, and defaulting to "fixed" would silently erase every door's swing.
+  if (o.kind === "door") return { action: "turn", hinge: o.hinge ?? "a", outward };
+  if (o.kind === "passage") return { action: "fixed" };
   switch (o.windowType ?? "fixed") {
     case "casement":  return { action: "turn", hinge: o.hinge ?? "a", outward };
     case "tilt-turn": return { action: "turn-tilt", hinge: o.hinge ?? "a", outward };
@@ -200,10 +204,46 @@ export const WINDOW_KINDS: WindowKind[] = [
  * outward, say — real, just not one of the listed products).
  */
 export function windowKindOf(sash: Sash): WindowKind | null {
+  // Match on what the window IS, not how this one is tuned. Which jamb hinges
+  // and which way it opens are per-sash settings — a draairaam hinged right is
+  // still a draairaam. A HORIZONTAL hinge is different: it is the only thing
+  // separating a valraam (sill) from an uitzetraam (head), both of them tilts,
+  // so it stays part of the identity.
+  const horizontal = (h?: HingeEdge): boolean => h === "head" || h === "sill";
   return WINDOW_KINDS.find(k =>
     k.action === sash.action
-    && (k.hinge === undefined || k.hinge === (sash.hinge ?? k.hinge))
-    && (k.outward === undefined || k.outward === (sash.outward ?? false))) ?? null;
+    && (!horizontal(k.hinge) || k.hinge === sash.hinge)) ?? null;
+}
+
+/**
+ * Named door sets. Unlike a window kind, which describes one pane, a door kind
+ * describes the whole opening — "dubbele deur" IS two leaves — so these presets
+ * write the entire sash list.
+ */
+export interface DoorKind {
+  id: string;
+  sashes: Sash[];
+}
+
+export const DOOR_KINDS: DoorKind[] = [
+  { id: "enkel",       sashes: [{ action: "turn", hinge: "a", outward: false }] },
+  { id: "dubbel",      sashes: [{ action: "turn", hinge: "a", outward: false },
+                                { action: "turn", hinge: "b", outward: false }] },
+  { id: "schuif",      sashes: [{ action: "slide", slideTo: "b" }] },
+  { id: "schuifDubbel", sashes: [{ action: "slide", slideTo: "a" },
+                                 { action: "slide", slideTo: "b" }] },
+  { id: "vouw",        sashes: [{ action: "fold", outward: false }] },
+  { id: "taats",       sashes: [{ action: "pivot" }] },
+];
+
+/** Which named door set a sash list matches, or null for a tuned combination. */
+export function doorKindOf(sashes: Sash[]): DoorKind | null {
+  // Leaf count and what each leaf does identify the set; hinge side, swing
+  // direction and slide direction are tunings on top of it. Matching those too
+  // made every door whose hinge was not "a" read as "custom".
+  return DOOR_KINDS.find(k =>
+    k.sashes.length === sashes.length
+    && k.sashes.every((ks, i) => ks.action === sashes[i]!.action)) ?? null;
 }
 
 export function findNode(f: Floor, id: Id): PlanNode | undefined { return f.nodes.find(n => n.id === id); }

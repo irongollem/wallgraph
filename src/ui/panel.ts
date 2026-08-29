@@ -8,7 +8,7 @@ import { v, norm, sub, add, scale } from "../geometry/vec";
 import { exportJson, copyJson, importJsonFile, parseDoc, clearAutosave } from "../io/json";
 import { exportPng } from "../io/image";
 import { seedDoc } from "../seed";
-import { emptyDoc, areaModeOf, sashesOf, windowKindOf, WINDOW_KINDS, type AreaMode, type Sash, type HingeEdge, type Opening, type Wall } from "../model/doc";
+import { emptyDoc, areaModeOf, sashesOf, windowKindOf, WINDOW_KINDS, doorKindOf, DOOR_KINDS, type AreaMode, type Sash, type HingeEdge, type Opening, type Wall } from "../model/doc";
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
 
 export class Panel {
@@ -248,6 +248,57 @@ export class Panel {
     }));
   }
 
+  /**
+   * Door leaves. A door kind describes the whole opening — "dubbele deur" IS
+   * two leaves — so the picker writes the entire list, unlike the window picker
+   * which sets one pane at a time.
+   */
+  private renderLeaves(
+    o: Opening,
+    mut: (fn: (o2: Opening) => void) => void,
+    selRow: (l: string, v: string, opts: Array<[string, string]>, f: (s: string) => void) => void,
+    numRow: (l: string, v: number, f: (n: number) => void, step?: number) => void,
+    noteRow: (text: string) => void,
+  ): void {
+    const leaves = sashesOf(o, o.width);
+    const kind = doorKindOf(leaves);
+    const opts: Array<[string, string]> = DOOR_KINDS.map(k =>
+      [k.id, t("panel.dr" + k.id[0]!.toUpperCase() + k.id.slice(1))]);
+    if (!kind) opts.push(["", t("panel.drCustom")]);
+    selRow(t("panel.doorKind"), kind?.id ?? "", opts, v => mut(o2 => {
+      const k = DOOR_KINDS.find(x => x.id === v);
+      // Copy the preset: sharing its objects would let one door's edits reach
+      // every other door of the same kind.
+      if (k) o2.sashes = k.sashes.map(x => ({ ...x }));
+    }));
+
+    const writeBack = (fn: (list: Sash[]) => void): void => {
+      mut(o2 => {
+        const list = sashesOf(o2, o2.width).map(x => ({ ...x }));
+        fn(list);
+        o2.sashes = list;
+      });
+    };
+    leaves.forEach((leaf, i) => {
+      if (leaves.length > 1) noteRow(t("panel.leaf", { n: i + 1 }));
+      if (leaf.action === "turn")
+        selRow(t("panel.hinge"), leaf.hinge ?? "a",
+          [["a", t("panel.hingeA")], ["b", t("panel.hingeB")]],
+          v => writeBack(list => { list[i]!.hinge = v as HingeEdge; }));
+      if (leaf.action === "slide")
+        selRow(t("panel.slidesToward"), leaf.slideTo ?? "b",
+          [["a", t("panel.hingeA")], ["b", t("panel.hingeB")]],
+          v => writeBack(list => { list[i]!.slideTo = v as "a" | "b"; }));
+      if (leaf.action !== "slide")
+        selRow(t("panel.swing"), leaf.outward ? "out" : "in",
+          [["in", t("panel.swingIn")], ["out", t("panel.swingOut")]],
+          v => writeBack(list => { list[i]!.outward = v === "out"; }));
+      if (leaves.length > 1)
+        numRow(t("panel.sashWidth"), Math.round(leaf.width),
+          n => writeBack(list => { list[i]!.width = Math.max(50, n); }), 50);
+    });
+  }
+
   private pasteDialog(): void {
     document.querySelector(".overlay")?.remove();
     const overlay = el("div", "overlay");
@@ -430,8 +481,7 @@ export class Panel {
       numRow(t("panel.width"), o.width, n => mutOpening(o2 => { o2.width = n; }));
       numRow(t("panel.fromCorner"), o.t - o.width / 2, n => mutOpening(o2 => { o2.t = n + o2.width / 2; }));
       if (o.kind === "door") {
-        selRow(t("panel.hinge"), o.hinge ?? "a", [["a", t("panel.hingeA")], ["b", t("panel.hingeB")]], s2 => mutOpening(o2 => { o2.hinge = s2 as "a" | "b"; }));
-        selRow(t("panel.swing"), (o.swingIn ?? true) ? "in" : "out", [["in", t("panel.swingIn")], ["out", t("panel.swingOut")]], s2 => mutOpening(o2 => { o2.swingIn = s2 === "in"; }));
+        this.renderLeaves(o, mutOpening, selRow, numRow, noteRow);
       }
       if (o.kind === "window") {
         this.renderSashes(o, wall, mutOpening, selRow, numRow, btnRow, noteRow);
