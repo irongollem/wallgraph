@@ -99,6 +99,9 @@ export const resources = {
         mirror: "Spiegelen (M)",
         pasteJson: "Plattegrond-JSON plakken",
         language: "Taal",
+        areaMode: "Oppervlakte",
+        areaNet: "netto (NEN 2580)",
+        areaCenterline: "hart-op-hart",
       },
       hint: {
         wallStart: "klik om een muurketen te beginnen",
@@ -114,6 +117,8 @@ export const resources = {
         fromCorner: "{{mm}} mm vanaf hoek",
         gridLegend: "raster {{grid}} · hoofdlijn {{major}}",
         gridLegendStepped: "raster {{grid}} · getekend {{minor}} · hoofdlijn {{major}}",
+        areaLegendNet: "oppervlakte netto (binnenwerks)",
+        areaLegendCenterline: "oppervlakte hart-op-hart",
       },
       status: {
         newPlan: "nieuwe plattegrond — Ctrl+Z herstelt de vorige",
@@ -289,6 +294,9 @@ export const resources = {
         mirror: "Mirror (M)",
         pasteJson: "Paste floorplan JSON",
         language: "Language",
+        areaMode: "Area",
+        areaNet: "net (NEN 2580)",
+        areaCenterline: "centerline",
       },
       hint: {
         wallStart: "click to start a wall chain",
@@ -304,6 +312,8 @@ export const resources = {
         fromCorner: "{{mm}} mm from corner",
         gridLegend: "grid {{grid}} · major {{major}}",
         gridLegendStepped: "grid {{grid}} · drawn {{minor}} · major {{major}}",
+        areaLegendNet: "areas net (inner faces)",
+        areaLegendCenterline: "areas centerline",
       },
       status: {
         newPlan: "new plan — Ctrl+Z restores the old one",

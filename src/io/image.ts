@@ -9,7 +9,7 @@
 // A scale bar goes in the corner because a bare image has no units: whatever
 // the viewer's screen or printer does to the pixels, the bar stays true. True
 // paper-scale output (1:50 at 300 dpi) and vector formats are still the P1 item.
-import { PlanDoc, Floor } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf } from "../model/doc";
 import { resolveFloor, Resolved } from "../core/resolve";
 import { detectRooms } from "../core/rooms";
 import { Viewport } from "../render/viewport";
@@ -110,7 +110,7 @@ function renderPlan(doc: PlanDoc): HTMLCanvasElement | null {
   vp.dpr = SCALE;
   vp.origin = v(bounds.min.x - MARGIN_MM, bounds.min.y - MARGIN_MM);
 
-  drawScene(ctx, vp, lw, lh, floor, resolved, detectRooms(floor), null, { showGrid: false }, doc.gridMm);
+  drawScene(ctx, vp, lw, lh, floor, resolved, detectRooms(floor), null, { showGrid: false }, doc.gridMm, areaModeOf(doc));
   drawScaleBar(ctx, pxPerMm, lw, lh);
   return cv;
 }

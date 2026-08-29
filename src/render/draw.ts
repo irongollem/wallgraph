@@ -1,7 +1,7 @@
 // Full scene render. Immediate mode: redraw everything on change (documents at
 // this scale render in well under a frame). Layers: grid, rooms, walls,
 // opening decorations, symbols, selection, labels (labels in screen space).
-import { Floor, SymbolInstance } from "../model/doc";
+import { Floor, SymbolInstance, AreaMode } from "../model/doc";
 import { Resolved, OpeningGeom } from "../core/resolve";
 import { Room } from "../core/rooms";
 import { Selection } from "../model/store";
@@ -37,7 +37,7 @@ export interface DrawExtras {
 export function drawScene(
   ctx: CanvasRenderingContext2D, vp: Viewport, canvasW: number, canvasH: number,
   floor: Floor, resolved: Resolved, rooms: Room[], sel: Selection | null,
-  extras: DrawExtras, gridMm: number,
+  extras: DrawExtras, gridMm: number, areaMode: AreaMode,
 ): void {
   ctx.save();
   ctx.fillStyle = COLORS.bg;
@@ -88,7 +88,10 @@ export function drawScene(
   ctx.fillStyle = COLORS.roomLabel;
   for (const r of rooms) {
     const c = vp.toScreen(r.centroid);
-    ctx.fillText((r.areaMm2 / 1e6).toFixed(1) + " m²", c.x, c.y);
+    // Which number this is, is stated in the legend — a bare "12.0 m²" that
+    // silently means centerline is the whole problem this addresses.
+    const mm2 = areaMode === "net" ? r.netAreaMm2 : r.areaMm2;
+    ctx.fillText((mm2 / 1e6).toFixed(1) + " m²", c.x, c.y);
   }
 
   // Snap marker.
@@ -101,7 +104,7 @@ export function drawScene(
     ctx.stroke();
   }
 
-  if (steps) drawGridLegend(ctx, canvasH, gridMm, steps);
+  if (steps) drawGridLegend(ctx, canvasH, gridMm, steps, areaMode);
 
   // Selected node handle & wall handles drawn by tools layer via preview.
   ctx.restore();
@@ -140,14 +143,17 @@ function drawGrid(ctx: CanvasRenderingContext2D, vp: Viewport, w: number, h: num
 
 /** Bottom-left legend naming the document grid and, when the zoom forced a
  * coarser spacing, what the lines on screen actually measure. */
-function drawGridLegend(ctx: CanvasRenderingContext2D, h: number, gridMm: number, steps: GridSteps): void {
+function drawGridLegend(ctx: CanvasRenderingContext2D, h: number, gridMm: number, steps: GridSteps, areaMode: AreaMode): void {
   ctx.font = "11px system-ui, sans-serif";
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = COLORS.hud;
-  const text = steps.stepped
+  const grid = steps.stepped
     ? t("hint.gridLegendStepped", { grid: fmtMm(gridMm), minor: fmtMm(steps.minor), major: fmtMm(steps.major) })
     : t("hint.gridLegend", { grid: fmtMm(gridMm), major: fmtMm(steps.major) });
+  // Always name the area convention: an unlabelled figure is the ambiguity.
+  const text = grid + " · " +
+    t(areaMode === "net" ? "hint.areaLegendNet" : "hint.areaLegendCenterline");
   ctx.fillText(text, 10, h - 10);
 }
 

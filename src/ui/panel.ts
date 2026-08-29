@@ -8,7 +8,7 @@ import { v, norm, sub, add, scale } from "../geometry/vec";
 import { exportJson, copyJson, importJsonFile, parseDoc, clearAutosave } from "../io/json";
 import { exportPng } from "../io/image";
 import { seedDoc } from "../seed";
-import { emptyDoc } from "../model/doc";
+import { emptyDoc, areaModeOf, type AreaMode } from "../model/doc";
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
 
 export class Panel {
@@ -238,6 +238,9 @@ export class Panel {
       checkRow(t("tool.angleSnap"), this.tools.ortho, b => { this.tools.ortho = b; });
       checkRow(t("tool.measurements"), this.tools.showDims, b => { this.tools.showDims = b; this.store.select(this.store.sel); });
       numRow(t("panel.newWallThickness"), this.tools.lastThickness, n => { this.tools.lastThickness = Math.max(20, n); }, 10);
+      selRow(t("panel.areaMode"), areaModeOf(this.store.doc),
+        [["net", t("panel.areaNet")], ["centerline", t("panel.areaCenterline")]],
+        m => this.store.mutate(d => { d.areaMode = m as AreaMode; }));
       selRow(t("panel.language"), language(),
         LANGUAGES.map(l => [l.code, l.label] as [string, string]),
         code => changeLanguage(code as Lang));

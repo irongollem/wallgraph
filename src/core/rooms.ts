@@ -1,18 +1,35 @@
 // Room detection: flatten all wall centerlines, build a half-edge structure,
 // walk faces by taking the sharpest-left next edge at each vertex. Bounded
 // faces are rooms; the unbounded outer face is rejected by winding sign.
-// Areas are centerline-bounded for now (net inner-face area is a P1 item).
+//
+// Each room is reported with TWO boundaries, because plans are dimensioned both
+// ways and the difference is not small — a 4x3 m room with 300 mm walls is 12 m²
+// centerline but 9.99 m² net, a 20% gap:
+//   poly    / areaMm2    centerline-bounded (hart-op-hart), what the graph stores
+//   netPoly / netAreaMm2 inner wall faces (dagmaat), the usable floor NEN 2580 asks for
+// The net boundary is derived by offsetting each face edge inward by half the
+// thickness of the wall it lies on, then intersecting adjacent offset lines —
+// the same miter construction resolve.ts uses at junctions.
 import { Floor } from "../model/doc";
-import { Vec, v, dist, angleOf, polygonArea, polygonCentroid } from "../geometry/vec";
+import {
+  Vec, v, dist, dot, sub, add, norm, perp, scale, angleOf, lineIntersect,
+  polygonArea, polygonCentroid,
+} from "../geometry/vec";
 import { arcFlatten } from "../geometry/arc";
 
 export interface Room {
+  /** Centerline-bounded boundary (hart-op-hart). */
   poly: Vec[];
+  /** Centerline-bounded area, mm². Always >= netAreaMm2. */
   areaMm2: number;
+  /** Inner wall faces (dagmaat) — the usable floor outline. */
+  netPoly: Vec[];
+  /** Net floor area, mm². This is the NEN 2580-style number. */
+  netAreaMm2: number;
   centroid: Vec;
 }
 
-interface HalfEdge { from: number; to: number; visited: boolean }
+interface HalfEdge { from: number; to: number; visited: boolean; half: number }
 
 export function detectRooms(f: Floor): Room[] {
   // Collect flattened vertices with dedup (quantize to 1mm).
@@ -30,7 +47,7 @@ export function detectRooms(f: Floor): Room[] {
   const halfEdges: HalfEdge[] = [];
   const outgoing = new Map<number, number[]>(); // vertex -> half-edge indices
 
-  const addSeg = (a: Vec, b: Vec): void => {
+  const addSeg = (a: Vec, b: Vec, half: number): void => {
     const ia = vid(a), ib = vid(b);
     if (ia === ib) return;
     const ek = Math.min(ia, ib) + "-" + Math.max(ia, ib);
@@ -38,7 +55,7 @@ export function detectRooms(f: Floor): Room[] {
     edgeSet.add(ek);
     for (const [from, to] of [[ia, ib], [ib, ia]] as const) {
       const idx = halfEdges.length;
-      halfEdges.push({ from, to, visited: false });
+      halfEdges.push({ from, to, visited: false, half });
       const arr = outgoing.get(from);
       if (arr) arr.push(idx); else outgoing.set(from, [idx]);
     }
@@ -48,7 +65,8 @@ export function detectRooms(f: Floor): Room[] {
     const A = nodePos.get(w.a), B = nodePos.get(w.b);
     if (!A || !B || dist(A, B) < 1) continue;
     const flat = arcFlatten(A, B, w.bulge, 5);
-    for (let i = 0; i + 1 < flat.length; i++) addSeg(flat[i]!, flat[i + 1]!);
+    const half = w.thickness / 2;
+    for (let i = 0; i + 1 < flat.length; i++) addSeg(flat[i]!, flat[i + 1]!, half);
   }
 
   // Sort outgoing edges by angle for the turn rule.
@@ -63,6 +81,7 @@ export function detectRooms(f: Floor): Room[] {
   for (let start = 0; start < halfEdges.length; start++) {
     if (halfEdges[start]!.visited) continue;
     const polyIdx: number[] = [];
+    const halves: number[] = []; // half-thickness of the wall carrying each edge
     let cur = start;
     let guard = 0;
     while (guard++ < 100000) {
@@ -70,6 +89,7 @@ export function detectRooms(f: Floor): Room[] {
       if (he.visited) break;
       he.visited = true;
       polyIdx.push(he.from);
+      halves.push(he.half);
       // Next: at he.to, pick the edge just CW of twin(cur) in the sorted order.
       const outs = outgoing.get(he.to)!;
       const tw = twin(cur);
@@ -84,9 +104,60 @@ export function detectRooms(f: Floor): Room[] {
     // With this turn rule (y-down), bounded faces trace with positive shoelace
     // area; the unbounded outer face is negative. Verified by tests/core.test.ts.
     if (area <= 1e4) continue; // rejects outer face and <0.01 m² slivers
-    rooms.push({ poly, areaMm2: area, centroid: polygonCentroid(poly) });
+    const netPoly = insetPolygon(poly, halves);
+    const netArea = Math.max(0, polygonArea(netPoly));
+    rooms.push({
+      poly, areaMm2: area,
+      netPoly, netAreaMm2: netArea,
+      centroid: polygonCentroid(poly),
+    });
   }
   return rooms;
+}
+
+/**
+ * Shrink a room boundary to the inner wall faces: offset every edge inward by
+ * the half-thickness of its wall, then intersect adjacent offset lines so the
+ * corners miter properly instead of leaving gaps or overshoots.
+ *
+ * Bounded faces are always traced in the same rotational direction here (the
+ * sharpest-left turn rule, verified by the positive-shoelace check above), so
+ * "inward" is a fixed side of each edge: +perp() of the traversal direction.
+ * (perp() is the clockwise visual side under y-down; with this turn rule that
+ * points into the room. Offsetting the other way inflates the room to its outer
+ * faces instead — verified both directions against a 4x3 m room in the tests.)
+ * Parallel neighbours (a straight run split by a flattened arc) have no
+ * intersection and keep the offset point itself.
+ */
+function insetPolygon(poly: Vec[], halves: number[]): Vec[] {
+  const n = poly.length;
+  if (n < 3) return poly;
+  const lines: Array<{ p: Vec; d: Vec }> = [];
+  for (let i = 0; i < n; i++) {
+    const a = poly[i]!, b = poly[(i + 1) % n]!;
+    const d = sub(b, a);
+    if (dist(a, b) < 1e-9) { lines.push({ p: a, d: v(1, 0) }); continue; }
+    const dir = norm(d);
+    lines.push({ p: add(a, scale(perp(dir), halves[i] ?? 0)), d: dir });
+  }
+  const out: Vec[] = [];
+  for (let i = 0; i < n; i++) {
+    const prev = lines[(i - 1 + n) % n]!, cur = lines[i]!;
+    const x = lineIntersect(prev.p, prev.d, cur.p, cur.d);
+    out.push(x ?? cur.p);
+  }
+  // Walls thicker than the room turn the boundary inside out: every edge
+  // reverses, and the shoelace of a doubly-inverted rectangle is POSITIVE, so an
+  // area check alone would report a plausible-looking room that does not exist.
+  // Detect the inversion directly — any edge running opposite its original is a
+  // collapse — and report no usable floor.
+  for (let i = 0; i < n; i++) {
+    const a = poly[i]!, b = poly[(i + 1) % n]!;
+    const oa = out[i]!, ob = out[(i + 1) % n]!;
+    if (dist(a, b) < 1e-9) continue;
+    if (dot(sub(b, a), sub(ob, oa)) < 0) return [];
+  }
+  return out;
 }
 
 function angleOfEdge(hes: HalfEdge[], verts: Vec[], i: number): number {

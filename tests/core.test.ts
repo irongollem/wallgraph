@@ -195,5 +195,50 @@ function rectFloor(wallTh = 100) {
   }
 }
 
+// --- net (inner-face) room areas: the NEN 2580 number ---
+{
+  // A 4000 x 3000 centerline room: net is (4000-t) x (3000-t) exactly.
+  for (const t of [100, 300]) {
+    const f = rectFloor(t);
+    const r = detectRooms(f)[0]!;
+    check(`net area ${t}mm walls`,
+      near(r.netAreaMm2, (4000 - t) * (3000 - t), 1000),
+      `${r.netAreaMm2} vs ${(4000 - t) * (3000 - t)}`);
+    check(`net < centerline (${t}mm)`, r.netAreaMm2 < r.areaMm2);
+  }
+}
+{
+  // Mixed thicknesses: a 100mm divider in a 300mm shell. Each half insets by
+  // 150 on the outer sides and 50 on the divider.
+  const f = rectFloor(300);
+  const n1 = { id: newId("n"), x: 2000, y: 0 };
+  const n2 = { id: newId("n"), x: 2000, y: 3000 };
+  f.nodes.push(n1, n2);
+  const top = f.walls[0]!, bottom = f.walls[2]!;
+  const topB = top.b; top.b = n1.id;
+  f.walls.push({ id: newId("w"), a: n1.id, b: topB, thickness: 300, bulge: 0, openings: [] });
+  const botB = bottom.b; bottom.b = n2.id;
+  f.walls.push({ id: newId("w"), a: n2.id, b: botB, thickness: 300, bulge: 0, openings: [] });
+  f.walls.push({ id: newId("w"), a: n1.id, b: n2.id, thickness: 100, bulge: 0, openings: [] });
+  const rooms = detectRooms(f);
+  const expect = (2000 - 150 - 50) * (3000 - 300);
+  check("net area honours per-wall thickness",
+    rooms.length === 2 && rooms.every(r => near(r.netAreaMm2, expect, 2000)),
+    JSON.stringify(rooms.map(r => r.netAreaMm2)));
+}
+{
+  // Walls thicker than the room invert the boundary. A doubly-inverted
+  // rectangle has POSITIVE shoelace area, so this must be caught structurally,
+  // not by an area check — otherwise it reports a room that does not exist.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  const pts = [v(0, 0), v(400, 0), v(400, 400), v(0, 400)];
+  const ids = pts.map(p => { const id = newId("n"); f.nodes.push({ id, x: p.x, y: p.y }); return id; });
+  for (let i = 0; i < 4; i++)
+    f.walls.push({ id: newId("w"), a: ids[i]!, b: ids[(i + 1) % 4]!, thickness: 600, bulge: 0, openings: [] });
+  const r = detectRooms(f)[0];
+  check("over-thick walls give zero net area", !r || r.netAreaMm2 === 0, String(r?.netAreaMm2));
+}
+
 console.log(failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

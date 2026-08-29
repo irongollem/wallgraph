@@ -46,12 +46,27 @@ export interface Floor {
   symbols: SymbolInstance[];
 }
 
+/**
+ * How reported areas are measured. Plans are dimensioned both ways in practice
+ * and the gap is large — a 4x3 m room with 300 mm walls is 12 m² centerline but
+ * 9.99 m² net — so the document records which one its numbers mean rather than
+ * leaving a reader to guess.
+ *   net        inner wall faces (dagmaat); the usable floor, per NEN 2580
+ *   centerline hart-op-hart; matches the stored wall graph directly
+ */
+export type AreaMode = "net" | "centerline";
+
 export interface PlanDoc {
   version: 1;
   unit: "mm";
   gridMm: number;
+  /** Absent on documents written before this existed; treat as "net". */
+  areaMode?: AreaMode;
   floors: Floor[];
 }
+
+export const AREA_MODE_DEFAULT: AreaMode = "net";
+export const areaModeOf = (d: PlanDoc): AreaMode => d.areaMode ?? AREA_MODE_DEFAULT;
 
 let seq = 0;
 export const newId = (p: string): Id => `${p}${(++seq).toString(36)}${Date.now().toString(36).slice(-4)}`;

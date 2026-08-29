@@ -9,6 +9,7 @@ import { Tools } from "./input/tools";
 import { Panel } from "./ui/panel";
 import { tryLoadAutosave, scheduleAutosave } from "./io/json";
 import { seedDoc } from "./seed";
+import { areaModeOf } from "./model/doc";
 import { v } from "./geometry/vec";
 import { t, language, on as onI18n } from "./i18n";
 
@@ -79,7 +80,7 @@ export function mountWallgraph(app: HTMLElement): void {
     drawScene(ctx, vp, rect.width, rect.height, store.floor, resolved, rooms, store.sel, {
       hoverSnap: tools.getSnap(),
       preview: (c, viewport) => tools.drawPreview(c, viewport),
-    }, store.doc.gridMm);
+    }, store.doc.gridMm, areaModeOf(store.doc));
   }
 
   store.onChange(() => { scheduleAutosave(store.doc); requestRender(); });
