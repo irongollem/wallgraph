@@ -22,7 +22,7 @@ const opts = {
 const TITLE = "Wallgraph — free mm-exact floorplan editor";
 const DESCRIPTION =
   "Draw floorplans in the browser, exact to the millimetre. Type real lengths, " +
-  "place doors, windows and 77 standard plan symbols. Free, no account needed.";
+  "place 77 plan symbols and 27 NEN door and window types. Free, no account needed.";
 const SITE_URL = process.env.SITE_URL || process.env.URL || "";
 
 // Favicon: the 32 px PNG inlined as a data URI, so index.html stays a single

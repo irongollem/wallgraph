@@ -90,10 +90,10 @@ construction. Moving a wall moves its doors. `t` is clamped so jambs stay on the
 
 ## Symbol library (`src/render/symbols/`)
 
-74 standard plan symbols, drawn in mm units against a fixed interface
+77 standard plan symbols, drawn in mm units against a fixed interface
 (`{ type, label, category, wallMounted, width, depth, draw(ctx) }`), one file per
-category and aggregated by `index.ts`: electrical (23), safety (12), sanitary (9),
-water (9), furniture (8), heating (7), kitchen (6). Extending the library = adding
+category and aggregated by `index.ts`: electrical (23), safety (15), water (9),
+sanitary (9), furniture (8), heating (7), kitchen (6). Extending the library = adding
 one entry, plus its name in both languages (a test fails otherwise).
 
 The `draw(ctx)` contract is deliberately narrow — 1 unit = 1 mm, the caller owns
@@ -111,7 +111,7 @@ export without knowing about either.
 - [x] net room areas — inner-face polygons per wall thickness, and the document
       records *which* convention its numbers mean (see Measurement below)
 - [x] PNG export at true scale, with a scale bar
-- [x] more symbols — kitchen and furniture landed; 74 in total
+- [x] more symbols — kitchen and furniture landed; 77 in total
 - [ ] SVG export — needs a second renderer; `drawScene` is canvas-only today
 - [ ] DXF export — the wall graph maps almost directly onto LINE/ARC entities
 - [x] multi-floor with ghost underlay — `Store.activeFloor` with add/duplicate/
