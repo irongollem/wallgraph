@@ -54,6 +54,12 @@ export interface Sash {
   slideTo?: "a" | "b";
   /** Rotation sense, revolving doors only. Defaults to counter-clockwise. */
   spin?: "cw" | "ccw";
+  /**
+   * Roedeverdeling: how many glass panes the sash is divided into by glazing
+   * bars. In plan the bars are seen edge-on, so they read as ticks across the
+   * glass line rather than as a grid. 0 or absent = undivided.
+   */
+  bars?: number;
 }
 
 export interface Opening {
@@ -73,6 +79,11 @@ export interface Opening {
   /** Panes across the opening, in a->b order. Absent = one sash from windowType. */
   sashes?: Sash[];
   slideTo?: "a" | "b";
+  /**
+   * Glazed leaf (glaspartij). A glazed door reads as a frame with glass rather
+   * than a solid panel, so its leaf is drawn as a thin double line.
+   */
+  glazed?: boolean;
   /** Electrically operated — drawn with a small circle at the drive point. */
   powered?: boolean;
   /** Self-closing, as a fire door must be. */
@@ -269,6 +280,12 @@ export const DOOR_KINDS: DoorKind[] = [
   { id: "saloon",      sashes: [{ action: "double-acting", hinge: "a" },
                                 { action: "double-acting", hinge: "b" }] },
   { id: "kantel",      sashes: [{ action: "overhead" }] },
+  // Puien. A pui is a kozijn holding fixed glazing beside opening parts, so it
+  // is a sash list rather than an action — these are the common NL layouts.
+  { id: "schuifpui",   sashes: [{ action: "fixed" }, { action: "slide", slideTo: "a" }] },
+  { id: "schuifpui3",  sashes: [{ action: "fixed" }, { action: "slide", slideTo: "a" },
+                                { action: "fixed" }] },
+  { id: "draaipui",    sashes: [{ action: "fixed" }, { action: "turn", hinge: "b" }] },
 ];
 
 /** Which named door set a sash list matches, or null for a tuned combination. */

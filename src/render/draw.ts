@@ -226,7 +226,8 @@ function drawDoor(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number, co
     const a = add(og.p0, scale(along, cursor));
     const b = add(og.p0, scale(along, cursor + leaf.width));
     cursor += leaf.width;
-    drawDoorLeaf(ctx, leaf, a, b, along, og.n0, og.half, px);
+    drawDoorLeaf(ctx, leaf, a, b, along, og.n0, og.half, px, o.glazed);
+    drawBars(ctx, leaf, a, b, og.n0, og.half, px);
   }
 }
 
@@ -236,7 +237,7 @@ function drawDoor(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number, co
  */
 function drawDoorLeaf(
   ctx: CanvasRenderingContext2D, leaf: Sash & { width: number },
-  a: Vec, b: Vec, along: Vec, n: Vec, h: number, px: number,
+  a: Vec, b: Vec, along: Vec, n: Vec, h: number, px: number, glazedLeaf?: boolean,
 ): void {
   const w = leaf.width;
   if (w <= 1) return;
@@ -349,25 +350,36 @@ function drawDoorLeaf(
     return;
   }
   // Hinged leaf: fully open at 90 degrees, plus its quarter swing arc.
+  const glazed = glazedLeaf === true;
   const hingeAtA = (leaf.hinge ?? "a") !== "b";
   const hinge = hingeAtA ? a : b;
   const other = hingeAtA ? b : a;
   const dir = scale(sub(other, hinge), 1 / w);
   const swing = outward ? scale(perp(dir), -1) : perp(dir);
   const tip = add(hinge, scale(swing, w));
-  ctx.lineWidth = 1.4 * px;
   ctx.setLineDash([]);
-  line(ctx, hinge, tip);
+  if (glazed) {
+    // Two thin lines with a gap: a glazed leaf, not a solid panel.
+    const across = scale(perp(scale(sub(tip, hinge), 1 / w)), Math.min(w * 0.04, 40));
+    ctx.lineWidth = 0.9 * px;
+    line(ctx, add(hinge, across), add(tip, across));
+    line(ctx, sub(hinge, across), sub(tip, across));
+  } else {
+    ctx.lineWidth = 1.4 * px;
+    line(ctx, hinge, tip);
+  }
   const a0 = angleOf(sub(other, hinge));
   const a1 = angleOf(sub(tip, hinge));
   let d = a1 - a0;
   while (d > Math.PI) d -= 2 * Math.PI;
   while (d < -Math.PI) d += 2 * Math.PI;
-  ctx.lineWidth = 1 * px;
-  ctx.setLineDash([40, 40]);
-  ctx.beginPath();
-  ctx.arc(hinge.x, hinge.y, w, a0, a0 + d, d < 0);
-  ctx.stroke();
+  if (detailFor(w, px).arcs) {
+    ctx.lineWidth = 1 * px;
+    ctx.setLineDash([40, 40]);
+    ctx.beginPath();
+    ctx.arc(hinge.x, hinge.y, w, a0, a0 + d, d < 0);
+    ctx.stroke();
+  }
   ctx.setLineDash([]);
 }
 
@@ -427,6 +439,42 @@ function drawWindow(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number, 
       line(ctx, add(a, scale(og.n0, -h)), add(a, scale(og.n0, h)));
     }
     drawSash(ctx, sash, a, b, along, og.n0, h, px);
+    drawBars(ctx, sash, a, b, og.n0, h, px);
+  }
+}
+
+/**
+ * How much of an opening symbol is worth drawing at the current zoom.
+ *
+ * The sheets show a door three ways — at 1:100 a plain gap, at 1:50 leaf and
+ * arc, at 1:20 the frame too. A zoomable editor has no single scale, so the
+ * same idea is expressed against how large the leaf actually lands on screen:
+ * below about a centimetre of screen a swing arc is an illegible squiggle that
+ * only adds noise, and glazing bars closer than a few pixels merge into a
+ * smudge. `px` is millimetres per screen pixel, so w / px is the leaf's size in
+ * pixels.
+ */
+function detailFor(widthMm: number, px: number): { arcs: boolean; fine: boolean } {
+  const screenPx = widthMm / px;
+  return { arcs: screenPx >= 14, fine: screenPx >= 40 };
+}
+
+/**
+ * Roedeverdeling. Glazing bars lie in the plane of the glass, so a plan sees
+ * them edge-on: they read as short ticks across the glass line, not as the grid
+ * an elevation shows.
+ */
+function drawBars(
+  ctx: CanvasRenderingContext2D, sash: Sash & { width: number },
+  a: Vec, b: Vec, n: Vec, h: number, px: number,
+): void {
+  const panes = sash.bars ?? 0;
+  if (panes < 2 || !detailFor(sash.width, px).fine) return;
+  ctx.lineWidth = 0.8 * px;
+  ctx.setLineDash([]);
+  for (let i = 1; i < panes; i++) {
+    const p = add(a, scale(sub(b, a), i / panes));
+    line(ctx, add(p, scale(n, -h * 0.4)), add(p, scale(n, h * 0.4)));
   }
 }
 
@@ -437,6 +485,7 @@ function drawSash(
 ): void {
   const w = sash.width;
   if (w <= 1 || sash.action === "fixed") return;
+  if (!detailFor(w, px).arcs) return;   // too small on screen to read
   const outward = sash.outward === true;
   // Legend on the NEN sheets: solid = naar buiten, dashed = naar binnen.
   const dash: number[] = outward ? [] : [30, 30];

@@ -425,6 +425,18 @@ function rectFloor(wallTh = 100) {
 
   for (const k of DOOR_KINDS)
     check(`door kind ${k.id} round-trips`, doorKindOf(k.sashes)?.id === k.id);
+  // A pui is a frame assembly: fixed glazing beside opening parts.
+  const pui = DOOR_KINDS.find(k => k.id === "schuifpui")!;
+  check("schuifpui is fixed glazing plus a sliding leaf",
+    pui.sashes.length === 2 && pui.sashes[0]!.action === "fixed" && pui.sashes[1]!.action === "slide");
+  const pui3 = DOOR_KINDS.find(k => k.id === "schuifpui3")!;
+  check("3-panel pui is fixed / sliding / fixed",
+    pui3.sashes.map(x => x.action).join(",") === "fixed,slide,fixed");
+  // Its panes divide the opening, so widths still total it.
+  const laid = sashesOf(door({ width: 4200, sashes: pui3.sashes }), 4200);
+  check("pui panes total the opening width",
+    Math.abs(laid.reduce((t, x) => t + x.width, 0) - 4200) < 1e-6);
+
   check("tourniquet is a named door kind",
     DOOR_KINDS.some(k => k.id === "tourniquet" && k.sashes[0]!.action === "revolve"));
   // Rotation sense is a tuning, like hinge side: both senses are one tourniquet.

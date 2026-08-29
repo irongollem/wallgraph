@@ -236,6 +236,8 @@ export class Panel {
         selRow(t("panel.slidesToward"), sash.slideTo ?? "b",
           [["a", t("panel.hingeA")], ["b", t("panel.hingeB")]],
           v => writeBack(list => { list[i]!.slideTo = v as "a" | "b"; }));
+      numRow(t("panel.bars"), sash.bars ?? 0,
+        n => writeBack(list => { list[i]!.bars = Math.max(0, Math.round(n)) || undefined; }), 1);
       if (sashes.length > 1)
         numRow(t("panel.sashWidth"), Math.round(sash.width),
           n => writeBack(list => { list[i]!.width = Math.max(50, n); }), 50);
@@ -304,6 +306,8 @@ export class Panel {
         selRow(t("panel.swing"), leaf.outward ? "out" : "in",
           [["in", t("panel.swingIn")], ["out", t("panel.swingOut")]],
           v => writeBack(list => { list[i]!.outward = v === "out"; }));
+      numRow(t("panel.bars"), leaf.bars ?? 0,
+        n => writeBack(list => { list[i]!.bars = Math.max(0, Math.round(n)) || undefined; }), 1);
       if (leaves.length > 1)
         numRow(t("panel.sashWidth"), Math.round(leaf.width),
           n => writeBack(list => { list[i]!.width = Math.max(50, n); }), 50);
@@ -498,6 +502,8 @@ export class Panel {
         this.renderSashes(o, wall, mutOpening, selRow, numRow, btnRow, noteRow);
       }
       if (o.kind !== "passage") {
+        checkRow(t("panel.glazed"), o.glazed ?? false,
+          b => mutOpening(o2 => { o2.glazed = b || undefined; }));
         checkRow(t("panel.powered"), o.powered ?? false,
           b => mutOpening(o2 => { o2.powered = b || undefined; }));
         checkRow(t("panel.selfClosing"), o.selfClosing ?? false,
