@@ -8,7 +8,7 @@ import { v, norm, sub, add, scale } from "../geometry/vec";
 import { exportJson, copyJson, importJsonFile, parseDoc, clearAutosave } from "../io/json";
 import { exportPng } from "../io/image";
 import { seedDoc } from "../seed";
-import { emptyDoc, areaModeOf, type AreaMode, type WindowType } from "../model/doc";
+import { emptyDoc, areaModeOf, sashesOf, type AreaMode, type Sash, type SashAction, type HingeEdge, type Opening, type Wall } from "../model/doc";
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
 
 export class Panel {
@@ -173,6 +173,81 @@ export class Panel {
     btnRow(t("panel.floorDuplicate"), () =>
       this.store.duplicateFloor(t("panel.floorNewName", { n: floors.length + 1 })));
     if (floors.length > 1) btnRow(t("panel.floorDelete"), () => this.store.deleteFloor());
+  }
+
+  /**
+   * Sash editor. An opening is one hole; the sashes divide it. Editing writes
+   * `sashes` even when the opening still carries a legacy windowType, so the
+   * two never disagree — sashesOf() prefers `sashes` once it exists.
+   */
+  private renderSashes(
+    o: Opening, wall: Wall,
+    mut: (fn: (o2: Opening) => void) => void,
+    selRow: (l: string, v: string, opts: Array<[string, string]>, f: (s: string) => void) => void,
+    numRow: (l: string, v: number, f: (n: number) => void, step?: number) => void,
+    btnRow: (l: string, f: () => void) => void,
+    noteRow: (text: string) => void,
+  ): void {
+    const width = wallLength(this.store.floor, wall) > 0 ? o.width : o.width;
+    const sashes = sashesOf(o, width);
+    const ACTIONS: Array<[SashAction, string]> = [
+      ["fixed", t("panel.actFixed")],
+      ["turn", t("panel.actTurn")],
+      ["turn-tilt", t("panel.actTurnTilt")],
+      ["tilt", t("panel.actTilt")],
+      ["pivot", t("panel.actPivot")],
+      ["slide", t("panel.actSlide")],
+      ["slide-vertical", t("panel.actSlideVertical")],
+      ["turn-slide", t("panel.actTurnSlide")],
+      ["fold", t("panel.actFold")],
+    ];
+    const writeBack = (fn: (list: Sash[]) => void): void => {
+      mut(o2 => {
+        const list = (o2.sashes?.length ? o2.sashes : sashesOf(o2, width).map(x => ({ ...x })))
+          .map(x => ({ ...x }));
+        fn(list);
+        o2.sashes = list;
+      });
+    };
+    let horizontalHinge = false;
+    sashes.forEach((sash, i) => {
+      if (sashes.length > 1) noteRow(t("panel.sash", { n: i + 1 }));
+      selRow(sashes.length > 1 ? t("panel.type") : t("panel.type"), sash.action,
+        ACTIONS.map(([v, l]) => [v, l] as [string, string]),
+        v => writeBack(list => { list[i]!.action = v as SashAction; }));
+      const act = sash.action;
+      if (act === "turn" || act === "turn-tilt" || act === "turn-slide")
+        selRow(t("panel.hinge"), sash.hinge ?? "a",
+          [["a", t("panel.hingeA")], ["b", t("panel.hingeB")]],
+          v => writeBack(list => { list[i]!.hinge = v as HingeEdge; }));
+      if (act === "tilt")
+        selRow(t("panel.hinge"), sash.hinge ?? "sill",
+          [["sill", t("panel.hingeSill")], ["head", t("panel.hingeHead")]],
+          v => writeBack(list => { list[i]!.hinge = v as HingeEdge; }));
+      if (act !== "fixed" && act !== "slide" && act !== "slide-vertical")
+        selRow(t("panel.swing"), sash.outward ? "out" : "in",
+          [["in", t("panel.swingIn")], ["out", t("panel.swingOut")]],
+          v => writeBack(list => { list[i]!.outward = v === "out"; }));
+      if (act === "slide" || act === "turn-slide")
+        selRow(t("panel.slidesToward"), sash.slideTo ?? "b",
+          [["a", t("panel.hingeA")], ["b", t("panel.hingeB")]],
+          v => writeBack(list => { list[i]!.slideTo = v as "a" | "b"; }));
+      if (sashes.length > 1)
+        numRow(t("panel.sashWidth"), Math.round(sash.width),
+          n => writeBack(list => { list[i]!.width = Math.max(50, n); }), 50);
+      if (act === "tilt" || act === "pivot" || act === "slide-vertical") horizontalHinge = true;
+    });
+    if (horizontalHinge) noteRow(t("panel.planNote"));
+    btnRow(t("panel.sashAdd"), () => writeBack(list => {
+      // New sashes share the opening evenly: drop explicit widths and let
+      // sashesOf() divide, rather than guessing a split the user did not ask for.
+      list.push({ action: "fixed" });
+      for (const x of list) delete x.width;
+    }));
+    if (sashes.length > 1) btnRow(t("panel.sashRemove"), () => writeBack(list => {
+      list.pop();
+      for (const x of list) delete x.width;
+    }));
   }
 
   private pasteDialog(): void {
@@ -361,16 +436,7 @@ export class Panel {
         selRow(t("panel.swing"), (o.swingIn ?? true) ? "in" : "out", [["in", t("panel.swingIn")], ["out", t("panel.swingOut")]], s2 => mutOpening(o2 => { o2.swingIn = s2 === "in"; }));
       }
       if (o.kind === "window") {
-        selRow(t("panel.type"), o.windowType ?? "fixed", [["fixed", t("panel.typeFixed")], ["tilt-turn", t("panel.typeTiltTurn")], ["casement", t("panel.typeCasement")], ["sliding", t("panel.typeSliding")]],
-          s2 => mutOpening(o2 => { o2.windowType = s2 as WindowType; }));
-        const wt = o.windowType ?? "fixed";
-        if (wt === "sliding")
-          selRow(t("panel.slidesToward"), o.slideTo ?? "b", [["a", t("panel.hingeA")], ["b", t("panel.hingeB")]], s2 => mutOpening(o2 => { o2.slideTo = s2 as "a" | "b"; }));
-        // A side-hung sash has a hinge jamb and a direction, exactly like a door.
-        if (wt === "casement" || wt === "tilt-turn") {
-          selRow(t("panel.hinge"), o.hinge ?? "a", [["a", t("panel.hingeA")], ["b", t("panel.hingeB")]], s2 => mutOpening(o2 => { o2.hinge = s2 as "a" | "b"; }));
-          selRow(t("panel.swing"), (o.swingIn ?? true) ? "in" : "out", [["in", t("panel.swingIn")], ["out", t("panel.swingOut")]], s2 => mutOpening(o2 => { o2.swingIn = s2 === "in"; }));
-        }
+        this.renderSashes(o, wall, mutOpening, selRow, numRow, btnRow, noteRow);
       }
       btnRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());
       return;

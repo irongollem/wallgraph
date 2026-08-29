@@ -1,7 +1,7 @@
 // Full scene render. Immediate mode: redraw everything on change (documents at
 // this scale render in well under a frame). Layers: grid, rooms, walls,
 // opening decorations, symbols, selection, labels (labels in screen space).
-import { Floor, SymbolInstance, AreaMode } from "../model/doc";
+import { Floor, SymbolInstance, AreaMode, Sash, sashesOf } from "../model/doc";
 import { Resolved, OpeningGeom } from "../core/resolve";
 import { Room } from "../core/rooms";
 import { Selection } from "../model/store";
@@ -248,67 +248,63 @@ function drawDoor(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number, co
 function drawWindow(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number, color: string): void {
   const o = og.opening;
   const h = og.half;
+  const w = dist(og.p0, og.p1);
   ctx.strokeStyle = color;
   ctx.lineWidth = 1.2 * px;
-  // Frame: lines along both wall faces + thin glass line in the middle.
+  // Frame: a line along each wall face, spanning the whole opening.
   for (const off of [-h, h]) {
     ctx.beginPath();
     ctx.moveTo(og.p0.x + og.n0.x * off, og.p0.y + og.n0.y * off);
     ctx.lineTo(og.p1.x + og.n1.x * off, og.p1.y + og.n1.y * off);
     ctx.stroke();
   }
-  const type = o.windowType ?? "fixed";
-  if (type === "fixed" || type === "casement" || type === "tilt-turn") {
-    ctx.lineWidth = 0.8 * px;
-    ctx.beginPath();
-    ctx.moveTo(og.p0.x, og.p0.y);
-    ctx.lineTo(og.p1.x, og.p1.y);
-    ctx.stroke();
-  }
-  if (type === "sliding") {
-    // Two offset panel lines, each covering ~60% of the width, arrow on the moving panel.
-    const w = dist(og.p0, og.p1);
-    const along = scale(sub(og.p1, og.p0), 1 / w);
-    const n = og.n0;
-    const off = h * 0.35;
-    const toB = (o.slideTo ?? "b") === "b";
-    ctx.lineWidth = 1 * px;
-    // fixed panel
-    line(ctx, add(og.p0, scale(n, -off)), add(add(og.p0, scale(along, w * 0.6)), scale(n, -off)));
-    // sliding panel
-    const s0 = add(add(og.p0, scale(along, w * 0.4)), scale(n, off));
-    const s1 = add(add(og.p0, scale(along, w)), scale(n, off));
-    line(ctx, s0, s1);
-    // arrow indicating slide direction along the panel
-    const arrowBase = toB ? add(add(og.p0, scale(along, w * 0.55)), scale(n, off * 2.2))
-                          : add(add(og.p0, scale(along, w * 0.85)), scale(n, off * 2.2));
-    const dir = toB ? along : scale(along, -1);
-    const tip = add(arrowBase, scale(dir, w * 0.3));
-    line(ctx, arrowBase, tip);
-    const back = scale(dir, -60);
-    line(ctx, tip, add(add(tip, back), scale(perp(dir), 40)));
-    line(ctx, tip, add(add(tip, back), scale(perp(dir), -40)));
-  }
-  if (type === "casement" || type === "tilt-turn") {
-    // A side-hung (draai) sash swings exactly like a door, so in plan it gets a
-    // door's mark: the leaf perpendicular to the wall plus its quarter arc. The
-    // triangles on a NEN window sheet are ELEVATION symbols — a val/kiep hinge
-    // is horizontal and shows only in section, which a floorplan does not have.
-    //
-    // Line style carries the direction, per the sheet's legend:
-    //   solid  = naar buiten draaiend
-    //   dashed = naar binnen draaiend
-    const w = dist(og.p0, og.p1);
-    const hingeAtStart = (o.hinge ?? "a") === "a";
-    const hinge = hingeAtStart ? og.p0 : og.p1;
-    const other = hingeAtStart ? og.p1 : og.p0;
-    const along = scale(sub(other, hinge), 1 / w);
-    const side = perp(along);
-    const inward = o.swingIn ?? true;
-    const swing = inward ? side : scale(side, -1);
-    const tip = add(hinge, scale(swing, w));
-    const dash: number[] = inward ? [30, 30] : [];
+  // Glass line down the middle of the whole opening.
+  ctx.lineWidth = 0.8 * px;
+  line(ctx, og.p0, og.p1);
 
+  const along = w > 0 ? scale(sub(og.p1, og.p0), 1 / w) : og.tan0;
+  const sashes = sashesOf(o, w);
+  let cursor = 0;
+  for (let i = 0; i < sashes.length; i++) {
+    const sash = sashes[i]!;
+    const a = add(og.p0, scale(along, cursor));
+    const b = add(og.p0, scale(along, cursor + sash.width));
+    cursor += sash.width;
+    // Mullion between panes — a combination window is one hole subdivided, so
+    // the divider is a frame member, not a wall return.
+    if (i > 0) {
+      ctx.lineWidth = 1.2 * px;
+      ctx.setLineDash([]);
+      line(ctx, add(a, scale(og.n0, -h)), add(a, scale(og.n0, h)));
+    }
+    drawSash(ctx, sash, a, b, along, og.n0, h, px);
+  }
+}
+
+/** One pane's opening symbol, drawn between jamb points a and b along the wall. */
+function drawSash(
+  ctx: CanvasRenderingContext2D, sash: Sash & { width: number },
+  a: Vec, b: Vec, along: Vec, n: Vec, h: number, px: number,
+): void {
+  const w = sash.width;
+  if (w <= 1 || sash.action === "fixed") return;
+  const outward = sash.outward === true;
+  // Legend on the NEN sheets: solid = naar buiten, dashed = naar binnen.
+  const dash: number[] = outward ? [] : [30, 30];
+  const face = outward ? scale(n, -1) : n;
+
+  if (sash.action === "slide" || sash.action === "turn-slide") {
+    drawSlideArrow(ctx, a, b, along, n, h, px, sash.slideTo ?? "b");
+  }
+  if (sash.action === "turn" || sash.action === "turn-tilt" || sash.action === "turn-slide") {
+    // A side-hung sash swings like a door: leaf perpendicular to the wall at the
+    // hinge jamb, plus its quarter arc.
+    const hingeAtA = (sash.hinge ?? "a") !== "b";
+    const hinge = hingeAtA ? a : b;
+    const other = hingeAtA ? b : a;
+    const swing = outward ? scale(perp(scale(sub(other, hinge), 1 / w)), -1)
+                          : perp(scale(sub(other, hinge), 1 / w));
+    const tip = add(hinge, scale(swing, w));
     ctx.lineWidth = 1.2 * px;
     ctx.setLineDash(dash);
     line(ctx, hinge, tip);
@@ -320,21 +316,67 @@ function drawWindow(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number, 
     ctx.beginPath();
     ctx.arc(hinge.x, hinge.y, w, a0, a0 + d, d < 0);
     ctx.stroke();
-
-    if (type === "tilt-turn") {
-      // The tilt is not a plan-view motion, but a draai-valraam would otherwise
-      // be indistinguishable from a plain draaiend raam on the drawing. A small
-      // chevron at mid-span, apex toward the wall, marks it without pretending
-      // to be the sectional symbol.
-      const mid = add(og.p0, scale(sub(og.p1, og.p0), 0.5));
-      const depth = Math.min(w * 0.28, 300);
-      const apex = add(mid, scale(swing, depth * 0.35));
-      const base = scale(along, depth * 0.5);
-      line(ctx, add(add(mid, base), scale(swing, depth)), apex);
-      line(ctx, add(sub(mid, base), scale(swing, depth)), apex);
+    ctx.setLineDash([]);
+  }
+  if (sash.action === "tilt" || sash.action === "turn-tilt" || sash.action === "pivot") {
+    // A horizontal hinge does not exist in plan — these are section symbols on
+    // the sheets. A small chevron at mid-span marks that the pane opens at all,
+    // so a valraam is not silently identical to a vast raam. Not NEN; an aid.
+    const mid = add(a, scale(sub(b, a), 0.5));
+    const depth = Math.min(w * 0.28, 300);
+    const apex = add(mid, scale(face, depth * 0.35));
+    const arm = scale(along, depth * 0.5);
+    ctx.lineWidth = 1 * px;
+    ctx.setLineDash(dash);
+    line(ctx, add(add(mid, arm), scale(face, depth)), apex);
+    line(ctx, add(sub(mid, arm), scale(face, depth)), apex);
+    ctx.setLineDash([]);
+  }
+  if (sash.action === "slide-vertical") {
+    // Vertical slide is invisible in plan too; mark it with a short bar so it
+    // reads as "moves" rather than "fixed".
+    const mid = add(a, scale(sub(b, a), 0.5));
+    ctx.lineWidth = 1 * px;
+    ctx.setLineDash([]);
+    line(ctx, add(mid, scale(n, -h * 0.5)), add(mid, scale(n, h * 0.5)));
+  }
+  if (sash.action === "fold") {
+    // Vouwwand: leaves concertina, so draw the panes as a zigzag off the wall.
+    const leaves = Math.max(2, Math.round(w / 700));
+    const step = w / leaves;
+    const depth = Math.min(step * 0.8, 500);
+    ctx.lineWidth = 1.2 * px;
+    ctx.setLineDash(dash);
+    for (let i = 0; i < leaves; i++) {
+      const p0 = add(a, scale(along, i * step));
+      const p1 = add(a, scale(along, (i + 1) * step));
+      const peak = add(add(p0, scale(along, step * 0.5)), scale(face, i % 2 === 0 ? depth : depth * 0.25));
+      line(ctx, p0, peak);
+      line(ctx, peak, p1);
     }
     ctx.setLineDash([]);
   }
+}
+
+/** Sliding-panel marks: two offset panels and an arrow on the moving one. */
+function drawSlideArrow(
+  ctx: CanvasRenderingContext2D, a: Vec, b: Vec, along: Vec, n: Vec,
+  h: number, px: number, slideTo: "a" | "b",
+): void {
+  const w = dist(a, b);
+  const off = h * 0.35;
+  const toB = slideTo === "b";
+  ctx.lineWidth = 1 * px;
+  ctx.setLineDash([]);
+  line(ctx, add(a, scale(n, -off)), add(add(a, scale(along, w * 0.6)), scale(n, -off)));
+  line(ctx, add(add(a, scale(along, w * 0.4)), scale(n, off)), add(add(a, scale(along, w)), scale(n, off)));
+  const base = add(add(a, scale(along, toB ? w * 0.55 : w * 0.85)), scale(n, off * 2.2));
+  const dir = toB ? along : scale(along, -1);
+  const tip = add(base, scale(dir, w * 0.3));
+  line(ctx, base, tip);
+  const back = scale(dir, -Math.min(60, w * 0.12));
+  line(ctx, tip, add(add(tip, back), scale(perp(dir), Math.min(40, w * 0.08))));
+  line(ctx, tip, add(add(tip, back), scale(perp(dir), -Math.min(40, w * 0.08))));
 }
 
 function drawPassage(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number, color: string): void {

@@ -1,6 +1,7 @@
 // Engine sanity tests, run with tsx.
 import { emptyDoc, newId, Wall, GRID_DEFAULT_MM } from "../src/model/doc";
 import { Store } from "../src/model/store";
+import { sashesOf, type Opening } from "../src/model/doc";
 import { detectRooms } from "../src/core/rooms";
 import { resolveFloor } from "../src/core/resolve";
 import { arcInfo, arcLength, arcPointAt, arcTangentAt, arcFlatten, bulgeFromSagitta } from "../src/geometry/arc";
@@ -349,6 +350,57 @@ function rectFloor(wallTh = 100) {
   const f = rectFloor(200);
   const res = resolveFloor(f);
   check("no junction fill for plain corners", res.junctions.length === 0, String(res.junctions.length));
+}
+
+// --- window sashes ---
+{
+  const mk = (o: Partial<Opening>): Opening =>
+    ({ id: "o", kind: "window", t: 1000, width: 2000, ...o } as Opening);
+
+  // Documents written before sashes existed must resolve to the same window.
+  const legacy: Array<[string, Opening, string]> = [
+    ["fixed", mk({ windowType: "fixed" }), "fixed"],
+    ["casement", mk({ windowType: "casement" }), "turn"],
+    ["tilt-turn", mk({ windowType: "tilt-turn" }), "turn-tilt"],
+    ["sliding", mk({ windowType: "sliding" }), "slide"],
+    ["untyped", mk({}), "fixed"],
+  ];
+  for (const [name, o, action] of legacy) {
+    const s2 = sashesOf(o, 2000);
+    check(`legacy ${name} maps to one ${action} sash`,
+      s2.length === 1 && s2[0]!.action === action && s2[0]!.width === 2000,
+      JSON.stringify(s2));
+  }
+  // swingIn false is "naar buiten", which is what drives the solid line style.
+  check("legacy swingIn:false becomes outward",
+    sashesOf(mk({ windowType: "casement", swingIn: false }), 2000)[0]!.outward === true);
+  check("legacy swingIn:true stays inward",
+    sashesOf(mk({ windowType: "casement", swingIn: true }), 2000)[0]!.outward === false);
+
+  // A combination window is one hole subdivided; widths must total the opening.
+  const combo = sashesOf(mk({ width: 2400, sashes: [
+    { action: "fixed", width: 1400 }, { action: "turn-tilt", hinge: "b" },
+  ] }), 2400);
+  check("sized sash keeps its width", combo[0]!.width === 1400);
+  check("unsized sash takes the remainder", combo[1]!.width === 1000);
+  check("sash widths total the opening",
+    Math.abs(combo.reduce((t, x) => t + x.width, 0) - 2400) < 1e-6);
+
+  const three = sashesOf(mk({ width: 3000, sashes: [
+    { action: "fixed" }, { action: "turn" }, { action: "fixed" },
+  ] }), 3000);
+  check("unsized sashes split evenly", three.every(x => Math.abs(x.width - 1000) < 1e-6));
+
+  // Over-wide fixed panes must not hand the remainder a negative width, which
+  // would flip the sash geometry inside out.
+  const over = sashesOf(mk({ width: 1000, sashes: [
+    { action: "fixed", width: 1800 }, { action: "turn" },
+  ] }), 1000);
+  check("remainder never goes negative", over[1]!.width === 0, String(over[1]!.width));
+
+  // sashes wins over a stale windowType, so the two can never disagree.
+  check("sashes override a legacy windowType",
+    sashesOf(mk({ windowType: "sliding", sashes: [{ action: "fold" }] }), 2000)[0]!.action === "fold");
 }
 
 console.log(failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURES`);
