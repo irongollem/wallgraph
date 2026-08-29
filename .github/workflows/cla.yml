@@ -14,7 +14,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  check:
+  cla:
     runs-on: ubuntu-latest
     steps:
       # Default ref for pull_request_target is the base branch. Do NOT add `ref:` —
