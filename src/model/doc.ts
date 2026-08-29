@@ -5,7 +5,11 @@ export type Id = string;
 export interface PlanNode { id: Id; x: number; y: number }
 
 export type OpeningKind = "door" | "window" | "passage";
-export type WindowType = "fixed" | "casement" | "sliding";
+/**
+ * "tilt-turn" is the Dutch draai-kiep: hinged at one jamb to swing in, and at
+ * the sill to tilt. By far the most common opening window in NL housing.
+ */
+export type WindowType = "fixed" | "casement" | "sliding" | "tilt-turn";
 
 export interface Opening {
   id: Id;

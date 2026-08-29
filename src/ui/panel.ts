@@ -8,7 +8,7 @@ import { v, norm, sub, add, scale } from "../geometry/vec";
 import { exportJson, copyJson, importJsonFile, parseDoc, clearAutosave } from "../io/json";
 import { exportPng } from "../io/image";
 import { seedDoc } from "../seed";
-import { emptyDoc, areaModeOf, type AreaMode } from "../model/doc";
+import { emptyDoc, areaModeOf, type AreaMode, type WindowType } from "../model/doc";
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
 
 export class Panel {
@@ -361,8 +361,8 @@ export class Panel {
         selRow(t("panel.swing"), (o.swingIn ?? true) ? "in" : "out", [["in", t("panel.swingIn")], ["out", t("panel.swingOut")]], s2 => mutOpening(o2 => { o2.swingIn = s2 === "in"; }));
       }
       if (o.kind === "window") {
-        selRow(t("panel.type"), o.windowType ?? "fixed", [["fixed", t("panel.typeFixed")], ["casement", t("panel.typeCasement")], ["sliding", t("panel.typeSliding")]],
-          s2 => mutOpening(o2 => { o2.windowType = s2 as "fixed" | "casement" | "sliding"; }));
+        selRow(t("panel.type"), o.windowType ?? "fixed", [["fixed", t("panel.typeFixed")], ["tilt-turn", t("panel.typeTiltTurn")], ["casement", t("panel.typeCasement")], ["sliding", t("panel.typeSliding")]],
+          s2 => mutOpening(o2 => { o2.windowType = s2 as WindowType; }));
         if ((o.windowType ?? "fixed") === "sliding")
           selRow(t("panel.slidesToward"), o.slideTo ?? "b", [["a", t("panel.hingeA")], ["b", t("panel.hingeB")]], s2 => mutOpening(o2 => { o2.slideTo = s2 as "a" | "b"; }));
       }

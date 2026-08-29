@@ -258,7 +258,7 @@ function drawWindow(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number, 
     ctx.stroke();
   }
   const type = o.windowType ?? "fixed";
-  if (type === "fixed" || type === "casement") {
+  if (type === "fixed" || type === "casement" || type === "tilt-turn") {
     ctx.lineWidth = 0.8 * px;
     ctx.beginPath();
     ctx.moveTo(og.p0.x, og.p0.y);
@@ -288,6 +288,30 @@ function drawWindow(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number, 
     const back = scale(dir, -60);
     line(ctx, tip, add(add(tip, back), scale(perp(dir), 40)));
     line(ctx, tip, add(add(tip, back), scale(perp(dir), -40)));
+  }
+  if (type === "tilt-turn") {
+    // Draai-kiep. Two motions, so two marks: the turn is the same outward
+    // triangle a casement gets, apexed at the hinge jamb to say which side
+    // swings; the tilt is a shallower triangle apexed at mid-span, the sill
+    // hinge seen from above. Drawn dashed like every other opening indicator.
+    const w = dist(og.p0, og.p1);
+    const out = scale(og.n0, -1);
+    const hingeAtA = (o.hinge ?? "a") === "a";
+    const pivot = hingeAtA ? og.p0 : og.p1;
+    const far = hingeAtA ? og.p1 : og.p0;
+    ctx.setLineDash([30, 30]);
+    ctx.lineWidth = 0.8 * px;
+    // Turn: apex on the hinge jamb, base at the far jamb.
+    const apex = add(pivot, scale(out, h));
+    const baseFar = add(far, scale(out, h + w * 0.42));
+    line(ctx, apex, baseFar);
+    line(ctx, baseFar, add(far, scale(out, h)));
+    // Tilt: shallow triangle apexed at mid-span.
+    const mid = add(og.p0, scale(sub(og.p1, og.p0), 0.5));
+    const tiltTip = add(mid, scale(out, h + w * 0.18));
+    line(ctx, add(og.p0, scale(out, h)), tiltTip);
+    line(ctx, tiltTip, add(og.p1, scale(out, h)));
+    ctx.setLineDash([]);
   }
   if (type === "casement") {
     // Small opening triangle on the outside (convention): leaf from p0 hinging out.
