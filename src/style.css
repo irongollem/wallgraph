@@ -2,55 +2,238 @@
 html, body, #app { height: 100%; }
 body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec; overflow: hidden; color-scheme: light; }
 .app { display: flex; height: 100%; }
-.brand { padding: 14px 12px 4px; }
-.brand h1 { font-size: 17px; font-weight: 650; letter-spacing: 0.01em; color: #2b2e33; }
-.brand p { font-size: 11px; color: #a09a8a; margin-top: 2px; }
-.side { width: 232px; flex: none; background: #ffffff; border-right: 1px solid #e2ded2; display: flex; flex-direction: column; overflow-y: auto; }
 .canvas-wrap { flex: 1; position: relative; }
 .canvas-wrap canvas { position: absolute; inset: 0; display: block; cursor: crosshair; }
-.toolbar { padding: 10px; display: flex; flex-wrap: wrap; gap: 4px; align-content: flex-start; }
-.tool-btn { border: 1px solid #d8d4c8; background: #faf9f5; color: #2b2e33; border-radius: 6px; padding: 6px 9px; cursor: pointer; font: inherit; }
-.tool-btn:hover { background: #f0eee6; }
-.tool-btn.active { background: #3d4148; color: #fff; border-color: #3d4148; }
-.tool-btn.small { padding: 4px 8px; font-size: 12px; }
-.tool-btn.wide { width: 100%; margin-top: 6px; }
-.sep { width: 100%; border: none; border-top: 1px solid #eceadf; margin: 6px 0; }
-.sym-group { width: 100%; display: flex; flex-wrap: wrap; gap: 4px; }
-.sym-cat { width: 100%; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: #a09a8a; margin: 4px 0 0; }
-.sym-btn { font-size: 12px; }
-.props { padding: 10px; border-top: 1px solid #eceadf; }
-.props-title { font-weight: 600; margin-bottom: 8px; }
-.prop-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
-.prop-row span { color: #6b675c; }
-.prop-row input[type="number"] { width: 90px; padding: 4px 6px; border: 1px solid #d8d4c8; border-radius: 5px; font: inherit; background: #fff; color: #2b2e33; }
-.prop-row select { padding: 4px 6px; border: 1px solid #d8d4c8; border-radius: 5px; font: inherit; background: #fff; color: #2b2e33; }
-.status { margin-top: auto; padding: 10px; font-size: 12px; color: #8a8577; border-top: 1px solid #eceadf; }
-.overlay { position: fixed; inset: 0; background: rgba(43,46,51,0.4); display: flex; align-items: center; justify-content: center; z-index: 10; }
-.dialog { background: #fff; color: #2b2e33; border-radius: 8px; padding: 14px; width: min(480px, 90vw); box-shadow: 0 8px 30px rgba(0,0,0,0.25); }
-.dialog textarea { width: 100%; height: 160px; margin: 8px 0; border: 1px solid #d8d4c8; border-radius: 5px; font: 12px/1.4 ui-monospace, monospace; padding: 6px; background: #faf9f5; color: #2b2e33; resize: vertical; }
-.dialog-row { display: flex; gap: 6px; justify-content: flex-end; }
-.dim-input { position: absolute; width: 86px; padding: 2px 6px; border: 1.5px solid #2d7de0; border-radius: 5px; font: 600 12px system-ui, sans-serif; color: #2d7de0; background: #fff; z-index: 5; }
-.sym-search { width: 100%; padding: 6px 8px; border: 1px solid #d8d4c8; border-radius: 6px; font: inherit; background: #faf9f5; color: #2b2e33; margin: 2px 0 4px; }
-.sym-grids { width: 100%; display: flex; flex-direction: column; gap: 4px; }
-.sym-cat-head { display: flex; align-items: center; gap: 6px; width: 100%; border: none; background: none; padding: 5px 2px 2px; cursor: pointer; font: 600 11px system-ui, sans-serif; text-transform: uppercase; letter-spacing: 0.06em; color: #8a8577; text-align: left; }
-.sym-cat-head:hover { color: #2b2e33; }
-.sym-cat-head .tri { width: 10px; }
-.sym-cat-head .count { margin-left: auto; font-weight: 400; color: #b5afa0; }
-.sym-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
-.sym-icon { display: flex; flex-direction: column; align-items: center; gap: 1px; border: 1px solid #e2ded2; background: #fdfcfa; border-radius: 6px; padding: 3px 2px 4px; cursor: pointer; }
-.sym-icon:hover { border-color: #b9b3a3; background: #f4f2ec; }
-.sym-icon.active { border-color: #3d4148; background: #3d4148; }
-.sym-icon.active span { color: #fff; }
-.sym-icon canvas { width: 56px; height: 56px; }
+
+:root {
+  --dur-tap: 90ms;
+  --dur-quick: 140ms;
+  --dur-base: 200ms;
+  --dur-slow: 260ms;
+  --ease-out: cubic-bezier(.2,0,0,1);
+  --ease-in: cubic-bezier(.4,0,1,1);
+  --ease-std: cubic-bezier(.4,0,.2,1);
+}
+
+/* ---------- layout ---------- */
+
+.side { width: 292px; flex: none; background: #ffffff; border-right: 1px solid #e2ded2; display: flex; flex-direction: column; overflow: hidden; }
+.side-head { height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 14px; border-bottom: 1px solid #eceadf; }
+.side-head h1 { font: 650 15px system-ui, sans-serif; letter-spacing: 0.01em; color: #2b2e33; }
+.side-body { flex-grow: 1; display: flex; min-height: 0; }
+
+/* ---------- rail ---------- */
+
+.rail { width: 52px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0 10px; background: #faf9f5; border-right: 1px solid #eceadf; }
+.rail-btn {
+  width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; color: #6b675c; border: 1px solid transparent; background: none;
+  cursor: pointer; padding: 0; font: inherit;
+  transition: background var(--dur-quick) var(--ease-std), color var(--dur-quick) var(--ease-std), transform var(--dur-tap) var(--ease-std);
+}
+.rail-btn:hover { background: #f0eee6; color: #3d4148; }
+.rail-btn:active { transform: scale(.94); background: #e9e6dc; }
+.rail-btn.is-active { background: #3d4148; color: #fff; border-color: #3d4148; }
+.rail-btn.is-mode { color: #a09a8a; }
+.rail-btn.is-mode.is-on { background: #eaf1fb; color: #2d7de0; border-color: #cbdff7; }
+.rail-btn:disabled { color: #cfcabc; cursor: default; transition: none; }
+.rail-btn:disabled:hover, .rail-btn:disabled:active { background: none; color: #cfcabc; transform: none; }
+.rail-btn:focus-visible { outline: 2px solid #2d7de0; outline-offset: 2px; }
+.rail-sep { width: 26px; height: 1px; background: #e2ded2; margin: 8px 0; border: none; }
+.rail-spacer { flex-grow: 1; }
+
+@keyframes rail-pulse {
+  from { box-shadow: 0 0 0 0 rgba(45,125,224,.35); }
+  to { box-shadow: 0 0 0 13px rgba(45,125,224,0); }
+}
+/* Fires once when G/O/L are pressed from the keyboard, so the rail button still
+   registers the toggle in peripheral vision while the user is looking at the canvas. */
+.rail-btn.is-pulse { animation: rail-pulse var(--dur-slow) var(--ease-out) 1; }
+
+/* ---------- pane ---------- */
+
+.pane { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.storey { flex: none; display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid #eceadf; }
+/* Native select: it already draws its own chevron, so no .chev child here. */
+.storey-select { flex-grow: 1; min-width: 0; padding: 3px 4px 3px 6px; border: 1px solid transparent;
+  border-radius: 5px; background: none; font: inherit; font-weight: 600; color: #2b2e33; cursor: pointer; }
+.storey-select:hover { border-color: #e2ded2; background: #faf9f5; }
+.storey-select:focus-visible { outline: 2px solid #2d7de0; outline-offset: 1px; }
+.storey-add { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 1px solid #e2ded2; background: #faf9f5; color: #8a8577; cursor: pointer; }
+/* One scroller for properties + symbols; neither scrolls internally. */
+.pane-scroll { flex: 1 1 0; min-height: 0; overflow-y: auto; }
+.pane-body { padding: 12px 12px 0; }
+
+@keyframes pane-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+.pane-swap { animation: pane-in var(--dur-quick) var(--ease-out) 1; }
+
+.sec { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; }
+.sec.sec-later { padding-top: 26px; }
+.sec-label { font: 600 10px system-ui, sans-serif; text-transform: uppercase; letter-spacing: 0.08em; color: #a09a8a; }
+.sec-label.is-sel { color: #e05d2d; }
+.sec-rule { flex-grow: 1; height: 1px; background: #eceadf; }
+.sec-close { border: none; background: none; padding: 0; font: inherit; color: #b5afa0; cursor: pointer; }
+.sec-close:hover { color: #6b675c; }
+
+/* ---------- property rows ---------- */
+
+.props { display: flex; flex-direction: column; gap: 6px; }
+.prop-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.prop-row > span { color: #6b675c; }
+.prop-row input[type="number"], .prop-row input[type="text"] {
+  width: 84px; padding: 4px 8px; border: 1px solid #d8d4c8; border-radius: 5px;
+  background: #fff; color: #2b2e33; font: inherit; text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.prop-row input[type="number"]:focus, .prop-row input[type="text"]:focus {
+  border-color: #2d7de0; box-shadow: 0 0 0 2px rgba(45,125,224,.13); outline: none;
+}
+.prop-row select { padding: 4px 6px 4px 8px; border: 1px solid #d8d4c8; border-radius: 5px;
+  background: #fff; color: #2b2e33; font: inherit; min-width: 0; flex: 0 1 auto; max-width: 148px; }
+.prop-row > span { min-width: 0; overflow-wrap: break-word; }
+.prop-row input, .prop-row select { max-width: 100%; }
+.prop-readonly { color: #8a8577; font-variant-numeric: tabular-nums; padding-right: 9px; }
+.prop-note { font: 10px system-ui, sans-serif; color: #a09a8a; padding: 1px 2px 4px; }
+
+.btn-danger {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-top: 12px; padding: 6px 10px; border: 1px solid #e6cec4; border-radius: 6px;
+  background: #fdf6f3; color: #b04a20; cursor: pointer; font: inherit;
+}
+.btn-danger:hover { background: #fbeee9; }
+
+.keycap { font: 500 10px ui-monospace, Menlo, monospace; color: #a09a8a; border: 1px solid #e2ded2; border-radius: 4px; padding: 1px 5px; background: #faf9f5; }
+.btn-danger .keycap { color: #c99277; border-color: #ecd5c9; background: #fff; }
+
+/* ---------- palette ---------- */
+
+.pane-body[hidden] { display: none; }
+.pal { display: block; }
+.pal-search { padding: 9px 12px; border-bottom: 1px solid #eceadf; background: #fff; }
+.pal-search-box { display: flex; align-items: center; gap: 7px; padding: 5px 9px; border: 1px solid #d8d4c8; border-radius: 7px; background: #faf9f5; }
+.pal-search-box svg { color: #b5afa0; }
+.pal-search-box input { border: none; background: none; width: 100%; font: inherit; color: #2b2e33; outline: none; }
+.pal-scroll { padding: 0 12px 12px; }
+
+.pal-cat {
+  width: 100%; display: flex; align-items: center; gap: 7px; padding: 10px 2px 6px;
+  border: none; background: #fff; cursor: pointer; font: inherit; text-align: left;
+  position: sticky; top: 0; z-index: 1;
+}
+.pal-cat .chev { color: #b5afa0; display: flex; transform: rotate(-90deg); transition: transform var(--dur-base) var(--ease-out); }
+.pal-cat[aria-expanded="true"] .chev { transform: none; color: #6b675c; }
+.pal-cat .count { font: 500 10px system-ui, sans-serif; color: #a09a8a; background: #f4f2ec; border-radius: 9px; padding: 1px 7px; }
+
+.pal-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-base) var(--ease-out); }
+.pal-body.is-open { grid-template-rows: 1fr; }
+/* A 0fr grid row still lays its child out at full height and merely clips the
+   overflow, which leaves the collapsed tiles focusable and reachable by screen
+   readers. Hiding the child via visibility (delayed on close until the collapse
+   transition finishes, immediate on open) is what actually removes it from the
+   tab order and accessibility tree — without this rule the animation is cosmetic
+   only and collapsed categories stay fully interactive. */
+.pal-body > * { overflow: hidden; min-height: 0; visibility: hidden; transition: visibility 0s var(--dur-base); }
+.pal-body.is-open > * { visibility: visible; transition-delay: 0s; }
+
+.pal-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; padding-bottom: 8px; }
+.sym-tile {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  border: 1px solid #e2ded2; background: #fdfcfa; border-radius: 7px; padding: 4px 2px 5px;
+  cursor: pointer;
+  transition: border-color var(--dur-quick) var(--ease-std), background var(--dur-quick) var(--ease-std);
+}
+.sym-tile:hover { border-color: #b9b3a3; background: #f4f2ec; }
+.sym-tile:active { transform: scale(.97); }
+.sym-tile.is-active { border-color: #3d4148; background: #3d4148; }
+.sym-tile.is-active span { color: #fff; }
+.sym-tile canvas { width: 52px; height: 52px; }
 /* Two lines, clamped. Single-line ellipsis made Dutch names ambiguous —
    "Wandcontactdoos" and "Wandcontactdoos met randaarde" both truncated to
    "Wandconta…", so three socket variants looked identical in the palette. */
-.sym-icon span { font: 9px/1.15 system-ui, sans-serif; color: #6b675c; max-width: 62px;
+.sym-tile span { font: 9px/1.15 system-ui, sans-serif; color: #6b675c; max-width: 62px;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-clamp: 2;
   overflow: hidden; text-align: center; min-height: 2.3em;
   /* hyphens:auto uses the browser's dictionary for the document language (we set
      <html lang> from i18n), so Dutch compounds break as "serie-schakelaar" rather
      than mid-syllable. break-word only splits a word that cannot fit alone. */
   hyphens: auto; -webkit-hyphens: auto; overflow-wrap: break-word; }
-.prop-readonly { color: #8a8577; font-variant-numeric: tabular-nums; }
-.prop-note { font: 10px system-ui, sans-serif; color: #8a8577; padding: 1px 2px 4px; }
+
+/* ---------- menu ---------- */
+
+.menu-backdrop { position: fixed; inset: 0; z-index: 20; background: none; }
+.menu {
+  position: fixed; z-index: 21; min-width: 214px; background: #fff; border: 1px solid #e2ded2;
+  border-radius: 9px; box-shadow: 0 6px 20px rgba(43,46,51,.10); padding: 5px 0;
+  transform-origin: top right;
+}
+@keyframes menu-in {
+  from { opacity: 0; transform: scale(.96) translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+.menu { animation: menu-in var(--dur-quick) var(--ease-out) 1; }
+.menu-item {
+  width: 100%; display: flex; align-items: center; gap: 9px; padding: 6px 11px;
+  border: none; background: none; cursor: pointer; font: inherit; color: #2b2e33; text-align: left;
+}
+.menu-item svg { color: #6b675c; }
+.menu-item:hover { background: #f4f2ec; }
+.menu-hint { font: 10px ui-monospace, Menlo, monospace; color: #b5afa0; margin-left: auto; }
+.menu-sep { height: 1px; background: #eceadf; margin: 5px 0; border: none; }
+.menu-row { width: 100%; display: flex; align-items: center; gap: 9px; padding: 6px 11px; color: #2b2e33; text-align: left; }
+.menu-row select { padding: 2px 4px; border: 1px solid #d8d4c8; border-radius: 4px; background: #fff; font: inherit; }
+
+/* ---------- status ---------- */
+
+.status { margin-top: auto; flex: none; padding: 8px 12px; border-top: 1px solid #eceadf; background: #fdfcfa; font: 11px/1.35 system-ui, sans-serif; color: #8a8577; }
+.status .grip { color: #e05d2d; }
+
+/* ---------- overlay / dialog ---------- */
+
+.overlay { position: fixed; inset: 0; background: rgba(43,46,51,0.4); display: flex; align-items: center; justify-content: center; z-index: 10; }
+.dialog { background: #fff; color: #2b2e33; border-radius: 8px; padding: 14px; width: min(480px, 90vw); box-shadow: 0 8px 30px rgba(0,0,0,0.25); }
+.props-title { font-weight: 600; margin-bottom: 8px; }
+.dialog textarea { width: 100%; height: 160px; margin: 8px 0; border: 1px solid #d8d4c8; border-radius: 5px; font: 12px/1.4 ui-monospace, monospace; padding: 6px; background: #faf9f5; color: #2b2e33; resize: vertical; }
+.dialog-row { display: flex; gap: 6px; justify-content: flex-end; }
+.dim-input { position: absolute; width: 86px; padding: 2px 6px; border: 1.5px solid #2d7de0; border-radius: 5px; font: 600 12px system-ui, sans-serif; color: #2d7de0; background: #fff; z-index: 5; }
+
+/* Minimal survivors: only the paste dialog's Load/Cancel buttons still use these. */
+.tool-btn { border: 1px solid #d8d4c8; background: #faf9f5; color: #2b2e33; border-radius: 6px; padding: 6px 9px; cursor: pointer; font: inherit; }
+.tool-btn:hover { background: #f0eee6; }
+.tool-btn.small { padding: 4px 8px; font-size: 12px; }
+
+/* Every animated state above also differs statically (colour, border, chevron
+   rotation, is-open/is-active class), so collapsing all durations to ~0 here
+   loses no information — nothing in this file is legible by motion alone. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 1ms !important; animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
+}
+
+/* Plan section: pinned under whatever the pane is showing, in every state.
+   Same 0fr->1fr fold as the palette, including the visibility pairing that
+   keeps collapsed rows out of the tab order. */
+.plan-sec { flex: none; margin-top: auto; border-top: 1px solid #eceadf; background: #fdfcfa; }
+.plan-head { width: 100%; display: flex; align-items: center; gap: 7px; padding: 8px 12px;
+  border: none; background: none; cursor: pointer; font: inherit; text-align: left; }
+.plan-head:hover .sec-label { color: #6b675c; }
+.plan-head .chev { color: #b5afa0; display: flex; transform: rotate(-90deg);
+  transition: transform var(--dur-base) var(--ease-out); }
+.plan-head[aria-expanded="true"] .chev { transform: none; color: #6b675c; }
+.plan-body { display: grid; grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur-base) var(--ease-out); }
+.plan-body > * { overflow: hidden; min-height: 0; visibility: hidden;
+  transition: visibility 0s var(--dur-base); }
+.plan-body.is-open { grid-template-rows: 1fr; }
+.plan-body.is-open > * { visibility: visible; transition-delay: 0s; }
+.plan-rows { display: flex; flex-direction: column; gap: 6px; padding: 0 12px 12px; }
+
+/* Drag-scrub: the field is a slider you can also type into, so it advertises
+   the horizontal drag and drops the native spinners the gesture would fight. */
+.prop-row input[type="number"] { appearance: textfield; -moz-appearance: textfield; cursor: ew-resize; }
+.prop-row input[type="number"]::-webkit-outer-spin-button,
+.prop-row input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.prop-row input[type="number"]:focus { cursor: text; }
+.prop-row input[type="number"].is-scrubbing { border-color: #2d7de0; background: #f5f9fe;
+  box-shadow: 0 0 0 2px rgba(45,125,224,0.13); user-select: none; }

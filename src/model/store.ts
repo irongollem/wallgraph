@@ -15,6 +15,7 @@ export class Store {
   private redoStack: string[] = [];
   private listeners: Listener[] = [];
   private lastCoalesceKey: string | null = null;
+  private gestureKey: string | null = null;
   private lastMutateAt = 0;
 
   /**
@@ -107,15 +108,25 @@ export class Store {
   private notify(): void { this.revision++; for (const l of this.listeners) l(); }
 
   /** Apply a mutation with undo. Same coalesceKey within 900ms merges into one undo step. */
+  /**
+   * Group a continuous gesture -- a scrubbed number field, a drag -- into ONE
+   * undo step. It overrides the per-call key so callers that already exist do
+   * not have to thread one through; without it a scrub would push an undo
+   * entry per animation frame.
+   */
+  beginGesture(key: string): void { this.gestureKey = key; }
+  endGesture(): void { this.gestureKey = null; this.lastCoalesceKey = null; }
+
   mutate(fn: (doc: PlanDoc) => void, coalesceKey?: string): void {
     const now = performance.now();
-    const coalesce = coalesceKey !== undefined && coalesceKey === this.lastCoalesceKey && now - this.lastMutateAt < 900;
+    const key = this.gestureKey ?? coalesceKey;
+    const coalesce = key !== undefined && key === this.lastCoalesceKey && now - this.lastMutateAt < 900;
     if (!coalesce) {
       this.undoStack.push(JSON.stringify(this.doc));
       if (this.undoStack.length > 200) this.undoStack.shift();
       this.redoStack.length = 0;
     }
-    this.lastCoalesceKey = coalesceKey ?? null;
+    this.lastCoalesceKey = key ?? null;
     this.lastMutateAt = now;
     fn(this.doc);
     this.notify();
@@ -161,4 +172,7 @@ export class Store {
     this.sel = null;
     this.notify();
   }
+
+  get canUndo(): boolean { return this.undoStack.length > 0; }
+  get canRedo(): boolean { return this.redoStack.length > 0; }
 }

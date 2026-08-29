@@ -11,7 +11,7 @@ import { tryLoadAutosave, scheduleAutosave } from "./io/json";
 import { seedDoc } from "./seed";
 import { areaModeOf } from "./model/doc";
 import { v } from "./geometry/vec";
-import { t, language, on as onI18n } from "./i18n";
+import { language, on as onI18n } from "./i18n";
 
 export function mountWallgraph(app: HTMLElement): void {
   app.innerHTML = "";
@@ -19,19 +19,14 @@ export function mountWallgraph(app: HTMLElement): void {
 
   const side = document.createElement("div");
   side.className = "side";
-  const header = document.createElement("div");
-  header.className = "brand";
-  const brand = (): void => {
-    header.innerHTML = "";
-    header.append(
-      Object.assign(document.createElement("h1"), { textContent: t("app.title") }),
-      Object.assign(document.createElement("p"), { textContent: t("app.tagline") }),
-    );
+  // The wordmark moved into Panel's own header; main owns only the shell.
+  // <html lang> follows the UI language so hyphens:auto breaks Dutch compounds
+  // with the right dictionary -- it has to track changes, not just the mount.
+  const syncLang = (): void => {
+    try { document.documentElement.lang = language(); } catch { /* no DOM in tests */ }
   };
-  brand();
-  onI18n("languageChanged", brand);
-  try { document.documentElement.lang = language(); } catch { /* no DOM in tests */ }
-  side.append(header);
+  syncLang();
+  onI18n("languageChanged", syncLang);
   const canvasWrap = document.createElement("div");
   canvasWrap.className = "canvas-wrap";
   const canvas = document.createElement("canvas");

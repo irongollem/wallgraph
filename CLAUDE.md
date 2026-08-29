@@ -86,7 +86,10 @@ src/render/    viewport.ts mm<->px transform, zoom-to-cursor, pan
                draw.ts     immediate-mode scene render + COLORS palette
                symbols/    77 symbols in 7 category files behind one interface
 src/input/     tools.ts  tool state machine, snapping, typed-mm entry, drag handling
-src/ui/        panel.ts  toolbar, symbol palette, selection-driven property panel
+src/ui/        panel.ts    header, tool rail, storey row, selection-driven properties, status
+               palette.ts  symbol palette: search, fold-out categories, tile grid
+               menu.ts     document menu popover (new/open/save/PNG/paste, language)
+               icons.ts    the SVG icon set -- one 20x20 grid, one shape table
 src/io/        json.ts   guarded localStorage autosave, export/import/clipboard
                image.ts  PNG export: offscreen re-render, plan bounds, scale bar
                save.ts   the two file-delivery channels (host capability, blob link)

@@ -6,7 +6,7 @@ import { nodeAt, splitWall, nearestWall, wallLength, mergeNodes, deleteWall, cla
 import { Viewport } from "../render/viewport";
 import { Vec, v, add, sub, scale, norm, perp, dist, angleOf, fromAngle, dot, pointInPolygon } from "../geometry/vec";
 import { arcPointAt, arcTangentAt, bulgeFromSagitta } from "../geometry/arc";
-import { getSymbol, SymbolDef } from "../render/symbols";
+import { getSymbol, SymbolDef, SYMBOL_TYPES } from "../render/symbols";
 import { drawLabel, COLORS } from "../render/draw";
 import { Resolved, ResolvedWall } from "../core/resolve";
 import { t } from "../i18n";
@@ -64,6 +64,9 @@ export class Tools {
   setTool(t: ToolName, symbolType?: string): void {
     this.tool = t;
     if (symbolType) this.symbolType = symbolType;
+    // Armed with nothing would be a broken symbol tool: fall back to the first
+    // palette entry if a type was never chosen.
+    else if (t === "symbol" && !this.symbolType) this.symbolType = SYMBOL_TYPES[0] ?? "";
     this.cancel(false);
     this.updateHint();
     this.onToolChange();
@@ -520,6 +523,8 @@ export class Tools {
       case "d": case "D": this.setTool("door"); break;
       case "n": case "N": this.setTool("window"); break;
       case "p": case "P": this.setTool("passage"); break;
+      // Symbol tool used to be reachable only by clicking the palette; give it a shortcut too.
+      case "s": case "S": this.setTool("symbol"); break;
       case "o": case "O": this.ortho = !this.ortho; this.updateHint(); this.onToolChange(); break;
       case "g": case "G": this.snapGrid = !this.snapGrid; this.updateHint(); this.onToolChange(); this.requestRender(); break;
       case "l": case "L": this.showDims = !this.showDims; this.onToolChange(); this.requestRender(); break;
