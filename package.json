@@ -10,7 +10,9 @@
     "build": "npm run typecheck && node scripts/build.mjs",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "test": "tsx tests/core.test.ts",
-    "check": "npm run typecheck && npm test"
+    "check": "npm run typecheck && npm test",
+    "assets": "rsvg-convert -w 1200 -h 630 assets/og.svg -o assets/og.png && magick assets/og.png -strip -colors 64 PNG8:assets/og.png",
+    "check:bundle": "node scripts/check-selfcontained.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",

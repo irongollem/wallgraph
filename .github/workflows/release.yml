@@ -1,0 +1,129 @@
+name: Release
+
+# One run does the whole release: bump, tag, verify, publish, deploy.
+#
+# Run it from the Actions tab (or `gh workflow run release.yml -f bump=patch`).
+# A tag push works too, for a version bumped by hand.
+#
+# Deliberately one workflow rather than two: a tag pushed with GITHUB_TOKEN does
+# not trigger further workflows, so a "bump and tag" job would silently never
+# produce a release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Semver bump"
+        required: true
+        default: patch
+        type: choice
+        options: [patch, minor, major]
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # Verify BEFORE tagging. A tag that points at a broken commit is worse
+      # than no release, and tags are the thing people can't easily take back.
+      - run: npm run typecheck
+      - run: npm test
+
+      - name: Bump version and tag
+        if: github.event_name == 'workflow_dispatch'
+        id: bump
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          NEW=$(npm version "${{ inputs.bump }}" -m "Release v%s")
+          echo "version=${NEW}" >> "$GITHUB_OUTPUT"
+          git push origin HEAD --follow-tags
+
+      - name: Resolve version
+        id: v
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            PKG="v$(node -p "require('./package.json').version")"
+            if [ "$TAG" != "$PKG" ]; then
+              echo "::error::tag $TAG does not match package.json $PKG" && exit 1
+            fi
+            echo "version=$TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ steps.bump.outputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build
+        env:
+          SITE_URL: https://plattegrond.crocode.nl
+        run: npm run build
+
+      - name: Verify the bundle is self-contained
+        run: npm run check:bundle
+
+      # Ship the built editor as a release asset: one file, runs offline, and is
+      # the exact artifact that went live — so a release is reproducible even if
+      # the hosting goes away.
+      - name: Name the artifact for the release
+        run: cp dist/index.html "wallgraph-${{ steps.v.outputs.version }}.html"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.v.outputs.version }}
+          name: ${{ steps.v.outputs.version }}
+          generate_release_notes: true
+          files: wallgraph-${{ steps.v.outputs.version }}.html
+          body: |
+            Self-contained build of the Wallgraph editor. Download the `.html`
+            asset and open it in any browser — no server, no install, works
+            offline. Live version: https://plattegrond.crocode.nl
+
+      # A step's own `env:` block is not in scope for its own `if:` — the
+      # condition is evaluated before the env is applied — so the secrets are
+      # probed in a separate step that publishes a plain output.
+      - name: Are the deploy secrets present?
+        id: secrets
+        env:
+          TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          SITE: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          if [ -n "$TOKEN" ] && [ -n "$SITE" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy to Netlify
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          npx --yes netlify-cli@27 deploy --prod --dir=dist \
+            --message "release ${{ steps.v.outputs.version }}"
+
+      - name: Note when deploy was skipped
+        if: steps.secrets.outputs.ready != 'true'
+        run: |
+          echo "### Deploy skipped" >> "$GITHUB_STEP_SUMMARY"
+          echo "Set the \`NETLIFY_AUTH_TOKEN\` and \`NETLIFY_SITE_ID\` repository secrets to deploy on release." >> "$GITHUB_STEP_SUMMARY"

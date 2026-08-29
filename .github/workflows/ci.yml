@@ -19,11 +19,4 @@ jobs:
       - run: npm test
       - run: npm run build
       - name: Verify dist is self-contained
-        run: |
-          test -f dist/index.html
-          # No external script/style/asset references may survive bundling.
-          if grep -Eq '<(script|link)[^>]+(src|href)="(https?:)?//' dist/index.html; then
-            echo "dist/index.html references an external resource" >&2
-            exit 1
-          fi
-          echo "dist/index.html is self-contained ($(du -h dist/index.html | cut -f1))"
+        run: npm run check:bundle

@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <!-- Source for assets/og.png (the social preview card). Regenerate with:
+         npm run assets
+       Palette matches COLORS in src/render/draw.ts so the card reads as the app.
+       Text occupies x < 600; the plan lives at x > 620. Keep copy inside that
+       budget or it collides with the drawing. -->
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#e3e0d6" stroke-width="1"/>
+    </pattern>
+    <!-- Everything inside the shell is floor; walls are stroked on top. -->
+    <clipPath id="shell"><rect x="620" y="120" width="500" height="350"/></clipPath>
+  </defs>
+
+  <rect width="1200" height="630" fill="#f4f2ec"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+
+  <!-- ── plan ── -->
+  <rect x="620" y="120" width="500" height="350" fill="#faf9f5"/>
+
+  <!-- exterior shell: 20px stroke centred on the outline, gaps = openings -->
+  <g fill="none" stroke="#3d4148" stroke-width="20" stroke-linecap="butt">
+    <path d="M610 120H740"/>          <!-- top-left of window -->
+    <path d="M860 120H1130"/>         <!-- top-right of window -->
+    <path d="M1120 110V480"/>         <!-- right -->
+    <path d="M1130 470H800"/>         <!-- bottom-right of door -->
+    <path d="M690 470H610"/>          <!-- bottom-left of door -->
+    <path d="M620 480V110"/>          <!-- left -->
+  </g>
+
+  <!-- interior wall, 8px = 100 mm, with a door gap -->
+  <g fill="none" stroke="#3d4148" stroke-width="8" stroke-linecap="butt">
+    <path d="M920 120V290"/>
+    <path d="M920 360V470"/>
+  </g>
+
+  <!-- door in the interior wall: leaf + quarter swing -->
+  <g fill="none" stroke="#3d4148" stroke-width="3" clip-path="url(#shell)">
+    <path d="M920 360H850"/>
+    <path d="M850 360a70 70 0 0 0 70-70"/>
+  </g>
+
+  <!-- front door in the bottom wall, swinging inward -->
+  <g fill="none" stroke="#3d4148" stroke-width="3" clip-path="url(#shell)">
+    <path d="M690 470V360"/>
+    <path d="M690 360a110 110 0 0 1 110 110"/>
+  </g>
+
+  <!-- window in the top wall: two frame lines plus the glass line -->
+  <g stroke="#3d4148" fill="none">
+    <path d="M740 111h120M740 129h120" stroke-width="3"/>
+    <path d="M740 120h120" stroke-width="1.5"/>
+  </g>
+
+  <!-- two symbols from the library: double socket, ceiling light point -->
+  <g stroke="#4a5568" stroke-width="3" fill="none">
+    <circle cx="745" cy="240" r="16"/>
+    <path d="M745 224v32"/>
+    <circle cx="1025" cy="200" r="17"/>
+    <path d="M1013 188l24 24M1037 188l-24 24"/>
+  </g>
+
+  <!-- dimension line under the plan, in the app's dimension blue -->
+  <g stroke="#2d7de0" stroke-width="2" fill="none">
+    <path d="M620 522h500"/>
+    <path d="M620 513v18M1120 513v18"/>
+  </g>
+  <rect x="812" y="506" width="116" height="32" rx="4" fill="#f4f2ec"/>
+  <text x="870" y="528" font-family="Helvetica,Arial,sans-serif" font-size="21"
+        font-weight="600" fill="#2d7de0" text-anchor="middle">8000 mm</text>
+
+  <!-- ── text ── -->
+  <text x="90" y="243" font-family="Helvetica,Arial,sans-serif" font-size="80"
+        font-weight="700" fill="#26292e" letter-spacing="-1.5">Wallgraph</text>
+  <rect x="92" y="272" width="86" height="7" fill="#e05d2d"/>
+
+  <text x="90" y="342" font-family="Helvetica,Arial,sans-serif" font-size="33"
+        fill="#3d4148">Teken plattegronden in je</text>
+  <text x="90" y="386" font-family="Helvetica,Arial,sans-serif" font-size="33"
+        fill="#3d4148">browser — exact op de mm.</text>
+
+  <text x="90" y="452" font-family="Helvetica,Arial,sans-serif" font-size="23"
+        fill="#8a8577">Gratis · geen account · 74 NEN-symbolen</text>
+
+  <text x="90" y="532" font-family="Helvetica,Arial,sans-serif" font-size="25"
+        font-weight="600" fill="#e05d2d">plattegrond.crocode.nl</text>
+</svg>

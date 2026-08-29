@@ -1,7 +1,7 @@
 // Bundles src/main.ts + src/style.css into a single self-contained dist/index.html.
 // Usage: node scripts/build.mjs [--watch --serve]
 import { build, context } from "esbuild";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, copyFileSync, existsSync } from "node:fs";
 
 const watch = process.argv.includes("--watch");
 const PORT = Number(process.env.PORT) || 5173;
@@ -40,6 +40,20 @@ const FAVICON =
 function emit(result) {
   const js = result.outputFiles[0].text;
   const css = readFileSync("src/style.css", "utf8");
+  // og:image must be an absolute URL — crawlers do not resolve relative paths or
+  // data: URIs — so it only exists when we know the site's own origin. og.png is
+  // the one file besides index.html that the hosted copy serves; index.html on
+  // its own is still fully self-contained and works offline.
+  mkdirSync("dist", { recursive: true });
+  let ogImage = "";
+  if (SITE_URL && existsSync("assets/og.png")) {
+    copyFileSync("assets/og.png", "dist/og.png");
+    ogImage =
+      `<meta property="og:image" content="${SITE_URL}/og.png">\n` +
+      `<meta property="og:image:width" content="1200">\n` +
+      `<meta property="og:image:height" content="630">\n` +
+      `<meta property="og:image:alt" content="Wallgraph — a floorplan with mitered walls, a door swing and an 8000 mm dimension line">\n`;
+  }
   const canonical = SITE_URL
     ? `<link rel="canonical" href="${SITE_URL}">\n<meta property="og:url" content="${SITE_URL}">\n`
     : "";
@@ -53,10 +67,10 @@ function emit(result) {
 ${canonical}<meta property="og:type" content="website">
 <meta property="og:title" content="${TITLE}">
 <meta property="og:description" content="${DESCRIPTION}">
-<meta name="twitter:card" content="summary">
+<meta property="og:site_name" content="Wallgraph">
+${ogImage}<meta name="twitter:card" content="${ogImage ? "summary_large_image" : "summary"}">
 <style>${css}</style></head>
 <body><div id="app"></div><script>${js}</script></body></html>`;
-  mkdirSync("dist", { recursive: true });
   writeFileSync("dist/index.html", html);
   console.log(`dist/index.html  ${(html.length / 1024).toFixed(0)} kB`);
 }
