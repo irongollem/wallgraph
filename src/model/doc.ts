@@ -17,7 +17,12 @@ export interface Opening {
   t: number;      // centre distance from node a along the centerline, mm
   width: number;  // mm
   hinge?: "a" | "b";
-  swingIn?: boolean;       // door opens toward perp(a->b) side when true
+  /**
+   * Opens toward the perp(a->b) side when true. Doors swing that way; for
+   * windows it also picks the line style, since a NEN window sheet encodes
+   * direction as solid = naar buiten, dashed = naar binnen draaiend.
+   */
+  swingIn?: boolean;
   windowType?: WindowType;
   slideTo?: "a" | "b";
   sillHeight?: number;

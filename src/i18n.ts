@@ -93,7 +93,7 @@ export const resources = {
         typeFixed: "vast",
         typeCasement: "draaiend",
         typeSliding: "schuivend",
-        typeTiltTurn: "draai-kiep",
+        typeTiltTurn: "draai-valraam",
         slidesToward: "Schuift naar",
         deleteWall: "Muur verwijderen (Del)",
         deleteOpening: "Verwijderen (Del)",

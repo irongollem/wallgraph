@@ -363,8 +363,14 @@ export class Panel {
       if (o.kind === "window") {
         selRow(t("panel.type"), o.windowType ?? "fixed", [["fixed", t("panel.typeFixed")], ["tilt-turn", t("panel.typeTiltTurn")], ["casement", t("panel.typeCasement")], ["sliding", t("panel.typeSliding")]],
           s2 => mutOpening(o2 => { o2.windowType = s2 as WindowType; }));
-        if ((o.windowType ?? "fixed") === "sliding")
+        const wt = o.windowType ?? "fixed";
+        if (wt === "sliding")
           selRow(t("panel.slidesToward"), o.slideTo ?? "b", [["a", t("panel.hingeA")], ["b", t("panel.hingeB")]], s2 => mutOpening(o2 => { o2.slideTo = s2 as "a" | "b"; }));
+        // A side-hung sash has a hinge jamb and a direction, exactly like a door.
+        if (wt === "casement" || wt === "tilt-turn") {
+          selRow(t("panel.hinge"), o.hinge ?? "a", [["a", t("panel.hingeA")], ["b", t("panel.hingeB")]], s2 => mutOpening(o2 => { o2.hinge = s2 as "a" | "b"; }));
+          selRow(t("panel.swing"), (o.swingIn ?? true) ? "in" : "out", [["in", t("panel.swingIn")], ["out", t("panel.swingOut")]], s2 => mutOpening(o2 => { o2.swingIn = s2 === "in"; }));
+        }
       }
       btnRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());
       return;

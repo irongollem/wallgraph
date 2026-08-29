@@ -289,39 +289,50 @@ function drawWindow(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number, 
     line(ctx, tip, add(add(tip, back), scale(perp(dir), 40)));
     line(ctx, tip, add(add(tip, back), scale(perp(dir), -40)));
   }
-  if (type === "tilt-turn") {
-    // Draai-kiep. Two motions, so two marks: the turn is the same outward
-    // triangle a casement gets, apexed at the hinge jamb to say which side
-    // swings; the tilt is a shallower triangle apexed at mid-span, the sill
-    // hinge seen from above. Drawn dashed like every other opening indicator.
+  if (type === "casement" || type === "tilt-turn") {
+    // A side-hung (draai) sash swings exactly like a door, so in plan it gets a
+    // door's mark: the leaf perpendicular to the wall plus its quarter arc. The
+    // triangles on a NEN window sheet are ELEVATION symbols — a val/kiep hinge
+    // is horizontal and shows only in section, which a floorplan does not have.
+    //
+    // Line style carries the direction, per the sheet's legend:
+    //   solid  = naar buiten draaiend
+    //   dashed = naar binnen draaiend
     const w = dist(og.p0, og.p1);
-    const out = scale(og.n0, -1);
-    const hingeAtA = (o.hinge ?? "a") === "a";
-    const pivot = hingeAtA ? og.p0 : og.p1;
-    const far = hingeAtA ? og.p1 : og.p0;
-    ctx.setLineDash([30, 30]);
-    ctx.lineWidth = 0.8 * px;
-    // Turn: apex on the hinge jamb, base at the far jamb.
-    const apex = add(pivot, scale(out, h));
-    const baseFar = add(far, scale(out, h + w * 0.42));
-    line(ctx, apex, baseFar);
-    line(ctx, baseFar, add(far, scale(out, h)));
-    // Tilt: shallow triangle apexed at mid-span.
-    const mid = add(og.p0, scale(sub(og.p1, og.p0), 0.5));
-    const tiltTip = add(mid, scale(out, h + w * 0.18));
-    line(ctx, add(og.p0, scale(out, h)), tiltTip);
-    line(ctx, tiltTip, add(og.p1, scale(out, h)));
-    ctx.setLineDash([]);
-  }
-  if (type === "casement") {
-    // Small opening triangle on the outside (convention): leaf from p0 hinging out.
-    const w = dist(og.p0, og.p1);
-    const out = scale(og.n0, -1);
-    const tipP = add(og.p0, add(scale(out, h + w * 0.35), scale(sub(og.p1, og.p0), 0.5)));
-    ctx.setLineDash([30, 30]);
-    ctx.lineWidth = 0.8 * px;
-    line(ctx, add(og.p0, scale(out, h)), tipP);
-    line(ctx, tipP, add(og.p1, scale(out, h)));
+    const hingeAtStart = (o.hinge ?? "a") === "a";
+    const hinge = hingeAtStart ? og.p0 : og.p1;
+    const other = hingeAtStart ? og.p1 : og.p0;
+    const along = scale(sub(other, hinge), 1 / w);
+    const side = perp(along);
+    const inward = o.swingIn ?? true;
+    const swing = inward ? side : scale(side, -1);
+    const tip = add(hinge, scale(swing, w));
+    const dash: number[] = inward ? [30, 30] : [];
+
+    ctx.lineWidth = 1.2 * px;
+    ctx.setLineDash(dash);
+    line(ctx, hinge, tip);
+    const a0 = angleOf(sub(other, hinge));
+    const a1 = angleOf(sub(tip, hinge));
+    let d = a1 - a0;
+    while (d > Math.PI) d -= 2 * Math.PI;
+    while (d < -Math.PI) d += 2 * Math.PI;
+    ctx.beginPath();
+    ctx.arc(hinge.x, hinge.y, w, a0, a0 + d, d < 0);
+    ctx.stroke();
+
+    if (type === "tilt-turn") {
+      // The tilt is not a plan-view motion, but a draai-valraam would otherwise
+      // be indistinguishable from a plain draaiend raam on the drawing. A small
+      // chevron at mid-span, apex toward the wall, marks it without pretending
+      // to be the sectional symbol.
+      const mid = add(og.p0, scale(sub(og.p1, og.p0), 0.5));
+      const depth = Math.min(w * 0.28, 300);
+      const apex = add(mid, scale(swing, depth * 0.35));
+      const base = scale(along, depth * 0.5);
+      line(ctx, add(add(mid, base), scale(swing, depth)), apex);
+      line(ctx, add(sub(mid, base), scale(swing, depth)), apex);
+    }
     ctx.setLineDash([]);
   }
 }
