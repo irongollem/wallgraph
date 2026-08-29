@@ -112,8 +112,8 @@ export without knowing about either.
       records *which* convention its numbers mean (see Measurement below)
 - [x] PNG export at true scale, with a scale bar
 - [x] more symbols — kitchen and furniture landed; 77 in total
-- [ ] SVG export — needs a second renderer; `drawScene` is canvas-only today
-- [ ] DXF export — the wall graph maps almost directly onto LINE/ARC entities
+- [x] SVG export — vector artwork at true scale, mm-sized with a 1:1 viewBox
+- [x] DXF export — walls, swings, symbols and areas on layers, in millimetres
 - [x] multi-floor with ghost underlay — `Store.activeFloor` with add/duplicate/
       rename/delete; the storey below draws as a non-selectable underlay
 - [ ] dimension *chains* — only single-wall dimensions so far
