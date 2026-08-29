@@ -4,7 +4,7 @@ import { Store } from "../src/model/store";
 import { detectRooms } from "../src/core/rooms";
 import { resolveFloor } from "../src/core/resolve";
 import { arcInfo, arcLength, arcPointAt, arcTangentAt, arcFlatten, bulgeFromSagitta } from "../src/geometry/arc";
-import { v, dist } from "../src/geometry/vec";
+import { v, dist, pointInPolygon } from "../src/geometry/vec";
 import { gridSteps, MIN_GRID_PX } from "../src/render/grid";
 import { planBounds, scaleBarMm } from "../src/io/image";
 
@@ -186,7 +186,7 @@ function rectFloor(wallTh = 100) {
   check("bounds cover symbols outside the walls", b2.max.x > 5000, String(b2.max.x));
 
   check("empty floor has no bounds",
-    planBounds({ id: "f", name: "", nodes: [], walls: [], symbols: [] }, { walls: new Map() }) === null);
+    planBounds({ id: "f", name: "", nodes: [], walls: [], symbols: [] }, { walls: new Map(), junctions: [] }) === null);
 
   // The bar is a round metric length that stays inside a quarter of the image.
   for (const [pxPerMm, w] of [[0.12, 1200], [0.02, 1200], [0.5, 800]] as const) {
@@ -317,6 +317,38 @@ function rectFloor(wallTh = 100) {
   while (st.doc.floors.length > 1) st.deleteFloor();
   st.deleteFloor();
   check("last floor cannot be deleted", st.doc.floors.length === 1);
+}
+
+// --- T-junctions must not leave a hole in the masonry ---
+{
+  // A 300mm wall running through, with a 100mm branch. The through-wall's end
+  // caps slant from the outer face at the node to the inner face pushed out by
+  // the branch, so the wedge between them belongs to no wall polygon.
+  const f = emptyDoc().floors[0]!;
+  const N = (x: number, y: number): string => { const id = newId("n"); f.nodes.push({ id, x, y }); return id; };
+  const P = N(0, 0), W = N(-3000, 0), E = N(3000, 0), S = N(0, 3000);
+  const mk = (a: string, b: string, t: number): void => {
+    f.walls.push({ id: newId("w"), a, b, thickness: t, bulge: 0, openings: [] });
+  };
+  mk(W, P, 300); mk(P, E, 300); mk(P, S, 100);
+  const res = resolveFloor(f);
+  const covered = (p: { x: number; y: number }): boolean =>
+    [...res.walls.values()].some(rw => rw.pieces.some(pc => pointInPolygon(p, pc.poly)))
+    || res.junctions.some(j => pointInPolygon(p, j.poly));
+
+  let holes = 0;
+  // Sweep the full 300mm band across the junction; every point must be masonry.
+  for (let x = -200; x <= 200; x += 10)
+    for (let y = -140; y <= 140; y += 10)
+      if (!covered(v(x, y))) holes++;
+  check("no hole in a T-junction", holes === 0, `${holes} uncovered probe points`);
+  check("junction polygon emitted for degree 3", res.junctions.length === 1, String(res.junctions.length));
+}
+{
+  // An L corner already miters cleanly, so it must NOT gain a filler polygon.
+  const f = rectFloor(200);
+  const res = resolveFloor(f);
+  check("no junction fill for plain corners", res.junctions.length === 0, String(res.junctions.length));
 }
 
 console.log(failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURES`);

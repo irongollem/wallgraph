@@ -45,7 +45,7 @@ export function mountWallgraph(app: HTMLElement): void {
   // Store.setActiveFloor, which notifies and so bumps revision — that is what
   // keeps this cache honest across floors without a second key.
   let cachedRev = -1;
-  let cachedResolved: Resolved = { walls: new Map() };
+  let cachedResolved: Resolved = { walls: new Map(), junctions: [] };
   let cachedRooms: Room[] = [];
   let cachedGhost: Resolved | null = null;
   function derived(): { resolved: Resolved; rooms: Room[]; ghost: Resolved | null } {

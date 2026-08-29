@@ -96,6 +96,16 @@ export function drawScene(
     for (const og of rw.openings) drawOpening(ctx, og, px, sel);
   }
 
+  // Junction fill goes on top of the wall pieces: it closes the wedge a T-shaped
+  // junction leaves between two slanted end-caps, and covers the seam strokes
+  // that bounded it. Fill only — every edge of it is interior to the masonry.
+  for (const j of resolved.junctions) {
+    ctx.beginPath();
+    tracePoly(ctx, j.poly);
+    ctx.fillStyle = COLORS.wallFill;
+    ctx.fill();
+  }
+
   // Symbols.
   for (const s of floor.symbols) drawSymbol(ctx, s, px, sel?.kind === "symbol" && sel.id === s.id);
 

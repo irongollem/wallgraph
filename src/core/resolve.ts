@@ -52,6 +52,21 @@ export interface ResolvedWall {
 
 export interface Resolved {
   walls: Map<Id, ResolvedWall>;
+  /**
+   * Filler polygons for junctions of three or more walls.
+   *
+   * A wall's end is drawn as a single straight edge between its two mitered
+   * corners. At a T where the through-wall is thicker than the branch, those
+   * two corners sit on opposite sides of the node — outer face at the node,
+   * inner face pushed out by the branch's half-thickness — so the end cuts
+   * diagonally and the wedge between the two diagonals belongs to no wall at
+   * all. That is the white triangle it used to leave behind.
+   *
+   * The corners around a node are already computed in angular order, so the
+   * polygon through them is exactly the junction interior. Filling it is purely
+   * additive: it can only cover a gap, never remove geometry.
+   */
+  junctions: SolidPiece[];
 }
 
 interface End { wall: Wall; end: "a" | "b"; out: Vec; half: number }
@@ -76,6 +91,7 @@ export function resolveFloor(f: Floor): Resolved {
 
   // Resolve corners per node.
   const corners = new Map<string, WallEndCorners>(); // key: wallId + end
+  const junctions: SolidPiece[] = [];
   for (const [nid, ends] of byNode) {
     const P = nodePos.get(nid)!;
     if (ends.length === 1) {
@@ -86,6 +102,7 @@ export function resolveFloor(f: Floor): Resolved {
     }
     ends.sort((x, y) => angleOf(x.out) - angleOf(y.out));
     const n = ends.length;
+    const ring: Vec[] = [];
     for (let i = 0; i < n; i++) {
       const ei = ends[i]!, ej = ends[(i + 1) % n]!;
       // Corner between ei (its LEFT offset, toward ej) and ej (its RIGHT offset).
@@ -101,7 +118,10 @@ export function resolveFloor(f: Floor): Resolved {
       }
       setCorner(corners, ei, "left", corner);
       setCorner(corners, ej, "right", corner);
+      ring.push(corner);
     }
+    // Degree 1 has a square cap and degree 2 miters cleanly; only 3+ can gap.
+    if (n >= 3) junctions.push({ poly: ring });
   }
 
   // Build wall outlines.
@@ -170,7 +190,7 @@ export function resolveFloor(f: Floor): Resolved {
     });
   }
 
-  return { walls };
+  return { walls, junctions };
 }
 
 function polylineLength(pts: Vec[]): number {
