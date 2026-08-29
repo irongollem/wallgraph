@@ -1,8 +1,10 @@
 // Engine sanity tests, run with tsx.
 import { emptyDoc, newId, Wall, GRID_DEFAULT_MM } from "../src/model/doc";
 import { Store } from "../src/model/store";
-import { sashesOf, doorKindOf, windowKindOf, DOOR_KINDS, WINDOW_KINDS, type Opening } from "../src/model/doc";
+import { sashesOf, sashSpecsOf, doorKindOf, windowKindOf, DOOR_KINDS, WINDOW_KINDS, type Opening } from "../src/model/doc";
 import { detectRooms } from "../src/core/rooms";
+import { dimensionChains } from "../src/core/dimensions";
+import { seedDoc } from "../src/seed";
 import { resolveFloor } from "../src/core/resolve";
 import { arcInfo, arcLength, arcPointAt, arcTangentAt, arcFlatten, bulgeFromSagitta } from "../src/geometry/arc";
 import { v, dist, pointInPolygon } from "../src/geometry/vec";
@@ -451,6 +453,14 @@ function rectFloor(wallTh = 100) {
     dbl.length === 2 && dbl.every(l => Math.abs(l.width - 800) < 1e-6), JSON.stringify(dbl.map(l => l.width)));
   check("double door leaves hinge on opposite jambs",
     dbl[0]!.hinge === "a" && dbl[1]!.hinge === "b");
+  const automatic = door({ width: 1600, sashes: DOOR_KINDS.find(k => k.id === "dubbel")!.sashes });
+  const specs = sashSpecsOf(automatic);
+  specs[0]!.hinge = "b"; // the kind of property edit the panel performs
+  automatic.sashes = specs;
+  const resized = sashesOf(automatic, 2000);
+  check("editing a leaf preserves automatic widths",
+    specs.every(x => x.width === undefined) && resized.every(x => x.width === 1000),
+    JSON.stringify({ specs, resized }));
 }
 {
   // Windows: a horizontal hinge IS identity (valraam vs uitzetraam), a jamb
@@ -493,6 +503,69 @@ function rectFloor(wallTh = 100) {
   check("every preset ink is a storable colour",
     INKS.every(i => i.hex === null || symbolInk(sym(i.hex)) === i.hex));
   check("exactly one preset is the default ink", INKS.filter(i => i.hex === null).length === 1);
+}
+
+// --- dimension chains ---
+{
+  const doc = seedDoc();
+  const f = doc.floors[0]!;
+  const chains = dimensionChains(f);
+
+  // Every span must account for the run: a chain whose parts do not add up to
+  // its overall is worse than no chain, because a builder sets out from it.
+  for (const c of chains) {
+    const sum = c.spans.reduce((t, s2) => t + s2.mm, 0);
+    check(`chain spans total ${Math.round(c.total)}`, Math.abs(sum - c.total) < 1,
+      `spans sum ${sum}`);
+    check("chain spans run end to end without gaps",
+      c.spans.every((s2, i) => i === 0 || s2.from === c.spans[i - 1]!.to));
+  }
+
+  // The demo is a rectangle: four facades, and the interior wall is not one.
+  check("one chain per facade", chains.length === 4, String(chains.length));
+  check("all chains are axis-aligned here",
+    chains.every(c => Math.abs(c.dir.x) > 0.99 || Math.abs(c.dir.y) > 0.99));
+
+  // A chain must sit OUTSIDE, or it measures across the rooms it describes.
+  const rooms = detectRooms(f);
+  for (const c of chains) {
+    const mid = {
+      x: c.origin.x + c.dir.x * c.total / 2 + c.out.x * (c.half + 200),
+      y: c.origin.y + c.dir.y * c.total / 2 + c.out.y * (c.half + 200),
+    };
+    check("chain lies outside every room",
+      !rooms.some(r => pointInPolygon(mid, r.poly)));
+  }
+
+  // Openings break a run: the top facade carries a 1800 window, so 1800 is a span.
+  const top = chains.find(c => Math.abs(c.dir.x) > 0.99 && c.origin.y < 100);
+  check("an opening becomes its own span",
+    top !== undefined && top.spans.some(s2 => s2.mm === 1800),
+    top ? top.spans.map(s2 => s2.mm).join(",") : "no top chain");
+
+  // Collinear walls merge: the top facade is two walls but one 8000 run.
+  check("collinear walls merge into one run",
+    top !== undefined && Math.abs(top.total - 8000) < 1 && top.wallIds.length === 2,
+    top ? `${top.total} over ${top.wallIds.length} walls` : "");
+}
+{
+  // A bowed wall has no single line to measure along, so it forms no chain.
+  const f = rectFloor(100);
+  f.walls[1]!.bulge = -0.4;
+  const chains = dimensionChains(f);
+  check("curved walls are left out of chains",
+    chains.every(c => !c.wallIds.includes(f.walls[1]!.id)));
+}
+{
+  // Nothing enclosed yet: chains still appear, falling back to the centroid,
+  // rather than the tool going blank while a plan is being drawn.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  const a = { id: newId("n"), x: 0, y: 0 }, b = { id: newId("n"), x: 3000, y: 0 };
+  f.nodes.push(a, b);
+  f.walls.push({ id: newId("w"), a: a.id, b: b.id, thickness: 100, bulge: 0, openings: [] });
+  const chains = dimensionChains(f);
+  check("a lone wall still dimensions", chains.length === 1 && Math.abs(chains[0]!.total - 3000) < 1);
 }
 
 console.log(failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURES`);

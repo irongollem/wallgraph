@@ -9,6 +9,7 @@ import { arcPointAt, arcTangentAt, bulgeFromSagitta } from "../geometry/arc";
 import { getSymbol, SymbolDef, SYMBOL_TYPES } from "../render/symbols";
 import { drawLabel, COLORS, symbolInk } from "../render/draw";
 import { Resolved, ResolvedWall } from "../core/resolve";
+import { dimensionChains } from "../core/dimensions";
 import { t } from "../i18n";
 
 export type ToolName = "select" | "wall" | "door" | "window" | "passage" | "symbol";
@@ -752,6 +753,95 @@ export class Tools {
     return v(p0.x + (p1.x - p0.x) * tm, p0.y + (p1.y - p0.y) * tm);
   }
 
+  /**
+   * Dimension chains: one run per facade, with every opening and pier measured
+   * in sequence and an overall beneath. Read-only — a segment spans whatever
+   * the openings make it, so there is no single wall for a typed value to
+   * resize; editing stays on the selected wall's own dimension.
+   */
+  private drawDimChains(ctx: CanvasRenderingContext2D, vp: Viewport, px: number): void {
+    const chains = dimensionChains(this.floor);
+    ctx.strokeStyle = COLORS.dimension;
+    for (const c of chains) {
+      // Skip a run too small on screen to read; at that size it is noise.
+      if (c.total / px < 40) continue;
+      const gap = c.half + 260;
+      const at = (d: number, off: number): Vec =>
+        add(add(c.origin, scale(c.dir, d)), scale(c.out, off));
+
+      ctx.globalAlpha = 0.7;
+      ctx.lineWidth = 1.1 * px;
+      // Extension lines from the wall face out past the chain.
+      for (const d of [0, ...c.spans.map(s => s.to)]) {
+        ctx.beginPath();
+        const from = at(d, c.half + 60), to = at(d, gap + 90);
+        ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y);
+        ctx.stroke();
+      }
+      // The chain line, and a tick at every break.
+      ctx.beginPath();
+      const l0 = at(0, gap), l1 = at(c.total, gap);
+      ctx.moveTo(l0.x, l0.y); ctx.lineTo(l1.x, l1.y);
+      ctx.stroke();
+      const tick = 7 * px;
+      for (const d of [0, ...c.spans.map(s => s.to)]) {
+        // A 45-degree slash, the surveyor's tick, rather than an arrowhead —
+        // arrowheads collide once spans get short.
+        const p = at(d, gap);
+        const m = add(scale(c.dir, tick), scale(c.out, tick));
+        ctx.beginPath();
+        ctx.moveTo(p.x - m.x, p.y - m.y); ctx.lineTo(p.x + m.x, p.y + m.y);
+        ctx.stroke();
+      }
+      // An overall line below, only when it says something the spans do not.
+      if (c.spans.length > 1) {
+        const o0 = at(0, gap + 420), o1 = at(c.total, gap + 420);
+        ctx.beginPath();
+        ctx.moveTo(o0.x, o0.y); ctx.lineTo(o1.x, o1.y);
+        ctx.stroke();
+        for (const d of [0, c.total]) {
+          const p = at(d, gap + 420);
+          const m = add(scale(c.dir, tick), scale(c.out, tick));
+          ctx.beginPath();
+          ctx.moveTo(p.x - m.x, p.y - m.y); ctx.lineTo(p.x + m.x, p.y + m.y);
+          ctx.stroke();
+        }
+      }
+      ctx.globalAlpha = 1;
+
+      // Labels in screen space so they stay one size at any zoom, but ROTATED
+      // to run along their dimension line, as a drawing does. Kept horizontal
+      // they collide on a vertical chain: consecutive labels sit only a few
+      // hundred millimetres apart across the line, which at most zooms is
+      // narrower than the text itself.
+      ctx.save();
+      ctx.setTransform(vp.dpr, 0, 0, vp.dpr, 0, 0);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = COLORS.dimension;
+      // Flip anything past vertical so text is never upside down.
+      let ang = Math.atan2(c.dir.y, c.dir.x);
+      if (ang > Math.PI / 2 || ang < -Math.PI / 2) ang += Math.PI;
+      const label = (text: string, alongMm: number, offMm: number, font: string): void => {
+        const sp = vp.toScreen(at(alongMm, offMm));
+        ctx.save();
+        ctx.translate(sp.x, sp.y);
+        ctx.rotate(ang);
+        ctx.font = font;
+        ctx.fillText(text, 0, 0);
+        ctx.restore();
+      };
+      for (const span of c.spans) {
+        // Only label what will fit; an unreadable smear helps nobody.
+        if (span.mm / px < 26) continue;
+        label(String(span.mm), (span.from + span.to) / 2, gap - 130, "500 10px system-ui, sans-serif");
+      }
+      if (c.spans.length > 1)
+        label(String(Math.round(c.total)), c.total / 2, gap + 420 - 130, "600 11px system-ui, sans-serif");
+      ctx.restore();
+    }
+  }
+
   /** One wall's dimension line + clickable value pill. Registers the pill in dimRects. */
   private drawDimension(ctx: CanvasRenderingContext2D, vp: Viewport, px: number, wall: Wall, emphasized: boolean): void {
     const f = this.floor;
@@ -829,7 +919,15 @@ export class Tools {
       // otherwise only the selected wall.
       const selDim = this.store.sel;
       if (this.showDims) {
-        for (const wall of f.walls) this.drawDimension(ctx, vp, px, wall, wall.id === (selDim?.kind === "wall" ? selDim.id : ""));
+        // Chains, not one line per wall: a facade reads as a single run with
+        // its openings and piers measured in sequence. The selected wall still
+        // gets its own editable dimension below, since a chain segment has no
+        // single wall to resize.
+        this.drawDimChains(ctx, vp, px);
+        if (selDim?.kind === "wall") {
+          const wall = f.walls.find(x => x.id === selDim.id);
+          if (wall) this.drawDimension(ctx, vp, px, wall, true);
+        }
       } else if (selDim?.kind === "wall") {
         const wall = f.walls.find(x => x.id === selDim.id);
         if (wall) this.drawDimension(ctx, vp, px, wall, true);

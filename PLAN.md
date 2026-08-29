@@ -104,7 +104,7 @@ export without knowing about either.
 
 **P0 — done.** Everything above, single floor.
 
-**P1 — in progress.**
+**P1 — done.**
 
 - [x] dimension-line layer — clickable mm pills, `L` toggles all-walls, and both
       distances to the wall ends while placing on a wall
@@ -116,7 +116,8 @@ export without knowing about either.
 - [x] DXF export — walls, swings, symbols and areas on layers, in millimetres
 - [x] multi-floor with ghost underlay — `Store.activeFloor` with add/duplicate/
       rename/delete; the storey below draws as a non-selectable underlay
-- [ ] dimension *chains* — only single-wall dimensions so far
+- [x] dimension *chains* — one run per facade, openings and piers in
+      sequence with an overall beneath; interior walls keep their own dimension
 
 **P2 — not started.** Trace-over-image underlay with scale calibration, share links
 (one Postgres table), 3D extrusion view (Three.js — the wall graph extrudes directly).
