@@ -8,7 +8,7 @@ import { Vec, v, add, sub, scale, norm, perp, dist, angleOf, fromAngle, dot, poi
 import { arcPointAt, arcTangentAt, bulgeFromSagitta } from "../geometry/arc";
 import { getSymbol, SymbolDef } from "../render/symbols";
 import { drawLabel, COLORS } from "../render/draw";
-import { Resolved } from "../core/resolve";
+import { Resolved, ResolvedWall } from "../core/resolve";
 import { t } from "../i18n";
 
 export type ToolName = "select" | "wall" | "door" | "window" | "passage" | "symbol";
@@ -130,6 +130,11 @@ export class Tools {
   }
 
   getSnap(): Vec | null { return this.snap?.p ?? null; }
+
+  /** Derived geometry for one wall; undefined for a degenerate (zero-length) wall. */
+  resolvedWall(id: string): ResolvedWall | undefined {
+    return this.getResolved().walls.get(id);
+  }
 
   // ---- pointer handlers ----
   private onWheel(e: WheelEvent): void {

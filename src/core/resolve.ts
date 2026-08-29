@@ -31,7 +31,20 @@ export interface OpeningGeom {
 export interface ResolvedWall {
   wall: Wall;
   a: Vec; b: Vec;
+  /** Centerline length (hart-op-hart) — the length the document stores. */
   length: number;
+  /**
+   * The two mitered face lengths. Where a wall meets thicker walls at its ends,
+   * the inner face is eaten into and the outer face runs long, so these differ
+   * from `length` and from each other.
+   */
+  faces: { left: number; right: number };
+  /**
+   * Clear span (dagmaat): the shorter face. For a wall bounding a room this is
+   * the inner face — the number an interior dimension on a plan refers to —
+   * while `length` is measured axis-to-axis.
+   */
+  clearLength: number;
   pieces: SolidPiece[];     // solid wall polygons (1 + number of openings, roughly)
   outline: Vec[];           // full outline ignoring openings (for hit-testing/selection)
   openings: OpeningGeom[];
@@ -111,6 +124,7 @@ export function resolveFloor(f: Floor): Resolved {
     const rightSide = offsetSide(flat, params, w, A, B, -half, ca.right, cb.left);
 
     const outline: Vec[] = [...leftSide, ...rightSide.slice().reverse()];
+    const faces = { left: polylineLength(leftSide), right: polylineLength(rightSide) };
 
     // Opening geometry + solid intervals.
     const sorted = [...w.openings].sort((o1, o2) => o1.t - o2.t);
@@ -149,10 +163,20 @@ export function resolveFloor(f: Floor): Resolved {
       pieces.push({ poly: [...sL, ...sR.slice().reverse()] });
     }
 
-    walls.set(w.id, { wall: w, a: A, b: B, length: L, pieces, outline, openings: ogs });
+    walls.set(w.id, {
+      wall: w, a: A, b: B, length: L,
+      faces, clearLength: Math.min(faces.left, faces.right),
+      pieces, outline, openings: ogs,
+    });
   }
 
   return { walls };
+}
+
+function polylineLength(pts: Vec[]): number {
+  let acc = 0;
+  for (let i = 1; i < pts.length; i++) acc += dist(pts[i - 1]!, pts[i]!);
+  return acc;
 }
 
 function key(e: End): string { return e.wall.id + ":" + e.end; }

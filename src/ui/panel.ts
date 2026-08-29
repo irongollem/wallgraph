@@ -225,6 +225,17 @@ export class Panel {
       row.append(cb);
       p.append(row);
     };
+    // Read-only: a derived figure the user cannot type into. Editing stays on the
+    // centerline, which is what the document actually stores; showing the clear
+    // span as an input would invite typing a number that has no single solution.
+    const infoRow = (label: string, text: string): void => {
+      const row = el("div", "prop-row");
+      row.append(
+        Object.assign(el("span"), { textContent: label }),
+        Object.assign(el("span", "prop-readonly"), { textContent: text }),
+      );
+      p.append(row);
+    };
     const btnRow = (label: string, fn: () => void): void => {
       const b = el("button", "tool-btn small wide") as HTMLButtonElement;
       b.textContent = label; b.onclick = fn;
@@ -266,6 +277,8 @@ export class Panel {
           b.x = Math.round(nb.x); b.y = Math.round(nb.y);
         });
       });
+      const clear = this.tools.resolvedWall(sel.id)?.clearLength;
+      if (clear !== undefined && Math.abs(clear - L) > 0.5) infoRow(t("panel.clearSpan"), String(Math.round(clear)));
       numRow(t("panel.thickness"), w.thickness, n => {
         this.tools.lastThickness = Math.max(20, n);
         this.store.mutate(d => {

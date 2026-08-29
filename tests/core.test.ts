@@ -240,5 +240,36 @@ function rectFloor(wallTh = 100) {
   check("over-thick walls give zero net area", !r || r.netAreaMm2 === 0, String(r?.netAreaMm2));
 }
 
+// --- wall face lengths: centerline vs clear span (dagmaat) ---
+{
+  const f = rectFloor(100);
+  const res = resolveFloor(f);
+  for (const rw of res.walls.values()) {
+    const cl = rw.length;
+    check(`clear span is centerline minus a wall (${cl}mm)`,
+      near(rw.clearLength, cl - 100, 1), `${rw.clearLength} vs ${cl - 100}`);
+    check(`outer face is centerline plus a wall (${cl}mm)`,
+      near(Math.max(rw.faces.left, rw.faces.right), cl + 100, 1));
+  }
+}
+{
+  // Differing thicknesses at the two ends: a 4000 wall between a 300 and a 100
+  // wall loses 150 at one end and 50 at the other.
+  const f = rectFloor(300);
+  const nMid = { id: newId("n"), x: 0, y: 1500 };
+  f.nodes.push(nMid);
+  const left = f.walls[3]!;              // (0,3000) -> (0,0)
+  const leftB = left.b; left.b = nMid.id;
+  f.walls.push({ id: newId("w"), a: nMid.id, b: leftB, thickness: 100, bulge: 0, openings: [] });
+  const res = resolveFloor(f);
+  let ok = true;
+  for (const rw of res.walls.values())
+    if (!isFinite(rw.clearLength) || rw.clearLength <= 0) ok = false;
+  check("clear span finite and positive with mixed thicknesses", ok);
+  const top = res.walls.get(f.walls[0]!.id)!;
+  check("clear span shorter than centerline", top.clearLength < top.length,
+    `${top.clearLength} vs ${top.length}`);
+}
+
 console.log(failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

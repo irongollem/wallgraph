@@ -52,3 +52,4 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
      <html lang> from i18n), so Dutch compounds break as "serie-schakelaar" rather
      than mid-syllable. break-word only splits a word that cannot fit alone. */
   hyphens: auto; -webkit-hyphens: auto; overflow-wrap: break-word; }
+.prop-readonly { color: #8a8577; font-variant-numeric: tabular-nums; }
