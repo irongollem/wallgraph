@@ -17,11 +17,12 @@ npm run build      # typecheck + bundle to dist/index.html (single file)
 
 ## Controls
 
-- **W** wall tool — click to chain; type a length in mm + Enter for exact segments; O toggles angle snap; Esc ends the chain
+- **W** wall tool — click to chain; type a length in mm + Enter for exact segments; O toggles angle snap, G toggles grid snap; Esc ends the chain
 - **V** select — drag corners/walls/symbols; drag a selected wall's ◆ midpoint handle to curve it
 - **D / N / P** door / window / passage — click on a wall; direction, width and offset in the panel
 - **R / M** rotate / mirror a selected symbol · **Del** delete · **Ctrl+Z / Ctrl+Shift+Z** undo / redo
-- Scroll to zoom, right-drag or empty-space-drag to pan
+- Scroll to zoom, right-drag or empty-space-drag to pan — the legend bottom-left names the
+  document grid and, when the zoom is too far out to draw every cell, the spacing actually drawn
 
 ## Embedding in Astro / Vue (or anything else)
 

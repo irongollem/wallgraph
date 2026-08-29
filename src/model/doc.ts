@@ -56,9 +56,13 @@ export interface PlanDoc {
 let seq = 0;
 export const newId = (p: string): Id => `${p}${(++seq).toString(36)}${Date.now().toString(36).slice(-4)}`;
 
+/** Default grid. 100 mm: building measurements are rarely finer, and it is
+ * coarse enough to draw directly at ordinary zoom instead of stepping up. */
+export const GRID_DEFAULT_MM = 100;
+
 export function emptyDoc(): PlanDoc {
   return {
-    version: 1, unit: "mm", gridMm: 50,
+    version: 1, unit: "mm", gridMm: GRID_DEFAULT_MM,
     floors: [{ id: newId("f"), name: "Floor 1", nodes: [], walls: [], symbols: [] }],
   };
 }

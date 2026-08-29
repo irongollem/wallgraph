@@ -1,9 +1,10 @@
 // Engine sanity tests, run with tsx.
-import { emptyDoc, newId, Wall } from "../src/model/doc";
+import { emptyDoc, newId, Wall, GRID_DEFAULT_MM } from "../src/model/doc";
 import { detectRooms } from "../src/core/rooms";
 import { resolveFloor } from "../src/core/resolve";
 import { arcInfo, arcLength, arcPointAt, arcTangentAt, arcFlatten, bulgeFromSagitta } from "../src/geometry/arc";
 import { v, dist } from "../src/geometry/vec";
+import { gridSteps, MIN_GRID_PX } from "../src/render/grid";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ""): void {
@@ -121,6 +122,41 @@ function rectFloor(wallTh = 100) {
       for (const p of pc.poly)
         if (!isFinite(p.x) || !isFinite(p.y)) ok = false;
   check("T-junction geometry finite", ok);
+}
+
+// --- grid spacing ---
+{
+  // Drawn lines must always be whole multiples of the document grid, so a
+  // square on screen is a whole number of cells (the 1 m hardcode bug).
+  const zooms = [0.01, 0.03, 0.09, 0.12, 0.3, 1, 2];
+  const grids = [10, 25, 50, 100, 120, 500];
+  let multiples = true, readable = true, majorOnGrid = true;
+  for (const g of grids) for (const z of zooms) {
+    const st = gridSteps(g, z);
+    if (st.minor % g !== 0 || st.major % st.minor !== 0) multiples = false;
+    if (st.major % g !== 0) majorOnGrid = false;
+    if (st.minor * z < MIN_GRID_PX) readable = false;
+  }
+  check("grid steps are multiples of gridMm", multiples);
+  check("major lines land on the grid", majorOnGrid);
+  check("grid steps stay readable at every zoom", readable);
+
+  // The reported case: 50 mm grid at the default fit zoom used to draw 1 m
+  // squares, so a 5005 mm wall looked ~5 cells wide.
+  const fit = gridSteps(50, 0.09);
+  check("50mm grid steps up, not to 1m", fit.minor === 100 && fit.stepped, JSON.stringify(fit));
+  check("major stays at 1m for a 50mm grid", fit.major === 1000, String(fit.major));
+
+  // The default grid is coarse enough to draw cell-for-cell at ordinary zoom,
+  // so the common case never needs stepping up at all.
+  check("default grid draws directly at fit zoom", !gridSteps(GRID_DEFAULT_MM, 0.09).stepped
+    && gridSteps(GRID_DEFAULT_MM, 0.09).major === 1000, JSON.stringify(gridSteps(GRID_DEFAULT_MM, 0.09)));
+  check("default grid matches emptyDoc", emptyDoc().gridMm === GRID_DEFAULT_MM);
+
+  const zoomedIn = gridSteps(50, 0.5);
+  check("fine grid drawn as-is when it fits", zoomedIn.minor === 50 && !zoomedIn.stepped);
+  check("minor and major never coincide", gridSteps(50, 0.005).major > gridSteps(50, 0.005).minor);
+  check("degenerate zoom falls back to gridMm", gridSteps(50, 0).minor === 50);
 }
 
 console.log(failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURES`);

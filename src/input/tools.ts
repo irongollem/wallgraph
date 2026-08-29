@@ -28,6 +28,7 @@ export class Tools {
   tool: ToolName = "select";
   symbolType = "socket-single";
   ortho = true;
+  snapGrid = true;  // round placements to doc.gridMm; off = free 1 mm placement
   showDims = false; // always show wall measurements (clickable), not only on selection
   lastThickness = 100;
 
@@ -81,6 +82,10 @@ export class Tools {
 
   private get floor(): Floor { return this.store.floor; }
 
+  /** Quantisation step for placement: the document grid, or 1 mm when grid
+   * snapping is off (coordinates stay integer mm either way). */
+  private get gridStep(): number { return this.snapGrid ? this.store.doc.gridMm : 1; }
+
   // ---- snapping ----
   private computeSnap(raw: Vec, forWall: boolean): SnapResult {
     const f = this.floor;
@@ -110,14 +115,15 @@ export class Tools {
       const pos = arcPointAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, Math.max(0, Math.min(1, nw.tMm / L)));
       return { p: pos, kind: "wall", wall: nw.wall, tMm: nw.tMm };
     }
-    // Grid snap.
-    const g = this.store.doc.gridMm;
+    // Grid snap (optional; off still lands on whole mm, per the doc invariant).
+    const g = this.gridStep;
+    const kind = this.snapGrid ? "grid" : "free";
     if (orthoDir) {
       // snap length along the ortho direction to grid
       const l = Math.round(dist(p, this.chainStart!) / g) * g;
-      return { p: add(this.chainStart!, scale(orthoDir, l)), kind: "grid" };
+      return { p: add(this.chainStart!, scale(orthoDir, l)), kind };
     }
-    return { p: v(Math.round(p.x / g) * g, Math.round(p.y / g) * g), kind: "grid" };
+    return { p: v(Math.round(p.x / g) * g, Math.round(p.y / g) * g), kind };
   }
 
   getSnap(): Vec | null { return this.snap?.p ?? null; }
@@ -279,7 +285,7 @@ export class Tools {
         return { x: Math.round(anchor.x), y: Math.round(anchor.y), rotation: angleOf(outN) - Math.PI / 2, wallId: nw.wall.id };
       }
     }
-    const g = this.store.doc.gridMm;
+    const g = this.gridStep;
     return { x: Math.round(this.cursor.x / g) * g, y: Math.round(this.cursor.y / g) * g, rotation: 0 };
   }
 
@@ -365,7 +371,7 @@ export class Tools {
   private dragMove(s: Vec, w: Vec): void {
     const d = this.drag!;
     d.moved = true;
-    const g = this.store.doc.gridMm;
+    const g = this.gridStep;
 
     if (d.kind === "pan") {
       if (d.lastScreen) this.vp.panPx(s.x - d.lastScreen.x, s.y - d.lastScreen.y);
@@ -468,6 +474,7 @@ export class Tools {
       case "n": case "N": this.setTool("window"); break;
       case "p": case "P": this.setTool("passage"); break;
       case "o": case "O": this.ortho = !this.ortho; this.updateHint(); this.onToolChange(); break;
+      case "g": case "G": this.snapGrid = !this.snapGrid; this.updateHint(); this.onToolChange(); this.requestRender(); break;
       case "l": case "L": this.showDims = !this.showDims; this.onToolChange(); this.requestRender(); break;
       case "r": case "R": this.rotateSelected(); break;
       case "m": case "M": this.mirrorSelected(); break;

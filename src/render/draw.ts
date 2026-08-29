@@ -8,13 +8,15 @@ import { Selection } from "../model/store";
 import { Viewport } from "./viewport";
 import { Vec, add, sub, scale, perp, v, angleOf, dist } from "../geometry/vec";
 import { getSymbol } from "./symbols";
+import { gridSteps, GridSteps } from "./grid";
 
 export const COLORS = {
   bg: "#f4f2ec",
-  grid: "#e3e0d6",
-  gridMajor: "#d3cfc2",
+  grid: "#eae7dd",       // sub-grid: recedes, just enough to gauge a distance
+  gridMajor: "#c3bfae",  // metre grid: a clearly heavier line, not a shade of the same
   roomFill: "#faf9f5",
   roomLabel: "#8a8577",
+  hud: "#a7a293",
   wallFill: "#3d4148",
   wallStroke: "#26292e",
   opening: "#3d4148",
@@ -38,7 +40,7 @@ export function drawScene(
   ctx.fillStyle = COLORS.bg;
   ctx.fillRect(0, 0, canvasW, canvasH);
 
-  drawGrid(ctx, vp, canvasW, canvasH, gridMm);
+  const steps = drawGrid(ctx, vp, canvasW, canvasH, gridMm);
 
   // World-space transform.
   ctx.save();
@@ -96,6 +98,8 @@ export function drawScene(
     ctx.stroke();
   }
 
+  drawGridLegend(ctx, canvasH, gridMm, steps);
+
   // Selected node handle & wall handles drawn by tools layer via preview.
   ctx.restore();
 }
@@ -107,9 +111,10 @@ function tracePoly(ctx: CanvasRenderingContext2D, poly: Vec[]): void {
   ctx.closePath();
 }
 
-function drawGrid(ctx: CanvasRenderingContext2D, vp: Viewport, w: number, h: number, gridMm: number): void {
-  // Adaptive: hide minor grid when below ~6px spacing; major lines every 1m.
-  const minorPx = gridMm * vp.pxPerMm;
+function drawGrid(ctx: CanvasRenderingContext2D, vp: Viewport, w: number, h: number, gridMm: number): GridSteps {
+  // Both spacings are whole multiples of gridMm (see grid.ts), so a square on
+  // screen is always a whole number of grid cells.
+  const steps = gridSteps(gridMm, vp.pxPerMm);
   const tl = vp.toWorld(v(0, 0)), br = vp.toWorld(v(w, h));
   const drawLines = (stepMm: number, color: string): void => {
     ctx.strokeStyle = color;
@@ -125,8 +130,26 @@ function drawGrid(ctx: CanvasRenderingContext2D, vp: Viewport, w: number, h: num
     }
     ctx.stroke();
   };
-  if (minorPx >= 6) drawLines(gridMm, COLORS.grid);
-  if (1000 * vp.pxPerMm >= 12) drawLines(1000, COLORS.gridMajor);
+  drawLines(steps.minor, COLORS.grid);
+  drawLines(steps.major, COLORS.gridMajor);
+  return steps;
+}
+
+/** Bottom-left legend naming the document grid and, when the zoom forced a
+ * coarser spacing, what the lines on screen actually measure. */
+function drawGridLegend(ctx: CanvasRenderingContext2D, h: number, gridMm: number, steps: GridSteps): void {
+  ctx.font = "11px system-ui, sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = COLORS.hud;
+  const text = steps.stepped
+    ? `grid ${fmtMm(gridMm)} · drawn ${fmtMm(steps.minor)} · major ${fmtMm(steps.major)}`
+    : `grid ${fmtMm(gridMm)} · major ${fmtMm(steps.major)}`;
+  ctx.fillText(text, 10, h - 10);
+}
+
+function fmtMm(mm: number): string {
+  return mm >= 1000 ? `${+(mm / 1000).toFixed(2)} m` : `${mm} mm`;
 }
 
 function drawOpening(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number, sel: Selection | null): void {

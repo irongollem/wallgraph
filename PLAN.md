@@ -71,7 +71,7 @@ construction. Moving a wall moves its doors. `t` is clamped so jambs stay on the
     typing digits while drawing shows a mm box, `Enter` commits the segment at exactly
     that length in the current (snapped) direction. This is the feature that makes it
     mm-exact in practice, not just in storage.
-  - *Snapping*: grid (default 50 mm? configurable), node snap, wall-line snap
+  - *Snapping*: grid (default 100 mm, configurable, toggleable), node snap, wall-line snap
     (auto-splits a wall when you T into it), ortho/45° angle snap (toggle).
   - *Curves*: draw straight, then in Select drag the wall's midpoint handle to bow it
     (writes `bulge`); exact sagitta (mm) editable in the panel.

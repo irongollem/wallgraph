@@ -82,6 +82,7 @@ src/model/     doc.ts    document schema + defaults + id generation
 src/core/      resolve.ts  mitered wall outlines, solid pieces between openings
                rooms.ts    half-edge face walk -> room polygons + areas
 src/render/    viewport.ts mm<->px transform, zoom-to-cursor, pan
+               grid.ts     drawable grid spacing for a zoom (multiples of gridMm)
                draw.ts     immediate-mode scene render + COLORS palette
                symbols/    74 symbols in 7 category files behind one interface
 src/input/     tools.ts  tool state machine, snapping, typed-mm entry, drag handling
@@ -139,6 +140,18 @@ The `draw(ctx)` contract in [defs.ts](src/render/symbols/defs.ts) is strict:
 
 ## Gotchas
 
+- **Grid lines are always whole multiples of `doc.gridMm`.** `gridSteps()` in
+  [src/render/grid.ts](src/render/grid.ts) steps the spacing up a 1-2-5 ladder until it is at
+  least 6 px, so one square on screen is always a whole number of grid cells; the canvas
+  legend names both drawn spacings. Don't reintroduce a fixed spacing (it used to be a
+  hardcoded 1 m) — that made the canvas silently disagree with the panel's Grid (mm) value.
+  `COLORS.grid` and `COLORS.gridMajor` are deliberately far apart in lightness: the sub-grid
+  recedes, the metre grid is the one you read distances off. Keep that separation.
+- **`GRID_DEFAULT_MM` is 100** ([doc.ts](src/model/doc.ts)) — building measurements are rarely
+  finer, and it draws cell-for-cell at ordinary zoom instead of stepping up. Documents saved
+  before this keep whatever `gridMm` they stored; the default only applies to new plans.
+- **Grid snapping is a toggle** (`Tools.snapGrid`, G). Off still rounds to whole mm, so
+  invariant 1 holds either way — quantise through `Tools.gridStep`, not `doc.gridMm`.
 - **Autosave uses the storage key `floorplan-doc-v1`**, from before the project was named
   Wallgraph. Renaming that key silently discards every user's saved plan — if you rename
   it, migrate the old key first.
@@ -148,7 +161,7 @@ The `draw(ctx)` contract in [defs.ts](src/render/symbols/defs.ts) is strict:
 - **`store.replace(doc, undoable)`** — `New`/`Demo`/`Open` pass `true` so Ctrl+Z restores
   the previous plan instead of showing a blocking confirm dialog (unavailable in sandboxed
   hosting anyway).
-- **Keyboard shortcuts are window-level** (V/W/D/N/P/O/L/R/M/Del). Fine for a dedicated
+- **Keyboard shortcuts are window-level** (V/W/D/N/P/O/G/L/R/M/Del). Fine for a dedicated
   page; they will fight other inputs if the editor shares a page. `onKey` bails on
   INPUT/SELECT/TEXTAREA targets, which is the only guard today.
 - **Everything is single-floor.** `store.floor` is hardcoded to `doc.floors[0]!` even

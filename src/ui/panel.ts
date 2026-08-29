@@ -203,6 +203,15 @@ export class Panel {
       row.append(s);
       p.append(row);
     };
+    const checkRow = (label: string, value: boolean, onCommit: (b: boolean) => void): void => {
+      const row = el("label", "prop-row");
+      row.append(Object.assign(el("span"), { textContent: label }));
+      const cb = el("input") as HTMLInputElement;
+      cb.type = "checkbox"; cb.checked = value;
+      cb.onchange = () => onCommit(cb.checked);
+      row.append(cb);
+      p.append(row);
+    };
     const btnRow = (label: string, fn: () => void): void => {
       const b = el("button", "tool-btn small wide") as HTMLButtonElement;
       b.textContent = label; b.onclick = fn;
@@ -212,20 +221,9 @@ export class Panel {
     if (!sel) {
       title("Plan");
       numRow("Grid (mm)", this.store.doc.gridMm, n => this.store.mutate(d => { d.gridMm = Math.max(1, n); }), 10);
-      const orthoRow = el("label", "prop-row");
-      orthoRow.append(Object.assign(el("span"), { textContent: "Angle snap (O)" }));
-      const cb = el("input") as HTMLInputElement;
-      cb.type = "checkbox"; cb.checked = this.tools.ortho;
-      cb.onchange = () => { this.tools.ortho = cb.checked; };
-      orthoRow.append(cb);
-      p.append(orthoRow);
-      const dimsRow = el("label", "prop-row");
-      dimsRow.append(Object.assign(el("span"), { textContent: "Measurements (L)" }));
-      const dimsCb = el("input") as HTMLInputElement;
-      dimsCb.type = "checkbox"; dimsCb.checked = this.tools.showDims;
-      dimsCb.onchange = () => { this.tools.showDims = dimsCb.checked; this.store.select(this.store.sel); };
-      dimsRow.append(dimsCb);
-      p.append(dimsRow);
+      checkRow("Snap to grid (G)", this.tools.snapGrid, b => { this.tools.snapGrid = b; this.store.select(this.store.sel); });
+      checkRow("Angle snap (O)", this.tools.ortho, b => { this.tools.ortho = b; });
+      checkRow("Measurements (L)", this.tools.showDims, b => { this.tools.showDims = b; this.store.select(this.store.sel); });
       numRow("New wall thickness", this.tools.lastThickness, n => { this.tools.lastThickness = Math.max(20, n); }, 10);
       return;
     }
