@@ -1,95 +1,131 @@
-import { SymbolDef, withCtx } from "./defs";
+import { SymbolDef, code, withCtx } from "./defs";
 
 // ---------------------------------------------------------------------------
-// Safety (NEN 1414 style)
+// Safety (NEN plan symbols)
 // ---------------------------------------------------------------------------
-// Simplified line pictograms in the style of NEN 1414 safety signage.
+// These are the marks a draftsman puts ON a plattegrond, which are NOT the
+// ISO 7010 signs that hang on the wall -- a blusser is a triangle carrying the
+// medium's letter, not a picture of a blusser. Where the standard's mark
+// contains a character, we draw the character; see code() in defs.ts.
+//
+// The last few (first aid, assembly point, fire blanket) have no mark on the
+// NEN sheets and stay signage pictograms, which is why they look unlike the
+// rest of this file.
 
 const emergencyExit: SymbolDef = {
   type: "emergency-exit",
   label: "Emergency exit",
   category: "safety",
   wallMounted: true,
-  width: 400,
-  depth: 400,
+  width: 500,
+  depth: 280,
   draw(ctx) {
     withCtx(ctx, () => {
-      // outer square
-      ctx.rect(-200, 0, 400, 400);
-      // doorway
-      ctx.moveTo(-60, 60);
-      ctx.lineTo(-60, 340);
-      // arrow shaft
-      const tipX = 140;
-      const tipY = 200;
-      ctx.moveTo(-40, 200);
+      // richtingaanwijzer nooduitgang: a plain box split by a rule, with the
+      // direction arrow in the lower band. No running man -- that is the sign.
+      ctx.rect(-250, 30, 500, 220);
+      ctx.moveTo(-250, 90);
+      ctx.lineTo(250, 90);
+      // arrow, pointing along -x; rotate/mirror the instance to aim it
+      const tipX = -170;
+      const tipY = 170;
+      ctx.moveTo(190, tipY);
       ctx.lineTo(tipX, tipY);
-      // arrowhead, two strokes at +/-35deg from the shaft direction
-      const headLen = 60;
       for (const deg of [35, -35]) {
-        const a = Math.PI + (deg * Math.PI) / 180; // reversed direction +/- offset
+        const a = (deg * Math.PI) / 180; // back along +x, +/- offset
         ctx.moveTo(tipX, tipY);
-        ctx.lineTo(tipX + Math.cos(a) * headLen, tipY + Math.sin(a) * headLen);
+        ctx.lineTo(tipX + Math.cos(a) * 60, tipY + Math.sin(a) * 60);
       }
       ctx.stroke();
     });
   },
 };
 
-const fireExtinguisher: SymbolDef = {
-  type: "fire-extinguisher",
-  label: "Extinguisher",
-  category: "safety",
-  wallMounted: true,
-  width: 300,
-  depth: 400,
-  draw(ctx) {
-    withCtx(ctx, () => {
-      // vertical rounded-rectangle body
-      const x0 = -70;
-      const x1 = 70;
-      const y0 = 80;
-      const y1 = 340;
-      const r = 40;
-      ctx.moveTo(x0 + r, y0);
-      ctx.lineTo(x1 - r, y0);
-      ctx.arcTo(x1, y0, x1, y0 + r, r);
-      ctx.lineTo(x1, y1 - r);
-      ctx.arcTo(x1, y1, x1 - r, y1, r);
-      ctx.lineTo(x0 + r, y1);
-      ctx.arcTo(x0, y1, x0, y1 - r, r);
-      ctx.lineTo(x0, y0 + r);
-      ctx.arcTo(x0, y0, x0 + r, y0, r);
-      ctx.closePath();
-      // neck
-      ctx.moveTo(0, 80);
-      ctx.lineTo(0, 30);
-      // handle
-      ctx.moveTo(-50, 30);
-      ctx.lineTo(50, 30);
-      ctx.stroke();
-    });
-  },
-};
+/**
+ * Brandblusser. One triangle, one letter: k = koolzuursneeuw (CO2), p = poeder,
+ * s.b. = schuim. The letter is the whole difference between the three products,
+ * so each medium is its own palette entry rather than one generic blusser.
+ *
+ * The triangle sits right of centre and the letter left of it, which puts the
+ * mark's combined ink over the anchor even though the triangle alone is not
+ * centred -- you click where the symbol looks like it is.
+ */
+function extinguisher(type: string, label: string, letter: string, size: number): SymbolDef {
+  return {
+    type,
+    label,
+    category: "safety",
+    wallMounted: true,
+    width: 560,
+    depth: 400,
+    draw(ctx) {
+      withCtx(ctx, () => {
+        // Triangle standing on its base, apex toward the wall, letter beside the
+        // apex -- the sheet's arrangement for a symbol whose "up" is the wall it
+        // hangs on.
+        ctx.moveTo(-40, 340);
+        ctx.lineTo(260, 340);
+        ctx.lineTo(110, 60);
+        ctx.closePath();
+        ctx.stroke();
+        code(ctx, letter, -150, 120, size);
+      });
+    },
+  };
+}
+
+const extCo2 = extinguisher("fire-ext-co2", "CO₂ extinguisher", "k", 150);
+const extPowder = extinguisher("fire-ext-powder", "Powder extinguisher", "p", 150);
+const extFoam = extinguisher("fire-ext-foam", "Foam extinguisher", "s.b.", 110);
 
 const fireHose: SymbolDef = {
   type: "fire-hose",
   label: "Fire hose reel",
   category: "safety",
   wallMounted: true,
-  width: 400,
+  width: 600,
   depth: 400,
   draw(ctx) {
     withCtx(ctx, () => {
-      // outer square
-      ctx.rect(-200, 0, 400, 400);
-      // inner reel circle
-      ctx.moveTo(130, 200);
-      ctx.arc(0, 200, 130, 0, Math.PI * 2);
-      // hose from the reel
-      ctx.moveTo(0, 330);
-      ctx.lineTo(120, 380);
+      // brandslanghaspel: a crossed circle with the hose run leading off it.
+      // The sheets annotate that run with diameter and length; we do not model
+      // either, so the leader is drawn bare.
+      const cx = -100;
+      const cy = 200;
+      const r = 130;
+      ctx.moveTo(cx + r, cy);
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.moveTo(cx - r, cy);
+      ctx.lineTo(cx + r, cy);
+      ctx.moveTo(cx, cy - r);
+      ctx.lineTo(cx, cy + r);
+      ctx.moveTo(cx + r, cy);
+      ctx.lineTo(270, cy);
       ctx.stroke();
+    });
+  },
+};
+
+const sprinkler: SymbolDef = {
+  type: "sprinkler",
+  label: "Sprinkler",
+  category: "safety",
+  wallMounted: false,
+  width: 400,
+  depth: 240,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      // the pipe run, with the head hanging off it as an open V
+      ctx.moveTo(-200, -50);
+      ctx.lineTo(200, -50);
+      ctx.moveTo(-80, -50);
+      ctx.lineTo(0, 70);
+      ctx.lineTo(80, -50);
+      ctx.stroke();
+      // tap-off point on the pipe
+      ctx.beginPath();
+      ctx.arc(0, -50, 14, 0, Math.PI * 2);
+      ctx.fill();
     });
   },
 };
@@ -118,27 +154,14 @@ const smokeDetector: SymbolDef = {
   label: "Smoke detector",
   category: "safety",
   wallMounted: false,
-  width: 300,
-  depth: 300,
+  width: 400,
+  depth: 400,
   draw(ctx) {
     withCtx(ctx, () => {
-      const r = 130;
-      ctx.moveTo(r, 0);
-      ctx.arc(0, 0, r, 0, Math.PI * 2);
-      // three radial ticks pointing away from the centre
-      const tickLen = 60;
-      for (const deg of [45, 90, 135]) {
-        const a = (deg * Math.PI) / 180;
-        const cos = Math.cos(a);
-        const sin = Math.sin(a);
-        ctx.moveTo(cos * r, sin * r);
-        ctx.lineTo(cos * (r + tickLen), sin * (r + tickLen));
-      }
+      ctx.moveTo(170, 0);
+      ctx.arc(0, 0, 170, 0, Math.PI * 2);
       ctx.stroke();
-      // small filled dot at centre
-      ctx.beginPath();
-      ctx.arc(0, 0, 12, 0, Math.PI * 2);
-      ctx.fill();
+      code(ctx, "RM", 0, 0, 150);
     });
   },
 };
@@ -356,8 +379,11 @@ const fireBlanket: SymbolDef = {
 
 export const SYMBOLS_SAFETY: SymbolDef[] = [
   emergencyExit,
-  fireExtinguisher,
+  extCo2,
+  extPowder,
+  extFoam,
   fireHose,
+  sprinkler,
   fireAlarm,
   smokeDetector,
   heatDetector,

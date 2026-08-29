@@ -8,8 +8,15 @@
 //   - Footprint: wall-mounted x in [-width/2, width/2], y in [0, depth];
 //                free-standing x in [-width/2, width/2], y in [-depth/2, depth/2].
 //   - Line drawings: use ctx.stroke(); never set strokeStyle/fillStyle (caller
-//     owns color). Small filled position dots (radius <= 15mm) via ctx.fill()
-//     are the one exception. No text (ctx.fillText is forbidden).
+//     owns color, and selection highlighting rides on it). Fills via ctx.fill()
+//     inherit the caller's fillStyle, which drawSymbol keeps equal to the
+//     stroke colour.
+//   - Text is allowed ONLY where the standard's own symbol contains it: the "k"
+//     on a koolzuursneeuwblusser triangle, the "RM" in a rookmelder circle. NEN
+//     defines those marks with the character in them, so a symbol without it is
+//     a different symbol, not a simplified one. Draw it with code() below --
+//     never ctx.fillText directly, and never for a name or a caption we chose
+//     to add. Those are still the caller's job, in screen space (see drawLabel).
 //   - Set ctx.lineWidth = 20 and wrap in ctx.save()/ctx.restore().
 export type SymbolCategory =
   | "electrical" | "water" | "sanitary" | "heating" | "safety" | "kitchen" | "furniture";
@@ -29,5 +36,42 @@ export function withCtx(ctx: CanvasRenderingContext2D, fn: () => void): void {
   ctx.lineWidth = 20;
   ctx.beginPath();
   fn();
+  ctx.restore();
+}
+
+/**
+ * A character that is part of the standard's symbol: the "k" on a
+ * koolzuursneeuwblusser triangle, the "RM" in a rookmelder circle. Positioned
+ * at (x, y) in the symbol's own mm space, sized in mm.
+ *
+ * Orientation is the part that is not like the rest of draw(). The glyph is
+ * placed by the instance transform but not turned by it, so it stays upright
+ * and readable however the symbol is rotated or mirrored. That is not a licence
+ * we took: a rotated "p" is a "d" and a mirrored one is a "q", so letting the
+ * character ride the transform would quietly draw a different symbol -- turning
+ * a poederblusser into nothing that is on the sheet. Plan annotation is upright
+ * for exactly this reason.
+ *
+ * It also paints in the current strokeStyle, so the character highlights along
+ * with the rest of the symbol on selection.
+ */
+export function code(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  size: number,
+): void {
+  ctx.save();
+  // Where (x, y) lands, and how big a mm is, under the instance transform --
+  // then redraw the axes square so only position and scale survive.
+  const m = ctx.getTransform();
+  const scale = Math.hypot(m.a, m.b);
+  ctx.setTransform(scale, 0, 0, scale, m.a * x + m.c * y + m.e, m.b * x + m.d * y + m.f);
+  ctx.font = size + "px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = ctx.strokeStyle;
+  ctx.fillText(text, 0, 0);
   ctx.restore();
 }

@@ -605,7 +605,10 @@ function drawSymbol(ctx: CanvasRenderingContext2D, s: SymbolInstance, px: number
   ctx.translate(s.x, s.y);
   ctx.rotate(s.rotation);
   if (s.mirrored) ctx.scale(-1, 1);
+  // fill follows stroke: a symbol's filled parts -- a position dot, a standard's
+  // code character -- have to highlight with the rest of it on selection.
   ctx.strokeStyle = selected ? COLORS.select : COLORS.symbol;
+  ctx.fillStyle = ctx.strokeStyle;
   def.draw(ctx);
   if (selected) {
     ctx.strokeStyle = COLORS.select;

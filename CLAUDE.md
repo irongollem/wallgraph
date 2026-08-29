@@ -84,7 +84,7 @@ src/core/      resolve.ts  mitered wall outlines, solid pieces between openings
 src/render/    viewport.ts mm<->px transform, zoom-to-cursor, pan
                grid.ts     drawable grid spacing for a zoom (multiples of gridMm)
                draw.ts     immediate-mode scene render + COLORS palette
-               symbols/    74 symbols in 7 category files behind one interface
+               symbols/    77 symbols in 7 category files behind one interface
 src/input/     tools.ts  tool state machine, snapping, typed-mm entry, drag handling
 src/ui/        panel.ts  toolbar, symbol palette, selection-driven property panel
 src/io/        json.ts   guarded localStorage autosave, export/import/clipboard
@@ -126,7 +126,7 @@ convention, a T-junction finiteness check, and door-splits-wall-into-2-pieces.
 
 Symbols live in `src/render/symbols/<category>.ts` and are aggregated by
 [index.ts](src/render/symbols/index.ts). One entry = one new symbol; nothing else needs
-touching. Current count: 74 across electrical (23), safety (12), sanitary (9), water (9),
+touching. Current count: 77 across electrical (23), safety (15), sanitary (9), water (9),
 furniture (8), heating (7), kitchen (6) — Dutch/NEN-style plan conventions.
 
 The `draw(ctx)` contract in [defs.ts](src/render/symbols/defs.ts) is strict:
@@ -135,9 +135,15 @@ The `draw(ctx)` contract in [defs.ts](src/render/symbols/defs.ts) is strict:
 - Origin is the anchor: wall-mounted → midpoint of the wall-touching edge with `+y` into
   the room; free-standing → centre of the footprint.
 - **Never set `strokeStyle`/`fillStyle`** — the caller owns colour (selection highlighting
-  depends on this). Small filled position dots (radius ≤ 15 mm) via `ctx.fill()` are the
-  only exception.
-- **No text.** `ctx.fillText` is forbidden; labels are drawn in screen space by the caller.
+  depends on this). `drawSymbol` keeps `fillStyle` equal to `strokeStyle`, so `ctx.fill()`
+  is free to use and highlights with the rest of the symbol.
+- **Text only where the standard's mark contains it** — the `k` on a koolzuursneeuwblusser
+  triangle, the `RM` in a rookmelder circle. NEN defines those marks *with* the character,
+  so dropping it yields a different symbol, not a simpler one; the symbol has to fit the
+  standard rather than the other way round. Draw it with `code()` from
+  [defs.ts](src/render/symbols/defs.ts), which paints in the stroke colour and un-mirrors
+  the glyph. Never call `ctx.fillText` directly, and never for a name or caption *we* chose
+  to add — those stay in screen space, drawn by the caller.
 - Wrap in `withCtx()`, which handles `save`/`restore` and sets `lineWidth = 20`.
 
 ## Gotchas
