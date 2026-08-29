@@ -163,5 +163,48 @@ function legacySash(o: Opening): Sash {
   }
 }
 
+/**
+ * The named window products from the NEN sheets, each one a preset over
+ * (action, hinge, outward).
+ *
+ * The model deliberately has fewer actions than the sheets have names — a
+ * valraam and an uitzetraam are the same tilt, differing only in which edge
+ * hinges and which way it opens. That is right for the geometry and wrong for
+ * the person drawing: someone looking for "valraam" should not have to know it
+ * is "kiepend + onderdorpel". So the panel picks from these names and writes
+ * the parts.
+ */
+export interface WindowKind {
+  id: string;
+  action: SashAction;
+  hinge?: HingeEdge;
+  outward?: boolean;
+}
+
+export const WINDOW_KINDS: WindowKind[] = [
+  { id: "vast",        action: "fixed" },
+  { id: "draai",       action: "turn",           hinge: "a",    outward: false },
+  { id: "draaiVal",    action: "turn-tilt",      hinge: "a",    outward: false },
+  { id: "val",         action: "tilt",           hinge: "sill", outward: false },
+  { id: "uitzet",      action: "tilt",           hinge: "head", outward: true },
+  { id: "tuimel",      action: "pivot" },
+  { id: "schuifH",     action: "slide" },
+  { id: "schuifV",     action: "slide-vertical" },
+  { id: "draaiSchuif", action: "turn-slide",     hinge: "a",    outward: false },
+  { id: "vouw",        action: "fold",           outward: false },
+];
+
+/**
+ * Which named kind a sash currently matches, or null when the parts have been
+ * tuned into a combination the sheets do not name (a side-hung sash opening
+ * outward, say — real, just not one of the listed products).
+ */
+export function windowKindOf(sash: Sash): WindowKind | null {
+  return WINDOW_KINDS.find(k =>
+    k.action === sash.action
+    && (k.hinge === undefined || k.hinge === (sash.hinge ?? k.hinge))
+    && (k.outward === undefined || k.outward === (sash.outward ?? false))) ?? null;
+}
+
 export function findNode(f: Floor, id: Id): PlanNode | undefined { return f.nodes.find(n => n.id === id); }
 export function findWall(f: Floor, id: Id): Wall | undefined { return f.walls.find(w => w.id === id); }

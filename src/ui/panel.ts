@@ -8,7 +8,7 @@ import { v, norm, sub, add, scale } from "../geometry/vec";
 import { exportJson, copyJson, importJsonFile, parseDoc, clearAutosave } from "../io/json";
 import { exportPng } from "../io/image";
 import { seedDoc } from "../seed";
-import { emptyDoc, areaModeOf, sashesOf, type AreaMode, type Sash, type SashAction, type HingeEdge, type Opening, type Wall } from "../model/doc";
+import { emptyDoc, areaModeOf, sashesOf, windowKindOf, WINDOW_KINDS, type AreaMode, type Sash, type HingeEdge, type Opening, type Wall } from "../model/doc";
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
 
 export class Panel {
@@ -190,17 +190,6 @@ export class Panel {
   ): void {
     const width = wallLength(this.store.floor, wall) > 0 ? o.width : o.width;
     const sashes = sashesOf(o, width);
-    const ACTIONS: Array<[SashAction, string]> = [
-      ["fixed", t("panel.actFixed")],
-      ["turn", t("panel.actTurn")],
-      ["turn-tilt", t("panel.actTurnTilt")],
-      ["tilt", t("panel.actTilt")],
-      ["pivot", t("panel.actPivot")],
-      ["slide", t("panel.actSlide")],
-      ["slide-vertical", t("panel.actSlideVertical")],
-      ["turn-slide", t("panel.actTurnSlide")],
-      ["fold", t("panel.actFold")],
-    ];
     const writeBack = (fn: (list: Sash[]) => void): void => {
       mut(o2 => {
         const list = (o2.sashes?.length ? o2.sashes : sashesOf(o2, width).map(x => ({ ...x })))
@@ -212,9 +201,18 @@ export class Panel {
     let horizontalHinge = false;
     sashes.forEach((sash, i) => {
       if (sashes.length > 1) noteRow(t("panel.sash", { n: i + 1 }));
-      selRow(sashes.length > 1 ? t("panel.type") : t("panel.type"), sash.action,
-        ACTIONS.map(([v, l]) => [v, l] as [string, string]),
-        v => writeBack(list => { list[i]!.action = v as SashAction; }));
+      // Lead with the name a builder would use. The parts below stay editable,
+      // so an unnamed combination is still reachable — it just reads "custom".
+      const kind = windowKindOf(sash);
+      const kindOpts: Array<[string, string]> = WINDOW_KINDS.map(k => [k.id, t("panel.win" + k.id[0]!.toUpperCase() + k.id.slice(1))]);
+      if (!kind) kindOpts.push(["", t("panel.winCustom")]);
+      selRow(t("panel.windowKind"), kind?.id ?? "", kindOpts, v => writeBack(list => {
+        const k = WINDOW_KINDS.find(x => x.id === v);
+        if (!k) return;
+        list[i]!.action = k.action;
+        list[i]!.hinge = k.hinge;
+        list[i]!.outward = k.outward ?? false;
+      }));
       const act = sash.action;
       if (act === "turn" || act === "turn-tilt" || act === "turn-slide")
         selRow(t("panel.hinge"), sash.hinge ?? "a",
