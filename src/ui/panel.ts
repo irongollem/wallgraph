@@ -8,6 +8,7 @@ import { v, norm, sub, add, scale } from "../geometry/vec";
 import { exportJson, copyJson, importJsonFile, parseDoc, clearAutosave } from "../io/json";
 import { seedDoc } from "../seed";
 import { emptyDoc } from "../model/doc";
+import { t, language, changeLanguage, LANGUAGES, on as onI18n, type Lang } from "../i18n";
 
 export class Panel {
   private toolbar: HTMLElement;
@@ -25,13 +26,14 @@ export class Panel {
     this.renderProps();
     store.onChange(() => { this.renderProps(); this.renderStatus(); });
     this.renderStatus();
+    onI18n("languageChanged", () => this.refreshToolbar());
   }
 
   refreshToolbar(): void { this.renderToolbar(); this.renderProps(); this.renderStatus(); }
 
   private renderToolbar(): void {
-    const t = this.toolbar;
-    t.innerHTML = "";
+    const bar = this.toolbar;
+    bar.innerHTML = "";
     const toolBtn = (label: string, tool: ToolName, key: string, title: string): HTMLButtonElement => {
       const b = el("button", "tool-btn") as HTMLButtonElement;
       b.textContent = label;
@@ -40,22 +42,22 @@ export class Panel {
       b.onclick = () => { this.tools.setTool(tool); this.renderToolbar(); };
       return b;
     };
-    t.append(
-      toolBtn("⬚", "select", "V", "Select / move"),
-      toolBtn("╱", "wall", "W", "Draw walls"),
-      toolBtn("🚪", "door", "D", "Place door"),
-      toolBtn("⊞", "window", "N", "Place window"),
-      toolBtn("⌒", "passage", "P", "Open passage"),
+    bar.append(
+      toolBtn("⬚", "select", "V", t("tool.select")),
+      toolBtn("╱", "wall", "W", t("tool.wall")),
+      toolBtn("🚪", "door", "D", t("tool.door")),
+      toolBtn("⊞", "window", "N", t("tool.window")),
+      toolBtn("⌒", "passage", "P", t("tool.passage")),
       el("hr", "sep"),
     );
     // Symbol palette: search + collapsible category fold-outs with icon buttons.
     const search = el("input", "sym-search") as HTMLInputElement;
     search.type = "search";
-    search.placeholder = `Search ${SYMBOLS.length} symbols…`;
+    search.placeholder = t("symbolSearch", { count: SYMBOLS.length });
     search.value = this.searchQ;
     const grids = el("div", "sym-grids");
     search.oninput = () => { this.searchQ = search.value; renderGrids(); };
-    t.append(search, grids);
+    bar.append(search, grids);
 
     const iconBtn = (def: SymbolDef): HTMLButtonElement => {
       const b = el("button", "sym-icon") as HTMLButtonElement;
@@ -95,12 +97,12 @@ export class Panel {
         grids.append(grid);
         return;
       }
-      for (const [cat, label] of CATEGORIES) {
+      for (const [cat] of CATEGORIES) {
         const defs = SYMBOLS.filter(x => x.category === cat);
         if (defs.length === 0) continue;
         const open = this.openCats.has(cat);
         const head = el("button", "sym-cat-head") as HTMLButtonElement;
-        head.innerHTML = `<span class="tri">${open ? "▾" : "▸"}</span> ${label} <span class="count">${defs.length}</span>`;
+        head.innerHTML = `<span class="tri">${open ? "▾" : "▸"}</span> ${t("category." + cat, {})} <span class="count">${defs.length}</span>`;
         head.onclick = () => {
           if (open) this.openCats.delete(cat); else this.openCats.add(cat);
           renderGrids();
@@ -114,25 +116,25 @@ export class Panel {
       }
     };
     renderGrids();
-    t.append(el("hr", "sep"));
+    bar.append(el("hr", "sep"));
     const act = (label: string, title: string, fn: () => void): HTMLButtonElement => {
       const b = el("button", "tool-btn small") as HTMLButtonElement;
       b.textContent = label; b.title = title; b.onclick = fn;
       return b;
     };
-    t.append(
-      act("↩", "Undo (Ctrl+Z)", () => this.store.undo()),
-      act("↪", "Redo (Ctrl+Shift+Z)", () => this.store.redo()),
+    bar.append(
+      act("↩", t("action.undo"), () => this.store.undo()),
+      act("↪", t("action.redo"), () => this.store.redo()),
       el("hr", "sep"),
-      act("New", "New empty plan (Ctrl+Z restores the old one)", () => { clearAutosave(); this.store.replace(emptyDoc(), true); this.flash("new plan — Ctrl+Z restores the old one"); }),
-      act("Demo", "Load the demo plan (Ctrl+Z restores the old one)", () => { this.store.replace(seedDoc(), true); this.flash("demo loaded — Ctrl+Z restores your plan"); }),
-      act("Save", "Save floorplan.json", () => { void exportJson(this.store.doc); }),
-      act("Copy", "Copy plan JSON to clipboard", () => { void copyJson(this.store.doc).then(ok => this.flash(ok ? "copied" : "copy failed")); }),
-      act("Open", "Open a floorplan.json file", () => importJsonFile(
-        doc => { this.store.replace(doc, true); this.flash("plan loaded"); },
-        () => this.flash("not a valid floorplan JSON file"),
+      act(t("action.new"), t("action.newTitle"), () => { clearAutosave(); this.store.replace(emptyDoc(), true); this.flash(t("status.newPlan")); }),
+      act(t("action.demo"), t("action.demoTitle"), () => { this.store.replace(seedDoc(), true); this.flash(t("status.demoLoaded")); }),
+      act(t("action.save"), t("action.saveTitle"), () => { void exportJson(this.store.doc); }),
+      act(t("action.copy"), t("action.copyTitle"), () => { void copyJson(this.store.doc).then(ok => this.flash(ok ? t("status.copied") : t("status.copyFailed"))); }),
+      act(t("action.open"), t("action.openTitle"), () => importJsonFile(
+        doc => { this.store.replace(doc, true); this.flash(t("status.planLoaded")); },
+        () => this.flash(t("status.invalidFile")),
       )),
-      act("Paste", "Load plan from pasted JSON", () => this.pasteDialog()),
+      act(t("action.paste"), t("action.pasteTitle"), () => this.pasteDialog()),
     );
   }
 
@@ -140,21 +142,21 @@ export class Panel {
     document.querySelector(".overlay")?.remove();
     const overlay = el("div", "overlay");
     const box = el("div", "dialog");
-    box.append(Object.assign(el("div", "props-title"), { textContent: "Paste floorplan JSON" }));
+    box.append(Object.assign(el("div", "props-title"), { textContent: t("panel.pasteJson") }));
     const ta = el("textarea") as HTMLTextAreaElement;
     ta.placeholder = '{"version":1,"unit":"mm",...}';
     const row = el("div", "dialog-row");
     const load = el("button", "tool-btn small") as HTMLButtonElement;
-    load.textContent = "Load";
+    load.textContent = t("action.load");
     load.onclick = () => {
       const doc = parseDoc(ta.value);
-      if (!doc) { this.flash("not a valid floorplan JSON"); return; }
+      if (!doc) { this.flash(t("status.invalidJson")); return; }
       overlay.remove();
       this.store.replace(doc, true);
-      this.flash("plan loaded — Ctrl+Z restores the previous one");
+      this.flash(t("status.planLoadedUndo"));
     };
     const cancel = el("button", "tool-btn small") as HTMLButtonElement;
-    cancel.textContent = "Cancel";
+    cancel.textContent = t("action.cancel");
     cancel.onclick = () => overlay.remove();
     row.append(load, cancel);
     box.append(ta, row);
@@ -219,21 +221,24 @@ export class Panel {
     };
 
     if (!sel) {
-      title("Plan");
-      numRow("Grid (mm)", this.store.doc.gridMm, n => this.store.mutate(d => { d.gridMm = Math.max(1, n); }), 10);
-      checkRow("Snap to grid (G)", this.tools.snapGrid, b => { this.tools.snapGrid = b; this.store.select(this.store.sel); });
-      checkRow("Angle snap (O)", this.tools.ortho, b => { this.tools.ortho = b; });
-      checkRow("Measurements (L)", this.tools.showDims, b => { this.tools.showDims = b; this.store.select(this.store.sel); });
-      numRow("New wall thickness", this.tools.lastThickness, n => { this.tools.lastThickness = Math.max(20, n); }, 10);
+      title(t("panel.plan"));
+      numRow(t("panel.grid"), this.store.doc.gridMm, n => this.store.mutate(d => { d.gridMm = Math.max(1, n); }), 10);
+      checkRow(t("tool.gridSnap"), this.tools.snapGrid, b => { this.tools.snapGrid = b; this.store.select(this.store.sel); });
+      checkRow(t("tool.angleSnap"), this.tools.ortho, b => { this.tools.ortho = b; });
+      checkRow(t("tool.measurements"), this.tools.showDims, b => { this.tools.showDims = b; this.store.select(this.store.sel); });
+      numRow(t("panel.newWallThickness"), this.tools.lastThickness, n => { this.tools.lastThickness = Math.max(20, n); }, 10);
+      selRow(t("panel.language"), language(),
+        LANGUAGES.map(l => [l.code, l.label] as [string, string]),
+        code => changeLanguage(code as Lang));
       return;
     }
 
     if (sel.kind === "wall") {
       const w = f.walls.find(x => x.id === sel.id);
       if (!w) return;
-      title("Wall");
+      title(t("panel.wall"));
       const L = wallLength(f, w);
-      numRow("Length (mm)", L, n => {
+      numRow(t("panel.length"), L, n => {
         if (n < 50) return;
         this.store.mutate(d => {
           const fl = d.floors[0]!;
@@ -247,7 +252,7 @@ export class Panel {
           b.x = Math.round(nb.x); b.y = Math.round(nb.y);
         });
       });
-      numRow("Thickness (mm)", w.thickness, n => {
+      numRow(t("panel.thickness"), w.thickness, n => {
         this.tools.lastThickness = Math.max(20, n);
         this.store.mutate(d => {
           const wall = d.floors[0]!.walls.find(x => x.id === sel.id);
@@ -255,7 +260,7 @@ export class Panel {
         });
       });
       const a = f.nodes.find(x => x.id === w.a)!, b = f.nodes.find(x => x.id === w.b)!;
-      numRow("Curve sagitta (mm)", sagittaFromBulge(v(a.x, a.y), v(b.x, b.y), w.bulge), n => {
+      numRow(t("panel.sagitta"), sagittaFromBulge(v(a.x, a.y), v(b.x, b.y), w.bulge), n => {
         this.store.mutate(d => {
           const fl = d.floors[0]!;
           const wall = fl.walls.find(x => x.id === sel.id);
@@ -264,7 +269,7 @@ export class Panel {
           wall.bulge = bulgeFromSagitta(v(aa.x, aa.y), v(bb.x, bb.y), n);
         });
       }, 50);
-      btnRow("Delete wall (Del)", () => { this.store.mutate(d => deleteWall(d.floors[0]!, sel.id)); this.store.select(null); });
+      btnRow(t("panel.deleteWall"), () => { this.store.mutate(d => deleteWall(d.floors[0]!, sel.id)); this.store.select(null); });
       return;
     }
 
@@ -282,52 +287,52 @@ export class Panel {
           if (w2 && o2) { fn(o2, fl, w2); clampOpening(fl, w2, o2); }
         });
       };
-      title(o.kind === "door" ? "Door" : o.kind === "window" ? "Window" : "Passage");
-      numRow("Width (mm)", o.width, n => mutOpening(o2 => { o2.width = n; }));
-      numRow("From corner (mm)", o.t - o.width / 2, n => mutOpening(o2 => { o2.t = n + o2.width / 2; }));
+      title(o.kind === "door" ? t("panel.door") : o.kind === "window" ? t("panel.window") : t("panel.passage"));
+      numRow(t("panel.width"), o.width, n => mutOpening(o2 => { o2.width = n; }));
+      numRow(t("panel.fromCorner"), o.t - o.width / 2, n => mutOpening(o2 => { o2.t = n + o2.width / 2; }));
       if (o.kind === "door") {
-        selRow("Hinge", o.hinge ?? "a", [["a", "start side"], ["b", "end side"]], s2 => mutOpening(o2 => { o2.hinge = s2 as "a" | "b"; }));
-        selRow("Swing", (o.swingIn ?? true) ? "in" : "out", [["in", "inward"], ["out", "outward"]], s2 => mutOpening(o2 => { o2.swingIn = s2 === "in"; }));
+        selRow(t("panel.hinge"), o.hinge ?? "a", [["a", t("panel.hingeA")], ["b", t("panel.hingeB")]], s2 => mutOpening(o2 => { o2.hinge = s2 as "a" | "b"; }));
+        selRow(t("panel.swing"), (o.swingIn ?? true) ? "in" : "out", [["in", t("panel.swingIn")], ["out", t("panel.swingOut")]], s2 => mutOpening(o2 => { o2.swingIn = s2 === "in"; }));
       }
       if (o.kind === "window") {
-        selRow("Type", o.windowType ?? "fixed", [["fixed", "fixed"], ["casement", "casement"], ["sliding", "sliding"]],
+        selRow(t("panel.type"), o.windowType ?? "fixed", [["fixed", t("panel.typeFixed")], ["casement", t("panel.typeCasement")], ["sliding", t("panel.typeSliding")]],
           s2 => mutOpening(o2 => { o2.windowType = s2 as "fixed" | "casement" | "sliding"; }));
         if ((o.windowType ?? "fixed") === "sliding")
-          selRow("Slides toward", o.slideTo ?? "b", [["a", "start side"], ["b", "end side"]], s2 => mutOpening(o2 => { o2.slideTo = s2 as "a" | "b"; }));
+          selRow(t("panel.slidesToward"), o.slideTo ?? "b", [["a", t("panel.hingeA")], ["b", t("panel.hingeB")]], s2 => mutOpening(o2 => { o2.slideTo = s2 as "a" | "b"; }));
       }
-      btnRow("Delete (Del)", () => this.tools.deleteSelected());
+      btnRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());
       return;
     }
 
     if (sel.kind === "symbol") {
       const s = f.symbols.find(x => x.id === sel.id);
       if (!s) return;
-      title("Symbol: " + s.type);
-      numRow("Rotation (°)", (s.rotation * 180) / Math.PI, n => this.store.mutate(d => {
+      title(t("panel.symbol", { type: s.type }));
+      numRow(t("panel.rotation"), (s.rotation * 180) / Math.PI, n => this.store.mutate(d => {
         const s2 = d.floors[0]!.symbols.find(x => x.id === sel.id);
         if (s2) s2.rotation = (n * Math.PI) / 180;
       }), 15);
-      btnRow("Mirror (M)", () => this.store.mutate(d => {
+      btnRow(t("panel.mirror"), () => this.store.mutate(d => {
         const s2 = d.floors[0]!.symbols.find(x => x.id === sel.id);
         if (s2) s2.mirrored = !s2.mirrored;
       }));
-      btnRow("Delete (Del)", () => this.tools.deleteSelected());
+      btnRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());
       return;
     }
 
     if (sel.kind === "node") {
       const n = f.nodes.find(x => x.id === sel.id);
       if (!n) return;
-      title("Corner");
-      numRow("X (mm)", n.x, val => this.store.mutate(d => {
+      title(t("panel.corner"));
+      numRow(t("panel.x"), n.x, val => this.store.mutate(d => {
         const n2 = d.floors[0]!.nodes.find(x => x.id === sel.id);
         if (n2) n2.x = Math.round(val);
       }));
-      numRow("Y (mm)", n.y, val => this.store.mutate(d => {
+      numRow(t("panel.y"), n.y, val => this.store.mutate(d => {
         const n2 = d.floors[0]!.nodes.find(x => x.id === sel.id);
         if (n2) n2.y = Math.round(val);
       }));
-      btnRow("Delete with walls (Del)", () => this.tools.deleteSelected());
+      btnRow(t("panel.deleteWithWalls"), () => this.tools.deleteSelected());
     }
   }
 }

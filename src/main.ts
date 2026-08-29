@@ -10,6 +10,7 @@ import { Panel } from "./ui/panel";
 import { tryLoadAutosave, scheduleAutosave } from "./io/json";
 import { seedDoc } from "./seed";
 import { v } from "./geometry/vec";
+import { t, language, on as onI18n } from "./i18n";
 
 export function mountWallgraph(app: HTMLElement): void {
   app.innerHTML = "";
@@ -19,7 +20,16 @@ export function mountWallgraph(app: HTMLElement): void {
   side.className = "side";
   const header = document.createElement("div");
   header.className = "brand";
-  header.innerHTML = '<h1>Wallgraph</h1><p>mm-exact floorplans, drawn fast</p>';
+  const brand = (): void => {
+    header.innerHTML = "";
+    header.append(
+      Object.assign(document.createElement("h1"), { textContent: t("app.title") }),
+      Object.assign(document.createElement("p"), { textContent: t("app.tagline") }),
+    );
+  };
+  brand();
+  onI18n("languageChanged", brand);
+  try { document.documentElement.lang = language(); } catch { /* no DOM in tests */ }
   side.append(header);
   const canvasWrap = document.createElement("div");
   canvasWrap.className = "canvas-wrap";

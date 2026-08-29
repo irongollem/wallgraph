@@ -8,6 +8,7 @@ import { Selection } from "../model/store";
 import { Viewport } from "./viewport";
 import { Vec, add, sub, scale, perp, v, angleOf, dist } from "../geometry/vec";
 import { getSymbol } from "./symbols";
+import { t } from "../i18n";
 import { gridSteps, GridSteps } from "./grid";
 
 export const COLORS = {
@@ -143,8 +144,8 @@ function drawGridLegend(ctx: CanvasRenderingContext2D, h: number, gridMm: number
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = COLORS.hud;
   const text = steps.stepped
-    ? `grid ${fmtMm(gridMm)} · drawn ${fmtMm(steps.minor)} · major ${fmtMm(steps.major)}`
-    : `grid ${fmtMm(gridMm)} · major ${fmtMm(steps.major)}`;
+    ? t("hint.gridLegendStepped", { grid: fmtMm(gridMm), minor: fmtMm(steps.minor), major: fmtMm(steps.major) })
+    : t("hint.gridLegend", { grid: fmtMm(gridMm), major: fmtMm(steps.major) });
   ctx.fillText(text, 10, h - 10);
 }
 

@@ -9,6 +9,7 @@ import { arcPointAt, arcTangentAt, bulgeFromSagitta } from "../geometry/arc";
 import { getSymbol } from "../render/symbols";
 import { drawLabel, COLORS } from "../render/draw";
 import { Resolved } from "../core/resolve";
+import { t } from "../i18n";
 
 export type ToolName = "select" | "wall" | "door" | "window" | "passage" | "symbol";
 
@@ -590,20 +591,20 @@ export class Tools {
     switch (this.tool) {
       case "wall":
         this.hint = this.chainStart
-          ? (this.lengthBuffer ? `length: ${this.lengthBuffer} mm — Enter to place` : "click to place · type a length in mm · Esc/right-click to end")
-          : "click to start a wall chain";
+          ? (this.lengthBuffer ? t("hint.wallTyped", { length: this.lengthBuffer }) : t("hint.wallChain"))
+          : t("hint.wallStart");
         break;
       case "select":
         this.hint = this.store.sel?.kind === "wall"
           ? (this.lengthBuffer
-            ? `wall length: ${this.lengthBuffer} mm — Enter to apply`
-            : "click the mm value to edit it · or just type a length + Enter · drag the ◆ handle to curve · Del deletes")
-          : "click to select · drag nodes/walls/symbols · drag a selected wall's ◆ handle to curve it · Del deletes";
+            ? t("hint.selectWallTyped", { length: this.lengthBuffer })
+            : t("hint.selectWall"))
+          : t("hint.select");
         break;
-      case "door": this.hint = "click on a wall to place a door"; break;
-      case "window": this.hint = "click on a wall to place a window"; break;
-      case "passage": this.hint = "click on a wall to place an open passage"; break;
-      case "symbol": this.hint = `click to place ${getSymbol(this.symbolType)?.label ?? this.symbolType} (R rotate, M mirror after placing)`; break;
+      case "door": this.hint = t("hint.door"); break;
+      case "window": this.hint = t("hint.window"); break;
+      case "passage": this.hint = t("hint.passage"); break;
+      case "symbol": this.hint = t("hint.symbol", { label: getSymbol(this.symbolType)?.label ?? this.symbolType }); break;
     }
   }
 
@@ -757,21 +758,21 @@ export class Tools {
         const a = f.nodes.find(x => x.id === nw.wall.a)!, b = f.nodes.find(x => x.id === nw.wall.b)!;
         const L = wallLength(f, nw.wall);
         const width = this.tool === "door" ? DOOR_DEFAULT_WIDTH : this.tool === "window" ? WINDOW_DEFAULT_WIDTH : PASSAGE_DEFAULT_WIDTH;
-        const t = Math.max(width / 2, Math.min(L - width / 2, nw.tMm));
-        const p0 = arcPointAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, (t - width / 2) / L);
-        const p1 = arcPointAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, (t + width / 2) / L);
+        const offset = Math.max(width / 2, Math.min(L - width / 2, nw.tMm));
+        const p0 = arcPointAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, (offset - width / 2) / L);
+        const p1 = arcPointAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, (offset + width / 2) / L);
         ctx.strokeStyle = COLORS.snap;
         ctx.lineWidth = 2 * px;
         const half = nw.wall.thickness / 2 + 40;
         for (const p of [p0, p1]) {
-          const tan = arcTangentAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, t / L);
+          const tan = arcTangentAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, offset / L);
           const nn = perp(tan);
           ctx.beginPath();
           ctx.moveTo(p.x - nn.x * half, p.y - nn.y * half);
           ctx.lineTo(p.x + nn.x * half, p.y + nn.y * half);
           ctx.stroke();
         }
-        drawLabel(ctx, vp, arcPointAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, t / L), `${Math.round(t)} mm from corner`);
+        drawLabel(ctx, vp, arcPointAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, offset / L), t("hint.fromCorner", { mm: Math.round(offset) }));
       }
     }
   }
