@@ -245,6 +245,25 @@ function drawOpening(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number,
   if (o.kind === "door") drawDoor(ctx, og, px, color);
   else if (o.kind === "window") drawWindow(ctx, og, px, color);
   else drawPassage(ctx, og, px, color);
+
+  // Opening annotations stay compact and on the room side: E = powered,
+  // Z = self-closing (zelfsluitend), followed by any fire-resistance rating.
+  const labels: string[] = [];
+  if (o.powered) labels.push("E");
+  if (o.selfClosing) labels.push("Z");
+  if (o.fireRating) labels.push(`${o.fireRating.minutes} ${o.fireRating.kind}`);
+  if (labels.length > 0) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.font = "120px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    labels.forEach((label, i) => {
+      const at = add(og.center, scale(og.n0, h + 120 + i * 140));
+      ctx.fillText(label, at.x, at.y);
+    });
+    ctx.restore();
+  }
 }
 
 function drawDoor(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number, color: string): void {

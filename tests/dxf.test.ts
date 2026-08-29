@@ -6,6 +6,9 @@ import { emptyDoc } from "../src/model/doc";
 import { toDxf } from "../src/io/dxf";
 import { SYMBOLS } from "../src/render/symbols";
 import { recordSymbol } from "../src/io/record";
+import { newId } from "../src/model/doc";
+import { resolveFloor } from "../src/core/resolve";
+import { openingMarks } from "../src/io/marks";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ""): void {
@@ -16,6 +19,18 @@ function check(name: string, cond: boolean, detail = ""): void {
 const dxf = toDxf(seedDoc(), 0);
 check("a plan produces DXF", typeof dxf === "string" && dxf.length > 0);
 check("an empty document produces nothing", toDxf(emptyDoc(), 0) === null);
+
+// Symbols are valid CAD content even on a floor that has no walls. Standard
+// code text such as RM is part of the symbol identity and must survive replay.
+{
+  const doc = emptyDoc();
+  doc.floors[0]!.symbols.push({
+    id: newId("s"), type: "smoke-detector", x: 100, y: 200, rotation: Math.PI / 3,
+  });
+  const symbolsOnly = toDxf(doc, 0) ?? "";
+  check("symbol-only floor produces DXF", symbolsOnly.length > 0);
+  check("standard symbol code text reaches DXF", symbolsOnly.includes("\r\nRM\r\n"));
+}
 
 const lines = (dxf ?? "").split("\r\n").filter(l => l !== "");
 
@@ -90,6 +105,45 @@ check("declares a DXF version with LWPOLYLINE", (dxf ?? "").includes("AC1015"));
   }
   check("every symbol replays to geometry", empty === 0 && broken === 0,
     `${empty} empty, ${broken} broken of ${SYMBOLS.length}`);
+}
+
+{
+  const smoke = SYMBOLS.find(s => s.type === "smoke-detector")!;
+  const prims = recordSymbol(smoke, 20, 30, 0.7, true);
+  check("recorder retains standard symbol text",
+    prims.some(p => p.kind === "text" && p.text === "RM"));
+}
+
+// Every action exposed by the door/window panel needs a distinguishing export
+// mark; otherwise the selected product degrades to a bare opening.
+{
+  const actions = ["slide", "fold", "revolve", "overhead", "pivot", "tilt",
+    "tumble", "project", "parallel", "slide-vertical"] as const;
+  for (const action of actions) {
+    const doc = emptyDoc(), floor = doc.floors[0]!;
+    const a = newId("n"), b = newId("n");
+    floor.nodes.push({ id: a, x: 0, y: 0 }, { id: b, x: 3000, y: 0 });
+    const windowLike = ["tilt", "tumble", "project", "parallel", "slide-vertical"].includes(action);
+    floor.walls.push({ id: newId("w"), a, b, thickness: 200, bulge: 0, openings: [{
+      id: newId("o"), kind: windowLike ? "window" : "door", t: 1500, width: 1000,
+      sashes: [{ action }],
+    }] });
+    const rw = [...resolveFloor(floor).walls.values()][0]!;
+    const marks = openingMarks(rw);
+    const bare = windowLike ? 5 : 2;
+    check(`export distinguishes ${action}`, marks.length > bare, String(marks.length));
+  }
+
+  const doc = emptyDoc(), floor = doc.floors[0]!;
+  const a = newId("n"), b = newId("n");
+  floor.nodes.push({ id: a, x: 0, y: 0 }, { id: b, x: 3000, y: 0 });
+  floor.walls.push({ id: newId("w"), a, b, thickness: 200, bulge: 0, openings: [{
+    id: newId("o"), kind: "door", t: 1500, width: 1000, powered: true,
+    selfClosing: true, fireRating: { kind: "wbd", minutes: 60 },
+  }] });
+  const labels = openingMarks([...resolveFloor(floor).walls.values()][0]!)
+    .filter(p => p.kind === "text").map(p => p.text);
+  check("opening metadata is exported", labels.join(",") === "E,Z,60 wbd", labels.join(","));
 }
 
 console.log(failures === 0 ? "ALL DXF TESTS PASSED" : `${failures} FAILURES`);

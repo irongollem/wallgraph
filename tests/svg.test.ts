@@ -2,7 +2,7 @@
 // is that it is well-formed, at true scale, and carries no NaN — a single NaN
 // in a path silently drops that whole path in every renderer.
 import { seedDoc } from "../src/seed";
-import { emptyDoc } from "../src/model/doc";
+import { emptyDoc, newId } from "../src/model/doc";
 import { toSvg } from "../src/io/svg";
 
 let failures = 0;
@@ -14,6 +14,17 @@ function check(name: string, cond: boolean, detail = ""): void {
 const svg = toSvg(seedDoc(), 0);
 check("a plan produces SVG", typeof svg === "string" && svg.length > 0);
 check("an empty document produces nothing", toSvg(emptyDoc(), 0) === null);
+
+{
+  const doc = emptyDoc();
+  doc.floors[0]!.symbols.push({
+    id: newId("s"), type: "smoke-detector", x: 100, y: 200, rotation: 0, color: "#d0342c",
+  });
+  const symbolSvg = toSvg(doc, 0) ?? "";
+  check("symbol-only floor produces SVG", symbolSvg.length > 0);
+  check("SVG preserves semantic symbol colour", symbolSvg.includes('stroke="#d0342c"'));
+  check("SVG preserves standard symbol code text", symbolSvg.includes(">RM</text>"));
+}
 const s = svg ?? "";
 
 check("declares the SVG namespace", s.includes('xmlns="http://www.w3.org/2000/svg"'));

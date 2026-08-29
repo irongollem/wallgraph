@@ -14,7 +14,7 @@ import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
-import { COLORS } from "../render/draw";
+import { COLORS, symbolInk } from "../render/draw";
 import { recordSymbol, Prim } from "./record";
 import { openingMarks } from "./marks";
 import { planBounds } from "./image";
@@ -63,7 +63,16 @@ function arcPath(c: Vec, r: number, startDeg: number, sweepDeg: number): string 
 function primPath(p: Prim): string {
   if (p.kind === "line") return `M${n(p.a.x)} ${n(p.a.y)} L${n(p.b.x)} ${n(p.b.y)}`;
   if (p.kind === "poly") return polyPath(p.pts, p.closed);
-  return arcPath(p.c, p.r, p.start, p.sweep);
+  if (p.kind === "arc") return arcPath(p.c, p.r, p.start, p.sweep);
+  return "";
+}
+
+function primSvg(p: Prim): string {
+  if (p.kind === "text") {
+    return `<text x="${n(p.at.x)}" y="${n(p.at.y)}" font-size="${n(p.size)}"` +
+      ` text-anchor="middle" dominant-baseline="central" fill="currentColor" stroke="none">${esc(p.text)}</text>`;
+  }
+  return `<path d="${primPath(p)}"/>`;
 }
 
 /** The plan of one storey as an SVG document. */
@@ -105,17 +114,19 @@ export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
   for (const j of resolved.junctions) parts.push(`<path d="${polyPath(j.poly, true)}" stroke="none"/>`);
   parts.push(`</g>`);
 
-  parts.push(`<g id="openings" fill="none" stroke="${COLORS.opening}" stroke-width="${W_OPENING}" stroke-linecap="round">`);
+  parts.push(`<g id="openings" color="${COLORS.opening}" fill="none" stroke="${COLORS.opening}" stroke-width="${W_OPENING}" stroke-linecap="round">`);
   for (const rw of resolved.walls.values())
-    for (const p of openingMarks(rw)) parts.push(`<path d="${primPath(p)}"/>`);
+    for (const p of openingMarks(rw)) parts.push(primSvg(p));
   parts.push(`</g>`);
 
-  parts.push(`<g id="symbols" fill="none" stroke="${COLORS.symbol}" stroke-width="${W_SYMBOL}" stroke-linecap="round" stroke-linejoin="round">`);
+  parts.push(`<g id="symbols" fill="none" stroke-width="${W_SYMBOL}" stroke-linecap="round" stroke-linejoin="round">`);
   for (const s of floor.symbols) {
     const def = getSymbol(s.type);
     if (!def) continue;
-    for (const p of recordSymbol(def, s.x, s.y, s.rotation, s.mirrored === true))
-      parts.push(`<path d="${primPath(p)}"/>`);
+    const ink = symbolInk(s);
+    parts.push(`<g color="${ink}" stroke="${ink}">`);
+    for (const p of recordSymbol(def, s.x, s.y, s.rotation, s.mirrored === true)) parts.push(primSvg(p));
+    parts.push(`</g>`);
   }
   parts.push(`</g>`);
 

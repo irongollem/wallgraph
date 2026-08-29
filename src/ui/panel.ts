@@ -10,7 +10,7 @@ import { exportPng } from "../io/image";
 import { exportDxf } from "../io/dxf";
 import { exportSvg } from "../io/svg";
 import { seedDoc } from "../seed";
-import { emptyDoc, areaModeOf, sashesOf, windowKindOf, WINDOW_KINDS, doorKindOf, DOOR_KINDS, type AreaMode, type Sash, type HingeEdge, type Opening, type Wall } from "../model/doc";
+import { emptyDoc, areaModeOf, sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS, doorKindOf, DOOR_KINDS, type AreaMode, type Sash, type HingeEdge, type Opening, type Wall } from "../model/doc";
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
 import { COLORS, INKS } from "../render/draw";
 import { icon, type IconName } from "./icons";
@@ -321,8 +321,7 @@ export class Panel {
     const sashes = sashesOf(o, width);
     const writeBack = (fn: (list: Sash[]) => void): void => {
       mut(o2 => {
-        const list = (o2.sashes?.length ? o2.sashes : sashesOf(o2, width).map(x => ({ ...x })))
-          .map(x => ({ ...x }));
+        const list = sashSpecsOf(o2);
         fn(list);
         o2.sashes = list;
       });
@@ -411,7 +410,7 @@ export class Panel {
 
     const writeBack = (fn: (list: Sash[]) => void): void => {
       mut(o2 => {
-        const list = sashesOf(o2, o2.width).map(x => ({ ...x }));
+        const list = sashSpecsOf(o2);
         fn(list);
         o2.sashes = list;
       });

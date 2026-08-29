@@ -182,14 +182,17 @@ export const PASSAGE_DEFAULT_WIDTH = 900;
  * sashes existed keep rendering exactly as they did.
  */
 export function sashesOf(o: Opening, openingWidth: number): Array<Sash & { width: number }> {
-  const list: Sash[] = o.sashes?.length
-    ? o.sashes
-    : [legacySash(o)];
+  const list = sashSpecsOf(o);
   // Unsized sashes split whatever the sized ones leave.
   const sized = list.reduce((t, s) => t + (s.width ?? 0), 0);
   const unsized = list.filter(s => s.width === undefined).length;
   const each = unsized > 0 ? Math.max(0, openingWidth - sized) / unsized : 0;
   return list.map(s => ({ ...s, width: s.width ?? each }));
+}
+
+/** Editable sash specifications, retaining omitted widths as automatic. */
+export function sashSpecsOf(o: Opening): Sash[] {
+  return (o.sashes?.length ? o.sashes : [legacySash(o)]).map(s => ({ ...s }));
 }
 
 function legacySash(o: Opening): Sash {

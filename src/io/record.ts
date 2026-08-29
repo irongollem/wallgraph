@@ -15,6 +15,7 @@ import { Vec } from "../geometry/vec";
 export type Prim =
   | { kind: "line"; a: Vec; b: Vec }
   | { kind: "poly"; pts: Vec[]; closed: boolean }
+  | { kind: "text"; at: Vec; size: number; text: string }
   /** Angles in degrees, document (y-down) space; sweep is signed and short-way. */
   | { kind: "arc"; c: Vec; r: number; start: number; sweep: number };
 
@@ -53,8 +54,14 @@ class Recorder {
   strokeStyle = ""; fillStyle = ""; lineWidth = 1; font = ""; lineCap = ""; lineJoin = "";
   textAlign = ""; textBaseline = "";
   setLineDash(_d: number[]): void { /* dash is a screen concern */ }
-  fillText(_s: string, _x: number, _y: number): void { /* symbols carry no text */ }
-  strokeText(_s: string, _x: number, _y: number): void { /* ditto */ }
+  fillText(s: string, x: number, y: number): void { this.recordText(s, x, y); }
+  strokeText(s: string, x: number, y: number): void { this.recordText(s, x, y); }
+
+  private recordText(text: string, x: number, y: number): void {
+    const fontSize = Number.parseFloat(this.font) || 12;
+    const scale = Math.hypot(this.m.a, this.m.b) || 1;
+    this.prims.push({ kind: "text", at: apply(this.m, x, y), size: fontSize * scale, text });
+  }
 
   // — transform —
   save(): void { this.stack.push(this.m); }

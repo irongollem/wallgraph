@@ -183,14 +183,15 @@ function emitPrims(w: DxfWriter, layer: string, prims: Prim[]): void {
   for (const p of prims) {
     if (p.kind === "line") w.line(layer, p.a, p.b);
     else if (p.kind === "poly") w.polyline(layer, p.pts, p.closed);
-    else w.arc(layer, p.c, p.r, p.start, p.sweep);
+    else if (p.kind === "arc") w.arc(layer, p.c, p.r, p.start, p.sweep);
+    else w.text(layer, p.at, p.size, p.text);
   }
 }
 
 /** The plan of one storey as DXF text. */
 export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
   const floor: Floor | undefined = doc.floors[floorIndex] ?? doc.floors[0];
-  if (!floor || floor.walls.length === 0) return null;
+  if (!floor || (floor.walls.length === 0 && floor.symbols.length === 0)) return null;
 
   const resolved = resolveFloor(floor);
   const w = new DxfWriter();
