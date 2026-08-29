@@ -16,13 +16,44 @@ const opts = {
   logLevel: "info",
 };
 
+// Page metadata. SITE_URL is set by the host (Netlify exposes URL); without it the
+// canonical and og:url tags are omitted rather than pointing somewhere wrong — a
+// self-hosted copy should not advertise someone else's domain as canonical.
+const TITLE = "Wallgraph — free mm-exact floorplan editor";
+const DESCRIPTION =
+  "Draw floorplans in the browser, exact to the millimetre. Type real lengths, " +
+  "place doors, windows and 74 standard plan symbols. Free, no account needed.";
+const SITE_URL = process.env.SITE_URL || process.env.URL || "";
+
+// Inline SVG favicon: keeps the build a single file and avoids a 404 for
+// /favicon.ico. A wall corner in the app's own ink colour.
+const FAVICON =
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">' +
+    '<rect width="32" height="32" rx="6" fill="#f4f2ec"/>' +
+    '<path d="M7 25V10h4v11h14v4z" fill="#3d4148"/>' +
+    '<circle cx="9" cy="12" r="2.4" fill="#e05d2d"/>' +
+    "</svg>",
+  );
+
 function emit(result) {
   const js = result.outputFiles[0].text;
   const css = readFileSync("src/style.css", "utf8");
+  const canonical = SITE_URL
+    ? `<link rel="canonical" href="${SITE_URL}">\n<meta property="og:url" content="${SITE_URL}">\n`
+    : "";
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Floorplan</title>
+<title>${TITLE}</title>
+<meta name="description" content="${DESCRIPTION}">
+<meta name="theme-color" content="#f4f2ec">
+<link rel="icon" href="${FAVICON}">
+${canonical}<meta property="og:type" content="website">
+<meta property="og:title" content="${TITLE}">
+<meta property="og:description" content="${DESCRIPTION}">
+<meta name="twitter:card" content="summary">
 <style>${css}</style></head>
 <body><div id="app"></div><script>${js}</script></body></html>`;
   mkdirSync("dist", { recursive: true });
