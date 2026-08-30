@@ -14,10 +14,7 @@ import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
-// roomInk, not the stored value: a colour arrives by paste or by hand-editing
-// and is only validated on the way out. Interpolated raw it would put an
-// arbitrary string inside a fill attribute of a file the user hands on.
-import { COLORS, symbolInk, roomInk } from "../render/draw";
+import { COLORS, symbolInk } from "../render/draw";
 import { stairBox } from "../core/stair";
 import { recordSymbol, Prim } from "./record";
 import { openingMarks } from "./marks";
@@ -220,18 +217,14 @@ export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
       // Name over area, the way the canvas stacks them. The 150 mm offsets are
       // the screen-space 8 px at the same 220 mm label size.
       parts.push(
-        `<text x="${n(r.centroid.x)}" y="${n(r.centroid.y - 150)}" font-weight="600"` +
-        ` fill="${roomInk(r.nameColor)}">${esc(r.name)}</text>`,
+        `<text x="${n(r.centroid.x)}" y="${n(r.centroid.y - 150)}" font-weight="600">${esc(r.name)}</text>`,
       );
       parts.push(`<text x="${n(r.centroid.x)}" y="${n(r.centroid.y + 150)}">${area}</text>`);
     }
     // Names that landed in no detected room still carry onto the sheet.
     for (const rn of roomNamesOf(floor)) {
       if (rooms.some(r => r.nameId === rn.id)) continue;
-      parts.push(
-        `<text x="${n(rn.x)}" y="${n(rn.y)}" font-weight="600"` +
-        ` fill="${roomInk(rn.color)}">${esc(rn.name)}</text>`,
-      );
+      parts.push(`<text x="${n(rn.x)}" y="${n(rn.y)}" font-weight="600">${esc(rn.name)}</text>`);
     }
     parts.push(`</g>`);
   }

@@ -18,14 +18,13 @@ export interface RoomName {
   x: number;
   y: number;
   name: string;
-  /** Pen colour "#rrggbb"; absent means the plan's label ink. */
-  color?: string;
 }
 
 /**
- * Names offered when placing one. A plattegrond names the same dozen rooms in
- * nearly every house, and typing "Woonkamer" for the fifth time is the kind of
- * work the tool should already have done. Free text stays available.
+ * Names offered as completions in the room list. A plattegrond names the same
+ * dozen rooms in nearly every house, and typing "Woonkamer" for the fifth time
+ * is the kind of work the tool should already have done. Free text stays
+ * available: the list is a datalist, not a closed set.
  *
  * These are translation keys (`room.<id>`), so adding one needs its name in both
  * languages or the i18n test fails.

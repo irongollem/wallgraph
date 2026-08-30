@@ -181,6 +181,10 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
   // fit has to aim at the uncovered part of it. The panel is what knows how
   // much that is; Tools applies it to all of them at once.
   tools.viewInsets = () => panel.canvasInsets();
+  // A room's area figure on the canvas is the way into that room's row in the
+  // panel, where its name is written. Rooms are derived and so cannot be
+  // selected; this is the whole of the connection between the two.
+  tools.onRoomLabel = room => panel.editRoom(room);
   // A shell change re-frames: what was centred beside a sidebar is centred
   // under a sheet.
   panel.onLayoutChange = () => { tools.fitAll(); };

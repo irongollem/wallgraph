@@ -2,7 +2,7 @@
 // command-object migration path exists if they ever aren't) + change notification.
 import { PlanDoc, emptyDoc, Floor, Id, newId } from "./doc";
 
-export type SelKind = "wall" | "node" | "opening" | "symbol" | "stair" | "vide" | "cabinet" | "roomName";
+export type SelKind = "wall" | "node" | "opening" | "symbol" | "stair" | "vide" | "cabinet";
 export interface Selection { kind: SelKind; id: Id; wallId?: Id } // opening carries wallId
 
 type Listener = () => void;

@@ -264,10 +264,6 @@ export function planSchema(siteUrl: string): JsonSchema {
           x: mm("mm."),
           y: mm("mm, positive down."),
           name: { type: "string", minLength: 1 },
-          color: {
-            type: "string", pattern: "^#[0-9a-fA-F]{6}$",
-            description: "Pen colour; absent means the plan's label ink.",
-          },
         },
       },
       stair: {

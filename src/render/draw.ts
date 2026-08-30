@@ -83,14 +83,6 @@ export function symbolInk(s: { color?: string }): string {
   return s.color && HEX.test(s.color) ? s.color : COLORS.symbol;
 }
 
-/**
- * The colour a room name draws in. Annotation rather than drawing ink, so an
- * uncoloured name takes the label grey the areas use, not the symbol black.
- */
-export function roomInk(color: string | undefined): string {
-  return color && HEX.test(color) ? color : COLORS.roomLabel;
-}
-
 export interface DrawExtras {
   hoverSnap?: Vec | null;
   /**
@@ -227,12 +219,9 @@ export function drawScene(
       continue;
     }
     if (r.nameId) named.add(r.nameId);
-    const isSel = sel?.kind === "roomName" && sel.id === r.nameId;
     ctx.font = `600 ${ROOM_NAME_PX}px system-ui, sans-serif`;
-    ctx.fillStyle = isSel ? COLORS.select : roomInk(r.nameColor);
     ctx.fillText(r.name, c.x, c.y - 8);
     ctx.font = "12px system-ui, sans-serif";
-    ctx.fillStyle = COLORS.roomLabel;
     ctx.fillText(area, c.x, c.y + 8);
   }
   // A name whose point falls in no detected room still draws where it was
@@ -241,11 +230,8 @@ export function drawScene(
     if (named.has(rn.id)) continue;
     const at = vp.toScreen({ x: rn.x, y: rn.y });
     ctx.font = `600 ${ROOM_NAME_PX}px system-ui, sans-serif`;
-    ctx.fillStyle = sel?.kind === "roomName" && sel.id === rn.id
-      ? COLORS.select : roomInk(rn.color);
     ctx.fillText(rn.name, at.x, at.y);
   }
-  ctx.fillStyle = COLORS.roomLabel;
 
   // Snap marker.
   if (extras.hoverSnap) {

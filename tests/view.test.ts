@@ -7,18 +7,32 @@
 // derived room it belongs to.
 import { Viewport, MIN_PX_PER_MM, MAX_PX_PER_MM, clampZoom } from "../src/render/viewport";
 import { planBounds, polyBounds } from "../src/core/bounds";
-import { detectRooms } from "../src/core/rooms";
+import { detectRooms, roomAnchor, roomKey } from "../src/core/rooms";
 import { resolveFloor } from "../src/core/resolve";
 import { emptyDoc, newId, roomNamesOf, Floor } from "../src/model/doc";
 import { ROOM_NAMES } from "../src/model/room";
 import { planSchema, validate } from "../scripts/site/schema";
-import { v } from "../src/geometry/vec";
+import { v, pointInPolygon } from "../src/geometry/vec";
 import { resources } from "../src/i18n";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ""): void {
   if (!cond) { failures++; console.error(`FAIL ${name} ${detail}`); }
   else console.log(`ok   ${name}`);
+}
+
+/** A closed loop of walls through the given corners, in mm. */
+function loop(f: Floor, pts: Array<{ x: number; y: number }>, thickness = 100): void {
+  const ids = pts.map(p => {
+    const id = newId("n");
+    f.nodes.push({ id, x: p.x, y: p.y });
+    return id;
+  });
+  for (let i = 0; i < ids.length; i++) {
+    f.walls.push({
+      id: newId("w"), a: ids[i]!, b: ids[(i + 1) % ids.length]!, thickness, bulge: 0, openings: [],
+    });
+  }
 }
 
 /** A closed rectangular room of walls, in mm. */
@@ -202,12 +216,55 @@ function box(f: Floor, x0: number, y0: number, x1: number, y1: number, thickness
   check("two rooms are detected", rooms.length === 2, String(rooms.length));
   const names = rooms.map(r => r.name).sort();
   check("each name finds its own room", names.join(",") === "Keuken,Woonkamer", names.join(","));
+}
 
-  // The colour rides along, so the canvas and the SVG can draw it in the pen
-  // it was written with without looking the name up again.
-  f.roomNames[0]!.color = "#d0342c";
-  check("a name's pen reaches the room",
-    detectRooms(f).find(r => r.name === "Keuken")?.nameColor === "#d0342c");
+/* ── where a name is written ── */
+
+// The room list writes a name at roomAnchor(), not at the centroid. On a convex
+// room the two agree; on a concave one the centroid can sit outside the floor it
+// is meant to name, and a name written there would attach to nothing.
+{
+  const doc = emptyDoc(), f = doc.floors[0]!;
+  box(f, 0, 0, 4000, 3000);
+  const r = detectRooms(f)[0]!;
+  const a = roomAnchor(r);
+  check("a rectangle is named at its centroid",
+    a.x === Math.round(r.centroid.x) && a.y === Math.round(r.centroid.y), JSON.stringify(a));
+  check("the anchor is a whole number of mm",
+    Number.isInteger(a.x) && Number.isInteger(a.y), JSON.stringify(a));
+}
+
+{
+  const doc = emptyDoc(), f = doc.floors[0]!;
+  // An L: the missing corner is where the centroid falls.
+  loop(f, [v(0, 0), v(6000, 0), v(6000, 2000), v(2000, 2000), v(2000, 6000), v(0, 6000)]);
+  const r = detectRooms(f)[0]!;
+  check("the L is one room", detectRooms(f).length === 1);
+  check("its centroid falls outside it", !pointInPolygon(r.centroid, r.netPoly),
+    JSON.stringify(r.centroid));
+
+  const a = roomAnchor(r);
+  check("the anchor falls inside it", pointInPolygon(a, r.netPoly), JSON.stringify(a));
+
+  // The point is what the document stores, so the test that matters is the
+  // round trip: written at the anchor, the name comes back on the room.
+  f.roomNames = [{ id: newId("r"), x: a.x, y: a.y, name: "Woonkamer" }];
+  check("a name written at the anchor attaches",
+    detectRooms(f)[0]!.name === "Woonkamer", String(detectRooms(f)[0]!.name));
+
+  f.roomNames = [{ id: newId("r"), x: Math.round(r.centroid.x), y: Math.round(r.centroid.y), name: "Woonkamer" }];
+  check("a name written at the centroid would not",
+    detectRooms(f)[0]!.name === undefined);
+}
+
+{
+  const doc = emptyDoc(), f = doc.floors[0]!;
+  box(f, 0, 0, 4000, 3000);
+  // The list keys its rows on roomKey(), which has to survive the rebuild that
+  // writing a name causes, or the field would close on the first keystroke.
+  const before = roomKey(detectRooms(f)[0]!);
+  f.roomNames = [{ id: newId("r"), x: 2000, y: 1500, name: "Keuken" }];
+  check("a room's key survives being named", roomKey(detectRooms(f)[0]!) === before, before);
 }
 
 {

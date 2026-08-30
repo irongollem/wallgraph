@@ -1,6 +1,14 @@
 * { box-sizing: border-box; margin: 0; }
 html, body, #app { height: 100%; }
-body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec; overflow: hidden; color-scheme: light; }
+/* text-size-adjust: iOS otherwise inflates text when a phone turns landscape,
+   which resizes the chrome the compact layout is measured against.
+   hyphens/overflow-wrap: the UI is Dutch first, and compounds like
+   "Wandcontactdoos" have to break inside a 292px pane rather than overflow it.
+   Both used to arrive from the content site's stylesheet, which the build once
+   appended here; see the noscript block for why that stopped. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec; overflow: hidden;
+  color-scheme: light; hyphens: auto; overflow-wrap: break-word; }
 .app { display: flex; height: 100%; position: relative; }
 .canvas-wrap { flex: 1; position: relative; }
 /* touch-action:none is what makes two-finger pan/zoom ours rather than the
@@ -32,7 +40,10 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 /* ---------- layout ---------- */
 
 .side { width: 292px; flex: none; background: #ffffff; border-right: 1px solid #e2ded2; display: flex; flex-direction: column; overflow: hidden; }
-.side-head { height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 14px; border-bottom: 1px solid #eceadf; }
+/* Wordmark left, document button hard right: the menu opens off that button, so
+   anchoring it to the sidebar's edge is what lines the popover up with the pane
+   underneath it. */
+.side-head { height: 44px; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 10px 0 14px; border-bottom: 1px solid #eceadf; }
 .side-head h1 { font: 650 15px system-ui, sans-serif; letter-spacing: 0.01em; color: #2b2e33; }
 .side-body { flex-grow: 1; display: flex; min-height: 0; }
 
@@ -164,16 +175,35 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 .chip:hover { border-color: #b9b3a3; background: #f4f2ec; }
 .chip.is-on { border-color: #3d4148; background: #3d4148; color: #fff; }
 
-/* The zoom pane's zone list. One row per detected room, named or not. */
+/* The zoom pane's room list. One row per detected room: press the room to frame
+   it, press the pencil to write its name. While a name is being written the
+   button is replaced by the field, so the row keeps its place and its width. */
 .zone-list { display: flex; flex-direction: column; gap: 3px; padding-bottom: 6px; }
+.zone-row { display: flex; align-items: stretch; gap: 3px; }
 .zone {
   display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
-  width: 100%; padding: 5px 9px; border: 1px solid #e2ded2; border-radius: 6px;
+  flex: 1 1 auto; min-width: 0; padding: 5px 9px;
+  border: 1px solid #e2ded2; border-radius: 6px;
   background: #fff; cursor: pointer; font: inherit; text-align: left;
 }
 .zone:hover { border-color: #b9b3a3; background: #f4f2ec; }
 .zone-name { color: #3d4148; overflow-wrap: anywhere; }
+/* A room with no name yet reads as a placeholder, not as a room called
+   "naamloos" -- the word is the prompt, not the label. */
+.zone-name.is-unnamed { color: #b5afa0; font-style: italic; }
 .zone-area { color: #a09a8a; font-size: 10px; font-variant-numeric: tabular-nums; flex: none; }
+.zone-edit {
+  display: flex; align-items: center; justify-content: center; flex: none;
+  width: 30px; border: 1px solid #e2ded2; border-radius: 6px;
+  background: #fff; color: #a09a8a; cursor: pointer; padding: 0;
+}
+.zone-edit:hover { border-color: #b9b3a3; background: #f4f2ec; color: #3d4148; }
+.zone-row.is-editing { align-items: center; gap: 8px; }
+.zone-input {
+  flex: 1 1 auto; min-width: 0; padding: 5px 8px;
+  border: 1px solid #2d7de0; border-radius: 6px; background: #fff;
+  font: inherit; color: #2b2e33; outline: none;
+}
 
 .prop-note { font: 10px system-ui, sans-serif; color: #a09a8a; padding: 1px 2px 4px; }
 /* A figure outside what a stair is ordinarily built to. Loud enough to find,
@@ -346,10 +376,24 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
    empty div. This block is what a visitor — and every crawler that fetches HTML
    without running it — sees instead. It is fixed and scrollable because body
    sets overflow:hidden for the editor's benefit, which would otherwise clip it.
-   Typography comes from the shared page stylesheet the build appends after
-   this one, so the fallback looks like the rest of the site. */
-.noscript { position: fixed; inset: 0; overflow: auto; background: #f4f2ec; z-index: 10; padding: 3rem 0; }
+ *
+ * It carries its own typography, scoped to .noscript, rather than borrowing the
+ * content site's stylesheet. The build used to append that one after this for
+ * exactly these eight rules, and its bare `body`, `h1` and `a` selectors then
+ * applied to the whole editor: the sidebar wordmark inherited a margin, and
+ * `body` came out at 16px/1.6 instead of the 13px/1.4 set above. The values are
+ * the site's, so the fallback still reads as the same family of page. */
+.noscript { position: fixed; inset: 0; overflow: auto; background: #f4f2ec; z-index: 10; padding: 3rem 0;
+  font: 16px/1.6 system-ui, sans-serif; color: #2b2e33; hyphens: auto; overflow-wrap: break-word; }
 .noscript .wrap { max-width: 44rem; margin: 0 auto; padding: 0 1.25rem; }
+.noscript h1 { font-size: clamp(1.7rem, 1.2rem + 2vw, 2.4rem); line-height: 1.15;
+  letter-spacing: -0.02em; margin-bottom: 0.6rem; }
+.noscript p { margin: 0.75rem 0; }
+.noscript .lead { font-size: 1.1rem; color: #6b6558; }
+.noscript ul { margin: 0.75rem 0; padding-inline-start: 1.25rem; }
+.noscript li { margin: 0.3rem 0; }
+.noscript a { color: #e05d2d; }
+.noscript a:hover { text-decoration-thickness: 2px; }
 
 /* ---------- touch sizing ---------- */
 /* Independent of the layout on purpose: a narrow desktop window is compact but
@@ -375,6 +419,9 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
      stops advertising itself as the way in. */
   .prop-row input[type="number"] { cursor: default; }
   .ink { width: 30px; height: 30px; }
+  .zone-edit { width: 44px; }
+  .zone { padding: 9px; }
+  .zone-input { min-height: 44px; font-size: 17px; }
   .pal-search-box { min-height: 44px; }
   .pal-search-box input { font-size: 16px; }
   .pal-cat { padding: 14px 2px 10px; }
@@ -408,6 +455,9 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 .side.is-compact .prop-row input[type="number"],
 .side.is-compact .prop-row input[type="text"] { min-height: 44px; font-size: 17px; width: 104px; }
 .side.is-compact .prop-row select { min-height: 44px; font-size: 15px; }
+.side.is-compact .zone-edit { width: 44px; }
+.side.is-compact .zone { padding: 9px; }
+.side.is-compact .zone-input { min-height: 44px; font-size: 17px; }
 .side.is-compact .prop-row input[type="number"] { cursor: default; }
 /* A 13px tick box is not a touch target, and its state has to read at a glance.
    Same value and the same element, switch shape. `is-touch` covers the tablet

@@ -259,20 +259,23 @@ naast een intypbare maat voor een vulpaneel op maat. Een kast klikt vlak tegen d
 ernaast, zodat een keukenopstelling als aaneengesloten rij ontstaat in plaats van stuk voor stuk op het
 oog uitgelijnd. <kbd>R</kbd> draait een kwartslag, <kbd>M</kbd> spiegelt de draairichting.</p>
 
-<h2 id="ruimtenamen">Ruimtenamen</h2>
-<p><kbd>K</kbd> schrijft een naam in een ruimte. Ruimtes zelf worden afgeleid uit de muren en staan niet
-in het document; wat wél is opgeschreven is de naam en de plaats waar die is gezet, en dat is dan ook
-wat wordt bewaard. Welke ruimte de naam draagt volgt uit dat punt. Verplaatst een muur zich zo dat het
-punt in de volgende ruimte valt, dan gaat de naam met het punt mee.</p>
-<p>De naam komt boven de oppervlakte te staan en gaat mee in PNG, SVG en DXF.</p>
-
-<h2 id="zoomen">Zoomen</h2>
+<h2 id="zoomen">Ruimtes in beeld en op naam</h2>
 <p><kbd>F</kbd> brengt de hele plattegrond in beeld, <kbd>Shift</kbd>+<kbd>F</kbd> de selectie. Beide
-werken in elk gereedschap. <kbd>Z</kbd> opent het zoomgereedschap: sleep een kader om daarop in te
-zoomen, of klik een ruimte aan om die vol in beeld te brengen.</p>
-<p>Het paneel toont daarbij de ruimtes als lijst — benoemde eerst, daarna de rest op grootte — zodat
-&ldquo;keuken vol in beeld&rdquo; één klik is. De lijst volgt de muren: een ruimte die in tweeën wordt
-gedeeld verschijnt als twee regels, zonder dat er iets bijgehouden hoeft te worden.</p>
+werken in elk gereedschap. <kbd>Z</kbd> opent het ruimtegereedschap: sleep een kader op de tekening om
+daarop in te zoomen, of klik een ruimte aan om die vol in beeld te brengen.</p>
+<p>Het paneel toont daarbij alle herkende ruimtes als lijst, in de volgorde waarin ze op de tekening
+staan. Een regel noemt de oppervlakte en, zodra die er is, de naam; de knop ernaast maakt van de regel
+een invoerveld. De lijst volgt de muren: een ruimte die in tweeën wordt gedeeld verschijnt als twee
+regels, zonder dat er iets bijgehouden hoeft te worden.</p>
+
+<h2 id="ruimtenamen">Ruimtenamen</h2>
+<p>Een naam wordt in die lijst geschreven, of door op de tekening op de oppervlakte van een ruimte te
+klikken — dat opent dezelfde regel. Een leeg veld haalt de naam weer weg.</p>
+<p>Ruimtes zelf worden afgeleid uit de muren en staan niet in het document; wat wél is opgeschreven is
+de naam en de plaats waar die is gezet, en dat is dan ook wat wordt bewaard. Welke ruimte de naam draagt
+volgt uit dat punt. Verplaatst een muur zich zo dat het punt in de volgende ruimte valt, dan gaat de
+naam met het punt mee.</p>
+<p>De naam komt boven de oppervlakte te staan en gaat mee in PNG, SVG en DXF.</p>
 
 <h2 id="ruimtes">Ruimtes en maten</h2>
 <p>Gesloten muurlussen worden automatisch als ruimte herkend en van een oppervlakte voorzien. De maat is
@@ -299,8 +302,7 @@ applicatieserver vereist. De plattegrond blijft na het sluiten van het tabblad b
 <tr><td><kbd>T</kbd></td><td>trap plaatsen</td></tr>
 <tr><td><kbd>H</kbd></td><td>vide plaatsen</td></tr>
 <tr><td><kbd>C</kbd></td><td>kast plaatsen</td></tr>
-<tr><td><kbd>K</kbd></td><td>ruimte benoemen</td></tr>
-<tr><td><kbd>Z</kbd></td><td>zoomgereedschap: kader slepen, ruimte aanklikken</td></tr>
+<tr><td><kbd>Z</kbd></td><td>ruimtes: kader slepen, ruimte aanklikken, ruimte benoemen</td></tr>
 <tr><td><kbd>F</kbd></td><td>alles in beeld</td></tr>
 <tr><td><kbd>Shift</kbd>+<kbd>F</kbd></td><td>selectie in beeld</td></tr>
 <tr><td><kbd>O</kbd></td><td>hoeksnapping aan/uit</td></tr>
@@ -388,19 +390,21 @@ and 1200 mm, beside a typed width for a filler cut to size. A cabinet snaps flus
 unit beside it, so a kitchen comes out as a continuous run rather than a line of units aligned by eye.
 <kbd>R</kbd> turns a quarter, <kbd>M</kbd> flips the hinge side.</p>
 
-<h2 id="roomnames">Room names</h2>
-<p><kbd>K</kbd> writes a name into a room. Rooms themselves are derived from the walls and are not in
-the document; what was authored is the name and the point it was written at, so that is what is stored.
-Which room carries the name follows from that point. Move a wall so the point falls in the next room and
-the name goes with the point.</p>
-<p>The name sits above the area figure and carries into PNG, SVG and DXF.</p>
-
-<h2 id="zoom">Zooming</h2>
+<h2 id="zoom">Framing and naming rooms</h2>
 <p><kbd>F</kbd> fits the whole plan, <kbd>Shift</kbd>+<kbd>F</kbd> the selection. Both work in any tool.
-<kbd>Z</kbd> opens the zoom tool: drag a box to zoom into it, or click a room to frame it.</p>
-<p>The panel then lists the rooms — named ones first, the rest by size — so "the kitchen, full screen"
-is one click. The list follows the walls: a room divided in two shows as two entries, with nothing to
-keep in step.</p>
+<kbd>Z</kbd> opens the room tool: drag a box on the drawing to zoom into it, or click a room to frame
+it.</p>
+<p>The panel lists every detected room in the order they appear on the drawing. A row states the area
+and, once it has one, the name; the button beside it turns the row into an input. The list follows the
+walls: a room divided in two shows as two rows, with nothing to keep in step.</p>
+
+<h2 id="roomnames">Room names</h2>
+<p>A name is written in that list, or by clicking a room's area figure on the drawing, which opens the
+same row. An empty field takes the name off again.</p>
+<p>Rooms themselves are derived from the walls and are not in the document; what was authored is the
+name and the point it was written at, so that is what is stored. Which room carries the name follows
+from that point. Move a wall so the point falls in the next room and the name goes with the point.</p>
+<p>The name sits above the area figure and carries into PNG, SVG and DXF.</p>
 
 <h2 id="rooms">Rooms and dimensions</h2>
 <p>Closed wall loops are detected as rooms and labelled with their area. That area is <b>net</b> by
@@ -427,8 +431,7 @@ server. The plan remains available after the tab is closed.</p>
 <tr><td><kbd>T</kbd></td><td>place a stair</td></tr>
 <tr><td><kbd>H</kbd></td><td>place a vide</td></tr>
 <tr><td><kbd>C</kbd></td><td>place a cabinet</td></tr>
-<tr><td><kbd>K</kbd></td><td>name a room</td></tr>
-<tr><td><kbd>Z</kbd></td><td>zoom tool: drag a box, click a room</td></tr>
+<tr><td><kbd>Z</kbd></td><td>rooms: drag a box, click a room, name a room</td></tr>
 <tr><td><kbd>F</kbd></td><td>fit everything in view</td></tr>
 <tr><td><kbd>Shift</kbd>+<kbd>F</kbd></td><td>fit the selection</td></tr>
 <tr><td><kbd>O</kbd></td><td>angle snap on/off</td></tr>

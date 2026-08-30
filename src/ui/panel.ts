@@ -1,5 +1,6 @@
 // Rail, storey/palette/property pane, and status bar. Plain DOM.
 import { Store, type Selection } from "../model/store";
+import { roomKey, type Room } from "../core/rooms";
 import { Tools, ToolName } from "../input/tools";
 import { clampOpening, wallLength, deleteWall } from "../model/ops";
 import type { SymbolDef } from "../render/symbols";
@@ -24,8 +25,7 @@ import { openMenu, type MenuEntry } from "./menu";
 import { Palette } from "./palette";
 import { renderStairTool, renderStairProps, type PaneRows } from "./stairs";
 import { renderCabinetTool, renderCabinetProps } from "./cabinets";
-import { renderRoomNameTool, renderRoomNameProps } from "./rooms";
-import { renderZoomTool } from "./zoom";
+import { renderZoomTool, type RoomEdit } from "./zoom";
 import { renderOpeningTool } from "./openings";
 import { renderVideTool, renderVideProps } from "./vide";
 import { scrubbable } from "./scrub";
@@ -72,6 +72,8 @@ export class Panel {
   /** Selection alone — drives the fade, so a grid tweak does not flash. */
   private lastSelSig = "";
   private planOpen = false;
+  /** Which room's name field is open in the zoom pane; see RoomEdit. */
+  private roomEditKey: string | null = null;
   /** True mid drag-scrub: the pane must not rebuild and yank the input out
    *  from under the pointer. main.ts redraws the canvas independently, so
    *  the drawing still tracks the drag. */
@@ -148,6 +150,11 @@ export class Panel {
     this.tools.touchUi = touch;
 
     if (!compact) {
+      // The compact shell moves the document button into its top bar, and a
+      // move is not undone by re-parenting the header it came from: without
+      // this, a window dragged narrow and back leaves the sidebar with a
+      // wordmark and no way into the menu until the page is reloaded.
+      this.head.append(this.docBtn);
       this.rail.replaceChildren(this.toolsEl, el("hr", "rail-sep"), this.modesEl,
         el("div", "rail-spacer"), this.historyEl);
       const sideBody = el("div", "side-body");
@@ -204,6 +211,37 @@ export class Panel {
     return { ...zero, left: bar ? bar.width : 0, right: sheet.width };
   }
 
+  /**
+   * The zoom pane's room list writes names, so it needs somewhere to keep which
+   * row is open across the rebuild that opening one causes. That is here rather
+   * than in Tools: it is pane state, and it has to survive a rebuild the pane
+   * itself asks for.
+   */
+  private get roomEdit(): RoomEdit {
+    return {
+      key: this.roomEditKey,
+      open: key => {
+        this.roomEditKey = key;
+        // The field can sit below the fold of a sheet that is only peeking.
+        if (key !== null) this.sheet?.atLeast("half");
+        this.refreshToolbar();
+      },
+      clear: () => { this.roomEditKey = null; },
+    };
+  }
+
+  /**
+   * A room's label on the canvas was clicked. The room list is the naming
+   * surface, so this arms the tool that shows it and opens that room's field —
+   * the plan and the panel are two views of the same room.
+   */
+  editRoom(room: Room): void {
+    this.roomEditKey = roomKey(room);
+    this.sheet?.atLeast("half");
+    // setTool refreshes the pane, which is what renders the open field.
+    this.tools.setTool("zoom");
+  }
+
   /** Persistent disclaimer link. Rebuilt only when the language changes. */
   private renderFoot(): void {
     const warn = el("a", "side-foot-warn") as HTMLAnchorElement;
@@ -255,7 +293,6 @@ export class Panel {
       toolBtn("stair", "stair", "T", t("tool.stair"), t("tool.shortStair")),
       toolBtn("vide", "vide", "H", t("tool.vide"), t("tool.shortVide")),
       toolBtn("cabinet", "cabinet", "C", t("tool.cabinet"), t("tool.shortCabinet")),
-      toolBtn("roomName", "roomName", "K", t("tool.roomName"), t("tool.shortRoomName")),
       toolBtn("zoom", "zoom", "Z", t("tool.zoom"), t("tool.shortZoom")),
     );
     // The symbol palette is a tool like the rest on a phone, where the pane it
@@ -423,7 +460,7 @@ export class Panel {
     // pane has a third state: nothing selected, but something to configure.
     const stairMode = this.tools.tool === "stair";
     const videMode = this.tools.tool === "vide";
-    const paneTool = this.tools.tool === "cabinet" || this.tools.tool === "roomName"
+    const paneTool = this.tools.tool === "cabinet"
       || this.tools.tool === "zoom" || this.tools.tool === "door"
       || this.tools.tool === "window" || this.tools.tool === "passage";
     const selSig = (stairMode ? `stair-tool:${this.tools.stairKind}|` : "")
@@ -1058,17 +1095,8 @@ export class Panel {
       renderCabinetProps(this.store, this.tools, rows, sel.id);
       return;
     }
-    if (this.tools.tool === "roomName") {
-      if (sel?.kind === "roomName") renderRoomNameProps(this.store, this.tools, rows, sel.id);
-      renderRoomNameTool(this.store, this.tools, rows);
-      return;
-    }
-    if (sel?.kind === "roomName") {
-      renderRoomNameProps(this.store, this.tools, rows, sel.id);
-      return;
-    }
     if (this.tools.tool === "zoom") {
-      renderZoomTool(p, this.store, this.tools, rows, this.tools.rooms());
+      renderZoomTool(p, this.store, this.tools, rows, this.tools.rooms(), this.roomEdit);
       return;
     }
     // The opening tools state what the next opening is placed with, above the

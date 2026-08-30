@@ -26,7 +26,7 @@ function R(x: number, y: number, w: number, h: number, rx: number, fill = false)
 
 export type IconName =
   | "select" | "wall" | "door" | "window" | "passage" | "stair" | "vide" | "symbols"
-  | "cabinet" | "roomName" | "zoom"
+  | "cabinet" | "zoom" | "rename"
   | "gridSnap" | "angleSnap" | "dimensions"
   | "undo" | "redo" | "dots" | "chevron" | "plus" | "minus" | "close"
   | "trash" | "search" | "floors" | "backspace" | "confirm"
@@ -57,8 +57,8 @@ const ICONS: Record<IconName, Shape[]> = {
   // A unit in plan: the carcass, the front band across it, and the diagonal
   // that says which end the door is hung on -- what the drawing itself shows.
   cabinet: [P("M3.4 4 H16.6 V15 H3.4 Z M3.4 12.8 H16.6 M3.4 12.8 L16.6 4")],
-  // A room with its name written in it: the outline and two lines of text.
-  roomName: [P("M3 4.5 H17 V15.5 H3 Z"), P("M6 9.4 H14 M6 12.2 H11")],
+  // A pencil laid over the line it writes: the mark for "change this word".
+  rename: [P("M3.4 16.6 L4.2 13.2 L13 4.4 L15.6 7 L6.8 15.8 Z"), P("M11.4 6 L14 8.6")],
   // A lens over a plan, with the plus that says it frames rather than pans.
   zoom: [
     C(9, 9, 5.4),

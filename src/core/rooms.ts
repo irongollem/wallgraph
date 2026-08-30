@@ -34,10 +34,8 @@ export interface Room {
    * and the room that contains that point takes it. See model/room.ts.
    */
   name?: string;
-  /** The RoomName the name came from, so a click can select it. */
+  /** The RoomName the name came from, so the name can be rewritten. */
   nameId?: Id;
-  /** That name's pen, when it carries one. */
-  nameColor?: string;
 }
 
 interface HalfEdge { from: number; to: number; visited: boolean; half: number }
@@ -140,9 +138,58 @@ function attachNames(f: Floor, rooms: Room[]): void {
   for (const rn of roomNamesOf(f)) {
     const p = v(rn.x, rn.y);
     const room = rooms.find(r => r.name === undefined && pointInPolygon(p, r.netPoly));
-    if (room) { room.name = rn.name; room.nameId = rn.id; room.nameColor = rn.color; }
+    if (room) { room.name = rn.name; room.nameId = rn.id; }
   }
 }
+
+/**
+ * A room's identity between two renders. Rooms are derived and carry no id, so
+ * the panel keys its rows on the one thing a rename cannot change: where the
+ * room sits. Moving a wall changes the key, which is correct — that is a
+ * different outline.
+ */
+export function roomKey(r: Room): string {
+  return `${Math.round(r.centroid.x)},${Math.round(r.centroid.y)}`;
+}
+
+/**
+ * Where to write this room's name so that attachNames() hands it back. The
+ * centroid is the obvious answer and the wrong one for a concave room: an
+ * L-shaped floor has its centroid in the missing corner, and a name written
+ * there attaches to nothing. Falls back to the middle of the widest horizontal
+ * span inside the room, sampled across its height.
+ */
+export function roomAnchor(r: Room): Vec {
+  const poly = r.netPoly.length >= 3 ? r.netPoly : r.poly;
+  const round = (p: Vec): Vec => v(Math.round(p.x), Math.round(p.y));
+  if (poly.length < 3 || pointInPolygon(r.centroid, poly)) return round(r.centroid);
+
+  let minY = Infinity, maxY = -Infinity;
+  for (const p of poly) { minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
+  const ys = [r.centroid.y];
+  for (let i = 1; i < SPAN_SAMPLES; i++) ys.push(minY + ((maxY - minY) * i) / SPAN_SAMPLES);
+
+  let best: { p: Vec; width: number } | null = null;
+  for (const y of ys) {
+    const xs: number[] = [];
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i]!, b = poly[(i + 1) % poly.length]!;
+      if ((a.y > y) === (b.y > y)) continue;
+      xs.push(a.x + ((y - a.y) / (b.y - a.y)) * (b.x - a.x));
+    }
+    xs.sort((p, q) => p - q);
+    // Crossings pair up into inside-spans; the widest is the roomiest place a
+    // word can stand.
+    for (let i = 0; i + 1 < xs.length; i += 2) {
+      const width = xs[i + 1]! - xs[i]!;
+      if (!best || width > best.width) best = { p: v((xs[i]! + xs[i + 1]!) / 2, y), width };
+    }
+  }
+  return round(best ? best.p : r.centroid);
+}
+
+/** Horizontal lines tried when the centroid falls outside its own room. */
+const SPAN_SAMPLES = 8;
 
 /**
  * Shrink a room boundary to the inner wall faces: offset every edge inward by

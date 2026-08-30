@@ -8,7 +8,7 @@ import { readFileSync, writeFileSync, mkdirSync, copyFileSync, existsSync, watch
 import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 import { HOME, SITE } from "./site/meta";
-import { headTags, PAGE_CSS, esc, type SiteCtx } from "./site/html";
+import { headTags, esc, type SiteCtx } from "./site/html";
 import { docPages } from "./site/pages";
 import { SYMBOLS } from "../src/render/symbols";
 import { siteFiles } from "./site/files";
@@ -92,10 +92,13 @@ function emit(result: BuildResult): void {
   // Service workers require a hosted origin and register after application code.
   const boot = SITE_URL ? `${js}\n${registration}` : js;
 
+  // One page, one stylesheet. The editor's own CSS also type-sets the noscript
+  // fallback, so the content site's PAGE_CSS stays on the content pages instead
+  // of overriding `body` and `h1` inside a running editor.
   const html = `<!doctype html>
 <html lang="nl"><head>
 ${headTags(ctx, "nl", HOME)}
-<style>${css}${PAGE_CSS}</style></head>
+<style>${css}</style></head>
 <body><div id="app"></div>${noscript()}<script>${boot}</script></body></html>`;
   emitFile("/index.html", html);
 

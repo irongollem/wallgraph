@@ -14,7 +14,6 @@ import { Vide, VideSize, VIDE_DEFAULT, clampVide } from "../model/vide";
 import {
   Cabinet, CabinetSpec, cabinetDefaults, cabinetPreset, clampCabinet,
 } from "../model/cabinet";
-import { RoomName } from "../model/room";
 import { nodeAt, splitWall, nearestWall, wallLength, mergeNodes, deleteWall, clampOpening, cleanOrphanNodes } from "../model/ops";
 import { Viewport } from "../render/viewport";
 import { Vec, v, add, sub, scale, norm, perp, dist, angleOf, fromAngle, dot, pointInPolygon } from "../geometry/vec";
@@ -27,7 +26,7 @@ import { drawVideGhost } from "../render/vide";
 import { cabinetHit, cabinetBox, cabinetCorners } from "../core/cabinet";
 import { drawCabinetGhost } from "../render/cabinet";
 import { planBounds, polyBounds, Bounds } from "../core/bounds";
-import { Room } from "../core/rooms";
+import { Room, roomAnchor } from "../core/rooms";
 import { drawLabel, COLORS, symbolInk } from "../render/draw";
 import { Resolved, ResolvedWall } from "../core/resolve";
 import { dimensionChains } from "../core/dimensions";
@@ -35,7 +34,7 @@ import { t } from "../i18n";
 
 export type ToolName =
   | "select" | "wall" | "door" | "window" | "passage" | "symbol" | "stair" | "vide"
-  | "cabinet" | "roomName" | "zoom";
+  | "cabinet" | "zoom";
 
 /** Finger travel that still counts as a tap rather than a drag. */
 const TAP_SLOP_PX = 10;
@@ -45,11 +44,18 @@ const TAP_MS = 500;
 const DOUBLE_TAP_MS = 300;
 /** Smallest share of an axis a fit will frame into, whatever the chrome covers. */
 const MIN_FIT_FRACTION = 0.5;
+/**
+ * Half-size of a room label's clickable box on screen, in px. The label is
+ * drawn at a constant pixel size rather than in world mm, so it is hit-tested
+ * in the same space. A named room stacks a name over the area, so it is twice
+ * as tall.
+ */
+const ROOM_LABEL_HIT_PX = { x: 52, y: 11 };
 
 export interface SnapResult { p: Vec; kind: "node" | "wall" | "grid" | "free"; wall?: Wall; tMm?: number; node?: PlanNode }
 
 interface DragState {
-  kind: "node" | "wall" | "symbol" | "stair" | "vide" | "cabinet" | "roomName"
+  kind: "node" | "wall" | "symbol" | "stair" | "vide" | "cabinet"
       | "bow" | "opening" | "pan" | "zoomBox";
   id?: string;
   wallId?: string;
@@ -59,6 +65,11 @@ interface DragState {
   lastScreen?: Vec;
   /** Far corner of the zoom window, world mm. */
   boxEnd?: Vec;
+  /** The room whose label this press landed on, when it landed on nothing else. */
+  labelRoom?: Room;
+  /** Where the press started on screen. A pan moves the world under a fixed
+   *  cursor, so startWorld cannot answer "did this travel?". */
+  startScreen?: Vec;
 }
 
 export class Tools {
@@ -86,6 +97,13 @@ export class Tools {
   stairRotation = 0;
   stairMirrored = false;
 
+  /**
+   * Told that a room's label on the canvas was clicked, so the panel can open
+   * that room's name field. Rooms are derived and unselectable, so this is a
+   * callback rather than a selection.
+   */
+  onRoomLabel: ((room: Room) => void) | null = null;
+
   /** The opening the vide tool will place next. */
   videSize: VideSize = { ...VIDE_DEFAULT };
   videRotation = 0;
@@ -99,9 +117,6 @@ export class Tools {
   cabinetPresetId = "onderkast";
   cabinetRotation = 0;
   cabinetMirrored = false;
-
-  /** The name the room tool will write next. */
-  roomNameText = "";
 
   /**
    * What the next opening is placed at. Openings used to be placed at one fixed
@@ -267,12 +282,6 @@ export class Tools {
    * so — the store has not changed, and nothing here is undoable.
    */
   refresh(): void {
-    this.onToolChange();
-    this.requestRender();
-  }
-
-  setRoomNameText(name: string): void {
-    this.roomNameText = name;
     this.onToolChange();
     this.requestRender();
   }
@@ -531,13 +540,6 @@ export class Tools {
           pts.push(add(v(sym.x, sym.y), fromAngleRot(v(lx, ly), sym.rotation)));
       return polyBounds(pts);
     }
-    if (sel.kind === "roomName") {
-      const rn = roomNamesOf(f).find(x => x.id === sel.id);
-      if (!rn) return null;
-      // A name is a point. Frame the room it names, which is what was meant.
-      const room = this.roomAt(v(rn.x, rn.y));
-      return room ? polyBounds(room.poly) : polyBounds([v(rn.x, rn.y)]);
-    }
     const wallId = sel.kind === "wall" ? sel.id
       : sel.kind === "opening" ? (sel.wallId ?? f.walls.find(x => x.openings.some(o => o.id === sel.id))?.id)
       : undefined;
@@ -627,7 +629,6 @@ export class Tools {
       case "stair": this.placeStair(); break;
       case "vide": this.placeVide(); break;
       case "cabinet": this.placeCabinet(); break;
-      case "roomName": this.placeRoomName(); break;
       // zoom acted on contact; its release is handled as a zoomBox drag.
       case "zoom": break;
     }
@@ -703,7 +704,6 @@ export class Tools {
       case "stair": this.placeStair(); break;
       case "vide": this.placeVide(); break;
       case "cabinet": this.placeCabinet(); break;
-      case "roomName": this.placeRoomName(); break;
       case "zoom": this.zoomDown(s, w); return;
       case "select": this.selectDown(s, w); break;
     }
@@ -754,6 +754,16 @@ export class Tools {
     const d = this.drag;
     this.drag = null;
     if (d.kind === "zoomBox") { this.zoomUp(d); this.requestRender(); return; }
+    // `moved` is set by the first pointermove, which a mouse emits for a pixel
+    // of jitter, so travel is what decides: a press that stayed put opened the
+    // room's row, one that went somewhere panned.
+    if (d.kind === "pan" && d.labelRoom && d.startScreen
+        && dist(this.screenOf(e), d.startScreen) <= TAP_SLOP_PX) {
+      // Not a press on empty paper, so it must not also count as half of the
+      // double tap that frames the plan.
+      this.lastTapOnNothing = false;
+      this.onRoomLabel?.(d.labelRoom);
+    }
     this.finishDrag(d);
     this.requestRender();
   }
@@ -1069,31 +1079,42 @@ export class Tools {
   }
 
   // ---- room names ----
-  private placeRoomName(): void {
-    const name = this.roomNameText.trim();
-    if (!name) return;
-    const g = this.gridStep;
-    const rn: RoomName = {
-      id: newId("r"),
-      x: Math.round(this.cursor.x / g) * g,
-      y: Math.round(this.cursor.y / g) * g,
-      name,
-      ...(this.symbolColor ? { color: this.symbolColor } : {}),
-    };
+  /**
+   * Write, change or clear the name of a detected room.
+   *
+   * The document stores the word and the point it was written at; which room
+   * carries it follows from that point, so a new name goes to the room's
+   * interior anchor rather than to wherever a cursor happened to be. An empty
+   * name deletes the record — a blank name is not a name, and leaving one
+   * behind would keep the room from taking the next one written in it.
+   */
+  renameRoom(room: Room, name: string): void {
+    const text = name.trim();
+    const id = room.nameId;
+    if (!id && !text) return;
     this.store.mutate(doc => {
       const f = this.store.floorOf(doc);
-      (f.roomNames ??= []).push(rn);
+      if (id) {
+        if (!text) { f.roomNames = roomNamesOf(f).filter(r => r.id !== id); return; }
+        const rn = roomNamesOf(f).find(r => r.id === id);
+        if (rn) rn.name = text;
+        return;
+      }
+      const at = roomAnchor(room);
+      (f.roomNames ??= []).push({ id: newId("r"), x: at.x, y: at.y, name: text });
     });
-    this.store.select({ kind: "roomName", id: rn.id });
   }
 
-  /** The room name nearest `w`, within a grab radius that follows the zoom. */
-  private roomNameAt(w: Vec): RoomName | undefined {
-    const tol = 14 / this.vp.pxPerMm;
-    const list = roomNamesOf(this.floor);
-    for (let i = list.length - 1; i >= 0; i--) {
-      const rn = list[i]!;
-      if (dist(v(rn.x, rn.y), w) <= tol) return rn;
+  /**
+   * The room whose label on the canvas covers screen point `s`. The box is
+   * generous horizontally because a label is as wide as the word in it, and
+   * this is tested only after everything drawn has had its chance at the click.
+   */
+  private roomLabelAt(s: Vec): Room | undefined {
+    for (const r of this.getRooms()) {
+      const c = this.vp.toScreen(r.centroid);
+      const halfY = ROOM_LABEL_HIT_PX.y * (r.name === undefined ? 1 : 2);
+      if (Math.abs(s.x - c.x) <= ROOM_LABEL_HIT_PX.x && Math.abs(s.y - c.y) <= halfY) return r;
     }
     return undefined;
   }
@@ -1134,14 +1155,6 @@ export class Tools {
         this.drag = { kind: "node", id: n.id, startWorld: w, moved: false };
         return;
       }
-    }
-    // A room name sits over everything and is small, so it is offered first;
-    // its grab radius is tight enough not to shadow what it labels.
-    const namePick = this.roomNameAt(w);
-    if (namePick) {
-      this.store.select({ kind: "roomName", id: namePick.id });
-      this.drag = { kind: "roomName", id: namePick.id, startWorld: w, moved: false };
-      return;
     }
     // Stairs, then symbols: picking follows the drawing order, topmost first.
     // A flight is drawn over the symbols it crosses, so a click on it must not
@@ -1192,8 +1205,15 @@ export class Tools {
       this.drag = { kind: "vide", id: videPick.id, startWorld: w, moved: false };
       return;
     }
+    // Nothing drawn is under the pointer. The one thing still worth a press
+    // here is the area figure, and the name over it when there is one: it opens
+    // that room's row in the zoom pane, which is where a name is written. Held
+    // until the release so a pan that starts over a label is still a pan.
     this.store.select(null);
-    this.drag = { kind: "pan", startWorld: w, moved: false, lastScreen: s };
+    this.drag = {
+      kind: "pan", startWorld: w, moved: false, lastScreen: s, startScreen: s,
+      labelRoom: this.roomLabelAt(s),
+    };
   }
 
   /**
@@ -1329,16 +1349,6 @@ export class Tools {
           : { x: Math.round(w.x / g) * g, y: Math.round(w.y / g) * g, rotation: c.rotation };
         Object.assign(c, base, this.runSnap(base, c.width, c.id) ?? {});
       }, "drag" + d.id);
-    } else if (d.kind === "roomName") {
-      const delta = sub(w, d.startWorld);
-      const dx = Math.round(delta.x / g) * g, dy = Math.round(delta.y / g) * g;
-      if (dx !== 0 || dy !== 0) {
-        d.startWorld = add(d.startWorld, v(dx, dy));
-        this.store.mutate(doc => {
-          const rn = roomNamesOf(this.store.floorOf(doc)).find(x => x.id === d.id);
-          if (rn) { rn.x += dx; rn.y += dy; }
-        }, "drag" + d.id);
-      }
     } else if (d.kind === "zoomBox") {
       d.boxEnd = w;
       this.requestRender();
@@ -1404,9 +1414,8 @@ export class Tools {
       case "t": case "T": this.setTool("stair"); break;
       // H for the hole in the floor: the vide tool.
       case "h": case "H": this.setTool("vide"); break;
-      // C for cabinetry, K for kamer, Z for the zoom window.
+      // C for cabinetry, Z for the zoom window and the room list.
       case "c": case "C": this.setTool("cabinet"); break;
-      case "k": case "K": this.setTool("roomName"); break;
       case "z": case "Z": this.setTool("zoom"); break;
       // Fit, in any tool: the whole plan, or the selection with Shift. Zoom-all
       // is the move a drawing is read with, so it does not live behind a tool.
@@ -1594,7 +1603,6 @@ export class Tools {
       else if (sel.kind === "stair") f.stairs = stairsOf(f).filter(s => s.id !== sel.id);
       else if (sel.kind === "vide") f.vides = videsOf(f).filter(s => s.id !== sel.id);
       else if (sel.kind === "cabinet") f.cabinets = cabinetsOf(f).filter(c => c.id !== sel.id);
-      else if (sel.kind === "roomName") f.roomNames = roomNamesOf(f).filter(r => r.id !== sel.id);
       else if (sel.kind === "opening") {
         for (const w of f.walls) w.openings = w.openings.filter(o => o.id !== sel.id);
       }
@@ -1642,11 +1650,6 @@ export class Tools {
         });
         break;
       }
-      case "roomName":
-        this.hint = this.roomNameText.trim()
-          ? h("roomName", { label: this.roomNameText.trim() })
-          : h("roomNameEmpty");
-        break;
       case "zoom": this.hint = h("zoom"); break;
     }
   }
@@ -2052,14 +2055,6 @@ export class Tools {
       drawLabel(ctx, vp,
         add(v(ghost.x, ghost.y), fromAngleRot(v(0, b.y1), ghost.rotation)),
         `${ghost.width} x ${ghost.depth}`);
-    }
-
-    // Room-name ghost: the word where the click would write it.
-    if (this.tool === "roomName" && this.roomNameText.trim()) {
-      const g = this.gridStep;
-      drawLabel(ctx, vp,
-        v(Math.round(this.cursor.x / g) * g, Math.round(this.cursor.y / g) * g),
-        this.roomNameText.trim(), COLORS.roomLabel);
     }
 
     // Zoom window. Drawn in screen-space line widths so it stays one pixel
