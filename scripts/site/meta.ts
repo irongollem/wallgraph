@@ -1,14 +1,5 @@
-// One source of truth for everything the site says about itself.
-//
-// The head tags, the JSON-LD, the sitemap, llms.txt and the content pages all
-// read from here, because the alternative — a title in build.ts, a description
-// in the sitemap generator, a summary in llms.txt — drifts within one release
-// and then quietly tells a crawler three different things.
-//
-// Dutch is primary throughout. The editor defaults to Dutch (see i18n.ts on why
-// it ignores navigator.language) and the site lives at plattegrond.crocode.nl,
-// so serving `lang="en"` was describing a page that does not exist. English is
-// a full alternate, not an afterthought: every content page has a twin.
+// Shared metadata for HTML pages and convention-based site files.
+// Dutch is primary; each documentation page has an English alternate.
 import type { Lang } from "../../src/i18n";
 import { DOC_PATHS, DOC_IDS as PATH_IDS, type DocId } from "../../src/links";
 
@@ -21,30 +12,14 @@ export const SITE = {
   license: "https://www.gnu.org/licenses/agpl-3.0.html",
   licenseId: "AGPL-3.0-only",
   author: "Jeffrey Ernst",
-  /**
-   * Commercial licensing, corporate CLAs, and anything else that needs a person
-   * rather than a pull request.
-   *
-   * A role address rather than a personal one: it outlives whoever happens to
-   * read it, it is what a company's legal department expects to write to when
-   * they are asking about a licence exception, and it keeps a personal address
-   * off a set of pages built to be crawled. It will be scraped — every published
-   * address is — which is a spam filter's problem and not a reason to hide the
-   * one channel a paying customer needs.
-   */
+  /** Role address for licensing and contributor agreements. */
   email: "info@crocode.nl",
-  /**
-   * Security reports go to GitHub's private advisory form first: it is private
-   * by construction, structured, and can issue a CVE, none of which an inbox
-   * does. The email is the fallback for anyone without a GitHub account.
-   */
+  /** Preferred private channel for security reports. */
   security: "https://github.com/irongollem/wallgraph/security/advisories/new",
 } as const;
 
 export interface PageMeta {
-  /** Site-root-relative, always with a trailing slash so the sitemap and the
-   *  emitted directory index agree — /symbolen and /symbolen/ are two URLs to a
-   *  crawler and only one of them is what Netlify serves. */
+  /** Site-root-relative path with a trailing slash. */
   path: string;
   title: string;
   description: string;
@@ -52,16 +27,13 @@ export interface PageMeta {
   lead: string;
 }
 
-/** The editor itself. Dutch only: `/` is the app, and the app switches language
- *  in the browser, so an `/en/` copy would be 140 kB of duplicate content for a
- *  page whose text is not in the HTML anyway. English pages link to `/#lang=en`,
- *  which the boot entry reads — a fragment, so never a second indexed URL. */
+/** Editor metadata. The app changes language client-side, so only `/` is indexed. */
 export const HOME: PageMeta = {
   path: "/",
   title: "Wallgraph — gratis plattegrond tekenen, op de millimeter",
   description:
-    "Teken plattegronden in je browser, exact op de millimeter. Typ echte maten, " +
-    "plaats 77 NEN-symbolen en 27 deur- en raamtypen. Gratis, zonder account.",
+    "Browsergebaseerde plattegrond-editor met maten in hele millimeters, 77 NEN-symbolen " +
+    "en 27 deur- en raamtypen. Gratis en zonder account.",
   heading: "Wallgraph — plattegronden op de millimeter",
   lead:
     "Een gratis plattegrond-editor in de browser. Maten worden in hele millimeters " +
@@ -69,9 +41,7 @@ export const HOME: PageMeta = {
     "berekend.",
 };
 
-// The paths come from src/links.ts because the editor links to these pages too,
-// and a sitemap that disagrees with the app's own footer is the kind of drift
-// nobody notices until a link 404s.
+// Shared paths keep editor links and generated documentation links consistent.
 export type { DocId };
 export const DOC_IDS: DocId[] = PATH_IDS;
 
@@ -135,8 +105,7 @@ export const DOCS: Record<DocId, Record<Lang, PageMeta>> = {
         "naar PNG, SVG of DXF. Alle sneltoetsen en werkwijzen op één pagina.",
       heading: "Handleiding",
       lead:
-        "De werkwijze en de sneltoetsen. Muren teken je door een keten te klikken, de " +
-        "lengte in millimeters te typen en op Enter te drukken.",
+        "Werkwijze en sneltoetsen voor muren, openingen, symbolen, maatlijnen en export.",
     },
     en: {
       path: DOC_PATHS.manual.en,
@@ -178,25 +147,25 @@ export const DOCS: Record<DocId, Record<Lang, PageMeta>> = {
   disclaimer: {
     nl: {
       path: DOC_PATHS.disclaimer.nl,
-      title: "Disclaimer — wie verantwoordelijk is voor je tekening",
+      title: "Disclaimer — verantwoordelijkheid voor tekeningen",
       description:
-        "Wallgraph is gratis, vrije software zonder garantie. Wat het niet doet, waar de " +
-        "verantwoordelijkheid voor een tekening ligt, en waar een bevoegd persoon nodig is.",
+        "Garantie, aansprakelijkheid, verantwoordelijkheid voor tekeningen, professionele " +
+        "controle en gegevensverwerking bij het gebruik van Wallgraph.",
       heading: "Disclaimer",
       lead:
-        "Wallgraph tekent de maten die je intypt. Het staat nergens voor in: de tekening die " +
-        "eruit komt is van jou, en de verantwoordelijkheid ervoor ook.",
+        "Wallgraph verwerkt ingevoerde maten tot een plattegrond. De gebruiker blijft " +
+        "verantwoordelijk voor de invoer, controle, volledigheid en geschiktheid van de tekening.",
     },
     en: {
       path: DOC_PATHS.disclaimer.en,
-      title: "Disclaimer — who is responsible for your drawing",
+      title: "Disclaimer — responsibility for drawings",
       description:
-        "Wallgraph is free software provided without warranty. What it does not do, where " +
-        "responsibility for a drawing sits, and where a qualified person is needed.",
+        "Warranty, liability, responsibility for drawings, professional verification and " +
+        "data handling when using Wallgraph.",
       heading: "Disclaimer",
       lead:
-        "Wallgraph draws the dimensions you type. It vouches for nothing: the drawing that " +
-        "comes out is yours, and so is the responsibility for it.",
+        "Wallgraph converts entered dimensions into a floorplan. The user remains responsible " +
+        "for the input, verification, completeness and suitability of the drawing.",
     },
   },
 };

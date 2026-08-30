@@ -1,23 +1,10 @@
-// The published JSON Schema for a Wallgraph document, plus the small validator
-// the tests use to check it against real documents.
-//
-// Why publish one at all: the whole agent story rests on a program being able to
-// write a plan file without reading TypeScript. Prose describing a format is a
-// format nobody can check; a schema is one a generator can be pointed at and a
-// test can enforce.
-//
-// Two rules kept it honest. Enums that exist at runtime — the symbol types —
-// are read from the library rather than retyped, so adding a symbol updates the
-// schema. And `additionalProperties: false` throughout, because a silently
-// ignored key is exactly the failure an agent cannot see: the plan loads, the
-// socket is missing, and nothing said why.
+// Published JSON Schema and the validator used by tests. Runtime enums are
+// imported from their source, and document objects reject unknown properties.
 import { SYMBOL_TYPES } from "../../src/render/symbols";
 
 export type JsonSchema = Record<string, unknown>;
 
-/** Every sash motion the document models. Cross-checked against the named
- *  window and door kinds by tests/schema.test.ts, so a new action cannot be
- *  added to the model without appearing here. */
+/** Sash actions, cross-checked against named window and door kinds by tests. */
 export const SASH_ACTIONS = [
   "fixed", "turn", "tilt", "turn-tilt", "pivot", "tumble", "project", "parallel",
   "double-acting", "overhead", "slide", "slide-vertical", "turn-slide", "fold", "revolve",

@@ -1,10 +1,5 @@
-// The four content pages, generated from the app's own code.
-//
-// The symbol and opening pages draw by *replaying the editor's drawing calls* —
-// `recordSymbol` and `openingMarks`, the same functions the SVG and DXF
-// exporters use — rather than by keeping a second, hand-drawn copy of 77 symbols
-// and 27 opening marks. A hand-kept copy would be wrong within a release, and
-// wrong in the worst way: a page that authoritatively shows the wrong mark.
+// Generated documentation pages. Symbol and opening illustrations use the same
+// drawing functions as the editor and exporters.
 import { SYMBOLS, CATEGORIES, type SymbolDef, type SymbolCategory } from "../../src/render/symbols";
 import { recordSymbol, type Prim } from "../../src/io/record";
 import { primSvg } from "../../src/io/svg";
@@ -18,13 +13,11 @@ import { changeLanguage, t, type Lang } from "../../src/i18n";
 import { DOCS, SITE, type DocId } from "./meta";
 import { shell, esc, editorHref, type SiteCtx } from "./html";
 
-/** Stroke weights, mm, matching the SVG exporter so a page and an export agree. */
+/** Stroke weights in mm, matching the SVG exporter. */
 const W_SYMBOL = 16;
 const W_WALL = 12;
 
-/** The sample wall every opening mark is drawn in, and how far above and below
- *  its centerline the frame reaches. Wide enough for an 1800 mm double door with
- *  both leaves swung open. */
+/** Shared sample wall and minimum vertical extent for opening illustrations. */
 const SAMPLE_SPAN = 3200;
 const SAMPLE_REACH = 1100;
 
@@ -41,12 +34,7 @@ function grow(b: Box, x: number, y: number): Box {
   };
 }
 
-/**
- * Bounds of recorded geometry. Arcs are bounded by their whole circle rather
- * than by the swept part — a tighter box would mean solving for the extrema on
- * a signed sweep, and the cost of being generous is a few millimetres of white
- * space on a thumbnail.
- */
+/** Bounds recorded geometry; arc bounds use the full circle. */
 function boundsOf(prims: Prim[]): Box {
   let b = EMPTY;
   for (const p of prims) {
@@ -68,12 +56,10 @@ function frame(b: Box, pad: number, maxH: number, maxW: number): string {
     ` width="${Math.round(w * scale)}" height="${Math.round(h * scale)}"`;
 }
 
-/** One symbol, drawn exactly as the editor draws it, at rest. */
+/** Render one untransformed symbol with its declared footprint. */
 function symbolSvg(def: SymbolDef, label: string): string {
   const prims = recordSymbol(def, 0, 0, 0, false);
-  // Union with the declared footprint: a symbol may draw inside its box (a
-  // wall-mounted socket is a mark, not an outline), and the footprint is what
-  // the plan actually reserves.
+  // Include the declared footprint because some marks do not fill their bounds.
   let b = boundsOf(prims);
   const halfW = def.width / 2;
   b = grow(b, -halfW, def.wallMounted ? 0 : -def.depth / 2);
@@ -83,12 +69,7 @@ function symbolSvg(def: SymbolDef, label: string): string {
     ` role="img" aria-label="${esc(label)}">${prims.map(primSvg).join("")}</svg>`;
 }
 
-/**
- * One opening type as a plan mark: a short stretch of wall with the opening in
- * it, resolved and drawn through the real pipeline. Building an actual one-wall
- * document is the only way to get the jambs, the gap in the masonry and the
- * swing to agree with what the editor would show.
- */
+/** Render an opening through the production resolution and marking pipeline. */
 function openingSvg(kind: OpeningKind, sashes: Sash[], width: number, label: string): string {
   const floor: Floor = {
     id: "f", name: "sample",
@@ -103,12 +84,7 @@ function openingSvg(kind: OpeningKind, sashes: Sash[], width: number, label: str
   const rw = [...resolved.walls.values()][0]!;
   const marks = openingMarks(rw);
   const solids: Prim[] = rw.pieces.map(p => ({ kind: "poly", pts: p.poly, closed: true }));
-  // One frame for every type rather than a tight box per mark. Fitting each one
-  // individually drew a vast raam — which has no swing at all — at three times
-  // the scale of a schuifpui, so the wall came out thicker on the type with the
-  // least happening in it. A shared frame makes the row comparable, which is the
-  // only reason to put them side by side. The real bounds still widen it when a
-  // mark needs the room, and y stays symmetric so the wall line never moves.
+  // Use a shared frame for comparable scale, widened when a mark exceeds it.
   const b = boundsOf([...solids, ...marks]);
   const reach = Math.max(SAMPLE_REACH, Math.abs(b.minY), Math.abs(b.maxY));
   const box: Box = {
@@ -124,7 +100,7 @@ function openingSvg(kind: OpeningKind, sashes: Sash[], width: number, label: str
 
 const cap = (s: string): string => s[0]!.toUpperCase() + s.slice(1);
 
-/* ── the pages ──────────────────────────────────────────────────────────── */
+/* Page bodies. */
 
 function symbolsBody(lang: Lang): string {
   const dims = lang === "nl" ? "breedte × diepte" : "width × depth";
@@ -149,9 +125,9 @@ function symbolsBody(lang: Lang): string {
   }
   const note = lang === "nl"
     ? `<p>De <code>type</code>-waarde onder elk symbool is wat er in het documentbestand komt te staan — ` +
-      `zie het <a href="/formaat/">documentformaat</a> als je een plattegrond programmatisch schrijft.</p>`
+      `het <a href="/formaat/">documentformaat</a> beschrijft programmatische invoer.</p>`
     : `<p>The <code>type</code> under each symbol is what goes in the document file — ` +
-      `see the <a href="/en/format/">document format</a> if you are writing a plan programmatically.</p>`;
+      `the <a href="/en/format/">document format</a> describes programmatic input.</p>`;
   out.push(`<h2>${lang === "nl" ? "Symbolen gebruiken" : "Using the symbols"}</h2>`, note);
   return out.join("\n");
 }
@@ -192,7 +168,7 @@ function openingsBody(lang: Lang): string {
   out.push(lang === "nl"
     ? `<ul>
 <li>Een <b>doorgetrokken</b> vleugellijn is naar buiten draaiend, een <b>gestreepte</b> naar binnen — zo staat het op de NEN-bladen.</li>
-<li>De scharnierzijde heet <code>a</code> of <code>b</code> naar de richting van de muur zelf, dus hij blijft kloppen als je de muur opnieuw tekent.</li>
+<li>De scharnierzijde heet <code>a</code> of <code>b</code> op basis van de muurrichting en blijft geldig wanneer de muur opnieuw wordt getekend.</li>
 <li>Horizontale scharnieren (bovendorpel, onderdorpel) bestaan in het document maar zijn in plattegrond niet te zien; een valraam en een uitzetraam tekenen daar hetzelfde.</li>
 <li>Een <b>pui</b> is één kozijn met vast glas naast bewegende delen — één gat in de muur, verdeeld door stijlen, geen twee openingen met een verzonnen penant ertussen.</li>
 </ul>`
@@ -209,41 +185,40 @@ function manualBody(lang: Lang): string {
   const editor = editorHref(lang);
   if (lang === "nl") {
     return `<h2 id="muren">Muren tekenen</h2>
-<p>Druk op <kbd>W</kbd>, klik het beginpunt en klik verder om een keten te tekenen. Terwijl je
-tekent kun je een lengte <b>typen</b> in millimeters: de cijfers verschijnen in een invoervakje en
-<kbd>Enter</kbd> legt het segment precies op die lengte in de richting waar je staat. Dat is wat de
-editor in de praktijk millimeternauwkeurig maakt, niet alleen in de opslag. <kbd>Esc</kbd> sluit de keten af.</p>
+<p><kbd>W</kbd> activeert het muurgereedschap. Een klik plaatst het beginpunt; volgende klikken vormen
+een keten. Tijdens het tekenen kan een lengte in millimeters worden getypt. <kbd>Enter</kbd> legt het
+segment op die lengte vast in de gekozen richting. <kbd>Esc</kbd> sluit de keten af.</p>
 <ul>
 <li><kbd>O</kbd> zet hoeksnapping (90°/45°) aan en uit.</li>
 <li><kbd>G</kbd> zet rastersnapping aan en uit. Uit blijft nog steeds op hele millimeters afronden.</li>
-<li>Teken je tegen een bestaande muur aan, dan splitst die muur zichzelf en ontstaat er een T-knoop.</li>
+<li>Aansluiting op een bestaande muur splitst die muur en vormt een T-knoop.</li>
 </ul>
 
 <h2 id="selecteren">Selecteren, verplaatsen, krommen</h2>
-<p>Met <kbd>V</kbd> sleep je knopen, muren en symbolen. Een geselecteerde muur krijgt een ruit­vormige
-greep op het midden; die slepen buigt de muur tot een cirkelboog. De exacte pijlhoogte in millimeters
+<p><kbd>V</kbd> activeert het selectiegereedschap voor knopen, muren en symbolen. Een geselecteerde muur
+krijgt een ruitvormige greep op het midden; verslepen buigt de muur tot een cirkelboog. De pijlhoogte in millimeters
 staat daarna in het paneel, net als de dikte en de lengte. Lengte aanpassen verschuift het verre
 uiteinde langs de muurrichting.</p>
 
 <h2 id="openingen">Deuren, ramen en doorgangen</h2>
-<p><kbd>D</kbd>, <kbd>N</kbd> en <kbd>P</kbd> plaatsen een deur, een raam en een doorgang. Klik op een
-muur; terwijl je schuift lees je live de afstand tot beide muuruiteinden, zodat &ldquo;150 mm uit de
-hoek&rdquo; iets is waar je naartoe schuift in plaats van uitrekent. Richting, breedte en type stel je
-daarna in het paneel in — alle typen staan op <a href="/kozijnen/">deur- en raamtypen</a>.</p>
-<p>Een opening zit vast aan zijn muur, niet aan de tekening: verplaats je de muur, dan gaat de deur mee.</p>
+<p><kbd>D</kbd>, <kbd>N</kbd> en <kbd>P</kbd> plaatsen respectievelijk een deur, raam en doorgang op een
+muur. Tijdens het plaatsen worden de afstanden tot beide muuruiteinden weergegeven. Richting, breedte
+en type zijn vervolgens instelbaar in het paneel; alle typen staan op
+<a href="/kozijnen/">deur- en raamtypen</a>.</p>
+<p>Een opening blijft aan de bijbehorende muur gekoppeld en verplaatst met die muur mee.</p>
 
 <h2 id="symbolen">Symbolen</h2>
-<p><kbd>S</kbd> opent het symboolgereedschap; zoeken in de palet werkt in beide talen tegelijk, dus
-&ldquo;socket&rdquo; vindt de wandcontactdoos ook als de interface Nederlands staat. Symbolen die aan
+<p><kbd>S</kbd> opent het symboolgereedschap. Zoeken in het palet werkt in beide talen; de zoekterm
+&ldquo;socket&rdquo; vindt bijvoorbeeld de wandcontactdoos in de Nederlandse interface. Symbolen die aan
 een muur horen klikken vlak tegen het muurvlak en draaien mee. <kbd>R</kbd> roteert, <kbd>M</kbd>
 spiegelt. Kleur is betekenis, geen opmaak: zwart is bestaand, rood is nieuw, geel verdwijnt.
 Alle 77 staan op <a href="/symbolen/">plattegrondsymbolen</a>.</p>
 
 <h2 id="ruimtes">Ruimtes en maten</h2>
-<p>Gesloten muurlussen worden automatisch als ruimte herkend, met oppervlakte erbij. De maat is
+<p>Gesloten muurlussen worden automatisch als ruimte herkend en van een oppervlakte voorzien. De maat is
 standaard <b>netto</b> (binnenwerks, NEN 2580); de legenda op het canvas zegt welke conventie geldt en
-in het Plan-paneel wissel je naar hart-op-hart. <kbd>L</kbd> zet maatlijnen op alle muren aan en uit;
-klik een maat-pil om de lengte te typen.</p>
+in het Plan-paneel kan hart-op-hart worden gekozen. <kbd>L</kbd> zet maatlijnen op alle muren aan en uit;
+selectie van een maatlabel maakt invoer van de lengte mogelijk.</p>
 
 <h2 id="exporteren">Opslaan en exporteren</h2>
 <ul>
@@ -252,8 +227,8 @@ klik een maat-pil om de lengte te typen.</p>
 <li><b>DXF</b> — muren, draaicirkels, symbolen en oppervlaktes op aparte lagen, in millimeters, voor CAD.</li>
 <li><b>JSON</b> — het document zelf; zie <a href="/formaat/">documentformaat</a>.</li>
 </ul>
-<p>Je werk staat automatisch in je eigen browser opgeslagen. Er is geen account en er gaat niets naar
-een server: sluit je het tabblad, dan staat de plattegrond er de volgende keer weer.</p>
+<p>De plattegrond wordt automatisch in de lokale browseropslag bewaard. Hiervoor is geen account of
+applicatieserver vereist. De plattegrond blijft na het sluiten van het tabblad beschikbaar.</p>
 
 <h2 id="sneltoetsen">Sneltoetsen</h2>
 <table><thead><tr><th>Toets</th><th>Doet</th></tr></thead><tbody>
@@ -272,44 +247,42 @@ een server: sluit je het tabblad, dan staat de plattegrond er de volgende keer w
 <tr><td>scrollen</td><td>zoomen naar de cursor</td></tr>
 <tr><td>rechts slepen</td><td>verschuiven</td></tr>
 </tbody></table>
-<p class="note"><a href="${editor}">Open de editor</a> en probeer het — er valt niets stuk te maken,
-en <kbd>Ctrl</kbd>+<kbd>Z</kbd> gaat altijd terug.</p>`;
+<p class="note"><a href="${editor}">Editor openen</a>. <kbd>Ctrl</kbd>+<kbd>Z</kbd> maakt de laatste
+documentwijziging ongedaan.</p>`;
   }
   return `<h2 id="walls">Drawing walls</h2>
-<p>Press <kbd>W</kbd>, click a start point, and keep clicking to chain segments. While you draw you can
-<b>type</b> a length in millimetres: the digits appear in an input box and <kbd>Enter</kbd> commits the
-segment at exactly that length in the direction you are pointing. That is what makes the editor
-mm-exact in practice rather than only in storage. <kbd>Esc</kbd> ends the chain.</p>
+<p><kbd>W</kbd> activates the wall tool. The first click places a start point; subsequent clicks form a
+chain. A length in millimetres can be typed while drawing. <kbd>Enter</kbd> commits the segment at that
+length in the selected direction. <kbd>Esc</kbd> ends the chain.</p>
 <ul>
 <li><kbd>O</kbd> toggles angle snapping (90°/45°).</li>
 <li><kbd>G</kbd> toggles grid snapping. Off still rounds to whole millimetres.</li>
-<li>Draw into an existing wall and it splits itself, giving you a T-junction.</li>
+<li>Connecting to an existing wall splits that wall and creates a T-junction.</li>
 </ul>
 
 <h2 id="select">Selecting, moving, curving</h2>
-<p><kbd>V</kbd> drags nodes, walls and symbols. A selected wall grows a diamond handle at its midpoint;
-dragging it bows the wall into a circular arc. The exact sagitta in millimetres is then editable in the
+<p><kbd>V</kbd> activates selection and dragging for nodes, walls and symbols. A selected wall displays
+a diamond handle at its midpoint; dragging it forms a circular arc. The sagitta in millimetres is editable in the
 panel, alongside thickness and length. Editing the length moves the far node along the wall direction.</p>
 
 <h2 id="openings">Doors, windows and passages</h2>
-<p><kbd>D</kbd>, <kbd>N</kbd> and <kbd>P</kbd> place a door, a window and a passage. Click on a wall;
-as you slide it, live dimensions to both wall ends are shown, so &ldquo;150 mm from the corner&rdquo; is
-something you slide to rather than calculate. Direction, width and type follow in the panel — every
-type is on <a href="/en/openings/">door and window types</a>.</p>
-<p>An opening belongs to its wall, not to the drawing: move the wall and the door goes with it.</p>
+<p><kbd>D</kbd>, <kbd>N</kbd> and <kbd>P</kbd> place a door, window and passage respectively on a wall.
+During placement, dimensions to both wall ends are displayed. Direction, width and type are then
+configured in the panel; all options appear on <a href="/en/openings/">door and window types</a>.</p>
+<p>An opening remains associated with its wall and moves when that wall moves.</p>
 
 <h2 id="symbols">Symbols</h2>
-<p><kbd>S</kbd> opens the symbol tool; the palette search matches both languages at once, so
-&ldquo;wandcontactdoos&rdquo; finds the socket even with the interface in English. Wall-mounted symbols
-snap flush to the wall face and orient themselves. <kbd>R</kbd> rotates, <kbd>M</kbd> mirrors. Colour is
-meaning rather than decoration: black is existing, red is new work, yellow is going. All 77 are on
+<p><kbd>S</kbd> opens the symbol tool. Palette search matches both languages; for example,
+&ldquo;wandcontactdoos&rdquo; finds the socket in the English interface. Wall-mounted symbols
+snap to the wall face and align with it. <kbd>R</kbd> rotates and <kbd>M</kbd> mirrors. Colour indicates
+status: black is existing, red is new work and yellow is to be removed. All 77 are listed under
 <a href="/en/symbols/">floorplan symbols</a>.</p>
 
 <h2 id="rooms">Rooms and dimensions</h2>
 <p>Closed wall loops are detected as rooms and labelled with their area. That area is <b>net</b> by
-default (inner faces, NEN 2580); the canvas legend states which convention is in force, and the Plan
-panel switches to centerline. <kbd>L</kbd> toggles dimension lines on every wall; click a dimension pill
-to type the length.</p>
+default (inner faces, NEN 2580); the canvas legend states which convention is in force, and the
+Plan panel can select centerline measurement. <kbd>L</kbd> toggles dimension lines on every wall;
+selecting a dimension label enables length input.</p>
 
 <h2 id="export">Saving and exporting</h2>
 <ul>
@@ -318,8 +291,8 @@ to type the length.</p>
 <li><b>DXF</b> — walls, swings, symbols and areas on separate layers, in millimetres, for CAD.</li>
 <li><b>JSON</b> — the document itself; see <a href="/en/format/">document format</a>.</li>
 </ul>
-<p>Your work is saved in your own browser automatically. There is no account and nothing goes to a
-server: close the tab and the plan is there next time.</p>
+<p>The plan is saved automatically in local browser storage. This requires no account or application
+server. The plan remains available after the tab is closed.</p>
 
 <h2 id="shortcuts">Keyboard shortcuts</h2>
 <table><thead><tr><th>Key</th><th>Does</th></tr></thead><tbody>
@@ -338,8 +311,8 @@ server: close the tab and the plan is there next time.</p>
 <tr><td>scroll</td><td>zoom to the cursor</td></tr>
 <tr><td>right-drag</td><td>pan</td></tr>
 </tbody></table>
-<p class="note"><a href="${editor}">Open the editor</a> and try it — nothing here can be broken, and
-<kbd>Ctrl</kbd>+<kbd>Z</kbd> always goes back.</p>`;
+<p class="note"><a href="${editor}">Open the editor</a>. <kbd>Ctrl</kbd>+<kbd>Z</kbd> reverses the last
+document change.</p>`;
 }
 
 /** A minimal but complete document: one room, one door, one socket. */
@@ -398,8 +371,8 @@ daartussen. Opgeslagen worden die knopen, de muren (hartlijnen met een dikte en 
 openingen die op hun muur geparametriseerd zijn, en geplaatste symbolen. <b>Niets afgeleids staat in
 het bestand</b>: muurvlakken, verstekken, ruimtepolygonen, oppervlaktes en maatlijnen worden bij het
 tekenen opnieuw berekend.</p>
-<p>Dat is waarom een deur zijn muur vanzelf doorsnijdt en waarom het bestand klein en leesbaar
-blijft. Voor wie er een genereert betekent het vooral: schrijf het netwerk, niet de tekening.</p>
+<p>Hierdoor kan een opening uit de bijbehorende muur worden afgeleid en blijft het bestand compact.
+Een generator hoeft alleen het netwerk te schrijven.</p>
 <ul>
 <li>Alle coördinaten en maten zijn <b>hele millimeters</b>. Geen komma's, geen meters.</li>
 <li><b>y wijst naar beneden</b>, net als op het canvas.</li>
@@ -411,8 +384,8 @@ verplicht — weglaten betekent niet &ldquo;recht&rdquo;, het betekent dat de bo
 <h2 id="schema">JSON Schema</h2>
 <p>Het formaat staat als JSON Schema (draft 2020-12) op
 <a href="${schemaUrl}"><code>/wallgraph.schema.json</code></a>. Elk veld is beschreven en onbekende
-velden worden afgekeurd — een sleutel die stilzwijgend genegeerd wordt is precies de fout die je niet
-ziet: de plattegrond laadt, het stopcontact ontbreekt, en niets zei waarom.</p>
+velden worden afgekeurd. Zo leidt een onjuiste sleutel tot een validatiefout in plaats van ontbrekende
+inhoud in een geladen plattegrond.</p>
 
 <h2 id="voorbeeld">Een compleet voorbeeld</h2>
 <p>Eén kamer van 4 × 3 meter met een deur, een draairaam en een stopcontact. Dit is een geldig bestand;
@@ -420,39 +393,35 @@ plak het in de editor via het menu, of laad het via een link.</p>
 <pre><code>${example}</code></pre>
 
 <h2 id="agents">Voor AI-agents</h2>
-<p>De editor is bedoeld om ook door een agent bediend te worden, niet alleen door een muis. Er zijn twee
-ingangen, en geen van beide vraagt om een account of een API-sleutel.</p>
+<p>De editor biedt twee client-side automatiseringskanalen. Geen van beide vereist een account of API-sleutel.</p>
 <h3>1. Een plattegrond in een link</h3>
-<p>Zet het document als JSON in een <code>base64url</code>-string achter <code>#plan=</code>. Alles achter
-de <code>#</code> blijft in de browser en gaat nooit naar de server, dus een plattegrond die zo gedeeld
-wordt is niet openbaarder dan de link zelf.</p>
+<p>Het document kan als JSON in een <code>base64url</code>-string achter <code>#plan=</code> worden geplaatst.
+De URL-fragmentwaarde wordt niet in een HTTP-verzoek naar de server opgenomen. Iedereen met de link
+kan de ingesloten plattegrond openen.</p>
 <pre><code>${origin}/#plan=&lt;base64url van het JSON-document&gt;
 
 # en optioneel de taal erbij:
 ${origin}/#plan=&lt;…&gt;&amp;lang=en</code></pre>
-<p>De plattegrond vervangt wat er stond, maar wél als ongedaan-te-maken stap: <kbd>Ctrl</kbd>+<kbd>Z</kbd>
-geeft de bezoeker zijn eigen tekening terug.</p>
+<p>Het laden vervangt de huidige plattegrond en wordt als ongedaan te maken documentstap geregistreerd.</p>
 <h3>2. <code>window.wallgraph</code></h3>
-<p>Op de gehoste pagina staat een kleine automatiseringslaag op <code>window</code>. Een agent die
-<code>page.evaluate</code> kan draaien heeft hier genoeg aan om een plattegrond in te laden, te laten
-tekenen en er weer uit te halen.</p>
+<p>De gehoste pagina biedt een automatiseringsinterface op <code>window</code>. De methoden kunnen via
+<code>page.evaluate</code> worden aangeroepen om een plattegrond te laden, tekenen en uitlezen.</p>
 ${api}
 <h3>3. De code zelf</h3>
-<p>Wallgraph is vrije software (AGPL-3.0) en heeft <b>nul runtime-afhankelijkheden</b>. Een agent die
-liever offline werkt haalt de repository op, draait <code>npm run build</code> en houdt één
-<code>dist/index.html</code> over die zichzelf compleet is — geen netwerk nodig, ook niet bij het openen.
-Zie <a href="${SITE.repo}">de broncode</a> en <a href="/llms.txt">llms.txt</a>.</p>
-<div class="note"><p><b>Grenzen, eerlijk gezegd:</b> de editor is een canvas-applicatie, dus een agent die
-alleen HTML leest kan er niets in aanwijzen. Werk via het document, niet via de muis. En er is geen
-server-API: alles gebeurt in de browser van degene die de pagina open heeft.</p></div>`;
+<p>Wallgraph is vrije software (AGPL-3.0) en heeft <b>nul runtime-afhankelijkheden</b>.
+<code>npm run build</code> produceert één zelfstandige <code>dist/index.html</code> die zonder netwerk
+kan worden geopend. Zie <a href="${SITE.repo}">de broncode</a> en <a href="/llms.txt">llms.txt</a>.</p>
+<div class="note"><p><b>Automatiseringsgrenzen:</b> de canvasinhoud is niet beschikbaar als interactieve
+DOM-elementen. Automatisering gebruikt daarom het documentformaat, plan-links of
+<code>window.wallgraph</code>. Er is geen server-API; verwerking vindt plaats in de browser.</p></div>`;
   }
   return `<h2 id="model">The model</h2>
 <p>A plan is a <b>planar graph of wall centerlines</b>. What is stored: nodes, walls (centerlines with a
 thickness and an optional arc), openings parameterised along their wall, and placed symbols.
 <b>Nothing derived is in the file</b>: wall faces, mitred corners, room polygons, areas and dimension
 labels are all recomputed when the plan is drawn.</p>
-<p>That is why a door cuts its wall for free, and why the file stays small and readable. For anyone
-generating one it mostly means: write the graph, not the drawing.</p>
+<p>This allows openings to be derived from their walls while keeping the file compact. A generator
+only needs to write the graph.</p>
 <ul>
 <li>Every coordinate and length is a <b>whole number of millimetres</b>. No decimals, no metres.</li>
 <li><b>y points down</b>, matching the canvas.</li>
@@ -464,115 +433,75 @@ required — omitting it does not mean &ldquo;straight&rdquo;, it means the arc 
 <h2 id="schema">JSON Schema</h2>
 <p>The format is published as JSON Schema (draft 2020-12) at
 <a href="${schemaUrl}"><code>/wallgraph.schema.json</code></a>. Every field is described and unknown
-fields are rejected — a silently ignored key is exactly the failure you cannot see: the plan loads, the
-socket is missing, and nothing said why.</p>
+fields are rejected. An incorrect key therefore produces a validation error instead of missing content
+in a loaded plan.</p>
 
 <h2 id="example">A complete example</h2>
-<p>One 4 × 3 metre room with a door, a side-hung window and a socket. This is a valid file; paste it into
-the editor from the menu, or hand it over in a link.</p>
+<p>One 4 × 3 metre room with a door, a side-hung window and a socket. The valid document can be loaded
+through the editor menu or a plan link.</p>
 <pre><code>${example}</code></pre>
 
 <h2 id="agents">For AI agents</h2>
-<p>The editor is meant to be driven by an agent as well as by a mouse. There are two ways in, and neither
-needs an account or an API key.</p>
+<p>The editor provides two client-side automation channels. Neither requires an account or API key.</p>
 <h3>1. A plan in a link</h3>
-<p>Put the document's JSON in a <code>base64url</code> string after <code>#plan=</code>. Everything after
-the <code>#</code> stays in the browser and never reaches the server, so a plan shared this way is no
-more public than the link itself.</p>
+<p>The document JSON can be placed in a <code>base64url</code> string after <code>#plan=</code>. URL fragment
+values are not included in HTTP requests to the server. Anyone with the link can open the embedded plan.</p>
 <pre><code>${origin}/#plan=&lt;base64url of the JSON document&gt;
 
 # optionally with the language:
 ${origin}/#plan=&lt;…&gt;&amp;lang=en</code></pre>
-<p>The plan replaces what was there, but as an undoable step: <kbd>Ctrl</kbd>+<kbd>Z</kbd> gives the
-visitor their own drawing back.</p>
+<p>Loading replaces the current plan and is recorded as an undoable document step.</p>
 <h3>2. <code>window.wallgraph</code></h3>
-<p>The hosted page carries a small automation surface on <code>window</code>. An agent that can run
-<code>page.evaluate</code> needs nothing more to load a plan, have it drawn, and read it back.</p>
+<p>The hosted page provides an automation interface on <code>window</code>. Its methods can be called
+through <code>page.evaluate</code> to load, render and read a plan.</p>
 ${api}
 <h3>3. The code itself</h3>
-<p>Wallgraph is free software (AGPL-3.0) with <b>zero runtime dependencies</b>. An agent that would
-rather work offline can clone the repository, run <code>npm run build</code>, and be left with a single
-<code>dist/index.html</code> that is complete in itself — no network needed, not even to open it. See
+<p>Wallgraph is free software (AGPL-3.0) with <b>zero runtime dependencies</b>.
+<code>npm run build</code> produces a self-contained <code>dist/index.html</code> that opens without a network. See
 <a href="${SITE.repo}">the source</a> and <a href="/llms.txt">llms.txt</a>.</p>
-<div class="note"><p><b>Limits, honestly:</b> the editor is a canvas application, so an agent that only
-reads HTML has nothing to point at inside it. Work through the document, not through the mouse. And
-there is no server API: everything happens in the browser of whoever has the page open.</p></div>`;
+<div class="note"><p><b>Automation limits:</b> canvas content is not available as interactive DOM
+elements. Automation therefore uses the document format, plan links or <code>window.wallgraph</code>.
+There is no server API; processing occurs in the browser.</p></div>`;
 }
 
-/**
- * The disclaimer, and nothing else.
- *
- * Two earlier drafts went wrong in opposite directions and both are worth
- * remembering. The first was a list of things Wallgraph cannot do, which read as
- * "this is a toy, do not use it for anything" — untrue, and the opposite of
- * useful. The second overcorrected into a "what Wallgraph does well" opener,
- * which is marketing wearing a disclaimer's clothes, and it dragged in wording
- * ("a graph of centerlines") that means nothing to anyone who has not read
- * /formaat/. Both were arguing with a reader who had said nothing.
- *
- * So this states the position and stops. Neutral throughout: it never
- * characterises the tool, only scopes what it is answerable for. The line it
- * draws is between drawing something and vouching for it, because that is the
- * one a reader needs — a drawing belongs to whoever made it, and "I made it in
- * Wallgraph" cannot become a reason someone else is at fault for what it says.
- *
- * Two things it deliberately does NOT claim. That a Wallgraph drawing cannot be
- * used for a permit application: which drawings a municipality wants, and in what
- * form, is the Omgevingsregeling's business and the municipality's, and producing
- * them is not a reserved act. And that only a certified surveyor may measure to
- * NEN 2580: it is a standard, not a statute. What is true is narrower — a
- * meetrapport that will be *accepted* comes from a certified measurer — and the
- * narrow version is what belongs on a page people rely on.
- */
+/** Legal and operational limitations, without promotional content. */
 function disclaimerBody(lang: Lang): string {
   const license = `<a href="${SITE.license}">AGPL-3.0</a>`;
   const mail = `<a href="mailto:${SITE.email}">${SITE.email}</a>`;
   if (lang === "nl") {
     return `<h2 id="geen-garantie">Geen garantie</h2>
-<p>Wallgraph is gratis, vrije software en wordt geleverd <b>zoals hij is</b>. De ${license} sluit in
-de artikelen 15 en 16 uitdrukkelijk elke garantie en elke aansprakelijkheid uit, en die uitsluiting
-geldt onverkort. Er is geen toezegging dat Wallgraph foutloos rekent of tekent, geen ondersteuning,
-geen serviceniveau, en geen garantie dat een fout wordt hersteld. Het hele risico van de kwaliteit
-en de werking ligt bij jou.</p>
+<p>Wallgraph is vrije software en wordt geleverd <b>zoals beschikbaar</b>. De artikelen 15 en 16 van
+de ${license} bevatten een uitsluiting van garantie en een beperking van aansprakelijkheid, voor
+zover het toepasselijke recht dit toestaat. Er wordt niet gegarandeerd dat Wallgraph foutloos rekent
+of tekent, ononderbroken beschikbaar blijft, wordt ondersteund of wordt hersteld.</p>
 
 <h2 id="wat-het-niet-doet">Wat Wallgraph niet doet</h2>
 <ul>
-<li>Het meet je gebouw niet. Het tekent de maat die jij intypt, en die maat is precies zo juist als
-jouw meting.</li>
-<li>Het toetst niets aan regelgeving — niet aan het Besluit bouwwerken leefomgeving, niet aan het
-bestemmingsplan, niet aan een NEN-norm. Het kent je project niet.</li>
-<li>Het controleert niet of je tekening klopt, compleet is, of bevat wat een gemeente, verzekeraar
-of aannemer ervan verwacht.</li>
-<li>Oppervlaktes worden berekend volgens de conventie van NEN 2580 (netto, binnenwerks) of
-hart-op-hart, en de legenda zegt welke van de twee geldt. Dat is een berekening op jouw tekening,
-niet op het gebouw.</li>
-<li>Het geeft een tekening geen status. Een tekening ontleent zijn status aan wat erop staat en aan
-wie ervoor tekent, niet aan het programma waarmee hij gemaakt is.</li>
+<li>Wallgraph meet geen gebouw. De software verwerkt uitsluitend ingevoerde maten.</li>
+<li>Wallgraph toetst niet aan het Besluit bouwwerken leefomgeving, omgevingsplannen, NEN-normen of
+andere projectspecifieke eisen.</li>
+<li>Wallgraph controleert niet of een tekening juist, volledig of geschikt voor een bepaald doel is.</li>
+<li>Oppervlaktes worden berekend op basis van de tekening, volgens de gekozen rekenwijze. Deze
+berekening is geen meting van het gebouw.</li>
+<li>Gebruik van Wallgraph verleent een tekening geen certificering, goedkeuring of officiële status.</li>
 </ul>
 
 <h2 id="verantwoordelijkheid">Verantwoordelijkheid</h2>
-<p><b>De tekening is van jou.</b> Jij bepaalt de maten, jij bepaalt wat er wel en niet op staat, en
-jij beslist waarvoor je hem gebruikt. Dat een tekening in Wallgraph is gemaakt zegt niets over of
-hij klopt, en is dus ook geen grond om de gevolgen bij de maker van Wallgraph te leggen.</p>
-<p>Gebruik je Wallgraph beroepsmatig, dan blijven je eigen zorgplicht en je eigen
-beroepsaansprakelijkheid onverminderd op jou rusten.</p>
+<p>De gebruiker is verantwoordelijk voor de ingevoerde gegevens, de inhoud van de tekening, de
+controle daarvan en de keuze om de tekening voor een bepaald doel te gebruiken. Professioneel
+gebruik verandert de toepasselijke zorgplicht of beroepsaansprakelijkheid van de gebruiker niet.</p>
 
-<h2 id="professional">Waar een bevoegd persoon nodig is</h2>
-<p>Sommige stukken ontlenen hun waarde eraan dat een bevoegd persoon ervoor instaat. Dat instaan is
-mensenwerk en zit niet in dit programma:</p>
+<h2 id="professional">Professionele controle</h2>
 <ul>
-<li><b>Een NEN 2580-meetrapport.</b> NEN 2580 is een norm, geen wet, en meten volgens die norm mag
-iedereen. Maar een meetrapport dat <i>geaccepteerd</i> wordt door een makelaar (Meetinstructie), een
-taxateur, een verhuurder of een rechter komt in de praktijk van een gecertificeerd meetbureau. Een
-oppervlakte die Wallgraph berekent is daar geen vervanging van.</li>
-<li><b>Constructieve berekeningen.</b> Of een muur weg kan, wat een balklaag draagt: werk voor een
-constructeur, en Wallgraph rekent er niet aan.</li>
-<li><b>Brandveiligheid en installatieontwerp</b>, waar een norm of een keuring bepalend is.</li>
-<li><b>Alles waar een derde op moet kunnen afgaan</b> zonder het zelf na te meten.</li>
+<li>Wallgraph levert geen gecertificeerd NEN 2580-meetrapport. Eisen aan meting, certificering en
+acceptatie hangen af van het doel en de ontvangende partij.</li>
+<li>Wallgraph voert geen constructieve berekeningen uit.</li>
+<li>Wallgraph beoordeelt geen brandveiligheid of installatieontwerp.</li>
+<li>Werkzaamheden waarbij veiligheid, regelgeving, certificering of vertrouwen van derden een rol
+speelt, vereisen controle door een daarvoor gekwalificeerde deskundige.</li>
 </ul>
-<p>Wat een gemeente bij een vergunningaanvraag verlangt — welke tekeningen, op welke schaal, met
-welke gegevens erop — staat in de Omgevingsregeling en bij de gemeente zelf. Wallgraph toetst daar
-niet aan; controleer die eisen bij het loket voordat je iets indient.</p>
+<p>Eisen voor een vergunningaanvraag volgen uit de toepasselijke regelgeving en de eisen van het
+bevoegde gezag. Wallgraph controleert deze eisen niet.</p>
 
 <h2 id="aansprakelijkheid">Aansprakelijkheid</h2>
 <p>Voor zover de wet dat toestaat aanvaardt de maker <b>geen enkele aansprakelijkheid</b> voor schade
@@ -581,63 +510,53 @@ oppervlaktes of maten die ermee zijn gemaakt. Dat geldt voor directe en indirect
 gevolgschade, gemiste besparingen, bouwkosten, herstelkosten en verlies van gegevens, ook als op de
 mogelijkheid van die schade was gewezen.</p>
 
-<h2 id="gegevens">Je tekeningen</h2>
-<p>Wallgraph draait volledig in je eigen browser. Er is geen account, er is geen server die je
-plattegrond ontvangt, en er wordt niets over je gebruik verzameld of gemeten. Je werk staat in de
-opslag van je eigen browser en verdwijnt als je die opslag wist — er is <b>geen back-up</b> en
-niemand kan een verloren tekening terughalen. Exporteer wat je niet kwijt wilt.</p>
-<p>Deel je een plattegrond via een link, dan zit het document ín de link, achter de <code>#</code>.
-Dat deel gaat niet naar de server, maar iedereen die de link heeft, heeft de tekening.</p>
+<h2 id="gegevens">Gegevens en opslag</h2>
+<p>De applicatie verwerkt plattegronden in de browser en bevat geen telemetrie die de inhoud van een
+plattegrond verzendt. Plattegronden worden lokaal in de browser opgeslagen; Wallgraph biedt geen
+back-up- of hersteldienst. De hostingprovider kan technische verzoekgegevens verwerken.</p>
+<p>Bij delen via een link staat het document in het URL-fragment na <code>#</code>. Dit fragment wordt
+niet in het HTTP-verzoek aan de server opgenomen. Iedereen met toegang tot de volledige link kan het
+document lezen.</p>
 
 <h2 id="commercieel">Andere voorwaarden</h2>
-<p>Wallgraph is dubbel gelicentieerd: naast de ${license} zijn commerciële voorwaarden mogelijk. Heb
-je afspraken over garantie, ondersteuning of aansprakelijkheid nodig, mail dan ${mail}. Zulke
-afspraken bestaan alleen als ze schriftelijk zijn gemaakt; deze pagina schept ze niet, en een
-antwoord op een mail evenmin.</p>`;
+<p>Wallgraph is dubbel gelicentieerd. Naast de ${license} zijn commerciële voorwaarden beschikbaar
+via ${mail}. Aanvullende afspraken over garantie, ondersteuning of aansprakelijkheid gelden alleen
+wanneer zij uitdrukkelijk schriftelijk zijn vastgelegd.</p>`;
   }
   return `<h2 id="no-warranty">No warranty</h2>
-<p>Wallgraph is free software and is provided <b>as is</b>. The ${license} disclaims all warranty and
-all liability in sections 15 and 16, and that disclaimer applies in full. There is no undertaking
-that Wallgraph computes or draws without error, no support, no service level, and no promise that a
-defect will be fixed. The entire risk as to quality and performance is with you.</p>
+<p>Wallgraph is free software and is provided <b>as available</b>. Sections 15 and 16 of the ${license}
+contain a disclaimer of warranty and a limitation of liability, to the extent permitted by
+applicable law. Wallgraph is not guaranteed to calculate or draw without error, remain continuously
+available, receive support or be corrected.</p>
 
 <h2 id="what-it-does-not">What Wallgraph does not do</h2>
 <ul>
-<li>It does not measure your building. It draws the number you typed, and that number is exactly as
-correct as your measurement.</li>
-<li>It checks nothing against regulation — not the Besluit bouwwerken leefomgeving, not the zoning
-plan, not a NEN standard. It knows nothing about your project.</li>
-<li>It does not check whether your drawing is correct, complete, or contains what a municipality, an
-insurer or a builder expects of it.</li>
-<li>Areas are computed following the convention of NEN 2580 (net, inner faces) or centerline, and the
-legend states which. That is a calculation on your drawing, not on the building.</li>
-<li>It confers no status on a drawing. A drawing takes its standing from what is on it and from who
-puts their name to it, not from the program that produced it.</li>
+<li>Wallgraph does not measure a building. It processes only dimensions entered by the user.</li>
+<li>Wallgraph does not verify compliance with building regulations, zoning rules, NEN standards or
+other project-specific requirements.</li>
+<li>Wallgraph does not determine whether a drawing is accurate, complete or suitable for a particular
+purpose.</li>
+<li>Areas are calculated from the drawing using the selected calculation method. This is not a
+measurement of the building.</li>
+<li>Use of Wallgraph does not confer certification, approval or official status on a drawing.</li>
 </ul>
 
 <h2 id="responsibility">Responsibility</h2>
-<p><b>The drawing is yours.</b> You set the dimensions, you decide what is and is not on it, and you
-decide what to use it for. That a drawing was made in Wallgraph says nothing about whether it is
-right, and is therefore no basis for placing the consequences on Wallgraph's author.</p>
-<p>If you use Wallgraph professionally, your own duty of care and your own professional liability
-remain entirely yours.</p>
+<p>The user is responsible for the entered data, the content of the drawing, its verification and the
+decision to use it for a particular purpose. Professional use does not alter the user's applicable
+duty of care or professional liability.</p>
 
-<h2 id="professional">Where a qualified person is needed</h2>
-<p>Some documents are worth something precisely because a qualified person stands behind them. That
-standing is human work and is not in this program:</p>
+<h2 id="professional">Professional verification</h2>
 <ul>
-<li><b>A NEN 2580 measurement report.</b> NEN 2580 is a standard, not a statute, and anyone may
-measure to it. But a report that will be <i>accepted</i> by an estate agent (under the
-Meetinstructie), a valuer, a lessor or a court comes in practice from a certified measurement firm.
-An area Wallgraph computes is no substitute for one.</li>
-<li><b>Structural calculations.</b> Whether a wall can come out, what a floor structure carries:
-an engineer's work, and Wallgraph calculates none of it.</li>
-<li><b>Fire safety and services design</b>, where a standard or an inspection governs.</li>
-<li><b>Anything a third party must be able to rely on</b> without measuring it themselves.</li>
+<li>Wallgraph does not produce a certified NEN 2580 measurement report. Measurement, certification
+and acceptance requirements depend on the purpose and the receiving party.</li>
+<li>Wallgraph does not perform structural calculations.</li>
+<li>Wallgraph does not assess fire safety or services design.</li>
+<li>Work involving safety, regulation, certification or third-party reliance requires verification
+by an appropriately qualified professional.</li>
 </ul>
-<p>What a municipality requires for a permit application — which drawings, at what scale, showing
-what — is set by the Omgevingsregeling and by the municipality itself. Wallgraph checks against none
-of it; confirm those requirements before you submit anything.</p>
+<p>Permit-application requirements follow from applicable regulation and the requirements of the
+competent authority. Wallgraph does not verify those requirements.</p>
 
 <h2 id="liability">Liability</h2>
 <p>To the fullest extent permitted by law the author accepts <b>no liability</b> for any damage
@@ -646,19 +565,18 @@ with it. That covers direct and indirect damage, consequential loss, lost saving
 costs, remediation costs and loss of data, even where the possibility of such damage was pointed
 out.</p>
 
-<h2 id="your-drawings">Your drawings</h2>
-<p>Wallgraph runs entirely in your own browser. There is no account, no server receives your plan,
-and nothing about your use is collected or measured. Your work lives in your own browser's storage
-and disappears when that storage is cleared — there is <b>no backup</b> and nobody can recover a lost
-drawing. Export anything you would mind losing.</p>
-<p>If you share a plan as a link, the document is <i>in</i> the link, after the <code>#</code>. That
-part never reaches the server, but anyone holding the link holds the drawing.</p>
+<h2 id="data-storage">Data and storage</h2>
+<p>The application processes floorplans in the browser and contains no telemetry that transmits plan
+contents. Plans are stored locally in browser storage; Wallgraph provides no backup or recovery
+service. The hosting provider may process technical request data.</p>
+<p>When a plan is shared by link, the document is stored in the URL fragment after <code>#</code>. The
+fragment is not included in the HTTP request to the server. Anyone with access to the complete link
+can read the document.</p>
 
 <h2 id="other-terms">Other terms</h2>
-<p>Wallgraph is dual-licensed: alongside the ${license}, commercial terms are available. If you need
-undertakings about warranty, support or liability, write to ${mail}. Such undertakings exist only
-where they have been made in writing; this page creates none, and neither does a reply to an
-email.</p>`;
+<p>Wallgraph is dual-licensed. Commercial terms are available alongside the ${license} through
+${mail}. Additional terms concerning warranty, support or liability apply only when expressly
+agreed in writing.</p>`;
 }
 
 const BODIES: Record<DocId, (lang: Lang, ctx: SiteCtx) => string> = {
@@ -673,8 +591,7 @@ const BODIES: Record<DocId, (lang: Lang, ctx: SiteCtx) => string> = {
 export function docPages(ctx: SiteCtx): Map<string, string> {
   const out = new Map<string, string>();
   for (const lang of ["nl", "en"] as Lang[]) {
-    // The generator reads symbol and opening names through the app's own `t`,
-    // so the language has to actually be switched rather than passed around.
+    // Symbol and opening names use the active application translation dictionary.
     changeLanguage(lang);
     for (const id of Object.keys(BODIES) as DocId[]) {
       const page = DOCS[id][lang];

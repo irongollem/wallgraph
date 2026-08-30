@@ -4,11 +4,11 @@ A browser-based, mm-exact floorplan editor. Vanilla TypeScript, canvas rendering
 **zero runtime dependencies** — `typescript`, `esbuild`, `tsx` and `@types/node` are
 dev-only and never reach the bundle.
 
-Licensed AGPL-3.0-only with commercial terms available, which makes the dependency count
-and the [CLA](CLA.md) load-bearing rather than cosmetic — see *Licensing constraint* below.
+Licensed AGPL-3.0-only with commercial terms available. The dependency policy and
+[CLA](CLA.md) requirements preserve the commercial-licensing option.
 
 Read [PLAN.md](PLAN.md) for the full architecture rationale and roadmap; this file is the
-operational summary — the invariants you must not break and the commands that verify it.
+operational summary of repository invariants and verification commands.
 
 ## Commands
 
@@ -33,31 +33,51 @@ that every emitted page loads nothing over the network (`check:bundle`) and that
 is internally consistent (`check:seo`). Building without a `SITE_URL` in CI would leave
 half the surface unverified.
 
-Two tsconfigs on purpose: [tsconfig.json](tsconfig.json) covers `src/` with `"types": []`
+Two tsconfigs are used: [tsconfig.json](tsconfig.json) covers `src/` with `"types": []`
 so browser code cannot accidentally reach for node globals;
 [tsconfig.test.json](tsconfig.test.json) adds `tests/` and `scripts/` with node types —
 the build and the site generator are TypeScript and import from `src/`, so they are
-typechecked too. `npm run typecheck` runs both — if you only run bare `tsc --noEmit`,
-neither tests nor the build are checked.
+typechecked too. `npm run typecheck` runs both; bare `tsc --noEmit` does not check the
+tests or build scripts.
 
 `strict` is on with `noUncheckedIndexedAccess` (indexing needs `!` or a guard) plus
 `noUnusedLocals`/`noUnusedParameters` — prefix a genuinely unused parameter with `_`
 rather than adding a `void x;` statement.
 
-## The one idea
+## Writing standard
+
+Use concise, neutral and technical prose in source files and generated pages.
+
+- Comments document current behavior, constraints, invariants or non-obvious decisions.
+  Do not narrate drafting history, anticipate objections or address an imagined reader.
+- Avoid conversational framing, rhetorical fragments, metaphors and personification of
+  software. Do not use phrases such as “quietly lies,” “fights the user,” “the one thing,”
+  or “on purpose” when a direct technical statement is available.
+- Public legal and safety text uses formal third-person language. Avoid second-person
+  pronouns, slogans and categorical legal or privacy claims that the application cannot
+  guarantee.
+- Machine-facing documentation states capabilities and limitations as factual bullets.
+  It does not instruct models to reproduce preferred rhetoric.
+- Tests verify facts, structure and required links. They must not require an exact
+  editorial phrase unless that phrase is a protocol token or legal identifier.
+- Historical context belongs in version control or an issue unless it explains a current
+  compatibility requirement.
+- Prefer short comments. Remove a comment when names and types already express the same
+  information.
+
+## Document model
 
 **The document is a planar graph of wall centerlines. Everything visible is derived.**
 
 Stored: nodes (junctions), walls (centerline edges with thickness + optional arc bulge),
 openings parameterised along a wall, symbol instances.
 
-Never stored: wall faces, mitered corners, room polygons, areas, dimension labels. These
-are recomputed by `src/core/` on every document revision. If you find yourself wanting to
-cache a derived polygon *into the document*, that is the wrong move — cache it next to the
-revision counter instead (see `derived()` in [src/main.ts](src/main.ts)).
+Not stored: wall faces, mitered corners, room polygons, areas and dimension labels. These
+are recomputed by `src/core/` on every document revision. Derived geometry may be cached
+against the revision counter but must not be added to the document (see `derived()` in
+[src/main.ts](src/main.ts)).
 
-This is why doors cut walls for free, why room detection works, and why a future 3D view
-extrudes directly from the graph.
+This model supports wall openings, room detection and future direct extrusion to 3D.
 
 ## Invariants (breaking these breaks the product)
 
@@ -90,10 +110,8 @@ and has no users, so a rename deletes the old thing: no id aliases, no migration
 deprecated fields left resolvable, no "old format" branch. Update every reference and let
 the old name disappear.
 
-That is a cost decision rather than an oversight — a shim added now is permanent weight
-carried for a user who does not exist. **If you think a case genuinely needs
-compatibility, stop and ask before adding it.** Do not infer the answer from the code: it
-changes the day the app has real users, and picking that day is the user's call.
+This avoids permanent compatibility code before the first public document format is
+established. Ask before adding a compatibility layer.
 
 ## Layout
 
@@ -131,7 +149,7 @@ scripts/site/  meta.ts   one source of truth for what the site says about itself
                pages.ts  the five content pages, drawn from the app's own code
                files.ts  robots.txt, sitemap, llms.txt, manifest, security.txt
                schema.ts the published JSON Schema + the validator tests use
-               sw.ts     the service worker, network-first on purpose
+               sw.ts     the network-first service worker
 ```
 
 The graphify knowledge graph (`graphify-out/`, gitignored — it embeds local absolute
@@ -140,9 +158,9 @@ paths) clusters this into 15 communities. The three tightest couplings worth kno
 edit is a graph operation), and `main.ts` as the only place the store, viewport, renderer
 and tools meet.
 
-**God nodes** (most-connected, so the riskiest to change): `v()`, `Tools`, `Vec`,
-`dist()`, `resolveFloor()`. `Tools` at 40 edges is the class to be most careful with —
-it's a 780-line state machine that owns all canvas pointer and keyboard handling.
+The most-connected components are `v()`, `Tools`, `Vec`, `dist()` and `resolveFloor()`.
+`Tools` owns canvas pointer and keyboard handling and therefore requires broad regression
+testing when changed.
 
 ## Derived geometry, in detail
 
@@ -158,7 +176,7 @@ correct at wall scale.
 faces by taking the sharpest-left next edge. With this turn rule under y-down, bounded
 faces trace with **positive** shoelace area and the unbounded outer face is negative;
 faces under 0.01 m² are dropped as slivers. Areas are **centerline-bounded**, not net
-inner-face — that's a known P1 item, don't "fix" it silently.
+inner-face. This is a documented P1 limitation.
 
 Both are verified by [tests/core.test.ts](tests/core.test.ts), including the sign
 convention, a T-junction finiteness check, and door-splits-wall-into-2-pieces.
@@ -193,21 +211,18 @@ The `draw(ctx)` contract in [defs.ts](src/render/symbols/defs.ts) is strict:
   to add — those stay in screen space, drawn by the caller.
 - Wrap in `withCtx()`, which handles `save`/`restore` and sets `lineWidth = 20`.
 
-Nothing else needs touching, the published symbol page included: `/symbolen/` replays
+No separate published representation is required: `/symbolen/` replays
 `draw()` through `recordSymbol` at build time, so a new symbol appears there, in the SVG
-and DXF exports, and in the palette from the one entry. A second, hand-drawn copy of a
-symbol anywhere would be wrong within a release — and wrong in the worst way, since a page
-that authoritatively shows a mark would be showing a different mark from the editor.
+and DXF exports, and in the palette. Do not add a separately maintained symbol drawing.
 
-## Gotchas
+## Operational constraints
 
 - **Grid lines are always whole multiples of `doc.gridMm`.** `gridSteps()` in
   [src/render/grid.ts](src/render/grid.ts) steps the spacing up a 1-2-5 ladder until it is at
   least 6 px, so one square on screen is always a whole number of grid cells; the canvas
-  legend names both drawn spacings. Don't reintroduce a fixed spacing (it used to be a
-  hardcoded 1 m) — that made the canvas silently disagree with the panel's Grid (mm) value.
-  `COLORS.grid` and `COLORS.gridMajor` are deliberately far apart in lightness: the sub-grid
-  recedes, the metre grid is the one you read distances off. Keep that separation.
+  legend names both drawn spacings. A fixed spacing would conflict with the panel's Grid
+  (mm) value. `COLORS.grid` and `COLORS.gridMajor` use distinct lightness values so the
+  major grid remains visually identifiable.
 - **`GRID_DEFAULT_MM` is 100** ([doc.ts](src/model/doc.ts)) — building measurements are rarely
   finer, and it draws cell-for-cell at ordinary zoom instead of stepping up. Documents saved
   before this keep whatever `gridMm` they stored; the default only applies to new plans.
@@ -215,11 +230,10 @@ that authoritatively shows a mark would be showing a different mark from the edi
   invariant 1 holds either way — quantise through `Tools.gridStep`, not `doc.gridMm`.
 - **Wall-placement dimensions go on the cursor's side of the wall.**
   `drawWallOffsets()` in [tools.ts](src/input/tools.ts) draws the two distances to the wall
-  ends while a symbol or opening is slid along it. Two conventions that look arbitrary but
-  aren't: it uses `cursorSide()`/`wallSnap().side`, because the far side lands outside the
-  building and off-canvas when you zoom in on an exterior wall from inside; and labels are
-  placed by `visibleMid()`, which clips the segment to the canvas, because zooming in to
-  place precisely is exactly when a wall end leaves the screen. Distances are
+  ends while a symbol or opening is slid along it. It uses `cursorSide()`/`wallSnap().side`
+  because the opposite side can be outside the building and off-canvas at high zoom. Labels
+  use `visibleMid()`, which clips the segment to the canvas when a wall end is outside the
+  viewport. Distances are
   centerline-to-node, like `t` and the panel's "from corner".
 - **PNG export re-renders through `drawScene`, it does not screenshot the canvas.**
   [src/io/image.ts](src/io/image.ts) fits an offscreen `Viewport` to `planBounds()` and drives
@@ -227,19 +241,17 @@ that authoritatively shows a mark would be showing a different mark from the edi
   text scales with the image. `planBounds()` walks the *rotated footprint corners* of each
   symbol — a symmetric box around the anchor pads the frame with empty paper, because a
   wall-mounted footprint only extends one way. Grid and legend are off via `extras.showGrid`.
-- **Autosave uses the storage key `floorplan-doc-v1`**, from before the project was named
-  Wallgraph. Renaming it drops whatever that key holds — your own browser's plan included —
-  which makes it exactly the kind of case *No legacy* says to raise first. Don't migrate it
-  and don't rename it on your own judgement; ask.
+- **Autosave uses the storage key `floorplan-doc-v1`**. Renaming it makes existing locally
+  stored plans unavailable. Ask before changing or migrating the key.
 - **`Store.mutate()` coalesces** same-`coalesceKey` mutations within 900 ms into one undo
   step. Drags rely on this; pass a stable key for continuous gestures and `undefined` for
   discrete edits.
 - **`store.replace(doc, undoable)`** — `New`/`Demo`/`Open` pass `true` so Ctrl+Z restores
   the previous plan instead of showing a blocking confirm dialog (unavailable in sandboxed
   hosting anyway).
-- **Keyboard shortcuts are window-level** (V/W/D/N/P/O/G/L/R/M/Del). Fine for a dedicated
-  page; they will fight other inputs if the editor shares a page. `onKey` bails on
-  INPUT/SELECT/TEXTAREA targets, which is the only guard today.
+- **Keyboard shortcuts are window-level** (V/W/D/N/P/O/G/L/R/M/Del). They can conflict
+  with host-page shortcuts when the editor is embedded. `onKey` ignores
+  INPUT/SELECT/TEXTAREA targets.
 - **Everything is single-floor.** `store.floor` is hardcoded to `doc.floors[0]!` even
   though the schema is a `floors[]` array. Multi-floor is P1.
 - **All storage access is in try/catch** — `localStorage` can throw outright in sandboxed
@@ -251,8 +263,8 @@ that authoritatively shows a mark would be showing a different mark from the edi
   dirty-rect machinery until profiling says otherwise.
 - **`npm run dev` watches `src/style.css` separately.** esbuild only watches `boot.ts`'s
   import graph, and the stylesheet is not in it — the build reads it at emit time. Without
-  the extra watcher a CSS-only edit rebuilt nothing and looked exactly like a rule that
-  does not work. Editing `scripts/` still needs a restart: those modules are already
+  the extra watcher, CSS-only edits do not trigger a rebuild. Editing `scripts/` still
+  requires a restart because those modules are already
   loaded into the dev process.
 - **Site paths keep their trailing slash, everywhere.** The content pages are directory
   indexes, so `/symbolen` and `/symbolen/` are two URLs to a crawler and only the second is
@@ -264,21 +276,19 @@ that authoritatively shows a mark would be showing a different mark from the edi
   over http (dev *and* production emit the pages), the canonical origin otherwise —
   `file://` has no origin to be relative to, and an embedder has no `/handleiding/`.
   Hardcoding the production URL sends `npm run dev` to a site that may not exist yet.
-- **The service worker is network-first, deliberately.** [netlify.toml](netlify.toml) sets
+- **The service worker is network-first.** [netlify.toml](netlify.toml) sets
   `Cache-Control: no-cache` on the HTML so no proxy pins an old editor, and a service
-  worker is a proxy in the user's browser that outlives the tab. Cache-first would be
-  exactly that stale editor and far harder to dislodge. The cache is a fallback for when
-  the network fails and nothing else; `check:seo` fails if that inverts.
+  worker persists beyond a tab. A cache-first strategy could continue serving an old
+  editor. The cache is used only when the network fails; `check:seo` enforces this order.
 
 ## Licensing constraint
 
 Wallgraph is **AGPL-3.0-only**, dual-licensed — Jeffrey Ernst is sole copyright holder and
 sells commercial exceptions. Three consequences for changes here:
 
-- **Keep the runtime dependency count at zero.** It's not just a size goal any more: every
-  vendored or npm runtime dependency adds a copyright holder, which erodes the ability to
-  grant commercial licenses. Dev-only deps (`typescript`, `esbuild`, `tsx`, `@types/node`)
-  are fine — they don't ship in `dist/index.html`.
+- **Keep the runtime dependency count at zero.** A vendored or npm runtime dependency adds
+  a copyright holder and can restrict commercial licensing. Dev-only dependencies
+  (`typescript`, `esbuild`, `tsx`, `@types/node`) do not ship in `dist/index.html`.
 - **Don't paste in code from other projects** without checking its licence. AGPL-incompatible
   or unattributed code would have to be torn out later.
 - **Every outside contributor signs the [CLA](CLA.md) before their first merge**, recorded in

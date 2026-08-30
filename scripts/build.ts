@@ -1,12 +1,8 @@
-// Builds the site: one self-contained dist/index.html holding the whole editor,
-// plus the pages and files that make it findable and drivable — the content
-// pages, robots.txt, the sitemap, llms.txt, the web manifest and the schema.
+// Build the self-contained editor and its generated documentation and metadata.
 //
 // Usage: tsx scripts/build.ts [--watch --serve]
 //
-// index.html stays a single file with nothing to fetch: open it with the wifi
-// off and the editor works. Everything else emitted here is a sibling that the
-// hosted copy serves and the offline copy simply does not need.
+// dist/index.html has no external runtime resources and can be opened offline.
 import { build, context, type BuildResult, type PluginBuild } from "esbuild";
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync, existsSync, watch as watchPath } from "node:fs";
 import { createHash } from "node:crypto";
@@ -23,9 +19,7 @@ const PORT = Number(process.env.PORT) || 5173;
 
 const pkg = JSON.parse(readFileSync("package.json", "utf8")) as { version: string };
 
-// SITE_URL is set by the host (Netlify exposes URL); without it every tag that
-// needs an absolute address is omitted rather than pointing somewhere wrong — a
-// self-hosted copy should not advertise someone else's domain as canonical.
+// Omit canonical metadata when the deployment origin is not configured.
 const SITE_URL = (process.env.SITE_URL || process.env.URL || "").replace(/\/$/, "");
 
 // The 32 px PNG inlined as a data URI, so index.html stays one file and
@@ -44,9 +38,7 @@ const opts = {
   minify: !watch,
   write: false,
   logLevel: "info" as const,
-  // __WALLGRAPH_SITE__ tells src/links.ts that this build emits the
-  // documentation pages alongside the editor, so the app links to its own copy
-  // of them instead of always reaching for the production site.
+  // Site builds link to the generated same-origin documentation pages.
   define: {
     __WALLGRAPH_VERSION__: JSON.stringify(pkg.version),
     __WALLGRAPH_SITE__: "true",
@@ -60,14 +52,7 @@ function emitFile(path: string, contents: string | Buffer): void {
   writeFileSync(full, contents);
 }
 
-/**
- * What a crawler that does not run JavaScript sees.
- *
- * Every AI crawler and most non-Google search engines fetch the HTML and stop,
- * so without this the page is a title, a description and an empty div. It says
- * the same things the site says elsewhere and links to the pages that say them
- * at length — it is a summary of the page, not a second, hidden version of it.
- */
+/** Static editor summary for clients that do not execute JavaScript. */
 function noscript(): string {
   return `<noscript><div class="noscript"><div class="wrap">
 <h1>${esc(HOME.heading)}</h1>
@@ -94,9 +79,7 @@ function emit(result: BuildResult): void {
 
   mkdirSync("dist", { recursive: true });
 
-  // Hosted extras: real icon files a crawler, an installer or an iOS
-  // home-screen shortcut fetches by URL. index.html itself needs none of them —
-  // its favicon is inlined — so they only ship when we know the site's origin.
+  // Hosted builds emit addressable icons; the editor favicon remains inline.
   if (SITE_URL) {
     for (const f of [
       "favicon.ico", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "og.png",
@@ -105,10 +88,7 @@ function emit(result: BuildResult): void {
     }
   }
 
-  // The worker is a hosted-only concern: a file opened from disk cannot register
-  // one, and index.html must stay something that works with no origin at all.
-  // The registration is appended after the app's own script so a worker that
-  // fails to install cannot delay the editor appearing.
+  // Service workers require a hosted origin and register after application code.
   const boot = SITE_URL ? `${js}\n${registration}` : js;
 
   const html = `<!doctype html>
@@ -119,8 +99,7 @@ ${headTags(ctx, "nl", HOME)}
   emitFile("/index.html", html);
 
   if (SITE_URL) {
-    // Hash the page the worker will serve, so a deploy that changes the editor
-    // changes the cache name and the old cache is dropped on activate.
+    // Include editor content in the service-worker cache key.
     const hash = createHash("sha256").update(html).digest("hex").slice(0, 12);
     emitFile("/sw.js", serviceWorker(pkg.version, hash));
   }
@@ -138,14 +117,8 @@ if (watch) {
   const ctxb = await context({ ...opts, plugins: [{ name: "emit", setup: (b: PluginBuild) => b.onEnd(emit) }] });
   await ctxb.watch();
 
-  // esbuild watches src/boot.ts's import graph. The stylesheet is not in it —
-  // `emit` reads style.css itself — so without this a CSS-only edit rebuilt
-  // nothing and the browser kept serving the previous page, which looks exactly
-  // like a rule that does not work.
-  //
-  // Editing this script or anything under scripts/site/ still needs a restart:
-  // those modules are already loaded into this process, and rebuilding would
-  // just re-run the same code.
+  // style.css is read outside esbuild's import graph and requires a separate watcher.
+  // Changes under scripts/ require restarting the build process.
   let pending: NodeJS.Timeout | undefined;
   watchPath("src/style.css", () => {
     clearTimeout(pending);

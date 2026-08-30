@@ -1,15 +1,5 @@
-// Asserts that dist/index.html loads nothing over the network: open it with the
-// wifi off and you get the whole editor. CSS and JS are inlined at build time and
-// the favicon is a data: URI, so any external script/stylesheet/icon reference is
-// a regression.
-//
-// Metadata that merely *names* a URL is fine — <link rel="canonical"> and the
-// og:* meta tags point at the site's own address without fetching anything. Only
-// tags that cause a fetch are checked.
-//
-// Every emitted page is checked, not just the editor: the content pages are
-// served under the same `default-src 'self'` policy, so a stray Google Font on
-// one of them would not degrade, it would silently render in the fallback face.
+// Verify that generated HTML has no externally loaded runtime resources.
+// URL-only metadata such as canonical and Open Graph tags is permitted.
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 

@@ -1,19 +1,11 @@
-// The HTML shell every emitted page shares: head tags, structured data, the
-// small stylesheet, the nav and the footer.
-//
-// The content pages carry no JavaScript at all. That is not minimalism for its
-// own sake — it is the whole point of them existing. The editor at `/` is a
-// canvas application whose text lives in the DOM only after it boots, and most
-// crawlers, including every AI crawler that matters here, do not boot it. These
-// pages are what a machine reads when it wants to know what this thing is.
+// Shared HTML shell for static documentation pages. These pages require no
+// client-side JavaScript and expose the editor documentation as HTML.
 import { COLORS } from "../../src/render/draw";
 import type { Lang } from "../../src/i18n";
 import { SITE, HOME, DOCS, DOC_IDS, FEATURES, PRIMARY, alternatesFor, type PageMeta } from "./meta";
 
 export interface SiteCtx {
-  /** Absolute origin, or "" when the build does not know where it will be
-   *  hosted. Everything that needs an absolute URL is omitted in that case,
-   *  rather than pointing a crawler at someone else's domain. */
+  /** Absolute origin, or "" when no deployment origin is configured. */
   siteUrl: string;
   /** The 32 px icon as a data URI, shared with the editor page. */
   favicon: string;
@@ -23,27 +15,12 @@ export interface SiteCtx {
 const esc = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-/**
- * Absolute URL for a site-root-relative path, or "" without a known origin.
- *
- * The trailing slash is load-bearing and is passed through untouched: the pages
- * are directory indexes, so /symbolen/ and /symbolen are two URLs to a crawler
- * and only the first is what the host serves. Normalising it away here once put
- * the canonical and the hreflang on the slashless twin while the sitemap listed
- * the real one — the same page, claimed twice, under two addresses.
- */
+/** Absolute URL for a root-relative path. Preserve trailing slashes. */
 export const abs = (ctx: SiteCtx, path: string): string => (ctx.siteUrl ? ctx.siteUrl + path : "");
 
 const OG_LOCALE: Record<Lang, string> = { nl: "nl_NL", en: "en_GB" };
 
-/**
- * The application itself, as schema.org sees it.
- *
- * This is the single densest thing on the site for a machine: name, price,
- * licence, platform and capability list in one parseable object, with no canvas
- * to render and no JavaScript to run. Every page carries it, because a crawler
- * that only ever fetches /symbolen/ should still learn what the tool is.
- */
+/** Schema.org application metadata included on every documentation page. */
 export function appJsonLd(ctx: SiteCtx, lang: Lang): Record<string, unknown> {
   const url = abs(ctx, "/");
   return {
@@ -69,8 +46,7 @@ export function appJsonLd(ctx: SiteCtx, lang: Lang): Record<string, unknown> {
 }
 
 function jsonLd(obj: unknown): string {
-  // Angle brackets inside a JSON-LD block would end the script element; nothing
-  // here contains any, but escaping is cheaper than remembering that.
+  // Escape angle brackets to prevent termination of the script element.
   const json = JSON.stringify(obj, (_k, v: unknown) => (v === undefined ? undefined : v))
     .replace(/</g, "\\u003c");
   return `<script type="application/ld+json">${json}</script>`;
@@ -242,8 +218,7 @@ function footer(lang: Lang, page: PageMeta): string {
   const lic = lang === "nl"
     ? `Vrije software onder <a href="${SITE.license}">AGPL-3.0</a>`
     : `Free software under <a href="${SITE.license}">AGPL-3.0</a>`;
-  // The disclaimer sits on every page, not only on its own. It is the one link
-  // that has to be reachable from wherever somebody landed.
+  // Include the disclaimer in every page footer.
   const warn = `<a class="warn" href="${DOCS.disclaimer[lang].path}">` +
     `${lang === "nl" ? "Geen garantie — lees de disclaimer" : "No warranty — read the disclaimer"}</a>`;
   return `<footer class="site"><div class="wrap"><span>© 2026 ${SITE.author}</span>` +

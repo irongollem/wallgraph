@@ -1,12 +1,5 @@
-// Asserts that what the build emitted actually hangs together: the sitemap
-// points at pages that exist, hreflang pairs point back at each other, every
-// page carries the tags a crawler needs, and llms.txt does not link into space.
-//
-// These are the failures that never show up in a browser. A sitemap URL with a
-// typo, a one-directional hreflang, an og:image on a path the build stopped
-// copying — the page looks perfect and the search engine quietly discards it.
-// Run against a build made WITH a SITE_URL; the absolute-URL half of the site
-// does not exist without one.
+// Validate generated pages, metadata, reciprocal links and conventional files.
+// Run against a build created with SITE_URL so absolute URLs are available.
 import { readFileSync, existsSync } from "node:fs";
 
 const problems = [];
@@ -30,7 +23,7 @@ const robots = read("/robots.txt");
 const sitemap = read("/sitemap.xml");
 const llms = read("/llms.txt");
 
-// The origin the build stamped everything with; every absolute URL must agree.
+// Every generated absolute URL must use the configured origin.
 const origin = (sitemap.match(/<loc>(https?:\/\/[^/]+)/) ?? [])[1];
 if (!origin) fail("sitemap.xml has no absolute <loc> — was SITE_URL set?");
 if (!robots.includes(`Sitemap: ${origin}/sitemap.xml`)) fail("robots.txt does not name the sitemap");
@@ -66,8 +59,7 @@ for (const loc of locs) {
     } catch (e) { fail(`${path} has unparseable JSON-LD: ${e.message}`); }
   }
 
-  // hreflang has to be reciprocal, and has to include the page itself, or the
-  // pairing is discarded whole.
+  // Alternate-language links must be reciprocal and include the current page.
   const alts = [...html.matchAll(/<link rel="alternate" hreflang="([\w-]+)" href="([^"]+)">/g)];
   const selfDeclared = alts.some(([, code, href]) => href === loc && code !== "x-default");
   if (!selfDeclared) fail(`${path} does not list itself among its hreflang alternates`);
@@ -78,20 +70,20 @@ for (const loc of locs) {
     if (!other.includes(`href="${loc}">`)) fail(`${path} <-> ${href}: hreflang is not reciprocal`);
   }
 
-  // og:image is absolute and must resolve; a broken one is an empty share card.
+  // The absolute social image URL must resolve to a generated file.
   const og = (html.match(/<meta property="og:image" content="([^"]+)">/) ?? [])[1];
   if (!og) fail(`${path} has no og:image`);
   else if (!existsSync(fileFor(pathOf(og) ?? ""))) fail(`${path} og:image ${og} is not emitted`);
 }
 
-// Manifest icons have to exist or installing the app fails at the last step.
+// Manifest icons must resolve to generated files.
 const manifest = JSON.parse(read("/manifest.webmanifest"));
 for (const icon of manifest.icons ?? []) {
   if (!existsSync("dist" + icon.src)) fail(`manifest icon ${icon.src} is not emitted`);
 }
 if (!manifest.start_url) fail("manifest has no start_url");
 
-// llms.txt is the agent's entry point: a dead link in it is a dead end.
+// Validate internal links in llms.txt.
 for (const [, href] of llms.matchAll(/\]\((https?:\/\/[^)]+)\)/g)) {
   if (!href.startsWith(origin)) continue;   // github.com and gnu.org are not ours to check
   const path = href.slice(origin.length) || "/";
@@ -99,17 +91,14 @@ for (const [, href] of llms.matchAll(/\]\((https?:\/\/[^)]+)\)/g)) {
 }
 if (!llms.startsWith("# ")) fail("llms.txt does not open with an H1, as the convention requires");
 
-// The schema is the contract an agent writes against; it must at least parse
-// and describe the document root.
+// Validate the schema identifier and required root properties.
 const schema = JSON.parse(read("/wallgraph.schema.json"));
 if (schema.$id !== `${origin}/wallgraph.schema.json`) fail("schema $id does not match the site origin");
 for (const key of ["version", "unit", "gridMm", "floors"]) {
   if (!schema.properties?.[key]) fail(`schema does not describe "${key}"`);
 }
 
-// The service worker is a proxy that outlives the tab, so getting its cache
-// name wrong means a stale editor nobody can clear. It must be network-first
-// and its cache must be versioned, or a deploy never reaches anyone.
+// Require versioned, network-first service-worker caching and old-cache cleanup.
 const sw = read("/sw.js");
 const pkgVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
 if (!sw.includes(`wallgraph-${pkgVersion}-`)) fail("sw.js cache name does not carry the build version");
@@ -135,8 +124,10 @@ for (const loc of locs) {
 // Collapse the hard wrapping first: a phrase that moves across a line break is a
 // layout change, not a missing statement.
 const llmsFlat = llms.replace(/\s+/g, " ");
-if (!llmsFlat.includes("no warranty and no liability")) fail("llms.txt does not state the liability position");
-if (!llmsFlat.includes("vouching for it are different acts")) fail("llms.txt does not draw the drawing/vouching line");
+if (!llmsFlat.includes("disclaimer of warranty and a limitation of liability"))
+  fail("llms.txt does not state the liability position");
+if (!llmsFlat.includes("user is responsible for the drawing, its verification and its use"))
+  fail("llms.txt does not state user responsibility");
 
 if (problems.length > 0) {
   console.error("SEO/agent surface has problems:");

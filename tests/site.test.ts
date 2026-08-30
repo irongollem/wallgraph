@@ -1,10 +1,4 @@
-// The published site's contract with machines: the JSON Schema an agent writes
-// against, and the page metadata a crawler reads.
-//
-// The schema is the part most able to drift silently. Nothing in the editor
-// consults it, so a field added to the document model would keep working
-// perfectly while the published description of the format quietly became a lie —
-// and the only people to notice would be the ones generating plans from it.
+// Validate the published schema, generated pages and machine-readable metadata.
 import { planSchema, validate, SASH_ACTIONS } from "../scripts/site/schema";
 import { HOME, DOCS, DOC_IDS, LANGS, SITE, allPages, alternatesFor } from "../scripts/site/meta";
 import { docPages } from "../scripts/site/pages";
@@ -26,8 +20,7 @@ const ctx = { siteUrl: ORIGIN, favicon: "", version: "0.0.0-test" };
 
 ck("validates the demo plan", validate(schema, seedDoc()).length === 0, validate(schema, seedDoc()).join(" | "));
 
-// Every optional field at once. A schema that only ever sees the documents the
-// editor happens to write today is not a published format, it is a snapshot.
+// Exercise every optional document field in one valid fixture.
 const full: PlanDoc = {
   version: 1, unit: "mm", gridMm: 50, areaMode: "centerline",
   floors: [{
@@ -68,8 +61,7 @@ rejects("rejects a bad colour", d => { d.floors[0]!.symbols[0]!.color = "red"; }
 rejects("rejects an unknown sash action", d => { d.floors[0]!.walls[0]!.openings[0]!.sashes![0]!.action = "wobble" as never; });
 rejects("rejects version 2", d => { (d as unknown as Record<string, unknown>).version = 2; });
 
-// The two enums the schema cannot derive from a type: keep them tied to what
-// the model actually uses, so adding a motion or a symbol fails here first.
+// Keep schema enums aligned with runtime opening and symbol definitions.
 const symbolEnum = (schema.$defs as Record<string, { properties: { type: { enum: string[] } } }>).symbol!.properties.type.enum;
 ck("symbol enum matches the registry", symbolEnum.join() === SYMBOL_TYPES.join(), `${symbolEnum.length} vs ${SYMBOL_TYPES.length}`);
 
@@ -96,8 +88,7 @@ const pages = allPages();
 const paths = pages.map(p => p.path);
 ck("page paths are unique", new Set(paths).size === paths.length, paths.join(" "));
 ck("page paths are absolute and end in a slash", paths.every(p => p.startsWith("/") && p.endsWith("/")), paths.join(" "));
-// Titles and descriptions are what a result actually shows; a truncated one is
-// a worse advert than a short one.
+// Keep titles and descriptions within practical search-result lengths.
 const longTitles = pages.filter(p => p.title.length > 65).map(p => p.path);
 ck("titles fit a result", longTitles.length === 0, longTitles.join(" "));
 const badDesc = pages.filter(p => p.description.length < 70 || p.description.length > 165).map(p => `${p.path}:${p.description.length}`);
@@ -146,45 +137,34 @@ ck("sitemap lists every page", pages.every(p => sitemapXml(ctx).includes(`<loc>$
 ck("llms.txt opens with an H1 and a summary", /^# Wallgraph\n\n> /.test(llmsTxt(ctx)));
 ck("llms.txt documents both agent channels",
   llmsTxt(ctx).includes("#plan=") && llmsTxt(ctx).includes("window.wallgraph"));
-// A model summarising Wallgraph should be able to relay what it is not. If this
-// drops out of llms.txt, every assistant describing the tool loses the caveat.
-// Hard-wrapped prose, so match on the text with its line breaks collapsed —
-// otherwise a phrase moves across a wrap and the assertion fails on the layout
-// rather than on the meaning, which teaches you to reflow paragraphs to please
-// a test.
+// Normalize wrapping before checking required facts.
 const llms = llmsTxt(ctx).replace(/\s+/g, " ");
-ck("llms.txt states the liability position", llms.includes("no warranty and no liability"));
-ck("llms.txt draws the line at vouching, not at capability",
-  llms.includes("vouching for it are different acts"));
-ck("llms.txt qualifies the NEN 2580 claim",
-  llms.includes("measurement report that will be accepted"));
-// ...and tells a model what the tool IS, rather than arguing with a charge nobody
-// made. An earlier draft said "do not call it a toy", which plants the word it
-// was trying to prevent.
-ck("llms.txt says what to describe it as", llms.includes("a floorplan editor whose output"));
-ck("llms.txt raises no strawman", !/\btoy\b/i.test(llms));
-// The commercial channel is the one thing on the site that has to reach a
-// person. If it drops out, a paying customer's only route is a public issue.
+ck("llms.txt states the AGPL limitations accurately",
+  llms.includes("disclaimer of warranty and a limitation of liability")
+  && llms.includes("subject to applicable law"));
+ck("llms.txt distinguishes entered data from measurement",
+  llms.includes("user-supplied dimensions") && llms.includes("does not measure buildings"));
+ck("llms.txt distinguishes area calculation from certification",
+  llms.includes("does not issue a certified NEN 2580 measurement report"));
+ck("llms.txt assigns verification to the user",
+  llms.includes("user is responsible for the drawing, its verification and its use"));
+// Commercial terms must have a direct contact channel.
 ck("llms.txt names the commercial contact", llmsTxt(ctx).includes(SITE.email));
 for (const lang of LANGS) {
   const page = generated.get(DOCS.disclaimer[lang].path)!;
   ck(`the ${lang} disclaimer offers a way to ask for terms`, page.includes(`mailto:${SITE.email}`));
   ck(`the ${lang} disclaimer refuses liability`, /no liability|geen enkele aansprakelijkheid/.test(page));
-  ck(`the ${lang} disclaimer names the licence sections`, /sections 15 and 16|artikelen 15 en 16/.test(page));
-  ck(`the ${lang} disclaimer says whose drawing it is`,
-    /The drawing is yours|De tekening is van jou/.test(page));
-  // It is a disclaimer and nothing else: no section selling the tool, and none of
-  // /formaat/'s vocabulary, which means nothing to the person reading this one.
+  ck(`the ${lang} disclaimer names the licence sections`, /sections 15 and 16|artikelen 15 en 16/i.test(page));
+  ck(`the ${lang} disclaimer assigns user responsibility`,
+    /The user is responsible|De gebruiker is verantwoordelijk/.test(page));
   ck(`the ${lang} disclaimer does not advertise`, !/id="what-it-does"|id="wat-het-doet"/.test(page));
   ck(`the ${lang} disclaimer avoids the model's jargon`, !/graaf van|graph of centerlines/.test(page));
-  // Public copy states the position; it never defends against an accusation the
-  // reader has not heard, which only plants it.
-  ck(`the ${lang} disclaimer raises no strawman`, !/\btoy\b|speelgoed/i.test(page));
-  // NEN 2580 is a standard, not a statute. An earlier draft claimed only a
-  // certified surveyor may measure to it, which is a legal restriction that does
-  // not exist as stated — the accepted-report version is the true one.
-  ck(`the ${lang} disclaimer does not overclaim NEN 2580`,
-    !/only a certified surveyor may|mag alleen worden opgesteld/.test(page));
+  ck(`the ${lang} disclaimer qualifies NEN 2580 acceptance`,
+    /depend on the purpose and the receiving party|hangen af van het doel en de ontvangende partij/.test(page));
+  ck(`the ${lang} disclaimer distinguishes app telemetry from hosting data`,
+    /hosting provider may process|hostingprovider kan technische/.test(page));
+  ck(`the ${lang} disclaimer uses formal third-person language`,
+    lang === "en" ? !/\b(you|your|yours)\b/i.test(page) : !/\b(je|jij|jou|jouw)\b/i.test(page));
 }
 
 // Without an origin nothing absolute may be emitted, or a self-hosted build

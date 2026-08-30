@@ -93,22 +93,19 @@ src/io         autosave, JSON/SVG/DXF/PNG export, plan links
 scripts/site   the generated site: metadata, pages, robots/sitemap/llms, JSON Schema
 ```
 
-## No warranty, and whose drawing it is
+## Limitations and responsibility
 
-Wallgraph draws floorplans people work from, and it is free software provided as is —
-the AGPL disclaims all warranty and all liability in sections 15 and 16.
+Wallgraph is free software provided under the AGPL-3.0. Sections 15 and 16 contain
+a disclaimer of warranty and a limitation of liability, subject to applicable law.
 
-The line that matters is between drawing something and vouching for it. Wallgraph
-draws the dimensions you type; it does not measure your building, check anything
-against regulation, or verify that a drawing is complete. A drawing takes its
-standing from what is on it and from who puts their name to it, never from the
-program that produced it — so the drawing, and the responsibility for it, is yours.
-"It came out of Wallgraph" is not a defence.
+Wallgraph processes entered dimensions. It does not measure buildings, verify
+regulatory compliance, or determine whether a drawing is accurate, complete or
+suitable for a particular purpose. The user is responsible for the drawing, its
+verification and its use.
 
-Some documents need a qualified person behind them: structural calculations, fire
-safety, and a NEN 2580 measurement report that will actually be accepted. Wallgraph
-computes areas *following* that convention, which is not the same as issuing the
-report.
+Some work requires review by an appropriately qualified person, including structural
+and fire-safety assessments. Wallgraph calculates areas using the selected convention;
+this is not the same as issuing a certified NEN 2580 measurement report.
 
 Full text: [plattegrond.crocode.nl/disclaimer/](https://plattegrond.crocode.nl/disclaimer/)
 ([English](https://plattegrond.crocode.nl/en/disclaimer/)).
