@@ -6,7 +6,7 @@
 // stays free of it: an app embedding the editor owns its own URL and its own
 // globals, and would not thank us for a `window.wallgraph` appearing beside it.
 import { mountWallgraph } from "./main";
-import { planFromHash, encodePlan, PLAN_PARAM } from "./io/link";
+import { planFromHash, encodePlan, hashWithoutPlan, PLAN_PARAM } from "./io/link";
 import { changeLanguage, language, LANGUAGES, type Lang } from "./i18n";
 import type { PlanDoc } from "./model/doc";
 
@@ -63,7 +63,17 @@ const editor = mountWallgraph(document.getElementById("app")!);
 // visitor's own drawing back, which is the difference between a link that
 // shows you something and a link that eats your work.
 const linked = planFromHash(location.hash);
-if (linked) editor.load(linked);
+if (linked) {
+  editor.load(linked);
+  // ...and the plan comes out of the URL once it is in the editor, because the
+  // replacement would otherwise happen again on every refresh: an hour of
+  // drawing gone to a link opened at the start of it. The autosave is what a
+  // reload restores from here on. Any other fragment key stays put.
+  try {
+    history.replaceState(null, "",
+      location.pathname + location.search + hashWithoutPlan(location.hash));
+  } catch { /* a sandboxed frame may refuse; the plan is loaded either way */ }
+}
 
 window.wallgraph = {
   version: VERSION,

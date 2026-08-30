@@ -2,7 +2,7 @@
 // can hand over in a chat message and an agent can construct without a browser,
 // so a round-trip that loses a field, or an unreadable payload that throws
 // instead of returning null, breaks the channel rather than degrading it.
-import { encodePlan, decodePlan, planFromHash, planLink } from "../src/io/link";
+import { encodePlan, decodePlan, planFromHash, hashWithoutPlan, planLink } from "../src/io/link";
 import { seedDoc } from "../src/seed";
 import type { PlanDoc } from "../src/model/doc";
 
@@ -46,6 +46,14 @@ ck("reads plan beside other keys", planFromHash(`#lang=en&plan=${payload}`) !== 
 ck("no plan key is not an error", planFromHash("#lang=en") === null);
 ck("empty hash is not an error", planFromHash("") === null);
 ck("truncated payload returns null", planFromHash(`#plan=${payload.slice(0, 40)}`) === null);
+
+// A link's plan lands once. Left in the address bar it would replace the
+// visitor's own drawing again on every refresh.
+ck("the plan comes out of the fragment", hashWithoutPlan(`#plan=${payload}`) === "");
+ck("what the visitor arrived with stays",
+  hashWithoutPlan(`#plan=${payload}&lang=en`) === "#lang=en", hashWithoutPlan(`#plan=${payload}&lang=en`));
+ck("a fragment without a plan is left alone", hashWithoutPlan("#lang=en") === "#lang=en");
+ck("no fragment stays no fragment", hashWithoutPlan("") === "");
 
 const link = planLink(doc, "https://plattegrond.crocode.nl/#plan=stale");
 ck("planLink replaces an existing fragment", link.split("#").length === 2, link.slice(0, 60));

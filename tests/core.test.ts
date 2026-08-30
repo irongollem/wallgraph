@@ -757,20 +757,49 @@ function rectFloor(wallTh = 100) {
     Math.abs((holders[0]?.openings[0]?.t ?? 0) - 2000) < 1, String(holders[0]?.openings[0]?.t));
 }
 {
-  // A junction may not cut through the span occupied by an opening. Doing so
-  // would put one or both jambs beyond the child wall that retains the record.
+  // A junction may not cut through the span occupied by an opening: that would
+  // put one or both jambs beyond the child wall that retains the record. What
+  // gives way is the weld, not the wall being drawn — a wall that never appears
+  // is worse than one that has to be moved off a doorway.
   const f = emptyDoc().floors[0]!;
   const a = nodeAt(f, v(0, 0)), b = nodeAt(f, v(4000, 0));
   const wall = insertWall(f, a.id, b.id, 100)[0]!;
   wall.openings.push({ id: newId("o"), kind: "door", t: 2000, width: 900,
     sashes: [{ action: "turn", hinge: "a" }] });
   const c = nodeAt(f, v(2000, -1000)), d = nodeAt(f, v(2000, 1000));
-  const before = f.walls.length;
   const made = insertWall(f, c.id, d.id, 100);
-  check("a wall crossing through an opening is rejected", made.length === 0);
-  check("the rejected crossing leaves the carrying wall whole",
-    f.walls.length === before && wallLength(f, wall) === 4000 && wall.openings[0]!.t === 2000,
-    JSON.stringify({ walls: f.walls.length, t: wall.openings[0]!.t }));
+  check("a wall crossing an opening is still drawn", made.length > 0, String(made.length));
+  check("the crossing leaves the carrying wall whole",
+    wallLength(f, wall) === 4000 && wall.openings.length === 1 && wall.openings[0]!.t === 2000,
+    JSON.stringify({ len: wallLength(f, wall), t: wall.openings[0]!.t }));
+}
+{
+  // The same rule inside a shape: every side of a rectangle drawn against a
+  // wall with a door in it goes in. Losing one silently is what put a hole in
+  // the top right of a real plan.
+  const f = emptyDoc().floors[0]!;
+  const top = insertWall(f, nodeAt(f, v(0, 0)).id, nodeAt(f, v(6000, 0)).id, 100)[0]!;
+  top.openings.push({ id: newId("o"), kind: "door", t: 5000, width: 900,
+    sashes: [{ action: "turn", hinge: "a" }] });
+  const rect = shapeRun("rect", v(3800, 0), v(5000, 1200))!;
+  insertRun(f, rect.points, rect.bulges, 100);
+  const has = (x0: number, y0: number, x1: number, y1: number): boolean =>
+    f.walls.some(w => {
+      const p = f.nodes.find(n => n.id === w.a)!, q = f.nodes.find(n => n.id === w.b)!;
+      return (near(p.x, x0, 1) && near(p.y, y0, 1) && near(q.x, x1, 1) && near(q.y, y1, 1))
+          || (near(q.x, x0, 1) && near(q.y, y0, 1) && near(p.x, x1, 1) && near(p.y, y1, 1));
+    });
+  check("the side that meets the door is drawn", has(5000, 0, 5000, 1200));
+  check("the far side is drawn", has(3800, 0, 3800, 1200));
+  check("the bottom is drawn", has(3800, 1200, 5000, 1200));
+  // The door itself may travel to the piece it sits on when the top wall is cut
+  // where the rectangle's far side meets it, but it stays one door, the same
+  // width, in the same place on the plan.
+  const doors = f.walls.flatMap(w => w.openings.map(o => ({ w, o })));
+  const at = doors[0] && f.nodes.find(n => n.id === doors[0]!.w.a)!.x + doors[0]!.o.t;
+  check("the door is untouched",
+    doors.length === 1 && doors[0]!.o.width === 900 && near(at ?? 0, 5000, 1),
+    JSON.stringify({ n: doors.length, at }));
 }
 {
   // The circle is four quarter arcs on one centre, not a many-sided polygon.

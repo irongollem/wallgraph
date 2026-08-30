@@ -267,12 +267,15 @@ export function insertWall(f: Floor, aId: Id, bId: Id, thickness: number, bulge 
     if (s > WELD_TOL && s < L - WELD_TOL) cuts.push(s);
   }
 
-  // A split through an opening would leave its jambs outside the child wall.
-  // Reject the insertion before splitting walls; moving or shrinking an
-  // authored opening silently would be worse than refusing this junction.
-  for (const [id, ts] of splits) {
+  // A split through an opening would leave its jambs outside the child wall, so
+  // that weld is dropped — but the wall being drawn still goes in. Refusing the
+  // whole insertion loses it silently, and a rectangle drawn across a door came
+  // out with one or two of its sides simply absent. A wall that lands in a
+  // doorway is a drawing to correct; one that never appeared is a drawing that
+  // cannot be. The opening is left exactly as it was authored either way.
+  for (const [id, ts] of [...splits]) {
     const w = f.walls.find(x => x.id === id);
-    if (w && !openingsFitCuts(w, wallLength(f, w), ts)) return [];
+    if (w && !openingsFitCuts(w, wallLength(f, w), ts)) splits.delete(id);
   }
 
   for (const [id, ts] of splits) {

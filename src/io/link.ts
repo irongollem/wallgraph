@@ -50,6 +50,21 @@ export function decodePlan(payload: string): PlanDoc | null {
 }
 
 /**
+ * The fragment with the plan taken out, `#` and all when nothing else is left.
+ *
+ * A link's plan replaces whatever the visitor had, so it must land once and not
+ * again: left in the address bar it would replay on every refresh and take an
+ * afternoon's drawing with it. Other keys — `lang` — are what the visitor chose
+ * to arrive with and stay.
+ */
+export function hashWithoutPlan(hash: string): string {
+  const rest = new URLSearchParams(hash.replace(/^#/, ""));
+  rest.delete(PLAN_PARAM);
+  const tail = rest.toString();
+  return tail ? "#" + tail : "";
+}
+
+/**
  * The document a URL fragment carries, or null when it carries none.
  *
  * Reads the fragment as a query string so `#plan=…&lang=nl` works and the order
