@@ -307,9 +307,18 @@ export function sashesOf(o: Opening, openingWidth: number): Array<Sash & { width
   return list.map(s => ({ ...s, width: s.width ?? each }));
 }
 
-/** Editable sash specifications, retaining omitted widths as automatic. */
+/**
+ * Editable sash specifications, retaining omitted widths as automatic.
+ *
+ * An opening that arrives without the array carries no panes rather than
+ * bringing the drawing down. This runs on every frame, for every opening, so a
+ * single document that does not match the type — pasted, linked, or written by
+ * something else — would otherwise throw mid-render and leave every wall after
+ * it, and the storey's rooms, symbols and stairs, undrawn with nothing said.
+ * No panes is a state the model already has: a passage has none.
+ */
 export function sashSpecsOf(o: Opening): Sash[] {
-  return o.sashes.map(s => ({ ...s }));
+  return Array.isArray(o.sashes) ? o.sashes.map(s => ({ ...s })) : [];
 }
 
 /**

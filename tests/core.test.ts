@@ -1,5 +1,7 @@
 // Engine sanity tests, run with tsx.
-import { emptyDoc, newId, Wall, GRID_DEFAULT_MM } from "../src/model/doc";
+import {
+  emptyDoc, newId, Wall, Opening, sashSpecsOf, sashesOf, GRID_DEFAULT_MM,
+} from "../src/model/doc";
 import { Store } from "../src/model/store";
 import { sashesOf, sashSpecsOf, doorKindOf, windowKindOf, DOOR_KINDS, WINDOW_KINDS, type Opening } from "../src/model/doc";
 import { detectRooms, rectSize, roomSize } from "../src/core/rooms";
@@ -741,6 +743,20 @@ function rectFloor(wallTh = 100) {
   check("a crossing wall splits what it crosses", f.walls.length === 9, String(f.walls.length));
   const areas = detectRooms(f).map(r => Math.round(r.areaMm2 / 1000));
   check("the room is divided in two", areas.length === 2 && areas.every(x => x === 6000), areas.join(","));
+}
+{
+  // A document that does not match the type must not stop the drawing. This is
+  // read for every opening on every frame, so one bad record used to throw
+  // mid-render and leave every wall after it — and the storey's rooms, symbols
+  // and stairs — undrawn, with nothing said anywhere.
+  const o = { id: "o1", kind: "window", t: 1000, width: 1200 } as unknown as Opening;
+  let threw = false;
+  let specs: unknown[] = [];
+  try { specs = sashSpecsOf(o); } catch { threw = true; }
+  check("an opening with no sashes carries no panes", !threw && specs.length === 0);
+  let widths: unknown[] = [];
+  try { widths = sashesOf(o, 1200); } catch { threw = true; }
+  check("and asks for no width either", !threw && widths.length === 0);
 }
 {
   // An opening on a wall that gets split travels with the piece it sits on.
