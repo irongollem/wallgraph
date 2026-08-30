@@ -4,3 +4,7 @@ graphify-out/
 
 # Local Netlify folder
 .netlify
+
+# Agent worktrees. Scoped rather than ignoring .claude/ wholesale, so shared
+# settings and hooks under it stay committable.
+.claude/worktrees/
