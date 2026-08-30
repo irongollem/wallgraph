@@ -36,10 +36,6 @@ export function resolveStair(f: Floor, s: Stair): ResolvedStair {
   return { ...s, rise: inheritsRise(s.kind) ? floorHeight(f) : stairDefaults(s.kind).rise };
 }
 
-export function isSpiral(kind: StairKind): boolean {
-  return kind === "spiltrap-recht" || kind === "spiltrap-rond" || kind === "wenteltrap";
-}
-
 /** Treads left over for the straight part, after the winders take theirs. */
 export function straightTreads(s: ResolvedStair): number {
   const q = quarters(s.kind);

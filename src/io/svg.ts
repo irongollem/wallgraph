@@ -12,7 +12,7 @@
 import { PlanDoc, Floor, areaModeOf, dimModeOf, stairsOf, videsOf, cabinetsOf, roomNamesOf } from "../model/doc";
 import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
-import { detectRooms, roomSize, sizeLabel } from "../core/rooms";
+import { detectRooms, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
 import { COLORS, symbolInk } from "../render/draw";
 import { stairBox } from "../core/stair";
@@ -224,8 +224,7 @@ export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
         parts.push(`<text x="${x}" y="${y(r.name === undefined ? 150 : 300)}" fill="${COLORS.dimension}" font-size="200">${esc(sizeLabel(size))}</text>`);
     }
     // Names that landed in no detected room still carry onto the sheet.
-    for (const rn of roomNamesOf(floor)) {
-      if (rooms.some(r => r.nameId === rn.id)) continue;
+    for (const rn of looseRoomNames(floor, rooms)) {
       parts.push(`<text x="${n(rn.x)}" y="${n(rn.y)}" font-weight="600">${esc(rn.name)}</text>`);
     }
     parts.push(`</g>`);

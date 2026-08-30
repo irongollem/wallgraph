@@ -84,7 +84,11 @@ export class Store {
       for (const st of copy.stairs ?? []) st.id = newId("t");
       for (const vd of copy.vides ?? []) vd.id = newId("v");
       for (const cb of copy.cabinets ?? []) cb.id = newId("k");
-      for (const rn of copy.roomNames ?? []) rn.id = newId("r");
+      // Room names do not come up with the walls. A name is authored, and it
+      // names the room below: an upper storey duplicated off the ground floor
+      // is a keuken and a woonkamer that have to be deleted one by one before
+      // the storey can be named at all.
+      copy.roomNames = [];
       d.floors.splice(this.activeFloor + 1, 0, copy);
     });
     this.activeFloor = Math.min(this.activeFloor + 1, this.doc.floors.length - 1);

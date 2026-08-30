@@ -84,8 +84,14 @@ export interface Stair {
   y: number;
   /** Radians, clockwise on screen. */
   rotation: number;
-  /** Handedness: which way a quarter or a spiral turns. */
+  /** Handedness: which way the stair's first turn goes. See stairTurns(). */
   mirrored?: boolean;
+  /**
+   * The second quarter turns against the first, so the stair doglegs instead of
+   * coming back beside itself. Only `onder-bovenkwart` turns twice; every other
+   * kind turns once or not at all, and `mirrored` is which way.
+   */
+  counterTurn?: boolean;
   width: number;
   going: number;
   treads: number;
@@ -118,6 +124,54 @@ export type ResolvedStair = Stair & { rise: number };
  */
 export function inheritsRise(kind: StairKind): boolean {
   return kind !== "hellingbaan";
+}
+
+/** Winding kinds: one continuous spiral rather than a flight with quarters. */
+export function isSpiral(kind: StairKind): boolean {
+  return kind === "spiltrap-recht" || kind === "spiltrap-rond" || kind === "wenteltrap";
+}
+
+/** Which way a turn reads on the drawing. Anticlockwise is linksom. */
+export type Turn = "ccw" | "cw";
+
+/**
+ * How many turns a kind makes. Zero leaves nothing to set: a steektrap goes one
+ * way. Only a quarter at each end turns twice, which is the one kind whose two
+ * turns can disagree.
+ */
+export function turnCount(kind: StairKind): number {
+  if (kind === "onder-bovenkwart") return 2;
+  const single = kind === "onderkwart" || kind === "bovenkwart" || kind === "bordestrap";
+  return single || isSpiral(kind) ? 1 : 0;
+}
+
+/** The turn an unmirrored drawing makes: a spiral winds clockwise, the rest turn anticlockwise. */
+function canonicalTurn(kind: StairKind): Turn { return isSpiral(kind) ? "cw" : "ccw"; }
+
+const opposite = (t: Turn): Turn => (t === "ccw" ? "cw" : "ccw");
+
+/**
+ * Which way each of the stair's turns goes, the foot of the flight first.
+ *
+ * A stair is specified as turning linksom or rechtsom rather than as being
+ * mirrored, so this is what the property pane offers. The first turn is
+ * `mirrored`, since a flight is symmetric about its own axis and mirroring it
+ * is exactly reversing that turn; `counterTurn` sets the second against it.
+ */
+export function stairTurns(s: Pick<Stair, "kind" | "mirrored" | "counterTurn">): Turn[] {
+  const n = turnCount(s.kind);
+  if (n === 0) return [];
+  const first = s.mirrored ? opposite(canonicalTurn(s.kind)) : canonicalTurn(s.kind);
+  return n === 1 ? [first] : [first, s.counterTurn ? opposite(first) : first];
+}
+
+/** Set turn `i`, leaving the stair's other turn pointing where it was. */
+export function setStairTurn(s: Stair, i: number, turn: Turn): void {
+  const want = stairTurns(s).map((was, j) => (j === i ? turn : was));
+  const first = want[0];
+  if (first === undefined) return;
+  s.mirrored = first !== canonicalTurn(s.kind);
+  if (want.length > 1) s.counterTurn = want[1] !== first;
 }
 
 export interface StairParams {

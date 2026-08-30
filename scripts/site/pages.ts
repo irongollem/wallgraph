@@ -247,9 +247,12 @@ er een eigen hoogte is ingevuld, wat een trap naar een entresol naast een vide n
 van 15 treden heeft 16 optreden, dus 2800 mm geeft een optrede van 175 en een loopvergelijking van 570.
 De treden, de looplijn, de pijl en de plaats van de breuklijn volgen daaruit. Het paneel zet de uitkomst
 naast de invoer en meldt in rood waar een maat buiten het gebruikelijke valt; Wallgraph toetst geen
-regelgeving. <kbd>R</kbd> draait een kwartslag en <kbd>M</kbd> spiegelt,
-ook vóór het plaatsen. De pijl wijst altijd van beneden naar boven; een trap die naar beneden gaat is
-dezelfde trap, omgedraaid.</p>
+regelgeving. <kbd>R</kbd> draait een kwartslag om het midden van de trap en <kbd>M</kbd> spiegelt, ook
+vóór het plaatsen. Een trap die draait heeft een draairichting in het paneel, linksom of rechtsom; bij
+een trap met onder- en bovenkwart staat elk kwart daar apart, zodat de trap boven naast zichzelf
+terugkomt of juist naar de andere kant verspringt. De pijl wijst altijd van beneden naar boven; een trap die naar beneden gaat is
+dezelfde trap, omgedraaid. Een trap op de verdieping eronder schemert door op de plattegrond erboven,
+want daar komt hij aan.</p>
 
 <h2 id="vides">Vides</h2>
 <p><kbd>H</kbd> plaatst een vide: een opening in de vloer, open naar de verdieping eronder. Een vide
@@ -272,7 +275,8 @@ gestreept</b>, zoals al het werk boven het snijvlak.</p>
 <p>De maten zijn de gangbare modulematen: 150, 200, 300, 400, 450, 500, 600, 800, 900, 1000 en 1200 mm,
 naast een intypbare maat voor een vulpaneel op maat. Een kast klikt vlak tegen de muur én tegen de kast
 ernaast, zodat een keukenopstelling als aaneengesloten rij ontstaat in plaats van stuk voor stuk op het
-oog uitgelijnd. <kbd>R</kbd> draait een kwartslag, <kbd>M</kbd> spiegelt de draairichting.</p>
+oog uitgelijnd. <kbd>R</kbd> draait een kwartslag om het midden van de kast, <kbd>M</kbd> spiegelt de
+draairichting van het front.</p>
 
 <h2 id="zoomen">Ruimtes in beeld en op naam</h2>
 <p><kbd>F</kbd> brengt de hele plattegrond in beeld, <kbd>Shift</kbd>+<kbd>F</kbd> de selectie. Beide
@@ -290,6 +294,11 @@ klikken — dat opent dezelfde regel. Een leeg veld haalt de naam weer weg.</p>
 de naam en de plaats waar die is gezet, en dat is dan ook wat wordt bewaard. Welke ruimte de naam draagt
 volgt uit dat punt. Verplaatst een muur zich zo dat het punt in de volgende ruimte valt, dan gaat de
 naam met het punt mee.</p>
+<p>Eén ruimte draagt één naam. Verdwijnt de muur tussen twee benoemde ruimtes, dan houdt de naam van
+de grootste van de twee de samengevoegde ruimte en vervalt de andere: die noemde een ruimte die er niet
+meer is. Muur en naam gaan in één stap, dus <kbd>Ctrl</kbd>+<kbd>Z</kbd> zet ze samen terug. Een naam
+die in helemaal geen ruimte valt blijft wél staan waar hij is geschreven: dat is wat een open ruimte of
+een nog niet gesloten muurlus nodig heeft.</p>
 <p>De naam komt boven de oppervlakte te staan en gaat mee in PNG, SVG en DXF.</p>
 
 <h2 id="ruimtes">Ruimtes en maten</h2>
@@ -329,7 +338,7 @@ applicatieserver vereist. De plattegrond blijft na het sluiten van het tabblad b
 <tr><td><kbd>Shift</kbd></td><td>hoek vasthouden tijdens het tekenen</td></tr>
 <tr><td><kbd>G</kbd></td><td>rastersnapping aan/uit</td></tr>
 <tr><td><kbd>L</kbd></td><td>maatlijnen aan/uit</td></tr>
-<tr><td><kbd>R</kbd> <kbd>M</kbd></td><td>roteren, spiegelen</td></tr>
+<tr><td><kbd>R</kbd> <kbd>M</kbd></td><td>roteren om het midden, spiegelen</td></tr>
 <tr><td><kbd>Del</kbd></td><td>selectie verwijderen</td></tr>
 <tr><td><kbd>Enter</kbd></td><td>muurketen sluiten (zonder getypte lengte)</td></tr>
 <tr><td><kbd>Esc</kbd></td><td>afbreken / keten afsluiten</td></tr>
@@ -400,9 +409,12 @@ states one of its own, which a flight up to a mezzanine beside a void needs. A f
 16 risers, so a 2800 mm storey gives a 175 riser and a walking rule of 570. The treads, the walking
 line, the arrow and where the break line falls all follow from that. The panel puts the results beside
 the inputs and states in red where a figure falls outside the ordinary; Wallgraph does not check
-regulations. <kbd>R</kbd> turns a
-quarter and <kbd>M</kbd> mirrors, before placing as well as after. The arrow always points from the
-bottom of the flight to the top; a stair going down is the same stair, turned around.</p>
+regulations. <kbd>R</kbd> turns a quarter about the middle of the stair and <kbd>M</kbd> mirrors,
+before placing as well as after. A stair that turns states its direction in the panel, clockwise or
+anticlockwise; a stair with a quarter at each end sets each quarter on its own, so it either comes
+back beside itself at the top or leaves to the other side. The arrow always points from the bottom of
+the flight to the top; a stair going down is the same stair, turned around. A flight on the storey
+below shows through faintly on the plan above it, which is where it arrives.</p>
 
 <h2 id="voids">Vides</h2>
 <p><kbd>H</kbd> places a vide: an opening in the floor, open to the storey below. A vide belongs to the
@@ -423,7 +435,7 @@ solid; <b>wall units hang entirely above it and are therefore drawn dashed</b>, 
 <p>The sizes offered are the standard module widths: 150, 200, 300, 400, 450, 500, 600, 800, 900, 1000
 and 1200 mm, beside a typed width for a filler cut to size. A cabinet snaps flush to a wall and to the
 unit beside it, so a kitchen comes out as a continuous run rather than a line of units aligned by eye.
-<kbd>R</kbd> turns a quarter, <kbd>M</kbd> flips the hinge side.</p>
+<kbd>R</kbd> turns a quarter about the middle of the unit, <kbd>M</kbd> flips the hinge side.</p>
 
 <h2 id="zoom">Framing and naming rooms</h2>
 <p><kbd>F</kbd> fits the whole plan, <kbd>Shift</kbd>+<kbd>F</kbd> the selection. Both work in any tool.
@@ -439,6 +451,11 @@ same row. An empty field takes the name off again.</p>
 <p>Rooms themselves are derived from the walls and are not in the document; what was authored is the
 name and the point it was written at, so that is what is stored. Which room carries the name follows
 from that point. Move a wall so the point falls in the next room and the name goes with the point.</p>
+<p>One room carries one name. Take out the wall between two named rooms and the name of the larger of
+the two keeps the room that results; the other is deleted, because the room it named is gone. The wall
+and the name go in one step, so <kbd>Ctrl</kbd>+<kbd>Z</kbd> brings both back. A name that falls in no
+room at all does keep drawing where it was written, which is what an open-plan space or a wall loop
+that is not closed yet needs.</p>
 <p>The name sits above the area figure and carries into PNG, SVG and DXF.</p>
 
 <h2 id="rooms">Rooms and dimensions</h2>
@@ -478,7 +495,7 @@ server. The plan remains available after the tab is closed.</p>
 <tr><td><kbd>Shift</kbd></td><td>hold the angle while drawing</td></tr>
 <tr><td><kbd>G</kbd></td><td>grid snap on/off</td></tr>
 <tr><td><kbd>L</kbd></td><td>dimension lines on/off</td></tr>
-<tr><td><kbd>R</kbd> <kbd>M</kbd></td><td>rotate, mirror</td></tr>
+<tr><td><kbd>R</kbd> <kbd>M</kbd></td><td>rotate about the middle, mirror</td></tr>
 <tr><td><kbd>Del</kbd></td><td>delete the selection</td></tr>
 <tr><td><kbd>Enter</kbd></td><td>close the wall chain (with no length typed)</td></tr>
 <tr><td><kbd>Esc</kbd></td><td>cancel / end the chain</td></tr>

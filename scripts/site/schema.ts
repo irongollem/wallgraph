@@ -282,7 +282,14 @@ export function planSchema(siteUrl: string): JsonSchema {
           x: mm("mm."),
           y: mm("mm, positive down."),
           rotation: { type: "number", description: "Radians, clockwise on screen." },
-          mirrored: { type: "boolean", description: "Handedness: which way a quarter or a spiral turns." },
+          mirrored: { type: "boolean", description: "Handedness: which way the stair's first turn goes." },
+          counterTurn: {
+            type: "boolean",
+            description:
+              "The second quarter turns against the first, so a stair with a quarter at " +
+              "each end doglegs instead of coming back beside itself. Only onder-bovenkwart " +
+              "turns twice; every other kind reads mirrored alone.",
+          },
           width: { type: "integer", minimum: 200, description: "mm across the flight; for a spiral, newel to rim." },
           going: { type: "integer", minimum: 50, description: "mm per tread along the walking line (aantrede)." },
           treads: { type: "integer", minimum: 1, description: "Treads drawn." },

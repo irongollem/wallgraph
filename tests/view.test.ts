@@ -7,7 +7,10 @@
 // derived room it belongs to.
 import { Viewport, MIN_PX_PER_MM, MAX_PX_PER_MM, clampZoom } from "../src/render/viewport";
 import { planBounds, polyBounds } from "../src/core/bounds";
-import { detectRooms, roomAnchor, roomKey, unattachedRoomNames } from "../src/core/rooms";
+import {
+  detectRooms, roomAnchor, roomKey, unattachedRoomNames, looseRoomNames, orphanedRoomNames,
+} from "../src/core/rooms";
+import { deleteRoomNames } from "../src/model/ops";
 import { resolveFloor } from "../src/core/resolve";
 import { emptyDoc, newId, roomNamesOf, Floor } from "../src/model/doc";
 import { ROOM_NAMES } from "../src/model/room";
@@ -200,6 +203,76 @@ function box(f: Floor, x0: number, y0: number, x1: number, y1: number, thickness
   const rooms = detectRooms(f);
   check("a room takes one name", rooms.filter(r => r.name !== undefined).length === 1);
   check("the first name written wins", rooms[0]!.nameId === a, String(rooms[0]!.nameId));
+  // The loser is not drawn on top of the winner: a room that has a name does
+  // not also carry a second word floating in it. It stays stored, and stays in
+  // the pane's list, so it can be edited or deleted there.
+  check("the name that lost the room is not drawn", looseRoomNames(f, rooms).length === 0,
+    looseRoomNames(f, rooms).map(rn => rn.name).join(","));
+  check("but it is still listed as unattached",
+    unattachedRoomNames(f, rooms).map(rn => rn.id).join() === b);
+  check("and it is still in the document", roomNamesOf(f).length === 2);
+}
+
+{
+  // Taking out the wall between two named rooms leaves one room, so one of the
+  // two names has nothing left to name. This is the case that put a stray "Hal"
+  // in the middle of a merged room.
+  const doc = emptyDoc(), f = doc.floors[0]!;
+  // The outer loop carries the two nodes the divider meets, so the split is a
+  // junction in the graph rather than a wall crossing another one's middle. The
+  // two rooms are deliberately unequal: 4000 wide against 2000.
+  loop(f, [v(0, 0), v(4000, 0), v(6000, 0), v(6000, 3000), v(4000, 3000), v(0, 3000)]);
+  const top = f.nodes.find(n => n.x === 4000 && n.y === 0)!;
+  const bottom = f.nodes.find(n => n.x === 4000 && n.y === 3000)!;
+  const wall = { id: newId("w"), a: top.id, b: bottom.id, thickness: 100, bulge: 0, openings: [] };
+  f.walls.push(wall);
+  // The small room's name is written FIRST, so document order would keep it and
+  // only the room sizes can pick the other.
+  const hal = newId("r"), werk = newId("r");
+  f.roomNames = [
+    { id: hal, x: 5000, y: 1500, name: "Hal" },
+    { id: werk, x: 2000, y: 1500, name: "Werkplaats" },
+  ];
+  const before = detectRooms(f);
+  check("the divider makes two rooms", before.length === 2, String(before.length));
+  check("both names draw while the wall stands",
+    before.filter(r => r.name !== undefined).length === 2 && looseRoomNames(f, before).length === 0);
+  check("nothing is orphaned while both rooms exist",
+    orphanedRoomNames(f, before).length === 0);
+
+  f.walls = f.walls.filter(w => w.id !== wall.id);
+  const orphans = orphanedRoomNames(f, before);
+  check("the smaller room's name is the one that goes",
+    orphans.join() === hal, orphans.join());
+  deleteRoomNames(f, orphans);
+  check("and it is gone from the document",
+    roomNamesOf(f).map(rn => rn.name).join() === "Werkplaats",
+    roomNamesOf(f).map(rn => rn.name).join());
+
+  const merged = detectRooms(f);
+  check("removing the divider leaves one room", merged.length === 1, String(merged.length));
+  check("the merged room carries the surviving name", merged[0]!.name === "Werkplaats");
+  check("a name outside every room still draws",
+    looseRoomNames({ ...f, roomNames: [{ id: newId("r"), x: 20000, y: 0, name: "Schuur" }] },
+      merged).length === 1);
+}
+
+{
+  // A word left over from an earlier layout must not take the room off the name
+  // that actually holds it, however the two are ordered in the document.
+  const doc = emptyDoc(), f = doc.floors[0]!;
+  box(f, 0, 0, 4000, 3000);
+  const stale = newId("r"), live = newId("r");
+  f.roomNames = [
+    { id: stale, x: 500, y: 500, name: "Berging" },
+    { id: live, x: 2000, y: 1500, name: "Woonkamer" },
+  ];
+  // Nothing named anything before: neither has a size to stand on, so the first
+  // written keeps the room and the drawing still shows one name.
+  const orphans = orphanedRoomNames(f, []);
+  check("a room with two names loses one either way", orphans.join() === live, orphans.join());
+  deleteRoomNames(f, orphans);
+  check("one name is left", roomNamesOf(f).length === 1);
 }
 
 {

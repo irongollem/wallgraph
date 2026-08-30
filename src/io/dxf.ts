@@ -19,7 +19,7 @@
 import { PlanDoc, Floor, areaModeOf, dimModeOf, stairsOf, videsOf, cabinetsOf, roomNamesOf } from "../model/doc";
 import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
-import { detectRooms, roomSize, sizeLabel } from "../core/rooms";
+import { detectRooms, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
 import { recordSymbol, Prim } from "./record";
 import { openingMarks } from "./marks";
@@ -260,8 +260,7 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
       // DXF text is written as plain ASCII, so the clear size takes an x.
       if (size) w.text(LAYER.rooms, at(r.name === undefined ? 150 : 300), 200, sizeLabel(size, "x"));
     }
-    for (const rn of roomNamesOf(floor)) {
-      if (rooms.some(r => r.nameId === rn.id)) continue;
+    for (const rn of looseRoomNames(floor, rooms)) {
       w.text(LAYER.rooms, { x: rn.x, y: rn.y }, 220, rn.name);
     }
   });

@@ -43,3 +43,20 @@ export function worldPoint(p: Placed, local: Vec): Vec {
   const lx = p.mirrored ? -local.x : local.x;
   return v(p.x + lx * cos - local.y * sin, p.y + lx * sin + local.y * cos);
 }
+
+/**
+ * Where the anchor has to move to for the object to turn to `rotation` about
+ * the middle of its box instead of about the anchor itself.
+ *
+ * A stair and a cabinet are anchored to the edge that meets the wall, so
+ * turning one about its anchor swings the whole object across the plan: a
+ * quarter turn moves it as well as pointing it elsewhere. Turning about the
+ * middle leaves it where it was put. Whole millimetres, per the document's
+ * integer rule.
+ */
+export function turnAbout(p: Placed, b: LocalBox, rotation: number): { x: number; y: number } {
+  const mid = v((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2);
+  const at = worldPoint(p, mid);
+  const after = worldPoint({ x: 0, y: 0, rotation, mirrored: p.mirrored }, mid);
+  return { x: Math.round(at.x - after.x), y: Math.round(at.y - after.y) };
+}

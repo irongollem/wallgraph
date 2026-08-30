@@ -16,6 +16,7 @@ import {
   cabinetFrontBand, cabinetHingeMarks, cabinetDrawerLines, cabinetWorktopEdge,
   cabinetLabelAt, cornerCut,
 } from "../src/core/cabinet";
+import { turnAbout } from "../src/core/placed";
 import { cabinetPrims } from "../src/io/cabinet";
 import { Prim } from "../src/io/record";
 import { Vec, v } from "../src/geometry/vec";
@@ -69,6 +70,25 @@ function points(prims: Prim[]): Vec[] {
   check("the hit-test follows the rotation",
     cabinetHit(turned, v(-300, 0)) && !cabinetHit(turned, v(300, 0)),
     JSON.stringify(cabinetCorners(turned)));
+}
+
+{
+  // A unit is anchored to the edge that meets the wall, so a turn about the
+  // anchor would swing it a full depth across the room.
+  const middle = (c: Cabinet): Vec => {
+    const cs = cabinetCorners(c);
+    return v(cs.reduce((a, q) => a + q.x, 0) / cs.length, cs.reduce((a, q) => a + q.y, 0) / cs.length);
+  };
+  const c = mk({ x: 2000, y: -500 });
+  const before = middle(c);
+  for (const angle of [Math.PI / 2, Math.PI, 2.4]) {
+    const t: Cabinet = { ...c, ...turnAbout(c, cabinetBox(c), angle), rotation: angle };
+    const after = middle(t);
+    check(`a unit turned to ${angle.toFixed(2)} rad stays where it was`,
+      Math.hypot(after.x - before.x, after.y - before.y) <= 1,
+      `${Math.round(after.x - before.x)},${Math.round(after.y - before.y)}`);
+    check(`a turned unit keeps whole millimetres`, Number.isInteger(t.x) && Number.isInteger(t.y));
+  }
 }
 
 {

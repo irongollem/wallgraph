@@ -304,8 +304,15 @@ function rectFloor(wallTh = 100) {
     f.nodes.push(a, b);
     f.walls.push({ id: newId("w"), a: a.id, b: b.id, thickness: 100, bulge: 0, openings: [] });
   });
+  st.mutate(d => {
+    const f = st.floorOf(d);
+    f.roomNames = [{ id: newId("r"), x: 500, y: 100, name: "Woonkamer" }];
+  });
   st.duplicateFloor("Copy");
   const src = st.doc.floors[0]!, copy = st.doc.floors[1]!;
+  check("a duplicate carries the walls up", copy.walls.length === src.walls.length);
+  check("a duplicate leaves the room names behind",
+    (copy.roomNames ?? []).length === 0 && (src.roomNames ?? []).length === 1);
   const shared = copy.nodes.some(n => src.nodes.some(m => m.id === n.id))
               || copy.walls.some(w => src.walls.some(x => x.id === w.id));
   check("duplicate re-ids everything", !shared);

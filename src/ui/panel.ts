@@ -1,8 +1,8 @@
 // Rail, storey/palette/property pane, and status bar. Plain DOM.
 import { Store, type Selection } from "../model/store";
-import { roomKey, type Room } from "../core/rooms";
+import { roomKey, orphanedRoomNames, type Room } from "../core/rooms";
 import { Tools, ToolName } from "../input/tools";
-import { clampOpening, wallLength, deleteWall } from "../model/ops";
+import { clampOpening, wallLength, deleteWall, deleteRoomNames } from "../model/ops";
 import type { SymbolDef } from "../render/symbols";
 import { sagittaFromBulge, bulgeFromSagitta } from "../geometry/arc";
 import { v, norm, sub, add, scale } from "../geometry/vec";
@@ -1215,7 +1215,15 @@ export class Panel {
           wall.bulge = bulgeFromSagitta(v(aa.x, aa.y), v(bb.x, bb.y), n);
         });
       }, 50);
-      dangerRow(t("panel.deleteWall"), () => { this.store.mutate(d => deleteWall(this.store.floorOf(d), sel.id)); this.store.select(null); });
+      dangerRow(t("panel.deleteWall"), () => {
+        const before = this.tools.rooms();
+        this.store.mutate(d => {
+          const f = this.store.floorOf(d);
+          deleteWall(f, sel.id);
+          deleteRoomNames(f, orphanedRoomNames(f, before));
+        });
+        this.store.select(null);
+      });
       if (this.tools.tool === "wall") renderWallTool(p, this.tools, rows, () => this.refreshToolbar());
       return;
     }

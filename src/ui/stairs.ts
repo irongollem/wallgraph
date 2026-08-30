@@ -10,11 +10,13 @@ import { Tools } from "../input/tools";
 import { stairsOf, floorHeight } from "../model/doc";
 import {
   Stair, ResolvedStair, StairKind, STAIR_KINDS, stairDefaults, stairFields, stairParams,
-  clampStair, stairAngle, inheritsRise, type StairParams,
+  clampStair, stairAngle, inheritsRise, stairTurns, setStairTurn, turnCount,
+  type StairParams, type Turn,
 } from "../model/stair";
 import {
   stairBox, stairMetrics, gradient, resolveStair, stairIssues, STAIR_LIMITS,
 } from "../core/stair";
+import { turnAbout } from "../core/placed";
 import { getStair } from "../render/stairs";
 import { COLORS } from "../render/draw";
 import { t } from "../i18n";
@@ -147,6 +149,8 @@ export function renderStairProps(store: Store, tools: Tools, rows: PaneRows, id:
       // nothing to a steektrap, and a spiltrap without one has no newel.
       if (stairFields(kind).well) s.well = s.well ?? stairDefaults(kind).well;
       else delete s.well;
+      // Likewise the second turn: only a quarter at each end has one.
+      if (turnCount(kind) < 2) delete s.counterTurn;
       // A ramp never inherits a storey height, so it needs one of its own.
       if (!inheritsRise(kind) && s.rise === undefined) s.rise = stairDefaults(kind).rise;
     }));
@@ -164,18 +168,51 @@ export function renderStairProps(store: Store, tools: Tools, rows: PaneRows, id:
     rows.btnRow(t("panel.stairFollowStorey"), () => mut(s => { delete s.rise; }));
   }
 
+  // Turning about the middle of the footprint rather than about the anchor,
+  // which sits on the edge that meets the wall; see turnAbout().
+  const box = stairBox(stair);
   rows.numRow(t("panel.rotation"), (stair.rotation * 180) / Math.PI,
-    n => mut(s => { s.rotation = stairAngle((n * Math.PI) / 180); }), 15, { snap: snapAngle });
+    n => mut(s => {
+      const turned = stairAngle((n * Math.PI) / 180);
+      Object.assign(s, turnAbout(s, box, turned));
+      s.rotation = turned;
+    }), 15, { snap: snapAngle });
   // Arming the pen alongside, as the symbol pane does: recolouring one stair is
   // usually part of marking a whole storey's new work.
   rows.colorRow(t("panel.color"), stair.color ?? null, hex => {
     tools.symbolColor = hex;
     mut(s => { if (hex) s.color = hex; else delete s.color; }, "color:" + id);
   });
-  rows.btnRow(t("panel.mirror"), () => mut(s => { s.mirrored = !s.mirrored; }), t("panel.mirrorTitle"), "M");
+  turnRows(rows, stair, mut);
   metricRows(rows, stair);
   rows.noteRow(t("panel.stairNote"));
   rows.dangerRow(t("panel.deleteOpening"), () => tools.deleteSelected());
+}
+
+/**
+ * Which way the stair turns.
+ *
+ * A stair that turns is specified as turning linksom or rechtsom, so the
+ * handedness is offered in those words rather than as a mirror — and a stair
+ * with a quarter at each end sets each quarter on its own, which is the
+ * difference between a flight that comes back beside itself and one that
+ * doglegs. M still flips the stair as a whole, reversing both at once. A kind
+ * that does not turn keeps the plain mirror, which is all its handedness means.
+ */
+function turnRows(rows: PaneRows, s: ResolvedStair, mut: (fn: (s: Stair) => void) => void): void {
+  const turns = stairTurns(s);
+  if (turns.length === 0) {
+    rows.btnRow(t("panel.mirror"), () => mut(x => { x.mirrored = !x.mirrored; }),
+      t("panel.mirrorTitle"), "M");
+    return;
+  }
+  const options: Array<[string, string]> = [["ccw", t("panel.turnCcw")], ["cw", t("panel.turnCw")]];
+  const label = (i: number): string => turns.length === 1
+    ? t("panel.stairTurn")
+    : t(i === 0 ? "panel.stairTurnBottom" : "panel.stairTurnTop");
+  turns.forEach((turn, i) => {
+    rows.selRow(label(i), turn, options, value => mut(x => setStairTurn(x, i, value as Turn)));
+  });
 }
 
 /**

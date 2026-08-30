@@ -206,6 +206,57 @@ export function unattachedRoomNames(f: Floor, rooms: Room[]): RoomName[] {
 }
 
 /**
+ * The names a wall edit has left with nothing to name: their ids, for the edit
+ * to delete.
+ *
+ * Taking out the wall between a hal and a werkplaats leaves one room, and both
+ * names then fall inside it. That is not a merge — one of the two named a room
+ * that no longer exists — so the name of the larger of the two keeps the space
+ * and the other is finished. It is the reading most likely to be right, and
+ * whoever is drawing corrects it in one edit either way.
+ *
+ * `before` is the room set as it stood before the edit, which is where the
+ * sizes come from: afterwards there is nothing left to compare. A name that
+ * named no room before ranks below every name that did, so a word left over
+ * from an earlier layout never takes the room off the name that held it.
+ */
+export function orphanedRoomNames(f: Floor, before: Room[]): Id[] {
+  const names = roomNamesOf(f);
+  if (names.length < 2) return [];
+  const was = new Map<Id, number>();
+  for (const r of before) if (r.nameId !== undefined) was.set(r.nameId, r.areaMm2);
+  const dead: Id[] = [];
+  for (const room of detectRooms(f)) {
+    const inside = names.filter(rn => pointInPolygon(v(rn.x, rn.y), room.netPoly));
+    if (inside.length < 2) continue;
+    const keep = inside.reduce((a, b) => ((was.get(b.id) ?? -1) > (was.get(a.id) ?? -1) ? b : a));
+    for (const rn of inside) if (rn.id !== keep.id) dead.push(rn.id);
+  }
+  return dead;
+}
+
+/**
+ * The stored names that draw on their own, where they were written: the ones
+ * that name no detected room. An open-plan space and a room whose walls are not
+ * closed yet need that.
+ *
+ * A name whose point has ended up inside a room another name already took is
+ * left out. Two names in one room is a mistake rather than a merge — see
+ * attachNames() — and drawing the second beside the first states it as a room
+ * that is not there: take out the wall between a hal and a werkplaats and the
+ * one room that results carries one name, not two. The word stays in the
+ * document and stays listed in the room pane, so it can be edited or deleted
+ * there, and it draws again the moment the wall comes back.
+ *
+ * The canvas, the SVG and the DXF all label a plan from this, so they cannot
+ * disagree about which words are on it.
+ */
+export function looseRoomNames(f: Floor, rooms: Room[]): RoomName[] {
+  return unattachedRoomNames(f, rooms).filter(rn =>
+    !rooms.some(r => r.name !== undefined && pointInPolygon(v(rn.x, rn.y), r.netPoly)));
+}
+
+/**
  * A room's identity between two renders. Rooms are derived and carry no id, so
  * the panel keys its rows on the one thing a rename cannot change: where the
  * room sits. Moving a wall changes the key, which is correct — that is a

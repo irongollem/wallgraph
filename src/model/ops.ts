@@ -1,7 +1,7 @@
 // Graph-maintenance operations shared by tools: node reuse, wall splitting,
 // welded wall insertion, opening placement bounds, orphan cleanup. All take the
 // floor mutably; callers wrap them in store.mutate().
-import { Floor, PlanNode, Wall, Opening, Id, newId } from "./doc";
+import { Floor, PlanNode, Wall, Opening, Id, newId, roomNamesOf } from "./doc";
 import { Vec, dist, distToSeg, v, add, sub, scale, dot, cross, norm, perp, lineIntersect } from "../geometry/vec";
 import { arcLength, arcPointAt, arcFlatten } from "../geometry/arc";
 
@@ -339,4 +339,15 @@ function dedupe(values: number[], tol = WELD_TOL): number[] {
     if (out.length === 0 || x - out[out.length - 1]! > tol) out.push(x);
   }
   return out;
+}
+
+/**
+ * Remove stored room names by id. What a wall edit hands in is the names its
+ * merge left with nothing to name; see orphanedRoomNames() in core/rooms.ts for
+ * which those are and why the larger room's name is the one that stays.
+ */
+export function deleteRoomNames(f: Floor, ids: readonly Id[]): void {
+  if (ids.length === 0) return;
+  const dead = new Set(ids);
+  f.roomNames = roomNamesOf(f).filter(rn => !dead.has(rn.id));
 }

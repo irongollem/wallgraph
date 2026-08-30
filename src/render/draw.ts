@@ -1,14 +1,14 @@
 // Full scene render. Immediate mode: redraw everything on change (documents at
 // this scale render in well under a frame). Layers: grid, rooms, walls,
 // opening decorations, symbols, selection, labels (labels in screen space).
-import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, videsOf, cabinetsOf, roomNamesOf, fireLabel } from "../model/doc";
+import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, videsOf, cabinetsOf, fireLabel } from "../model/doc";
 import { Resolved, OpeningGeom } from "../core/resolve";
-import { Room, roomSize, sizeLabel } from "../core/rooms";
+import { Room, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
 import { Selection } from "../model/store";
 import { Viewport } from "./viewport";
 import { Vec, add, sub, scale, perp, v, angleOf, dist, fromAngle } from "../geometry/vec";
 import { getSymbol } from "./symbols";
-import { drawStair } from "./stair";
+import { drawStair, drawStairGhost } from "./stair";
 import { drawVide } from "./vide";
 import { drawCabinet } from "./cabinet";
 import { ROOM_NAME_PX } from "../model/room";
@@ -83,14 +83,20 @@ export function symbolInk(s: { color?: string }): string {
   return s.color && HEX.test(s.color) ? s.color : COLORS.symbol;
 }
 
+/**
+ * The storey below, drawn faintly beneath the active one: its resolved walls,
+ * to line storeys up, and the floor itself for the flight that climbs out of
+ * it. Never hit-tested or selectable, so an underlay can't be edited by
+ * accident, and it carries no room names — those name the rooms below.
+ */
+export interface Underlay {
+  floor: Floor;
+  resolved: Resolved;
+}
+
 export interface DrawExtras {
   hoverSnap?: Vec | null;
-  /**
-   * The storey below, drawn faintly beneath the active one so walls can be
-   * lined up between floors. Resolved geometry only — it is never hit-tested
-   * or selectable, so an underlay can't be edited by accident.
-   */
-  ghost?: Resolved | null;
+  ghost?: Underlay | null;
   /** False for exports: no grid, and no legend describing one. */
   showGrid?: boolean;
   preview?: ((ctx: CanvasRenderingContext2D, vp: Viewport) => void) | null;
@@ -133,15 +139,24 @@ export function drawScene(
 
   // Ghost underlay first, so the active storey draws over it.
   if (extras.ghost) {
+    const under = extras.ghost;
     ctx.save();
     ctx.globalAlpha = 0.28;
-    for (const rw of extras.ghost.walls.values()) {
+    for (const rw of under.resolved.walls.values()) {
       for (const piece of rw.pieces) {
         ctx.beginPath();
         tracePoly(ctx, piece.poly);
         ctx.fillStyle = COLORS.ghost;
         ctx.fill();
       }
+    }
+    // The flight from the storey below arrives on this one, so where it lands
+    // and what this floor has to leave open for it are facts about this plan.
+    // A stair climbs to the floor above by definition, so every one of them
+    // belongs in the underlay. drawStairGhost sets its own transparency inside
+    // its save, which leaves the wall wash above untouched.
+    for (const st of stairsOf(under.floor)) {
+      drawStairGhost(ctx, resolveStair(under.floor, st), COLORS.ghost);
     }
     ctx.restore();
   }
@@ -205,7 +220,6 @@ export function drawScene(
   // Room labels (constant px size): the name over the area, where one has been
   // written. Screen-space, so a plan stays readable at any zoom.
   ctx.textAlign = "center";
-  const named = new Set<string>();
   for (const r of rooms) {
     const c = vp.toScreen(r.centroid);
     // Which number this is, is stated in the legend — a bare "12.0 m²" that
@@ -223,7 +237,6 @@ export function drawScene(
       ctx.font = "12px system-ui, sans-serif";
       ctx.fillText(area, c.x, c.y - lift);
     } else {
-      if (r.nameId) named.add(r.nameId);
       ctx.font = `600 ${ROOM_NAME_PX}px system-ui, sans-serif`;
       ctx.fillText(r.name, c.x, c.y - 8 - lift);
       ctx.font = "12px system-ui, sans-serif";
@@ -238,8 +251,7 @@ export function drawScene(
   ctx.fillStyle = COLORS.roomLabel;
   // A name whose point falls in no detected room still draws where it was
   // written: an open-plan space, or a room whose walls are not yet closed.
-  for (const rn of roomNamesOf(floor)) {
-    if (named.has(rn.id)) continue;
+  for (const rn of looseRoomNames(floor, rooms)) {
     const at = vp.toScreen({ x: rn.x, y: rn.y });
     ctx.font = `600 ${ROOM_NAME_PX}px system-ui, sans-serif`;
     ctx.fillText(rn.name, at.x, at.y);

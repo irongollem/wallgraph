@@ -14,6 +14,7 @@ import {
   cabinetHinge, cabinetHeight, cabinetDrawers, clampCabinet,
 } from "../model/cabinet";
 import { cabinetBox } from "../core/cabinet";
+import { turnAbout } from "../core/placed";
 import { cabinetMark } from "../render/cabinet";
 import { stairAngle } from "../model/stair";
 import { COLORS } from "../render/draw";
@@ -126,8 +127,15 @@ export function renderCabinetProps(store: Store, tools: Tools, rows: PaneRows, i
     if (next.worktop) c.worktop = true; else delete c.worktop;
   }));
 
+  // About the middle of the unit rather than about the anchor, which sits on
+  // the edge that meets the wall; see turnAbout().
+  const box = cabinetBox(cab);
   rows.numRow(t("panel.rotation"), (cab.rotation * 180) / Math.PI,
-    n => mut(c => { c.rotation = stairAngle((n * Math.PI) / 180); }), 15, { snap: snapAngle });
+    n => mut(c => {
+      const turned = stairAngle((n * Math.PI) / 180);
+      Object.assign(c, turnAbout(c, box, turned));
+      c.rotation = turned;
+    }), 15, { snap: snapAngle });
   rows.textRow(t("panel.cabinetLabel"), cab.label ?? "",
     s => mut(c => { const v = s.trim(); if (v) c.label = v; else delete c.label; }));
   rows.colorRow(t("panel.color"), cab.color ?? null, hex => {

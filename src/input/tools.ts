@@ -16,7 +16,7 @@ import {
 } from "../model/cabinet";
 import {
   nodeAt, splitWall, nearestWall, wallOnRay, wallLength, mergeNodes, deleteWall, clampOpening,
-  cleanOrphanNodes, insertWall, insertRun, MIN_WALL_MM,
+  cleanOrphanNodes, insertWall, insertRun, deleteRoomNames, MIN_WALL_MM,
 } from "../model/ops";
 import {
   WallShape, WALL_SHAPES, ShapeRun, shapeRun, clampSides, POLYGON_DEFAULT_SIDES,
@@ -30,9 +30,10 @@ import { drawStairGhost } from "../render/stair";
 import { videHit, videCorners } from "../core/vide";
 import { drawVideGhost } from "../render/vide";
 import { cabinetHit, cabinetBox, cabinetCorners } from "../core/cabinet";
+import { turnAbout } from "../core/placed";
 import { drawCabinetGhost } from "../render/cabinet";
 import { planBounds, polyBounds, Bounds } from "../core/bounds";
-import { Room, roomAnchor } from "../core/rooms";
+import { Room, roomAnchor, orphanedRoomNames } from "../core/rooms";
 import { drawLabel, COLORS, symbolInk } from "../render/draw";
 import { Resolved, ResolvedWall } from "../core/resolve";
 import { dimensionChains, DimChain } from "../core/dimensions";
@@ -915,6 +916,7 @@ export class Tools {
    */
   private finishDrag(d: DragState): void {
     if (d.kind !== "node" || !d.moved) return;
+    const before = this.rooms();
     this.store.mutate(doc => {
       const f = this.store.floorOf(doc);
       const me = f.nodes.find(n => n.id === d.id);
@@ -922,6 +924,9 @@ export class Tools {
       for (const n of f.nodes) {
         if (n.id !== me.id && dist(v(n.x, n.y), v(me.x, me.y)) <= 1) { mergeNodes(f, n.id, me.id); break; }
       }
+      // Welding two nodes can collapse the wall between two rooms, which merges
+      // them exactly as deleting that wall would.
+      deleteRoomNames(f, orphanedRoomNames(f, before));
     }, "nodedrop");
   }
 
@@ -1709,6 +1714,10 @@ export class Tools {
    * A quarter turn for a stair, an eighth for a symbol. A flight follows the
    * stairwell, which follows the walls; a socket does not. The property pane
    * takes any angle either way.
+   *
+   * A placed object turns about the middle of its footprint, not about its
+   * anchor: a stair and a cabinet are anchored to the edge that meets the wall,
+   * so turning about the anchor would swing the object clear across the plan.
    */
   private rotateSelected(): void {
     // While the stair tool is armed, R turns the ghost rather than whatever is
@@ -1734,8 +1743,12 @@ export class Tools {
     const sel = this.store.sel;
     if (sel?.kind === "stair") {
       this.store.mutate(doc => {
-        const st = stairsOf(this.store.floorOf(doc)).find(x => x.id === sel.id);
-        if (st) st.rotation = stairAngle(st.rotation + Math.PI / 2);
+        const floor = this.store.floorOf(doc);
+        const st = stairsOf(floor).find(x => x.id === sel.id);
+        if (!st) return;
+        const turned = stairAngle(st.rotation + Math.PI / 2);
+        Object.assign(st, turnAbout(st, stairBox(resolveStair(floor, st)), turned));
+        st.rotation = turned;
       });
       return;
     }
@@ -1749,7 +1762,10 @@ export class Tools {
     if (sel?.kind === "cabinet") {
       this.store.mutate(doc => {
         const c = cabinetsOf(this.store.floorOf(doc)).find(x => x.id === sel.id);
-        if (c) c.rotation = stairAngle(c.rotation + Math.PI / 2);
+        if (!c) return;
+        const turned = stairAngle(c.rotation + Math.PI / 2);
+        Object.assign(c, turnAbout(c, cabinetBox(c), turned));
+        c.rotation = turned;
       });
       return;
     }
@@ -1800,12 +1816,19 @@ export class Tools {
   deleteSelected(): void {
     const sel = this.store.sel;
     if (!sel) return;
+    // The rooms as they stand, for the names a merge is about to orphan: taking
+    // a wall out joins two rooms, and the smaller one's name has nothing left
+    // to name. Read before the mutation, since afterwards it is gone.
+    const before = this.rooms();
     this.store.mutate(doc => {
       const f = this.store.floorOf(doc);
-      if (sel.kind === "wall") deleteWall(f, sel.id);
-      else if (sel.kind === "node") {
+      if (sel.kind === "wall") {
+        deleteWall(f, sel.id);
+        deleteRoomNames(f, orphanedRoomNames(f, before));
+      } else if (sel.kind === "node") {
         f.walls = f.walls.filter(w => w.a !== sel.id && w.b !== sel.id);
         cleanOrphanNodes(f);
+        deleteRoomNames(f, orphanedRoomNames(f, before));
       } else if (sel.kind === "symbol") f.symbols = f.symbols.filter(s => s.id !== sel.id);
       else if (sel.kind === "stair") f.stairs = stairsOf(f).filter(s => s.id !== sel.id);
       else if (sel.kind === "vide") f.vides = videsOf(f).filter(s => s.id !== sel.id);

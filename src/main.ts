@@ -4,7 +4,7 @@ import { Store } from "./model/store";
 import { resolveFloor, Resolved } from "./core/resolve";
 import { detectRooms, Room } from "./core/rooms";
 import { Viewport } from "./render/viewport";
-import { drawScene, COLORS } from "./render/draw";
+import { drawScene, COLORS, type Underlay } from "./render/draw";
 import { Tools } from "./input/tools";
 import { Panel } from "./ui/panel";
 import { tryLoadAutosave, scheduleAutosave } from "./io/json";
@@ -63,14 +63,14 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
   let cachedRev = -1;
   let cachedResolved: Resolved = { walls: new Map(), junctions: [] };
   let cachedRooms: Room[] = [];
-  let cachedGhost: Resolved | null = null;
-  function derived(): { resolved: Resolved; rooms: Room[]; ghost: Resolved | null } {
+  let cachedGhost: Underlay | null = null;
+  function derived(): { resolved: Resolved; rooms: Room[]; ghost: Underlay | null } {
     if (store.revision !== cachedRev) {
       cachedRev = store.revision;
       cachedResolved = resolveFloor(store.floor);
       cachedRooms = detectRooms(store.floor);
       const below = store.floorBelow;
-      cachedGhost = below ? resolveFloor(below) : null;
+      cachedGhost = below ? { floor: below, resolved: resolveFloor(below) } : null;
     }
     return { resolved: cachedResolved, rooms: cachedRooms, ghost: cachedGhost };
   }
@@ -123,7 +123,7 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
    * the plan at the zoom the finger is already covering.
    */
   function renderLoupe(
-    rect: DOMRect, dpr: number, resolved: Resolved, rooms: Room[], ghost: Resolved | null,
+    rect: DOMRect, dpr: number, resolved: Resolved, rooms: Room[], ghost: Underlay | null,
   ): void {
     const at = tools.loupeAt();
     if (!at) { loupe.hidden = true; return; }

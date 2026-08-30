@@ -114,14 +114,21 @@ export const STAIRS_TURNED: StairDef[] = [
         seg(ctx, -half, w, half, w);
         seg(ctx, -half, top, half, top);
         treadLines(ctx, -half, half, w, p.going, straightTreads(s));
-        // The two quarters turn opposite ways: a stair that turns the same way
-        // twice is a bordestrap, which is its own kind.
+        // Both quarters turn the same way unless the stair says otherwise, so
+        // the flight leaves the top on the side it entered at the foot: it
+        // comes back beside itself. `counterTurn` puts the top quarter against
+        // the bottom one, which doglegs instead. Which way round the pair goes
+        // is `mirrored`; see stairTurns() in model/stair.ts.
+        const exit = s.counterTurn ? -1 : 1;
         winderFan(ctx, v(half, w), -90 * DEG, -180 * DEG, WINDERS_PER_QUARTER,
           { x0: -half, y0: 0, x1: half, y1: w });
-        winderFan(ctx, v(-half, top), 0, 90 * DEG, WINDERS_PER_QUARTER,
+        // The fan pivots on the inside corner of the turn, which is the corner
+        // between the edge the flight arrives through and the one it leaves by.
+        winderFan(ctx, v(exit * half, top), (90 + exit * 90) * DEG, 90 * DEG, WINDERS_PER_QUARTER,
           { x0: -half, y0: top, x1: half, y1: depth });
         walkArrow(ctx, [
-          v(half - NOSE, w / 2), v(0, w / 2), v(0, top + w / 2), v(-half + NOSE, top + w / 2),
+          v(half - NOSE, w / 2), v(0, w / 2), v(0, top + w / 2),
+          v(exit * (half - NOSE), top + w / 2),
         ]);
       });
     },

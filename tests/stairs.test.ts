@@ -3,13 +3,14 @@
 // its selection frame and the export crop all use.
 import {
   Stair, ResolvedStair, StairKind, STAIR_KINDS, stairDefaults, stairParams, stairFields,
-  clampStair, stairAngle, inheritsRise,
+  clampStair, stairAngle, inheritsRise, isSpiral, stairTurns, setStairTurn, turnCount,
 } from "../src/model/stair";
 import {
   stairBox, stairCorners, stairHit, spiralOf, stairRun, straightTreads, landingSplit,
   stairMetrics, cutTread, stairNote, stairNoteAt, CUT_HEIGHT, NOTE_OFFSET,
   resolveStair, stairIssues, STAIR_LIMITS,
 } from "../src/core/stair";
+import { turnAbout } from "../src/core/placed";
 import { STAIRS, getStair } from "../src/render/stairs";
 import { stairPrims } from "../src/io/stair";
 import { Prim } from "../src/io/record";
@@ -252,6 +253,91 @@ for (const kind of STAIR_KINDS) {
     stairIssues(mk("hellingbaan", { rise: 900 })).some(i => i.code === "slopeSteep"));
 }
 
+/* ── turns ── */
+
+{
+  check("a straight flight has nothing to turn", turnCount("steektrap") === 0);
+  check("a single quarter turns once", turnCount("bovenkwart") === 1);
+  check("a landing is a turn", turnCount("bordestrap") === 1);
+  check("a spiral turns once", STAIR_KINDS.filter(isSpiral).every(k => turnCount(k) === 1));
+  check("a quarter at each end turns twice", turnCount("onder-bovenkwart") === 2);
+
+  check("a spiral winds clockwise unmirrored", stairTurns(mk("wenteltrap"))[0] === "cw");
+  check("a quarter turns anticlockwise unmirrored", stairTurns(mk("onderkwart"))[0] === "ccw");
+  check("mirroring reverses the turn",
+    stairTurns(mk("onderkwart", { mirrored: true }))[0] === "cw");
+
+  const both = stairTurns(mk("onder-bovenkwart"));
+  check("both quarters turn the same way by default", both.join() === "ccw,ccw", both.join());
+  check("counterTurn sets the top quarter against the foot",
+    stairTurns(mk("onder-bovenkwart", { counterTurn: true })).join() === "ccw,cw");
+  check("mirroring reverses both turns at once",
+    stairTurns(mk("onder-bovenkwart", { mirrored: true, counterTurn: true })).join() === "cw,ccw");
+
+  const top = mk("onder-bovenkwart");
+  setStairTurn(top, 1, "cw");
+  check("setting the top quarter leaves the foot alone", stairTurns(top).join() === "ccw,cw");
+  const foot = mk("onder-bovenkwart", { counterTurn: true });
+  setStairTurn(foot, 0, "cw");
+  check("setting the foot leaves the top alone", stairTurns(foot).join() === "cw,cw",
+    stairTurns(foot).join());
+  const round = mk("wenteltrap");
+  setStairTurn(round, 0, "ccw");
+  check("a spiral set anticlockwise reads back that way", stairTurns(round)[0] === "ccw");
+  setStairTurn(round, 0, "cw");
+  check("and back again", stairTurns(round)[0] === "cw" && round.mirrored === false);
+}
+
+{
+  // The turn is only visible in the drawing, and the walking line is what
+  // states it: the arrowhead is the one filled triangle a stair draws.
+  const headX = (s: ResolvedStair): number => {
+    const head = stairPrims(s).find(p => p.kind === "poly" && p.closed && p.pts.length === 3);
+    if (!head || head.kind !== "poly") return NaN;
+    return head.pts.reduce((a, q) => a + q.x, 0) / 3;
+  };
+  check("a stair with two quarters leaves on the side it entered", headX(mk("onder-bovenkwart")) > 0);
+  check("counter-turned, it leaves on the other side",
+    headX(mk("onder-bovenkwart", { counterTurn: true })) < 0);
+  check("mirroring swaps both sides",
+    headX(mk("onder-bovenkwart", { mirrored: true })) < 0);
+  check("a single quarter still leaves where it always did", headX(mk("bovenkwart")) > 0);
+
+  // Neither way round may leave the footprint the hit-test and the crop use.
+  const counter = mk("onder-bovenkwart", { counterTurn: true });
+  const b = stairBox(counter);
+  const stray = points(stairPrims(counter).filter(pr => pr.kind !== "text")).filter(q =>
+    q.x < b.x0 - 5 || q.x > b.x1 + 5 || q.y < b.y0 - 5 || q.y > b.y1 + 5);
+  check("a counter-turned stair draws inside its own footprint", stray.length === 0,
+    String(stray.length));
+}
+
+/* ── turning about the middle ── */
+
+{
+  const middle = (s: ResolvedStair): Vec => {
+    const cs = stairCorners(s);
+    return v(cs.reduce((a, c) => a + c.x, 0) / cs.length, cs.reduce((a, c) => a + c.y, 0) / cs.length);
+  };
+  const s = mk("steektrap", { x: 1000, y: 2000 });
+  const before = middle(s);
+  for (const angle of [Math.PI / 2, Math.PI, 0.7]) {
+    const turned: ResolvedStair =
+      { ...s, ...turnAbout(s, stairBox(s), angle), rotation: angle };
+    const after = middle(turned);
+    check(`turning to ${angle.toFixed(2)} rad leaves the stair where it was`,
+      Math.hypot(after.x - before.x, after.y - before.y) <= 1,
+      `${Math.round(after.x - before.x)},${Math.round(after.y - before.y)}`);
+    check(`turning to ${angle.toFixed(2)} rad keeps whole millimetres`,
+      Number.isInteger(turned.x) && Number.isInteger(turned.y));
+  }
+  const flipped = mk("bovenkwart", { x: -400, y: 900, mirrored: true, rotation: 0.3 });
+  const was = middle(flipped);
+  const now = middle({ ...flipped, ...turnAbout(flipped, stairBox(flipped), 1.9), rotation: 1.9 });
+  check("a mirrored stair turns about its middle too",
+    Math.hypot(now.x - was.x, now.y - was.y) <= 1);
+}
+
 /* ── hit-testing ── */
 
 {
@@ -354,6 +440,13 @@ for (const kind of STAIR_KINDS) {
   const extra = JSON.parse(JSON.stringify(doc));
   extra.floors[0].stairs[0].risers = 17;
   check("an unknown stair property is rejected", validate(schema, extra).length > 0);
+
+  const dogleg = JSON.parse(JSON.stringify(doc));
+  dogleg.floors[0].stairs[0].kind = "onder-bovenkwart";
+  dogleg.floors[0].stairs[0].counterTurn = true;
+  delete dogleg.floors[0].stairs[0].well;
+  check("a counter-turned stair validates", validate(schema, dogleg).length === 0,
+    validate(schema, dogleg).join(" | "));
 
   const kinds = (schema.$defs as Record<string, { properties: { kind: { enum: string[] } } }>)
     .stair!.properties.kind.enum;
