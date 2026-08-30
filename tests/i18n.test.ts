@@ -1,6 +1,4 @@
-// i18n engine tests: lookup, fallback, interpolation, and — most usefully —
-// that the nl and en key sets are identical, so a forgotten translation is a
-// test failure rather than a silent English string in a Dutch UI.
+// Validate lookup, fallback, interpolation and translation-key parity.
 import { t, changeLanguage, language, resources } from "../src/i18n";
 import { SYMBOLS } from "../src/render/symbols";
 let fail = 0;
@@ -15,15 +13,19 @@ ck("en lookup", t("panel.wall") === "Wall", t("panel.wall"));
 ck("missing key returns key", t("nope.not.here") === "nope.not.here");
 ck("unknown placeholder left intact", t("panel.symbol", {}) === "Symbol: {{type}}", t("panel.symbol", {}));
 
-// every nl key must exist in en and vice versa — a missing one silently falls back
+// Every Dutch key must have an English equivalent and vice versa.
 const flat = (o: any, p = ""): string[] => Object.entries(o).flatMap(([k, v]) =>
   typeof v === "object" && v !== null ? flat(v, p + k + ".") : [p + k]);
 const nl = flat(resources.nl.translation).sort();
 const en = flat(resources.en.translation).sort();
 ck("nl and en have identical key sets", JSON.stringify(nl) === JSON.stringify(en),
    "only-nl=" + nl.filter(k => !en.includes(k)) + " only-en=" + en.filter(k => !nl.includes(k)));
-// Every symbol in the registry must have a name in both languages, and the
-// English one must match the registry, or the two drift apart unnoticed.
+const foot = resources;
+ck("persistent disclaimer uses formal third-person language",
+  !/\b(je|jij|jou|jouw)\b/i.test(foot.nl.translation.foot.disclaimer + " " + foot.nl.translation.foot.disclaimerTitle)
+  && !/\b(you|your|yours)\b/i.test(foot.en.translation.foot.disclaimer + " " + foot.en.translation.foot.disclaimerTitle));
+
+// Symbol labels must match both translation dictionaries and the registry.
 for (const lng of ["nl", "en"] as const) {
   const dict = (resources[lng].translation as any).symbol ?? {};
   const missing = SYMBOLS.filter(sym => typeof dict[sym.type] !== "string").map(sym => sym.type);

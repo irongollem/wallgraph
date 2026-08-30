@@ -315,16 +315,15 @@ export const resources = {
         "wardrobe": "Kledingkast",
         "desk": "Bureau",
       },
-      /* The sidebar's bottom row: links out to the documentation, and the one
-         line about liability that has to be visible without opening anything. */
+      /* Documentation labels and the persistent disclaimer link. */
       foot: {
         manual: "Handleiding",
         symbols: "Symbolen",
         openings: "Kozijnen",
         format: "Formaat & API",
-        disclaimer: "Geen garantie — controleer alle maten zelf",
+        disclaimer: "Geen garantie — verantwoordelijkheid bij gebruiker",
         disclaimerShort: "Disclaimer",
-        disclaimerTitle: "Wallgraph is gratis software zonder garantie en is niet gecertificeerd. Lees de disclaimer.",
+        disclaimerTitle: "Informatie over garantie, aansprakelijkheid en verantwoordelijkheid voor controle.",
       },
       symbolSearch: "Zoek {{count}} symbolen…",
     },
@@ -621,9 +620,9 @@ export const resources = {
         symbols: "Symbols",
         openings: "Openings",
         format: "Format & API",
-        disclaimer: "No warranty — check every dimension yourself",
+        disclaimer: "No warranty — user responsible for verification",
         disclaimerShort: "Disclaimer",
-        disclaimerTitle: "Wallgraph is free software with no warranty and is not certified. Read the disclaimer.",
+        disclaimerTitle: "Information about warranty, liability and responsibility for verification.",
       },
       symbolSearch: "Search {{count}} symbols…",
     },

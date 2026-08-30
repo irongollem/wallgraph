@@ -85,18 +85,7 @@ export class Panel {
     onI18n("languageChanged", () => { this.palette.refresh(); this.renderFoot(); this.refreshToolbar(); });
   }
 
-  /**
-   * The sidebar's bottom line.
-   *
-   * One muted sentence, and only the disclaimer: Wallgraph draws things people
-   * build from, and "check this yourself" should not require opening a menu to
-   * find. The documentation links live in the document menu instead — five more
-   * links stacked under the status hints turned the bottom of the sidebar into a
-   * wall of small text, which is a good way to make sure none of it is read.
-   *
-   * Rebuilt only on a language change: it does not depend on the document, and
-   * replacing an anchor under the cursor eats the click on it.
-   */
+  /** Persistent disclaimer link. Rebuilt only when the language changes. */
   private renderFoot(): void {
     const warn = el("a", "side-foot-warn") as HTMLAnchorElement;
     warn.href = docHref("disclaimer", language());
@@ -222,9 +211,7 @@ export class Panel {
       } },
       { kind: "item", icon: "docPaste", label: t("action.paste"), onPick: () => this.pasteDialog() },
       { kind: "sep" },
-      // The project's own pages, as one small row rather than five menu items.
-      // The disclaimer goes by its short name here; its full sentence belongs on
-      // the one line under the status bar, where it is the only thing being said.
+      // Documentation links use the compact disclaimer label in the menu.
       { kind: "links", items: DOC_IDS.map(id => ({
         label: t("foot." + (id === "disclaimer" ? "disclaimerShort" : id)),
         href: docHref(id, language()),
