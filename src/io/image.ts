@@ -9,12 +9,13 @@
 // A scale bar goes in the corner because a bare image has no units: whatever
 // the viewer's screen or printer does to the pixels, the bar stays true. True
 // paper-scale output (1:50 at 300 dpi) and vector formats are still the P1 item.
-import { PlanDoc, Floor, areaModeOf } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf, stairsOf } from "../model/doc";
 import { resolveFloor, Resolved } from "../core/resolve";
 import { detectRooms } from "../core/rooms";
 import { Viewport } from "../render/viewport";
 import { drawScene, COLORS } from "../render/draw";
 import { getSymbol } from "../render/symbols";
+import { stairCorners, resolveStair } from "../core/stair";
 import { Vec, v } from "../geometry/vec";
 import { saveViaHost, downloadBlob } from "./save";
 
@@ -53,6 +54,10 @@ export function planBounds(floor: Floor, resolved: Resolved): { min: Vec; max: V
       for (const ly of [y0, y0 + def.depth])
         grow(s.x + lx * cos - ly * sin, s.y + lx * sin + ly * cos);
   }
+  // A stair's footprint depends on its parameters, so the corners come from the
+  // same derived box the hit-test and the selection frame use.
+  for (const st of stairsOf(floor))
+    for (const c of stairCorners(resolveStair(floor, st))) grow(c.x, c.y);
   return isFinite(minX) ? { min: v(minX, minY), max: v(maxX, maxY) } : null;
 }
 

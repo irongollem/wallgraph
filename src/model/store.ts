@@ -2,7 +2,7 @@
 // command-object migration path exists if they ever aren't) + change notification.
 import { PlanDoc, emptyDoc, Floor, Id, newId } from "./doc";
 
-export type SelKind = "wall" | "node" | "opening" | "symbol";
+export type SelKind = "wall" | "node" | "opening" | "symbol" | "stair";
 export interface Selection { kind: SelKind; id: Id; wallId?: Id } // opening carries wallId
 
 type Listener = () => void;
@@ -53,7 +53,7 @@ export class Store {
   addFloor(name: string): void {
     this.mutate(d => {
       d.floors.splice(this.activeFloor + 1, 0,
-        { id: newId("f"), name, nodes: [], walls: [], symbols: [] });
+        { id: newId("f"), name, nodes: [], walls: [], symbols: [], stairs: [] });
     });
     this.activeFloor = Math.min(this.activeFloor + 1, this.doc.floors.length - 1);
     this.sel = null;
@@ -78,6 +78,7 @@ export class Store {
         for (const o of w.openings) o.id = newId("o");
       }
       for (const sym of copy.symbols) { sym.id = newId("s"); if (sym.wallId) delete sym.wallId; }
+      for (const st of copy.stairs ?? []) st.id = newId("t");
       d.floors.splice(this.activeFloor + 1, 0, copy);
     });
     this.activeFloor = Math.min(this.activeFloor + 1, this.doc.floors.length - 1);

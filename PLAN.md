@@ -66,7 +66,7 @@ construction. Moving a wall moves its doors. `t` is clamped so jambs stay on the
 ## Editor (`src/input/`, `src/ui/`, `src/render/`)
 
 - **Viewport**: mm→px affine transform, wheel zoom-to-cursor, drag/space pan, DPR-aware.
-- **Tools** (state machine): Select · Wall · Door · Window · Symbol · Delete.
+- **Tools** (state machine): Select · Wall · Door · Window · Symbol · Stair · Delete.
   - *Wall tool*: click to chain segments; live length/angle readout; **typed input** —
     typing digits while drawing shows a mm box, `Enter` commits the segment at exactly
     that length in the current (snapped) direction. This is the feature that makes it
@@ -100,6 +100,36 @@ The `draw(ctx)` contract is deliberately narrow — 1 unit = 1 mm, the caller ow
 colour, no text — so symbols compose with selection highlighting and the PNG
 export without knowing about either.
 
+## Stair library (`src/render/stairs/`, `src/model/stair.ts`, `src/core/stair.ts`)
+
+The fifteen stair kinds of the plan-symbol sheet. They are not symbols: a symbol is
+one fixed picture, while the same steektrap is 900 mm wide in a house and 1200 in a
+bedrijfsunit and its tread count follows the storey height. So a stair is a document
+object carrying `width`, `going`, `treads`, an optional `rise` and a `well`, and its
+treads, walking line, arrow, winder fan, the tread the section plane cuts and the
+optrede it is annotated with are all derived from those numbers at render time —
+`stairBox()` in `core/stair.ts` is the footprint the hit-test, the selection frame,
+the PNG crop and the SVG viewBox all share.
+
+`draw(ctx, stair)` extends the symbol contract by exactly one argument, which is what
+lets `recordSymbol()` replay a stair unchanged: SVG, DXF and PNG needed no per-kind
+code. `tests/stairs.test.ts` holds the registry to the `StairKind` union and asserts
+that nothing a kind draws falls outside the footprint the rest of the editor trusts.
+
+**Rise comes from the storey.** `Floor.height` is the verdiepingshoogte; a stair with
+no `rise` of its own climbs it, so changing the storey moves every stair that follows
+it. Stating `rise` overrides that, which is what a flight up to a mezzanine beside a
+vide needs. A hellingbaan never inherits — it bridges a level change, not a storey.
+`resolveStair()` settles the question once, at the boundary, and everything downstream
+takes a `ResolvedStair`.
+
+**Figures are reported, never enforced.** `STAIR_LIMITS` holds what a woningtrap is
+ordinarily built to; `stairIssues()` says where a stair falls outside it, the property
+pane states each one in red, and the plan annotation carries an exclamation mark so the
+flag survives an export that loses the colour. Kinds that are steep by definition — a
+vlizotrap, a spiltrap — are held only to a loose bound that no stair can pass. None of
+it is a compliance check: Wallgraph draws what it is given (see the disclaimer).
+
 ## Phases
 
 **P0 — done.** Everything above, single floor.
@@ -118,6 +148,13 @@ export without knowing about either.
       rename/delete; the storey below draws as a non-selectable underlay
 - [x] dimension *chains* — one run per facade, openings and piers in
       sequence with an overall beneath; interior walls keep their own dimension
+- [x] stairs — the fifteen kinds of the NEN plan-symbol sheet as a document object
+      of their own (`src/model/stair.ts`, `src/core/stair.ts`, `src/render/stairs/`).
+      A stair is not a symbol: its width, going and tread count are stored, because
+      the same steektrap is built to a different size in every plan, and the treads,
+      walking line, arrow and winder fan are derived from those numbers. The drawing
+      obeys the symbol library's `draw(ctx)` contract, so SVG, DXF and PNG come out of
+      the recorder that already existed
 
 **P2 — not started.**
 
@@ -150,9 +187,13 @@ basis rather than leaving a reader to guess.
 ## Known cuts (deliberate)
 
 Sloped/thick-varying walls, wall-to-arc exact miters (tangent approximation instead),
-stairs, mobile/touch UX.
+mobile/touch UX. A stair carries its rise and reports the optrede, the
+loopvergelijking and a ramp's gradient, but nothing is enforced — Wallgraph states
+the figures and does not check regulations. A stair does not snap to a wall the way
+a wall-mounted symbol does, and its rise is per stair rather than a storey height on
+the floor, so two stairs between the same two storeys can disagree.
 
-*Closed since P0:* net room area, i18n (Dutch/English, Dutch by default).
+*Closed since P0:* net room area, i18n (Dutch/English, Dutch by default), stairs.
 
 ## Beyond the plan
 

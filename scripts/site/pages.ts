@@ -214,6 +214,20 @@ een muur horen klikken vlak tegen het muurvlak en draaien mee. <kbd>R</kbd> rote
 spiegelt. Kleur is betekenis, geen opmaak: zwart is bestaand, rood is nieuw, geel verdwijnt.
 Alle 77 staan op <a href="/symbolen/">plattegrondsymbolen</a>.</p>
 
+<h2 id="trappen">Trappen</h2>
+<p><kbd>T</kbd> opent het trapgereedschap met de vijftien traptypen van het symbolenblad: steektrap,
+bordestrap, trappen met onder- of bovenkwart, spiltrap, wenteltrap, roltrap, vlizotrap, klimijzers en
+hellingbaan. Een trap is geen symbool: breedte, aantrede en het aantal treden staan in het document,
+zodat dezelfde steektrap in een woning 900 mm breed is en in een bedrijfsunit 1200 mm. Het
+hoogteverschil komt van de verdieping: een trap volgt de verdiepingshoogte uit het Plan-paneel tenzij
+er een eigen hoogte is ingevuld, wat een trap naar een entresol naast een vide nodig heeft. Een trap
+van 15 treden heeft 16 optreden, dus 2800 mm geeft een optrede van 175 en een loopvergelijking van 570.
+De treden, de looplijn, de pijl en de plaats van de breuklijn volgen daaruit. Het paneel zet de uitkomst
+naast de invoer en meldt in rood waar een maat buiten het gebruikelijke valt; Wallgraph toetst geen
+regelgeving. <kbd>R</kbd> draait een kwartslag en <kbd>M</kbd> spiegelt,
+ook vóór het plaatsen. De pijl wijst altijd van beneden naar boven; een trap die naar beneden gaat is
+dezelfde trap, omgedraaid.</p>
+
 <h2 id="ruimtes">Ruimtes en maten</h2>
 <p>Gesloten muurlussen worden automatisch als ruimte herkend en van een oppervlakte voorzien. De maat is
 standaard <b>netto</b> (binnenwerks, NEN 2580); de legenda op het canvas zegt welke conventie geldt en
@@ -224,7 +238,7 @@ selectie van een maatlabel maakt invoer van de lengte mogelijk.</p>
 <ul>
 <li><b>PNG</b> — de plattegrond als afbeelding, op de tekening bijgesneden, zonder raster, met schaalbalk.</li>
 <li><b>SVG</b> — vectorwerk op ware schaal: 1 mm in het document is 1 mm op papier bij 100% afdrukken.</li>
-<li><b>DXF</b> — muren, draaicirkels, symbolen en oppervlaktes op aparte lagen, in millimeters, voor CAD.</li>
+<li><b>DXF</b> — muren, draaicirkels, symbolen, trappen en oppervlaktes op aparte lagen, in millimeters, voor CAD.</li>
 <li><b>JSON</b> — het document zelf; zie <a href="/formaat/">documentformaat</a>.</li>
 </ul>
 <p>De plattegrond wordt automatisch in de lokale browseropslag bewaard. Hiervoor is geen account of
@@ -236,6 +250,7 @@ applicatieserver vereist. De plattegrond blijft na het sluiten van het tabblad b
 <tr><td><kbd>W</kbd></td><td>muren tekenen</td></tr>
 <tr><td><kbd>D</kbd> <kbd>N</kbd> <kbd>P</kbd></td><td>deur, raam, doorgang</td></tr>
 <tr><td><kbd>S</kbd></td><td>symbool plaatsen</td></tr>
+<tr><td><kbd>T</kbd></td><td>trap plaatsen</td></tr>
 <tr><td><kbd>O</kbd></td><td>hoeksnapping aan/uit</td></tr>
 <tr><td><kbd>G</kbd></td><td>rastersnapping aan/uit</td></tr>
 <tr><td><kbd>L</kbd></td><td>maatlijnen aan/uit</td></tr>
@@ -278,6 +293,20 @@ snap to the wall face and align with it. <kbd>R</kbd> rotates and <kbd>M</kbd> m
 status: black is existing, red is new work and yellow is to be removed. All 77 are listed under
 <a href="/en/symbols/">floorplan symbols</a>.</p>
 
+<h2 id="stairs">Stairs</h2>
+<p><kbd>T</kbd> opens the stair tool with the fifteen types from the plan-symbol sheet: straight
+flight, stair with a landing, quarter turns at the foot or the top, spiral and helical stairs, an
+escalator, a loft ladder, climbing irons and a ramp. A stair is not a symbol: its width, going and
+tread count are stored in the document, so the same flight is 900 mm wide in a house and 1200 in a
+unit. The rise comes from the storey: a stair follows the storey height set in the Plan panel unless it
+states one of its own, which a flight up to a mezzanine beside a void needs. A flight of 15 treads has
+16 risers, so a 2800 mm storey gives a 175 riser and a walking rule of 570. The treads, the walking
+line, the arrow and where the break line falls all follow from that. The panel puts the results beside
+the inputs and states in red where a figure falls outside the ordinary; Wallgraph does not check
+regulations. <kbd>R</kbd> turns a
+quarter and <kbd>M</kbd> mirrors, before placing as well as after. The arrow always points from the
+bottom of the flight to the top; a stair going down is the same stair, turned around.</p>
+
 <h2 id="rooms">Rooms and dimensions</h2>
 <p>Closed wall loops are detected as rooms and labelled with their area. That area is <b>net</b> by
 default (inner faces, NEN 2580); the canvas legend states which convention is in force, and the
@@ -288,7 +317,7 @@ selecting a dimension label enables length input.</p>
 <ul>
 <li><b>PNG</b> — the plan as an image, cropped to the drawing, no grid, with a scale bar.</li>
 <li><b>SVG</b> — vector artwork at true scale: 1 mm in the document is 1 mm on paper printed at 100%.</li>
-<li><b>DXF</b> — walls, swings, symbols and areas on separate layers, in millimetres, for CAD.</li>
+<li><b>DXF</b> — walls, swings, symbols, stairs and areas on separate layers, in millimetres, for CAD.</li>
 <li><b>JSON</b> — the document itself; see <a href="/en/format/">document format</a>.</li>
 </ul>
 <p>The plan is saved automatically in local browser storage. This requires no account or application
@@ -300,6 +329,7 @@ server. The plan remains available after the tab is closed.</p>
 <tr><td><kbd>W</kbd></td><td>draw walls</td></tr>
 <tr><td><kbd>D</kbd> <kbd>N</kbd> <kbd>P</kbd></td><td>door, window, passage</td></tr>
 <tr><td><kbd>S</kbd></td><td>place a symbol</td></tr>
+<tr><td><kbd>T</kbd></td><td>place a stair</td></tr>
 <tr><td><kbd>O</kbd></td><td>angle snap on/off</td></tr>
 <tr><td><kbd>G</kbd></td><td>grid snap on/off</td></tr>
 <tr><td><kbd>L</kbd></td><td>dimension lines on/off</td></tr>
@@ -368,7 +398,7 @@ window.wallgraph.schema</code></pre>`;
     return `<h2 id="model">Het model</h2>
 <p>Een plattegrond is een <b>vlak netwerk van muurhartlijnen</b>: knopen, met muren als verbindingen
 daartussen. Opgeslagen worden die knopen, de muren (hartlijnen met een dikte en eventueel een boog),
-openingen die op hun muur geparametriseerd zijn, en geplaatste symbolen. <b>Niets afgeleids staat in
+openingen die op hun muur geparametriseerd zijn, geplaatste symbolen en trappen. <b>Niets afgeleids staat in
 het bestand</b>: muurvlakken, verstekken, ruimtepolygonen, oppervlaktes en maatlijnen worden bij het
 tekenen opnieuw berekend.</p>
 <p>Hierdoor kan een opening uit de bijbehorende muur worden afgeleid en blijft het bestand compact.
@@ -379,6 +409,10 @@ Een generator hoeft alleen het netwerk te schrijven.</p>
 <li><code>bulge</code> is de DXF-conventie <code>tan(θ/4)</code>: <code>0</code> is recht. Hij is
 verplicht — weglaten betekent niet &ldquo;recht&rdquo;, het betekent dat de boogberekening NaN ziet.</li>
 <li>Een opening zit op <code>t</code> millimeter vanaf knoop <code>a</code>, gemeten over de hartlijn.</li>
+<li>Een trap draagt zijn eigen maten — <code>width</code>, <code>going</code>, <code>treads</code> en
+<code>rise</code> — omdat dezelfde trapsoort per plattegrond anders uitvalt. De treden zelf staan er
+niet in. Een trap met <code>n</code> treden heeft <code>n+1</code> optreden, dus de optrede en de
+loopvergelijking volgen uit <code>rise</code>, net als de trede waar het snijvlak valt.</li>
 </ul>
 
 <h2 id="schema">JSON Schema</h2>
@@ -417,7 +451,7 @@ DOM-elementen. Automatisering gebruikt daarom het documentformaat, plan-links of
   }
   return `<h2 id="model">The model</h2>
 <p>A plan is a <b>planar graph of wall centerlines</b>. What is stored: nodes, walls (centerlines with a
-thickness and an optional arc), openings parameterised along their wall, and placed symbols.
+thickness and an optional arc), openings parameterised along their wall, placed symbols, and stairs.
 <b>Nothing derived is in the file</b>: wall faces, mitred corners, room polygons, areas and dimension
 labels are all recomputed when the plan is drawn.</p>
 <p>This allows openings to be derived from their walls while keeping the file compact. A generator
@@ -428,6 +462,10 @@ only needs to write the graph.</p>
 <li><code>bulge</code> is the DXF convention <code>tan(θ/4)</code>: <code>0</code> is straight. It is
 required — omitting it does not mean &ldquo;straight&rdquo;, it means the arc maths sees NaN.</li>
 <li>An opening sits at <code>t</code> millimetres from node <code>a</code>, measured along the centerline.</li>
+<li>A stair carries its own dimensions — <code>width</code>, <code>going</code>, <code>treads</code> and
+<code>rise</code> — because the same kind is built to a different size in every plan. The treads
+themselves are not stored. A flight of <code>n</code> treads has <code>n+1</code> risers, so the riser
+height, the walking rule and the tread the section plane cuts all follow from <code>rise</code>.</li>
 </ul>
 
 <h2 id="schema">JSON Schema</h2>

@@ -9,14 +9,17 @@
 // millimetres and the viewBox matches them one-to-one, so printing at 100% puts
 // a 4000 mm wall on paper at 4 m. SVG's y axis runs down exactly as the
 // document's does, so — unlike DXF — nothing is flipped.
-import { PlanDoc, Floor, areaModeOf } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf, stairsOf } from "../model/doc";
 import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
 import { COLORS, symbolInk } from "../render/draw";
+import { stairBox } from "../core/stair";
 import { recordSymbol, Prim } from "./record";
 import { openingMarks } from "./marks";
+import { stairPrims, stairRegionPrims } from "./stair";
+import { resolveStair } from "../core/stair";
 import { planBounds } from "./image";
 import { saveViaHost, downloadBlob } from "./save";
 
@@ -35,6 +38,16 @@ const n = (v: number): string => (Math.round(v * 100) / 100).toString();
 /** &, < and > would otherwise end the attribute or open a tag. */
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** A stair's footprint as a world-space quad — the wash where a kind has no
+ *  region of its own. */
+function boxPoly(b: { x0: number; y0: number; x1: number; y1: number },
+                 s: { x: number; y: number; rotation: number }): Vec[] {
+  const cos = Math.cos(s.rotation), sin = Math.sin(s.rotation);
+  const at = (lx: number, ly: number): Vec =>
+    ({ x: s.x + lx * cos - ly * sin, y: s.y + lx * sin + ly * cos });
+  return [at(b.x0, b.y0), at(b.x1, b.y0), at(b.x1, b.y1), at(b.x0, b.y1)];
 }
 
 function polyPath(pts: Vec[], closed: boolean): string {
@@ -133,6 +146,26 @@ export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
     const ink = symbolInk(s);
     parts.push(`<g color="${ink}" stroke="${ink}">`);
     for (const p of recordSymbol(def, s.x, s.y, s.rotation, s.mirrored === true)) parts.push(primSvg(p));
+    parts.push(`</g>`);
+  }
+  parts.push(`</g>`);
+
+  // Stairs last, over the symbols, each behind its own wash — the order the
+  // editor draws them in, and for the same reason.
+  parts.push(`<g id="stairs" fill="none" stroke-width="${W_SYMBOL}" stroke-linecap="round" stroke-linejoin="round">`);
+  for (const st of stairsOf(floor)) {
+    const stair = resolveStair(floor, st);
+    const ink = symbolInk(st);
+    const region = stairRegionPrims(stair);
+    parts.push(`<g fill="${COLORS.stairWash}" stroke="none">`);
+    if (region.length > 0) for (const p of region) parts.push(primSvg(p));
+    else {
+      const b = stairBox(stair);
+      parts.push(`<path d="${polyPath(boxPoly(b, stair), true)}"/>`);
+    }
+    parts.push(`</g>`);
+    parts.push(`<g color="${ink}" stroke="${ink}">`);
+    for (const p of stairPrims(stair)) parts.push(primSvg(p));
     parts.push(`</g>`);
   }
   parts.push(`</g>`);

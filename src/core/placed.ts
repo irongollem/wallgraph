@@ -1,0 +1,45 @@
+// The geometry every anchored, rotated, box-shaped object shares: where its
+// corners land, and whether a point is inside it.
+//
+// A stair and a vide are both a rectangle placed at an anchor and turned, and
+// the transform between world and local millimetres is the same maths for both.
+// It lives here once so a hit-test and an export crop cannot drift apart.
+import { Vec, v } from "../geometry/vec";
+
+/** Local-space bounds, in the object's own millimetres. */
+export interface LocalBox { x0: number; y0: number; x1: number; y1: number }
+
+/** Anything with an anchor, a rotation and an optional mirror. */
+export interface Placed { x: number; y: number; rotation: number; mirrored?: boolean }
+
+/** A world point in the object's own frame. */
+export function localPoint(p: Placed, world: Vec): Vec {
+  const cos = Math.cos(p.rotation), sin = Math.sin(p.rotation);
+  const dx = world.x - p.x, dy = world.y - p.y;
+  const lx = dx * cos + dy * sin;
+  return v(p.mirrored ? -lx : lx, -dx * sin + dy * cos);
+}
+
+/** The box's four corners in world millimetres, for framing and cropping. */
+export function boxCorners(p: Placed, b: LocalBox): Vec[] {
+  const cos = Math.cos(p.rotation), sin = Math.sin(p.rotation);
+  const out: Vec[] = [];
+  for (const lx of [b.x0, b.x1])
+    for (const ly of [b.y0, b.y1])
+      out.push(v(p.x + lx * cos - ly * sin, p.y + lx * sin + ly * cos));
+  return out;
+}
+
+/** True when `world` is inside the box, grown by `margin` mm. */
+export function boxHit(p: Placed, b: LocalBox, world: Vec, margin = 0): boolean {
+  const l = localPoint(p, world);
+  return l.x >= b.x0 - margin && l.x <= b.x1 + margin
+      && l.y >= b.y0 - margin && l.y <= b.y1 + margin;
+}
+
+/** A local point in world millimetres — where an upright label goes. */
+export function worldPoint(p: Placed, local: Vec): Vec {
+  const cos = Math.cos(p.rotation), sin = Math.sin(p.rotation);
+  const lx = p.mirrored ? -local.x : local.x;
+  return v(p.x + lx * cos - local.y * sin, p.y + lx * sin + local.y * cos);
+}

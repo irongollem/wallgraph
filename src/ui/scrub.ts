@@ -12,6 +12,12 @@ export interface ScrubOptions {
   step: number;
   /** Live, on every move. Commit here -- that is the point of the gesture. */
   onInput(value: number): void;
+  /**
+   * Pulls a value onto a preferred one -- the quarter and eighth turns of a
+   * rotation, say. Applied to what the drag produces, so the field sticks at
+   * the value for a few pixels either side of it rather than skating past.
+   */
+  snap?(value: number): number;
   onStart?(): void;
   onEnd?(): void;
 }
@@ -25,7 +31,8 @@ export function scrubbable(input: HTMLInputElement, opts: ScrubOptions): void {
   let armed = false;
 
   const apply = (): void => {
-    const next = startValue + Math.round(acc) * opts.step;
+    const raw = startValue + Math.round(acc) * opts.step;
+    const next = opts.snap ? opts.snap(raw) : raw;
     input.value = String(next);
     opts.onInput(next);
   };

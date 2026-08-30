@@ -1,6 +1,7 @@
 // Published JSON Schema and the validator used by tests. Runtime enums are
 // imported from their source, and document objects reject unknown properties.
 import { SYMBOL_TYPES } from "../../src/render/symbols";
+import { STAIR_KINDS } from "../../src/model/stair";
 
 export type JsonSchema = Record<string, unknown>;
 
@@ -52,6 +53,16 @@ export function planSchema(siteUrl: string): JsonSchema {
           nodes: { type: "array", items: { $ref: "#/$defs/node" } },
           walls: { type: "array", items: { $ref: "#/$defs/wall" } },
           symbols: { type: "array", items: { $ref: "#/$defs/symbol" } },
+          height: {
+            type: "integer", minimum: 1,
+            description:
+              "Storey height in mm, floor to floor. Stairs on this floor climb it unless " +
+              "they state a rise of their own. Absent means 2800.",
+          },
+          stairs: {
+            type: "array", items: { $ref: "#/$defs/stair" },
+            description: "Placed stairs. Absent means the storey has none.",
+          },
         },
       },
       node: {
@@ -140,6 +151,48 @@ export function planSchema(siteUrl: string): JsonSchema {
           slideTo: { enum: ["a", "b"] },
           spin: { enum: ["cw", "ccw"], description: "Revolving doors only." },
           bars: { type: "integer", minimum: 0, description: "Roedeverdeling: panes per sash. 0 or absent = undivided." },
+        },
+      },
+      stair: {
+        type: "object",
+        description:
+          "A placed stair. Unlike a symbol it carries its own size: the same kind is " +
+          "drawn 900 mm wide in a house and 1200 in a unit, and its tread count follows " +
+          "the storey height. Everything drawn — treads, the walking line, the arrow, " +
+          "the winder fan — is derived from these numbers. The anchor (x, y) is the " +
+          "middle of the footprint's bottom edge and +y is the direction of ascent.",
+        required: ["id", "kind", "x", "y", "rotation", "width", "going", "treads"],
+        additionalProperties: false,
+        properties: {
+          id: { $ref: "#/$defs/id" },
+          kind: { enum: [...STAIR_KINDS], description: "One of the plan-symbol sheet's stair types." },
+          x: mm("mm."),
+          y: mm("mm, positive down."),
+          rotation: { type: "number", description: "Radians, clockwise on screen." },
+          mirrored: { type: "boolean", description: "Handedness: which way a quarter or a spiral turns." },
+          width: { type: "integer", minimum: 200, description: "mm across the flight; for a spiral, newel to rim." },
+          going: { type: "integer", minimum: 50, description: "mm per tread along the walking line (aantrede)." },
+          treads: { type: "integer", minimum: 1, description: "Treads drawn." },
+          rise: {
+            type: "integer", minimum: 50,
+            description:
+              "mm climbed. Absent means the storey height of the floor the stair stands on, " +
+              "which is the usual case; stating it overrides that, as a flight up to a " +
+              "mezzanine beside a vide does. A hellingbaan never inherits. A flight of n " +
+              "treads has n+1 risers, so the riser height and the walking rule follow from " +
+              "this, as does the tread the section plane cuts.",
+          },
+          well: {
+            type: "integer", minimum: 0,
+            description:
+              "The gap the kind opens: between the flights of a bordestrap, around the " +
+              "newel of a spiltrap. Absent means the kind's own default, which is 0 for " +
+              "kinds that open none.",
+          },
+          color: {
+            type: "string", pattern: "^#[0-9a-fA-F]{6}$",
+            description: "Pen colour; absent means the plan's default ink.",
+          },
         },
       },
       symbol: {

@@ -25,7 +25,7 @@ function R(x: number, y: number, w: number, h: number, rx: number, fill = false)
 }
 
 export type IconName =
-  | "select" | "wall" | "door" | "window" | "passage" | "symbols"
+  | "select" | "wall" | "door" | "window" | "passage" | "stair" | "symbols"
   | "gridSnap" | "angleSnap" | "dimensions"
   | "undo" | "redo" | "dots" | "chevron" | "plus" | "minus" | "close"
   | "trash" | "search" | "floors"
@@ -43,6 +43,12 @@ const ICONS: Record<IconName, Shape[]> = {
   ],
   passage: [
     P("M2 8 H7.5 M2 12 H7.5 M7.5 8 V12 M12.5 8 H18 M12.5 12 H18 M12.5 8 V12"),
+  ],
+  // A flight seen in plan: stringers, treads, and the arrow that says which
+  // way is up -- the same three marks the drawing itself carries.
+  stair: [
+    P("M5 3 H15 V17 H5 Z M5 6.5 H15 M5 10 H15 M5 13.5 H15"),
+    P("M10 16 V5.4 M7.8 7.6 L10 5.4 L12.2 7.6"),
   ],
   symbols: [C(10, 10, 6), P("M5.8 5.8 L14.2 14.2 M14.2 5.8 L5.8 14.2")],
   gridSnap: [

@@ -1,23 +1,29 @@
 // Tool state machine + snapping + typed-mm input. Owns pointer/keyboard handling
 // for the canvas; rendering of previews goes through getPreview()/getSnap().
 import { Store } from "../model/store";
-import { Floor, Wall, Opening, PlanNode, SymbolInstance, newId, DOOR_DEFAULT_WIDTH, WINDOW_DEFAULT_WIDTH, PASSAGE_DEFAULT_WIDTH, OpeningKind } from "../model/doc";
+import { Floor, Wall, Opening, PlanNode, SymbolInstance, newId, stairsOf, floorHeight, DOOR_DEFAULT_WIDTH, WINDOW_DEFAULT_WIDTH, PASSAGE_DEFAULT_WIDTH, OpeningKind } from "../model/doc";
+import {
+  Stair, ResolvedStair, StairKind, StairParams, stairDefaults, stairFields, clampStair,
+  stairAngle, inheritsRise,
+} from "../model/stair";
 import { nodeAt, splitWall, nearestWall, wallLength, mergeNodes, deleteWall, clampOpening, cleanOrphanNodes } from "../model/ops";
 import { Viewport } from "../render/viewport";
 import { Vec, v, add, sub, scale, norm, perp, dist, angleOf, fromAngle, dot, pointInPolygon } from "../geometry/vec";
 import { arcPointAt, arcTangentAt, bulgeFromSagitta } from "../geometry/arc";
 import { getSymbol, SymbolDef, SYMBOL_TYPES } from "../render/symbols";
+import { stairHit, resolveStair, stairBox, stairIssues, gradient } from "../core/stair";
+import { drawStairGhost } from "../render/stair";
 import { drawLabel, COLORS, symbolInk } from "../render/draw";
 import { Resolved, ResolvedWall } from "../core/resolve";
 import { dimensionChains } from "../core/dimensions";
 import { t } from "../i18n";
 
-export type ToolName = "select" | "wall" | "door" | "window" | "passage" | "symbol";
+export type ToolName = "select" | "wall" | "door" | "window" | "passage" | "symbol" | "stair";
 
 export interface SnapResult { p: Vec; kind: "node" | "wall" | "grid" | "free"; wall?: Wall; tMm?: number; node?: PlanNode }
 
 interface DragState {
-  kind: "node" | "wall" | "symbol" | "bow" | "opening" | "pan";
+  kind: "node" | "wall" | "symbol" | "stair" | "bow" | "opening" | "pan";
   id?: string;
   wallId?: string;
   startWorld: Vec;
@@ -40,12 +46,24 @@ export class Tools {
    */
   symbolColor: string | null = null;
 
+  /**
+   * The stair the tool will place next. Unlike a symbol, a stair carries its
+   * size in the document, so the tool holds a full set of parameters rather
+   * than just a type — and R/M turn the ghost BEFORE it is placed, because
+   * which way a flight runs is the first thing decided about it, not the last.
+   */
+  stairKind: StairKind = "steektrap";
+  stairSize: StairParams = stairDefaults("steektrap");
+  stairRotation = 0;
+  stairMirrored = false;
+
   private chainStart: Vec | null = null;
   private chainStartNode: string | null = null;
   private cursor: Vec = v(0, 0);
   lengthBuffer = "";
   private drag: DragState | null = null;
   private hoverSymbol: string | null = null;
+  private hoverStair: string | null = null;
   private snap: SnapResult | null = null;
   private dimRects: Array<{ x: number; y: number; w: number; h: number; wallId: string }> = [];
   private dimInput: HTMLInputElement | null = null;
@@ -63,7 +81,9 @@ export class Tools {
     canvas.addEventListener("pointermove", e => this.onMove(e));
     canvas.addEventListener("pointerup", () => this.onUp());
     canvas.addEventListener("wheel", e => this.onWheel(e), { passive: false });
-    canvas.addEventListener("pointerleave", () => { this.hoverSymbol = null; this.requestRender(); });
+    canvas.addEventListener("pointerleave", () => {
+      this.hoverSymbol = null; this.hoverStair = null; this.requestRender();
+    });
     canvas.addEventListener("contextmenu", e => { e.preventDefault(); this.cancel(); });
     window.addEventListener("keydown", e => this.onKey(e));
   }
@@ -76,6 +96,45 @@ export class Tools {
     else if (t === "symbol" && !this.symbolType) this.symbolType = SYMBOL_TYPES[0] ?? "";
     this.cancel(false);
     this.updateHint();
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /**
+   * Arm a stair kind with the dimensions that kind ordinarily has. The rise
+   * comes from the storey rather than the kind, since that is what a stair on
+   * this floor climbs; a ramp keeps its own, which is not a storey height.
+   */
+  setStairKind(kind: StairKind, storeyHeight?: number): void {
+    this.stairKind = kind;
+    const d = stairDefaults(kind);
+    this.stairSize = storeyHeight !== undefined && inheritsRise(kind)
+      ? { ...d, rise: storeyHeight } : d;
+    this.setTool("stair");
+  }
+
+  setStairSize(p: StairParams): void {
+    this.stairSize = clampStair(p);
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /**
+   * Follow a new storey height. The armed stair holds a concrete rise so the
+   * ghost can be drawn, so it has to be told when the storey it will stand in
+   * changes; without this the next stair placed would store the old height as a
+   * deliberate override.
+   */
+  followStoreyHeight(mm: number): void {
+    if (!inheritsRise(this.stairKind)) return;
+    this.stairSize = clampStair({ ...this.stairSize, rise: mm });
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /** Any angle, where R gives quarter turns. Both arm the same ghost. */
+  setStairRotation(radians: number): void {
+    this.stairRotation = stairAngle(radians);
     this.onToolChange();
     this.requestRender();
   }
@@ -164,6 +223,7 @@ export class Tools {
   private onDown(e: PointerEvent): void {
     this.canvas.setPointerCapture(e.pointerId);
     this.hoverSymbol = null; // a name pill has no business sitting under a click or drag
+    this.hoverStair = null;
     const s = this.screenOf(e);
     const w = this.vp.toWorld(s);
     if (e.button === 1 || e.button === 2 || (e.button === 0 && e.getModifierState("Space"))) {
@@ -187,6 +247,7 @@ export class Tools {
       case "window": this.placeOpening("window"); break;
       case "passage": this.placeOpening("passage"); break;
       case "symbol": this.placeSymbol(); break;
+      case "stair": this.placeStair(); break;
       case "select": this.selectDown(s, w); break;
     }
   }
@@ -200,7 +261,9 @@ export class Tools {
 
     // What is this thing? A placed symbol is a bare line drawing, so name the
     // one under the cursor (see drawPreview).
-    this.hoverSymbol = this.tool === "select" ? this.symbolAt(w)?.id ?? null : null;
+    this.hoverStair = this.tool === "select" ? this.stairAt(w)?.id ?? null : null;
+    this.hoverSymbol = this.tool === "select" && !this.hoverStair
+      ? this.symbolAt(w)?.id ?? null : null;
     this.snap = this.tool === "select" ? null : this.computeSnap(w, this.tool === "wall");
     this.requestRender();
   }
@@ -352,6 +415,43 @@ export class Tools {
     this.store.select({ kind: "symbol", id });
   }
 
+  /**
+   * The stair as it currently stands: what the ghost draws and what a click
+   * places. Stairs quantise to the grid and take their direction from R
+   * rather than snapping to a wall — the wide snap radius a symbol uses would
+   * have a flight flipping around every wall the cursor passed near, and a
+   * stair is placed inside a stairwell rather than against one face of it.
+   */
+  private draftStair(id: string): ResolvedStair {
+    const g = this.gridStep;
+    const p = clampStair(this.stairSize);
+    const st: ResolvedStair = {
+      id, kind: this.stairKind,
+      x: Math.round(this.cursor.x / g) * g,
+      y: Math.round(this.cursor.y / g) * g,
+      rotation: this.stairRotation,
+      width: p.width, going: p.going, treads: p.treads, rise: p.rise,
+    };
+    if (this.stairMirrored) st.mirrored = true;
+    // Stored whenever the kind reads it, including a deliberate 0: leaving it
+    // out means "the kind's own default", which is not the same statement.
+    if (stairFields(st.kind).well) st.well = p.well;
+    if (this.symbolColor) st.color = this.symbolColor;
+    return st;
+  }
+
+  private placeStair(): void {
+    const st: Stair = this.draftStair(newId("t"));
+    // The rise is stored only where it differs from the storey: a stair that
+    // climbs its floor should follow that floor when the storey height changes.
+    if (inheritsRise(st.kind) && st.rise === floorHeight(this.floor)) delete st.rise;
+    this.store.mutate(doc => {
+      const f = this.store.floorOf(doc);
+      (f.stairs ??= []).push(st);
+    });
+    this.store.select({ kind: "stair", id: st.id });
+  }
+
   // ---- select tool ----
   private selectDown(s: Vec, w: Vec): void {
     this.lengthBuffer = "";
@@ -379,7 +479,15 @@ export class Tools {
         return;
       }
     }
-    // Symbols.
+    // Stairs, then symbols: picking follows the drawing order, topmost first.
+    // A flight is drawn over the symbols it crosses, so a click on it must not
+    // reach past it to something underneath.
+    const stairPick = this.stairAt(w);
+    if (stairPick) {
+      this.store.select({ kind: "stair", id: stairPick.id });
+      this.drag = { kind: "stair", id: stairPick.id, startWorld: w, moved: false };
+      return;
+    }
     const symHit = this.symbolAt(w);
     if (symHit) {
       this.store.select({ kind: "symbol", id: symHit.id });
@@ -419,6 +527,16 @@ export class Tools {
       const y0 = def.wallMounted ? 0 : -def.depth / 2;
       if (local.x >= -def.width / 2 - 30 && local.x <= def.width / 2 + 30 && local.y >= y0 - 30 && local.y <= y0 + def.depth + 30)
         return sym;
+    }
+    return undefined;
+  }
+
+  /** Topmost stair whose footprint (plus the same 30 mm grab margin) covers `w`. */
+  private stairAt(w: Vec): Stair | undefined {
+    const list = stairsOf(this.floor);
+    for (let i = list.length - 1; i >= 0; i--) {
+      const st = list[i]!;
+      if (stairHit(resolveStair(this.floor, st), w, 30)) return st;
     }
     return undefined;
   }
@@ -478,6 +596,18 @@ export class Tools {
         Object.assign(sym, pose);
         if (!getSymbol(sym.type)?.wallMounted) delete sym.wallId;
       }, "drag" + d.id);
+    } else if (d.kind === "stair") {
+      // Moved by a quantised delta rather than re-posed under the cursor: the
+      // anchor of a stair is the foot of the flight, not the point grabbed.
+      const delta = sub(w, d.startWorld);
+      const dx = Math.round(delta.x / g) * g, dy = Math.round(delta.y / g) * g;
+      if (dx !== 0 || dy !== 0) {
+        d.startWorld = add(d.startWorld, v(dx, dy));
+        this.store.mutate(doc => {
+          const st = stairsOf(this.store.floorOf(doc)).find(x => x.id === d.id);
+          if (st) { st.x += dx; st.y += dy; }
+        }, "drag" + d.id);
+      }
     } else if (d.kind === "bow") {
       this.store.mutate(doc => {
         const f = this.store.floorOf(doc);
@@ -542,6 +672,8 @@ export class Tools {
       case "p": case "P": this.setTool("passage"); break;
       // Symbol tool used to be reachable only by clicking the palette; give it a shortcut too.
       case "s": case "S": this.setTool("symbol"); break;
+      // T for trap: the stair tool, armed with whatever kind was last chosen.
+      case "t": case "T": this.setTool("stair"); break;
       case "o": case "O": this.ortho = !this.ortho; this.updateHint(); this.onToolChange(); break;
       case "g": case "G": this.snapGrid = !this.snapGrid; this.updateHint(); this.onToolChange(); this.requestRender(); break;
       case "l": case "L": this.showDims = !this.showDims; this.onToolChange(); this.requestRender(); break;
@@ -620,8 +752,28 @@ export class Tools {
     input?.remove();
   }
 
+  /**
+   * A quarter turn for a stair, an eighth for a symbol. A flight follows the
+   * stairwell, which follows the walls; a socket does not. The property pane
+   * takes any angle either way.
+   */
   private rotateSelected(): void {
+    // While the stair tool is armed, R turns the ghost rather than whatever is
+    // still selected from the last placement.
+    if (this.tool === "stair") {
+      this.stairRotation = stairAngle(this.stairRotation + Math.PI / 2);
+      this.onToolChange();
+      this.requestRender();
+      return;
+    }
     const sel = this.store.sel;
+    if (sel?.kind === "stair") {
+      this.store.mutate(doc => {
+        const st = stairsOf(this.store.floorOf(doc)).find(x => x.id === sel.id);
+        if (st) st.rotation = stairAngle(st.rotation + Math.PI / 2);
+      });
+      return;
+    }
     if (sel?.kind !== "symbol") return;
     this.store.mutate(doc => {
       const s = this.store.floorOf(doc).symbols.find(x => x.id === sel.id);
@@ -630,7 +782,20 @@ export class Tools {
   }
 
   private mirrorSelected(): void {
+    if (this.tool === "stair") {
+      this.stairMirrored = !this.stairMirrored;
+      this.onToolChange();
+      this.requestRender();
+      return;
+    }
     const sel = this.store.sel;
+    if (sel?.kind === "stair") {
+      this.store.mutate(doc => {
+        const st = stairsOf(this.store.floorOf(doc)).find(x => x.id === sel.id);
+        if (st) st.mirrored = !st.mirrored;
+      });
+      return;
+    }
     if (sel?.kind !== "symbol") return;
     this.store.mutate(doc => {
       const s = this.store.floorOf(doc).symbols.find(x => x.id === sel.id);
@@ -648,6 +813,7 @@ export class Tools {
         f.walls = f.walls.filter(w => w.a !== sel.id && w.b !== sel.id);
         cleanOrphanNodes(f);
       } else if (sel.kind === "symbol") f.symbols = f.symbols.filter(s => s.id !== sel.id);
+      else if (sel.kind === "stair") f.stairs = stairsOf(f).filter(s => s.id !== sel.id);
       else if (sel.kind === "opening") {
         for (const w of f.walls) w.openings = w.openings.filter(o => o.id !== sel.id);
       }
@@ -673,6 +839,7 @@ export class Tools {
       case "window": this.hint = t("hint.window"); break;
       case "passage": this.hint = t("hint.passage"); break;
       case "symbol": this.hint = t("hint.symbol", { label: getSymbol(this.symbolType) ? t("symbol." + this.symbolType) : this.symbolType }); break;
+      case "stair": this.hint = t("hint.stair", { label: t("stair." + this.stairKind) }); break;
     }
   }
 
@@ -956,6 +1123,30 @@ export class Tools {
         if (sym && def) drawLabel(ctx, vp, this.symbolLabelPoint(sym, def), t("symbol." + sym.type), symbolInk(sym));
       }
 
+      // A hovered stair names itself, and says what is out of the ordinary about
+      // it. The flag on the drawing is a mark; this is where the reason is,
+      // without having to select the stair to find out.
+      const stairId = this.hoverStair;
+      if (stairId) {
+        const raw = stairsOf(f).find(x => x.id === stairId);
+        if (raw) {
+          const st = resolveStair(f, raw);
+          const box = stairBox(st);
+          const at = add(v(st.x, st.y), fromAngleRot(v(0, (box.y0 + box.y1) / 2), st.rotation));
+          const issues = stairIssues(st);
+          // One reason, not all of them: the pill sits on the drawing and a
+          // three-clause sentence would run off the canvas. The rest are in the
+          // property pane, which is where a stair is being fixed anyway.
+          const first = issues[0];
+          const text = first === undefined ? t("stair." + st.kind)
+            : t("stairIssue." + first.code, {
+                value: first.code === "slopeSteep" ? `1:${gradient(first.value)}` : Math.round(first.value),
+                limit: first.code === "slopeSteep" ? `1:${first.limit}` : first.limit,
+              }) + (issues.length > 1 ? ` +${issues.length - 1}` : "");
+          drawLabel(ctx, vp, at, text, issues.length > 0 ? COLORS.stairWarn : symbolInk(st));
+        }
+      }
+
       // Bow handle for selected wall.
       if (sel?.kind === "wall" && this.lengthBuffer) {
         const wall = f.walls.find(x => x.id === sel.id);
@@ -1020,6 +1211,11 @@ export class Tools {
         ctx.restore();
         ctx.globalAlpha = 1;
       }
+    }
+
+    // Stair placement ghost, in the armed pen and already turned by R/M.
+    if (this.tool === "stair") {
+      drawStairGhost(ctx, this.draftStair("ghost"), this.symbolColor ?? COLORS.symbol);
     }
 
     // Opening placement ghost.

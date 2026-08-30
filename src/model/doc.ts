@@ -1,5 +1,7 @@
 // The document is a planar graph of wall centerlines. All lengths/coords are
 // integer millimetres. Everything visible is derived from this at render time.
+import type { Stair } from "./stair";
+
 export type Id = string;
 
 export interface PlanNode { id: Id; x: number; y: number }
@@ -132,7 +134,29 @@ export interface Floor {
   nodes: PlanNode[];
   walls: Wall[];
   symbols: SymbolInstance[];
+  /**
+   * Placed stairs. Optional because a plan drawn before stairs existed simply
+   * has none, the way `areaMode` is optional — read it through stairsOf().
+   */
+  stairs?: Stair[];
+  /**
+   * Storey height in mm, floor to floor. This is what a stair on this floor
+   * climbs unless it states otherwise, so changing it moves every stair that
+   * follows it. Absent means the default: a plan nobody has given a storey
+   * height to carries no number the drawer did not choose.
+   */
+  height?: number;
 }
+
+/** A floor's stairs. Absent means none, not an error. */
+export function stairsOf(f: Floor): Stair[] { return f.stairs ?? []; }
+
+/**
+ * Storey height, floor to floor. 2800 is the ordinary Dutch new-build figure and
+ * gives a 15-tread flight a 175 optrede.
+ */
+export const FLOOR_HEIGHT_DEFAULT = 2800;
+export const floorHeight = (f: Floor): number => f.height ?? FLOOR_HEIGHT_DEFAULT;
 
 /**
  * How reported areas are measured. Plans are dimensioned both ways in practice
@@ -166,7 +190,7 @@ export const GRID_DEFAULT_MM = 100;
 export function emptyDoc(): PlanDoc {
   return {
     version: 1, unit: "mm", gridMm: GRID_DEFAULT_MM,
-    floors: [{ id: newId("f"), name: "Floor 1", nodes: [], walls: [], symbols: [] }],
+    floors: [{ id: newId("f"), name: "Floor 1", nodes: [], walls: [], symbols: [], stairs: [] }],
   };
 }
 

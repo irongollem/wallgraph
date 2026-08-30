@@ -119,6 +119,9 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 .ink-custom::-webkit-color-swatch { border: none; border-radius: 3px; }
 .ink-custom::-moz-color-swatch { border: none; border-radius: 3px; }
 .prop-note { font: 10px system-ui, sans-serif; color: #a09a8a; padding: 1px 2px 4px; }
+/* A figure outside what a stair is ordinarily built to. Loud enough to find,
+   stated as a figure rather than as a verdict -- see STAIR_LIMITS. */
+.prop-note.is-warn { color: #b3261e; font-weight: 500; }
 
 .btn-danger {
   width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;

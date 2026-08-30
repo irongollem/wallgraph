@@ -10,13 +10,14 @@ import { exportPng } from "../io/image";
 import { exportDxf } from "../io/dxf";
 import { exportSvg } from "../io/svg";
 import { seedDoc } from "../seed";
-import { emptyDoc, areaModeOf, sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS, doorKindOf, DOOR_KINDS, type AreaMode, type Sash, type HingeEdge, type Opening, type Wall } from "../model/doc";
+import { emptyDoc, areaModeOf, floorHeight, sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS, doorKindOf, DOOR_KINDS, type AreaMode, type Sash, type HingeEdge, type Opening, type Wall } from "../model/doc";
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
 import { COLORS, INKS } from "../render/draw";
 import { icon, type IconName } from "./icons";
 import { docHref, DOC_IDS } from "../links";
 import { openMenu, type MenuEntry } from "./menu";
 import { Palette } from "./palette";
+import { renderStairTool, renderStairProps, type StairRows } from "./stairs";
 import { scrubbable } from "./scrub";
 
 export class Panel {
@@ -129,7 +130,9 @@ export class Panel {
     win.onclick = () => this.tools.setTool("window");
     const passage = toolBtn("passage", "passage", "P", t("tool.passage"));
     passage.onclick = () => this.tools.setTool("passage");
-    rail.append(select, wall, door, win, passage, el("hr", "rail-sep"));
+    const stair = toolBtn("stair", "stair", "T", t("tool.stair"));
+    stair.onclick = () => this.tools.setTool("stair");
+    rail.append(select, wall, door, win, passage, stair, el("hr", "rail-sep"));
 
     const modeBtn = (name: IconName, modeKey: string, on: boolean, label: string, key: string): HTMLButtonElement => {
       const b = el("button", "rail-btn is-mode") as HTMLButtonElement;
@@ -280,12 +283,17 @@ export class Panel {
   private renderPane(): void {
     const sel = this.store.sel;
     const d = this.store.doc;
-    const selSig = sel ? `${sel.kind}:${sel.id}` : "none";
+    // The stair tool shows its picker where a selection's properties go, so the
+    // pane has a third state: nothing selected, but something to configure.
+    const stairMode = this.tools.tool === "stair";
+    const selSig = (stairMode ? `stair-tool:${this.tools.stairKind}|` : "")
+      + (sel ? `${sel.kind}:${sel.id}` : "none");
     // Plan rows and the storey picker read from the document, so they have to
     // rebuild when an undo changes a value under them -- but not on every
     // store change, or placing a symbol would yank focus out of an open field.
     const paneSig = [this.store.activeFloor, d.floors.map(fl => fl.name).join("\u0001"),
-      d.gridMm, areaModeOf(d), this.tools.lastThickness, selSig].join("|");
+      d.gridMm, areaModeOf(d), floorHeight(this.store.floor), this.tools.lastThickness,
+      selSig].join("|");
 
     if (paneSig !== this.lastPaneSig) {
       this.lastPaneSig = paneSig;
@@ -299,8 +307,8 @@ export class Panel {
 
     const swap = selSig !== this.lastSelSig;
     this.lastSelSig = selSig;
-    this.paneBody.hidden = !sel;
-    if (sel) {
+    this.paneBody.hidden = !sel && !stairMode;
+    if (sel || stairMode) {
       this.paneBody.className = "pane-body" + (swap ? " pane-swap" : "");
       this.renderProps(this.props);
     }
@@ -516,14 +524,22 @@ export class Panel {
 
   /** Row builders, shared by the property pane and the pinned Plan section. */
   private rowKit(p: HTMLElement) {
-    const numRow = (label: string, value: number, onCommit: (n: number) => void, step = 10): void => {
+    const numRow = (
+      label: string, value: number, onCommit: (n: number) => void, step = 10,
+      extra: NumRowExtra = {},
+    ): void => {
       const row = el("label", "prop-row");
+      // What the field is ordinarily set to, where there is such a thing. It
+      // belongs on the row rather than in a note: the guidance is wanted while
+      // the number is being chosen, not underneath the whole section.
+      if (extra.title) row.title = extra.title;
       row.append(Object.assign(el("span"), { textContent: label }));
       const input = el("input") as HTMLInputElement;
       input.type = "number"; input.value = String(Math.round(value)); input.step = String(step);
       input.onchange = () => { const n = parseFloat(input.value); if (isFinite(n)) onCommit(n); };
       scrubbable(input, {
         step,
+        snap: extra.snap,
         onStart: () => { this.scrubbing = true; this.store.beginGesture("scrub:" + label); },
         onEnd: () => { this.scrubbing = false; this.store.endGesture(); this.refreshToolbar(); },
         onInput: n => onCommit(n),
@@ -555,6 +571,10 @@ export class Panel {
     };
     const noteRow = (text: string): void => {
       p.append(Object.assign(el("div", "prop-note"), { textContent: text }));
+    };
+    /** A note that has to be seen: a figure outside the ordinary. */
+    const warnRow = (text: string): void => {
+      p.append(Object.assign(el("div", "prop-note is-warn"), { textContent: text }));
     };
     /**
      * Colour picker: the convention's pens as swatches plus a free one. Chips
@@ -606,7 +626,7 @@ export class Panel {
       b.textContent = label; b.onclick = fn;
       p.append(b);
     };
-    return { numRow, selRow, textRow, noteRow, btnRow, colorRow };
+    return { numRow, selRow, textRow, noteRow, warnRow, btnRow, colorRow };
   }
 
   /**
@@ -639,6 +659,15 @@ export class Panel {
     const { numRow, selRow, textRow, noteRow, btnRow } = this.rowKit(inner);
     this.renderFloors(btnRow, textRow, noteRow);
     numRow(t("panel.grid"), this.store.doc.gridMm, n => this.store.mutate(d => { d.gridMm = Math.max(1, n); }), 10);
+    // Storey height belongs to the floor, not to each stair on it: a stair
+    // connects two storeys, so changing this moves every stair that follows it.
+    numRow(t("panel.floorHeight"), floorHeight(this.store.floor), n => {
+      const h = Math.max(1000, Math.round(n));
+      this.store.mutate(d => { this.store.floorOf(d).height = h; });
+      // Keep the armed stair on the storey it will be placed in, or the next
+      // one placed would carry the old height as an override of the new one.
+      this.tools.followStoreyHeight(h);
+    }, 100, { title: t("panel.floorHeightHelp") });
     numRow(t("panel.newWallThickness"), this.tools.lastThickness, n => { this.tools.lastThickness = Math.max(20, n); }, 10);
     selRow(t("panel.areaMode"), areaModeOf(this.store.doc),
       [["net", t("panel.areaNet")], ["centerline", t("panel.areaCenterline")]],
@@ -653,7 +682,7 @@ export class Panel {
     p.replaceChildren();
     const sel = this.store.sel;
     const f = this.store.floor;
-    const { numRow, selRow, noteRow, btnRow, colorRow } = this.rowKit(p);
+    const { numRow, selRow, noteRow, warnRow, btnRow, colorRow } = this.rowKit(p);
 
     const secHead = (label: string, opts: { sel?: boolean; later?: boolean } = {}): void => {
       const wrap = el("div", "sec" + (opts.later ? " sec-later" : ""));
@@ -684,8 +713,9 @@ export class Panel {
     // Read-only: a derived figure the user cannot type into. Editing stays on the
     // centerline, which is what the document actually stores; showing the clear
     // span as an input would invite typing a number that has no single solution.
-    const infoRow = (label: string, text: string): void => {
+    const infoRow = (label: string, text: string, title?: string): void => {
       const row = el("div", "prop-row");
+      if (title) row.title = title;
       row.append(
         Object.assign(el("span"), { textContent: label }),
         Object.assign(el("span", "prop-readonly"), { textContent: text }),
@@ -704,8 +734,26 @@ export class Panel {
       p.append(b);
     };
 
+    const stairRows: StairRows = {
+      secHead, numRow, selRow, infoRow, noteRow, warnRow, colorRow, btnRow, dangerRow,
+    };
+
+    // With the stair tool armed the picker stays put, the way the symbol
+    // palette does: placing a stair selects it, so the next kind has to be
+    // reachable without deselecting first.
+    if (this.tools.tool === "stair") {
+      if (sel?.kind === "stair") renderStairProps(this.store, this.tools, stairRows, sel.id);
+      renderStairTool(p, this.store, this.tools, stairRows, () => this.refreshToolbar());
+      return;
+    }
+
     // Plan-level rows live in the pinned Plan section, not here.
     if (!sel) return;
+
+    if (sel.kind === "stair") {
+      renderStairProps(this.store, this.tools, stairRows, sel.id);
+      return;
+    }
 
     if (sel.kind === "wall") {
       const w = f.walls.find(x => x.id === sel.id);
@@ -843,6 +891,12 @@ export function matches(def: SymbolDef, q: string): boolean {
   return allTranslations("symbol." + def.type).some(n => n.toLowerCase().includes(q))
       || def.label.toLowerCase().includes(q)
       || def.type.includes(q);
+}
+
+/** Optional extras on a number row: guidance text, and a scrub detent. */
+export interface NumRowExtra {
+  title?: string;
+  snap?: (value: number) => number;
 }
 
 function dist2(a: { x: number; y: number }, b: { x: number; y: number }): number {

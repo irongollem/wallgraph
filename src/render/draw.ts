@@ -1,13 +1,15 @@
 // Full scene render. Immediate mode: redraw everything on change (documents at
 // this scale render in well under a frame). Layers: grid, rooms, walls,
 // opening decorations, symbols, selection, labels (labels in screen space).
-import { Floor, SymbolInstance, AreaMode, Sash, sashesOf } from "../model/doc";
+import { Floor, SymbolInstance, AreaMode, Sash, sashesOf, stairsOf } from "../model/doc";
 import { Resolved, OpeningGeom } from "../core/resolve";
 import { Room } from "../core/rooms";
 import { Selection } from "../model/store";
 import { Viewport } from "./viewport";
 import { Vec, add, sub, scale, perp, v, angleOf, dist, fromAngle } from "../geometry/vec";
 import { getSymbol } from "./symbols";
+import { drawStair } from "./stair";
+import { resolveStair } from "../core/stair";
 import { t } from "../i18n";
 import { gridSteps, GridSteps } from "./grid";
 
@@ -28,6 +30,21 @@ export const COLORS = {
   selectWash: "rgba(224,93,45,0.13)",
   snap: "#2d7de0",
   dimension: "#2d7de0",
+  /**
+   * Backing behind a stair. A flight covers a lot of paper and its treads read
+   * as a grille over whatever it crosses, so what is underneath is pushed back
+   * rather than hidden -- it stays legible through the wash. The paper colour
+   * rather than white: the wash should look like less drawing, not like a
+   * brighter patch of a different sheet.
+   */
+  stairWash: "rgba(244,242,236,0.4)",
+  /**
+   * A figure outside what a stair is ordinarily built to. Distinct from the
+   * INKS red, which is a pen the drawer chose and means new work; the annotation
+   * also carries an exclamation mark, so the flag survives a stair already drawn
+   * in red and survives an export that loses the colour.
+   */
+  stairWarn: "#b3261e",
 };
 
 /**
@@ -59,7 +76,7 @@ const HEX = /^#[0-9a-fA-F]{6}$/;
  * `strokeStyle` is silently ignored by canvas — one bad value would repaint the
  * symbol in whatever colour happened to be set last.
  */
-export function symbolInk(s: SymbolInstance): string {
+export function symbolInk(s: { color?: string }): string {
   return s.color && HEX.test(s.color) ? s.color : COLORS.symbol;
 }
 
@@ -143,6 +160,18 @@ export function drawScene(
 
   // Symbols.
   for (const s of floor.symbols) drawSymbol(ctx, s, px, sel?.kind === "symbol" && sel.id === s.id);
+
+  // Stairs last, over the symbols. Their own wash goes down first, so whatever
+  // a flight crosses -- walls, a room tint, a symbol beneath it -- recedes
+  // instead of tangling with the treads.
+  for (const st of stairsOf(floor)) {
+    drawStair(ctx, resolveStair(floor, st), {
+      px, ink: symbolInk(st),
+      selected: sel?.kind === "stair" && sel.id === st.id,
+      select: COLORS.select, wash: COLORS.selectWash,
+      backing: COLORS.stairWash, warn: COLORS.stairWarn,
+    });
+  }
 
   // Tool preview (world space).
   extras.preview?.(ctx, vp);
