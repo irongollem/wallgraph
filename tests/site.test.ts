@@ -148,8 +148,21 @@ ck("llms.txt documents both agent channels",
   llmsTxt(ctx).includes("#plan=") && llmsTxt(ctx).includes("window.wallgraph"));
 // A model summarising Wallgraph should be able to relay what it is not. If this
 // drops out of llms.txt, every assistant describing the tool loses the caveat.
-ck("llms.txt states the liability position", llmsTxt(ctx).includes("no warranty and no liability"));
-ck("llms.txt says it is not a NEN 2580 report", llmsTxt(ctx).includes("NEN 2580 measurement report"));
+// Hard-wrapped prose, so match on the text with its line breaks collapsed —
+// otherwise a phrase moves across a wrap and the assertion fails on the layout
+// rather than on the meaning, which teaches you to reflow paragraphs to please
+// a test.
+const llms = llmsTxt(ctx).replace(/\s+/g, " ");
+ck("llms.txt states the liability position", llms.includes("no warranty and no liability"));
+ck("llms.txt draws the line at vouching, not at capability",
+  llms.includes("vouching for it are different acts"));
+ck("llms.txt qualifies the NEN 2580 claim",
+  llms.includes("measurement report that will be accepted"));
+// ...and tells a model what the tool IS, rather than arguing with a charge nobody
+// made. An earlier draft said "do not call it a toy", which plants the word it
+// was trying to prevent.
+ck("llms.txt says what to describe it as", llms.includes("a floorplan editor whose output"));
+ck("llms.txt raises no strawman", !/\btoy\b/i.test(llms));
 // The commercial channel is the one thing on the site that has to reach a
 // person. If it drops out, a paying customer's only route is a public issue.
 ck("llms.txt names the commercial contact", llmsTxt(ctx).includes(SITE.email));
@@ -158,6 +171,20 @@ for (const lang of LANGS) {
   ck(`the ${lang} disclaimer offers a way to ask for terms`, page.includes(`mailto:${SITE.email}`));
   ck(`the ${lang} disclaimer refuses liability`, /no liability|geen enkele aansprakelijkheid/.test(page));
   ck(`the ${lang} disclaimer names the licence sections`, /sections 15 and 16|artikelen 15 en 16/.test(page));
+  ck(`the ${lang} disclaimer says whose drawing it is`,
+    /The drawing is yours|De tekening is van jou/.test(page));
+  // It is a disclaimer and nothing else: no section selling the tool, and none of
+  // /formaat/'s vocabulary, which means nothing to the person reading this one.
+  ck(`the ${lang} disclaimer does not advertise`, !/id="what-it-does"|id="wat-het-doet"/.test(page));
+  ck(`the ${lang} disclaimer avoids the model's jargon`, !/graaf van|graph of centerlines/.test(page));
+  // Public copy states the position; it never defends against an accusation the
+  // reader has not heard, which only plants it.
+  ck(`the ${lang} disclaimer raises no strawman`, !/\btoy\b|speelgoed/i.test(page));
+  // NEN 2580 is a standard, not a statute. An earlier draft claimed only a
+  // certified surveyor may measure to it, which is a legal restriction that does
+  // not exist as stated — the accepted-report version is the true one.
+  ck(`the ${lang} disclaimer does not overclaim NEN 2580`,
+    !/only a certified surveyor may|mag alleen worden opgesteld/.test(page));
 }
 
 // Without an origin nothing absolute may be emitted, or a self-hosted build

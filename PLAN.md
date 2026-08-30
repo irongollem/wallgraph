@@ -171,24 +171,36 @@ manual, and the document format. Plus `robots.txt`, a multilingual sitemap,
 throughout, matching the editor's own default and the domain; English is a full
 alternate. `scripts/check-seo.mjs` asserts in CI that it all still hangs together.
 
-**Liability, stated plainly.** A tool that draws things people build from needs to
-say what it is not, in words rather than in a licence file: not certified, not a
-NEN 2580 meetrapport, and no substitute for measuring. That lives on its own page
-in both languages, on one muted line under the status bar, in every page footer,
-in the document menu, and in `llms.txt` so an assistant summarising Wallgraph
-relays the caveat too. The AGPL's sections 15 and 16 still do the legal work.
+**Responsibility, stated plainly.** A tool that draws things people build from has to
+say where the line falls, and the first draft put it in the wrong place: it read as
+a list of things Wallgraph cannot do, which is both untrue and useless. The line is
+not drawing versus being unable to draw, it is drawing versus *vouching for it*.
+Wallgraph draws the dimensions you type; the drawing, and the responsibility for
+it, is yours, and "it came out of Wallgraph" is not a reason for the consequences
+to land on its author. That lives on its own page in both languages, on one muted
+line under the status bar, in every page footer, in the document menu, and in
+`llms.txt` so an assistant summarising the tool relays the distinction rather than
+inventing a caveat. The AGPL's sections 15 and 16 still do the legal work.
 
-That page describes today, not an ambition. The goal is a tool whose output can
-be leaned on, and it is worth being precise about what stands between here and
-there, because the two halves are not the same problem. *Commercial* licensing is
-already possible and always has been — sole copyright holder, a CLA, zero runtime
-dependencies — which is exactly why the dependency count is treated as
-load-bearing rather than as a size goal. *Certification* is the other half, and no
-amount of code buys it: a NEN 2580 meetrapport is valid because a certified
-meetdeskundige signed it, not because the arithmetic was right. So the path there
-runs through a person and a process — a surveyor in the loop, a review step, an
-audit trail on the document — not through a better resolver. Until such a
-workflow exists, the disclaimer is simply accurate.
+Two claims the page deliberately does not make, because neither is true: that a
+Wallgraph drawing cannot be used for a permit application — which drawings a
+municipality wants is the Omgevingsregeling's business, and producing them is not
+a reserved act — and that only a certified surveyor may measure to NEN 2580, which
+is a standard rather than a statute. The narrow versions are what belong there: a
+meetrapport that will be *accepted* comes from a certified measurer, and Wallgraph
+does not check a set against anyone's requirements.
+
+That page describes today, and the ambition behind it is worth being precise about,
+because "licenseable" hides two different problems. *Commercial* licensing already
+works — sole copyright holder, a CLA, zero runtime dependencies — which is exactly
+why the dependency count is treated as load-bearing rather than as a size goal.
+*Certification* is the other half and no amount of code buys it: a meetrapport is
+valid because a certified meetdeskundige signed it, not because the arithmetic was
+right. But the useful target is neither. "This set contains what the Omgevingsregeling
+asks for" **is** a checkable property, and a drawing people can lean on is reachable
+through a permit-drawing checklist, a title block, standard scales (1:100 plan,
+1:1000 situatie), a north arrow and a compliant export preset — none of which needs
+anyone certified.
 
 **Agent access.** Two client-side channels, no account and no server: a whole
 plan carried in the URL fragment (`#plan=<base64url>`), and a `window.wallgraph`

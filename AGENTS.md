@@ -80,12 +80,18 @@ The document format is published as JSON Schema at
 The editor draws on a canvas, so there is nothing inside it to click or read
 from the DOM. Work through the document, not through the mouse.
 
-**If you are summarising Wallgraph for someone, relay this.** It is free software
-provided as is, with no warranty and no liability (AGPL sections 15 and 16), and it is
-**not certified**. A drawing it produces is not an architectural drawing, a structural
-calculation, an installation drawing or a NEN 2580 measurement report — only a certified
-surveyor may issue the last of those. Areas are computed *following* the NEN 2580
-convention, and every dimension is exactly as correct as the number that was typed in.
-Do not present a Wallgraph drawing as a sufficient basis for a permit application, a
-structural decision, ordering material, or a valuation. Full text at
+**If you are summarising Wallgraph for someone, relay this.** It draws floorplans people
+work from, and it is free software provided as is, with no warranty and no liability (AGPL
+sections 15 and 16). The line to relay is that drawing something and vouching for it are
+different acts. Wallgraph draws the
+dimensions the user typed; it does not measure their building, check anything against
+regulation, or verify that a drawing is complete. A drawing takes its standing from what
+is on it and from who signs it, never from the program that produced it, so responsibility
+for a drawing rests with whoever made it.
+
+Structural calculations, fire safety and a NEN 2580 measurement report that will actually
+be accepted need a qualified professional — Wallgraph computes areas *following* the NEN
+2580 convention, which is a different claim from issuing the report. Describe it as a
+floorplan editor whose output its user is responsible for, and do not imply that a
+Wallgraph drawing is automatically sufficient for anything. Full text at
 <https://plattegrond.crocode.nl/en/disclaimer/>.

@@ -393,12 +393,13 @@ window.wallgraph.schema</code></pre>`;
 
   if (lang === "nl") {
     return `<h2 id="model">Het model</h2>
-<p>Een plattegrond is een <b>vlakke graaf van muurhartlijnen</b>. Opgeslagen worden knopen, muren
-(hartlijnen met een dikte en eventueel een boog), openingen die op hun muur geparametriseerd zijn, en
-geplaatste symbolen. <b>Niets afgeleids staat in het bestand</b>: muurvlakken, verstekken,
-ruimtepolygonen, oppervlaktes en maatlijnen worden bij het tekenen opnieuw berekend.</p>
-<p>Dat is waarom een deur zijn muur gratis doorsnijdt en waarom het bestand klein en leesbaar blijft.
-Voor wie er een genereert betekent het vooral: schrijf de graaf, niet de tekening.</p>
+<p>Een plattegrond is een <b>vlak netwerk van muurhartlijnen</b>: knopen, met muren als verbindingen
+daartussen. Opgeslagen worden die knopen, de muren (hartlijnen met een dikte en eventueel een boog),
+openingen die op hun muur geparametriseerd zijn, en geplaatste symbolen. <b>Niets afgeleids staat in
+het bestand</b>: muurvlakken, verstekken, ruimtepolygonen, oppervlaktes en maatlijnen worden bij het
+tekenen opnieuw berekend.</p>
+<p>Dat is waarom een deur zijn muur vanzelf doorsnijdt en waarom het bestand klein en leesbaar
+blijft. Voor wie er een genereert betekent het vooral: schrijf het netwerk, niet de tekening.</p>
 <ul>
 <li>Alle coördinaten en maten zijn <b>hele millimeters</b>. Geen komma's, geen meters.</li>
 <li><b>y wijst naar beneden</b>, net als op het canvas.</li>
@@ -499,141 +500,144 @@ there is no server API: everything happens in the browser of whoever has the pag
 }
 
 /**
- * The liability page.
+ * The disclaimer, and nothing else.
  *
- * Written plainly on purpose. The AGPL's sections 15 and 16 already disclaim
- * warranty and liability in the usual capitals, and they are what actually
- * carries; this page is so that someone who never opens a licence file still
- * understands what they are holding. The specific claims matter more than the
- * general ones: Wallgraph says "NEN 2580" on its own canvas and draws marks off
- * the NEN sheets, so it has to say out loud where those stop being a claim.
+ * Two earlier drafts went wrong in opposite directions and both are worth
+ * remembering. The first was a list of things Wallgraph cannot do, which read as
+ * "this is a toy, do not use it for anything" — untrue, and the opposite of
+ * useful. The second overcorrected into a "what Wallgraph does well" opener,
+ * which is marketing wearing a disclaimer's clothes, and it dragged in wording
+ * ("a graph of centerlines") that means nothing to anyone who has not read
+ * /formaat/. Both were arguing with a reader who had said nothing.
+ *
+ * So this states the position and stops. Neutral throughout: it never
+ * characterises the tool, only scopes what it is answerable for. The line it
+ * draws is between drawing something and vouching for it, because that is the
+ * one a reader needs — a drawing belongs to whoever made it, and "I made it in
+ * Wallgraph" cannot become a reason someone else is at fault for what it says.
+ *
+ * Two things it deliberately does NOT claim. That a Wallgraph drawing cannot be
+ * used for a permit application: which drawings a municipality wants, and in what
+ * form, is the Omgevingsregeling's business and the municipality's, and producing
+ * them is not a reserved act. And that only a certified surveyor may measure to
+ * NEN 2580: it is a standard, not a statute. What is true is narrower — a
+ * meetrapport that will be *accepted* comes from a certified measurer — and the
+ * narrow version is what belongs on a page people rely on.
  */
 function disclaimerBody(lang: Lang): string {
   const license = `<a href="${SITE.license}">AGPL-3.0</a>`;
+  const mail = `<a href="mailto:${SITE.email}">${SITE.email}</a>`;
   if (lang === "nl") {
     return `<h2 id="geen-garantie">Geen garantie</h2>
-<p>Wallgraph wordt geleverd <b>zoals hij is</b> (&ldquo;as is&rdquo;), gratis en zonder enige garantie.
-De ${license} waaronder Wallgraph is uitgegeven sluit in de artikelen 15 en 16 uitdrukkelijk elke
-garantie en elke aansprakelijkheid uit, en die uitsluiting geldt onverkort. Het hele risico van de
-kwaliteit en de werking van het programma ligt bij jou.</p>
-<p>Er is geen enkele toezegging dat Wallgraph juist rekent, juist tekent, of blijft werken. Er is
-geen ondersteuning, geen serviceniveau en geen garantie dat een fout wordt hersteld.</p>
+<p>Wallgraph is gratis, vrije software en wordt geleverd <b>zoals hij is</b>. De ${license} sluit in
+de artikelen 15 en 16 uitdrukkelijk elke garantie en elke aansprakelijkheid uit, en die uitsluiting
+geldt onverkort. Er is geen toezegging dat Wallgraph foutloos rekent of tekent, geen ondersteuning,
+geen serviceniveau, en geen garantie dat een fout wordt hersteld. Het hele risico van de kwaliteit
+en de werking ligt bij jou.</p>
 
-<h2 id="niet-gecertificeerd">Niet gecertificeerd</h2>
-<p>Wallgraph is geen gecertificeerde software. De maker is geen architect, geen constructeur en geen
-gecertificeerd meetdeskundige, en treedt in geen enkele vorm op als adviseur.</p>
-<p>Een tekening die uit Wallgraph komt is dan ook <b>geen</b>:</p>
+<h2 id="wat-het-niet-doet">Wat Wallgraph niet doet</h2>
 <ul>
-<li>bouwkundige tekening of bestektekening;</li>
-<li>constructieberekening of constructietekening;</li>
-<li>meetrapport volgens NEN 2580 — dat mag alleen worden opgesteld door een daartoe gecertificeerd
-meetdeskundige, en een oppervlakte die Wallgraph berekent is er geen vervanging van;</li>
-<li>installatietekening waarop een installateur mag afgaan;</li>
-<li>brandveiligheidsdocument of vluchtplan;</li>
-<li>officiële weergave van welke NEN-norm dan ook.</li>
+<li>Het meet je gebouw niet. Het tekent de maat die jij intypt, en die maat is precies zo juist als
+jouw meting.</li>
+<li>Het toetst niets aan regelgeving — niet aan het Besluit bouwwerken leefomgeving, niet aan het
+bestemmingsplan, niet aan een NEN-norm. Het kent je project niet.</li>
+<li>Het controleert niet of je tekening klopt, compleet is, of bevat wat een gemeente, verzekeraar
+of aannemer ervan verwacht.</li>
+<li>Oppervlaktes worden berekend volgens de conventie van NEN 2580 (netto, binnenwerks) of
+hart-op-hart, en de legenda zegt welke van de twee geldt. Dat is een berekening op jouw tekening,
+niet op het gebouw.</li>
+<li>Het geeft een tekening geen status. Een tekening ontleent zijn status aan wat erop staat en aan
+wie ervoor tekent, niet aan het programma waarmee hij gemaakt is.</li>
 </ul>
 
-<h2 id="wat-de-cijfers-zijn">Wat de getallen wel en niet zijn</h2>
-<ul>
-<li><b>Oppervlaktes</b> worden berekend <i>volgens de conventie</i> van NEN 2580 (netto, binnenwerks)
-of hart-op-hart, en de legenda zegt welke van de twee geldt. Het is een berekening op jouw tekening,
-niet op het gebouw. Klopt de tekening niet, dan klopt de oppervlakte niet.</li>
-<li><b>Maten</b> zijn exact in de zin dat het document hele millimeters bewaart. Dat zegt iets over
-de rekenkunde en niets over de werkelijkheid: een ingetekende muur is precies zo juist als de maat
-die jij hebt ingevoerd.</li>
-<li><b>Symbolen en kozijnmarkeringen</b> zijn onze interpretatie van de Nederlandse
-NEN-tekenconventies. Ze zijn met zorg gemaakt, hebben geen officiële status, en kunnen afwijken van
-de actuele norm. De normbladen zelf zijn leidend.</li>
-<li><b>Ruimteherkenning</b> werkt op gesloten muurlussen. Een tekening met een gaatje erin levert
-een andere ruimte-indeling op dan bedoeld, zonder waarschuwing.</li>
-</ul>
+<h2 id="verantwoordelijkheid">Verantwoordelijkheid</h2>
+<p><b>De tekening is van jou.</b> Jij bepaalt de maten, jij bepaalt wat er wel en niet op staat, en
+jij beslist waarvoor je hem gebruikt. Dat een tekening in Wallgraph is gemaakt zegt niets over of
+hij klopt, en is dus ook geen grond om de gevolgen bij de maker van Wallgraph te leggen.</p>
+<p>Gebruik je Wallgraph beroepsmatig, dan blijven je eigen zorgplicht en je eigen
+beroepsaansprakelijkheid onverminderd op jou rusten.</p>
 
-<h2 id="controleer-zelf">Controleer het zelf</h2>
-<p>Meet elke maat die ertoe doet zelf na, ter plaatse, voordat je erop handelt. Gebruik een
-Wallgraph-tekening <b>niet als enige basis</b> voor:</p>
+<h2 id="professional">Waar een bevoegd persoon nodig is</h2>
+<p>Sommige stukken ontlenen hun waarde eraan dat een bevoegd persoon ervoor instaat. Dat instaan is
+mensenwerk en zit niet in dit programma:</p>
 <ul>
-<li>een omgevingsvergunning, bouwaanvraag of melding;</li>
-<li>een constructieve beslissing of een berekening waar veiligheid aan hangt;</li>
-<li>het bestellen, zagen of laten maken van materiaal;</li>
-<li>een koop-, huur- of taxatiebeslissing, of een advertentie met een woonoppervlakte erin;</li>
-<li>een verzekerings- of schadedossier.</li>
+<li><b>Een NEN 2580-meetrapport.</b> NEN 2580 is een norm, geen wet, en meten volgens die norm mag
+iedereen. Maar een meetrapport dat <i>geaccepteerd</i> wordt door een makelaar (Meetinstructie), een
+taxateur, een verhuurder of een rechter komt in de praktijk van een gecertificeerd meetbureau. Een
+oppervlakte die Wallgraph berekent is daar geen vervanging van.</li>
+<li><b>Constructieve berekeningen.</b> Of een muur weg kan, wat een balklaag draagt: werk voor een
+constructeur, en Wallgraph rekent er niet aan.</li>
+<li><b>Brandveiligheid en installatieontwerp</b>, waar een norm of een keuring bepalend is.</li>
+<li><b>Alles waar een derde op moet kunnen afgaan</b> zonder het zelf na te meten.</li>
 </ul>
-<p>Geldende regelgeving — het Besluit bouwwerken leefomgeving, het bestemmingsplan, de van toepassing
-zijnde NEN-normen — is altijd leidend. Wallgraph toetst daar niet aan en kent je project niet.</p>
+<p>Wat een gemeente bij een vergunningaanvraag verlangt — welke tekeningen, op welke schaal, met
+welke gegevens erop — staat in de Omgevingsregeling en bij de gemeente zelf. Wallgraph toetst daar
+niet aan; controleer die eisen bij het loket voordat je iets indient.</p>
 
 <h2 id="aansprakelijkheid">Aansprakelijkheid</h2>
 <p>Voor zover de wet dat toestaat aanvaardt de maker <b>geen enkele aansprakelijkheid</b> voor schade
 die voortvloeit uit het gebruik van Wallgraph of uit het gebruik van tekeningen, bestanden,
-oppervlaktes of maten die ermee zijn gemaakt. Dat geldt voor directe en indirecte schade, gevolgschade,
-gemiste besparingen, bouwkosten, herstelkosten en verlies van gegevens, ook als op de mogelijkheid van
-die schade was gewezen.</p>
-<p>Gebruik je Wallgraph beroepsmatig, dan blijft je eigen beroepsaansprakelijkheid en je eigen
-zorgplicht onverminderd op jou rusten. Een tekengereedschap neemt die niet over.</p>
+oppervlaktes of maten die ermee zijn gemaakt. Dat geldt voor directe en indirecte schade,
+gevolgschade, gemiste besparingen, bouwkosten, herstelkosten en verlies van gegevens, ook als op de
+mogelijkheid van die schade was gewezen.</p>
 
 <h2 id="gegevens">Je tekeningen</h2>
 <p>Wallgraph draait volledig in je eigen browser. Er is geen account, er is geen server die je
 plattegrond ontvangt, en er wordt niets over je gebruik verzameld of gemeten. Je werk staat in de
-opslag van je eigen browser en verdwijnt als je die opslag wist — er is <b>geen back-up</b> en niemand
-kan een verloren tekening terughalen. Exporteer wat je niet kwijt wilt.</p>
+opslag van je eigen browser en verdwijnt als je die opslag wist — er is <b>geen back-up</b> en
+niemand kan een verloren tekening terughalen. Exporteer wat je niet kwijt wilt.</p>
 <p>Deel je een plattegrond via een link, dan zit het document ín de link, achter de <code>#</code>.
 Dat deel gaat niet naar de server, maar iedereen die de link heeft, heeft de tekening.</p>
 
-<h2 id="commercieel">Als dit niet volstaat</h2>
-<p>Wallgraph is dubbel gelicentieerd: naast de ${license} zijn commerciële voorwaarden mogelijk. Wil
-je Wallgraph inzetten in een context waarin je wél afspraken over garantie, ondersteuning of
-aansprakelijkheid nodig hebt, mail dan <a href="mailto:${SITE.email}">${SITE.email}</a>. Zulke
+<h2 id="commercieel">Andere voorwaarden</h2>
+<p>Wallgraph is dubbel gelicentieerd: naast de ${license} zijn commerciële voorwaarden mogelijk. Heb
+je afspraken over garantie, ondersteuning of aansprakelijkheid nodig, mail dan ${mail}. Zulke
 afspraken bestaan alleen als ze schriftelijk zijn gemaakt; deze pagina schept ze niet, en een
 antwoord op een mail evenmin.</p>`;
   }
   return `<h2 id="no-warranty">No warranty</h2>
-<p>Wallgraph is provided <b>as is</b>, free of charge and without any warranty. The ${license} it is
-released under disclaims all warranty and all liability in sections 15 and 16, and that disclaimer
-applies in full. The entire risk as to the quality and performance of the program is with you.</p>
-<p>Nothing here promises that Wallgraph computes correctly, draws correctly, or keeps working. There
-is no support, no service level, and no undertaking that a defect will be fixed.</p>
+<p>Wallgraph is free software and is provided <b>as is</b>. The ${license} disclaims all warranty and
+all liability in sections 15 and 16, and that disclaimer applies in full. There is no undertaking
+that Wallgraph computes or draws without error, no support, no service level, and no promise that a
+defect will be fixed. The entire risk as to quality and performance is with you.</p>
 
-<h2 id="not-certified">Not certified</h2>
-<p>Wallgraph is not certified software. Its author is not an architect, a structural engineer or a
-certified surveyor, and acts as an adviser in no capacity whatsoever.</p>
-<p>A drawing produced by Wallgraph is therefore <b>not</b>:</p>
+<h2 id="what-it-does-not">What Wallgraph does not do</h2>
 <ul>
-<li>an architectural or tender drawing;</li>
-<li>a structural calculation or structural drawing;</li>
-<li>a NEN 2580 measurement report — only a certified surveyor may issue one, and an area Wallgraph
-computes is no substitute for it;</li>
-<li>an installation drawing a fitter may rely on;</li>
-<li>a fire-safety document or evacuation plan;</li>
-<li>an official rendering of any standard.</li>
+<li>It does not measure your building. It draws the number you typed, and that number is exactly as
+correct as your measurement.</li>
+<li>It checks nothing against regulation — not the Besluit bouwwerken leefomgeving, not the zoning
+plan, not a NEN standard. It knows nothing about your project.</li>
+<li>It does not check whether your drawing is correct, complete, or contains what a municipality, an
+insurer or a builder expects of it.</li>
+<li>Areas are computed following the convention of NEN 2580 (net, inner faces) or centerline, and the
+legend states which. That is a calculation on your drawing, not on the building.</li>
+<li>It confers no status on a drawing. A drawing takes its standing from what is on it and from who
+puts their name to it, not from the program that produced it.</li>
 </ul>
 
-<h2 id="what-the-numbers-are">What the numbers are and are not</h2>
-<ul>
-<li><b>Areas</b> are computed <i>following the convention</i> of NEN 2580 (net, inner faces) or
-centerline, and the legend states which is in force. It is a calculation on your drawing, not on the
-building. If the drawing is wrong, the area is wrong.</li>
-<li><b>Dimensions</b> are exact in the sense that the document stores whole millimetres. That is a
-statement about the arithmetic and not about reality: a drawn wall is exactly as correct as the
-number you typed.</li>
-<li><b>Symbols and opening marks</b> are our reading of the Dutch NEN drawing conventions. They are
-made with care, they carry no official status, and they may differ from the current standard. The
-standard's own sheets govern.</li>
-<li><b>Room detection</b> works on closed loops of walls. A drawing with a gap in it yields a
-different set of rooms than you intended, with no warning.</li>
-</ul>
+<h2 id="responsibility">Responsibility</h2>
+<p><b>The drawing is yours.</b> You set the dimensions, you decide what is and is not on it, and you
+decide what to use it for. That a drawing was made in Wallgraph says nothing about whether it is
+right, and is therefore no basis for placing the consequences on Wallgraph's author.</p>
+<p>If you use Wallgraph professionally, your own duty of care and your own professional liability
+remain entirely yours.</p>
 
-<h2 id="check-it-yourself">Check it yourself</h2>
-<p>Measure every dimension that matters yourself, on site, before acting on it. Do <b>not</b> use a
-Wallgraph drawing as the sole basis for:</p>
+<h2 id="professional">Where a qualified person is needed</h2>
+<p>Some documents are worth something precisely because a qualified person stands behind them. That
+standing is human work and is not in this program:</p>
 <ul>
-<li>a planning application, building permit or notification;</li>
-<li>a structural decision, or any calculation on which safety depends;</li>
-<li>ordering, cutting or commissioning material;</li>
-<li>a purchase, tenancy or valuation decision, or a listing quoting a floor area;</li>
-<li>an insurance or damage claim.</li>
+<li><b>A NEN 2580 measurement report.</b> NEN 2580 is a standard, not a statute, and anyone may
+measure to it. But a report that will be <i>accepted</i> by an estate agent (under the
+Meetinstructie), a valuer, a lessor or a court comes in practice from a certified measurement firm.
+An area Wallgraph computes is no substitute for one.</li>
+<li><b>Structural calculations.</b> Whether a wall can come out, what a floor structure carries:
+an engineer's work, and Wallgraph calculates none of it.</li>
+<li><b>Fire safety and services design</b>, where a standard or an inspection governs.</li>
+<li><b>Anything a third party must be able to rely on</b> without measuring it themselves.</li>
 </ul>
-<p>Applicable regulation always governs — in the Netherlands the Besluit bouwwerken leefomgeving, the
-zoning plan and the relevant NEN standards. Wallgraph checks against none of it and knows nothing
-about your project.</p>
+<p>What a municipality requires for a permit application — which drawings, at what scale, showing
+what — is set by the Omgevingsregeling and by the municipality itself. Wallgraph checks against none
+of it; confirm those requirements before you submit anything.</p>
 
 <h2 id="liability">Liability</h2>
 <p>To the fullest extent permitted by law the author accepts <b>no liability</b> for any damage
@@ -641,8 +645,6 @@ arising from the use of Wallgraph, or from the use of drawings, files, areas or 
 with it. That covers direct and indirect damage, consequential loss, lost savings, construction
 costs, remediation costs and loss of data, even where the possibility of such damage was pointed
 out.</p>
-<p>If you use Wallgraph professionally, your own professional liability and your own duty of care
-remain entirely yours. A drawing tool does not assume them.</p>
 
 <h2 id="your-drawings">Your drawings</h2>
 <p>Wallgraph runs entirely in your own browser. There is no account, no server receives your plan,
@@ -652,11 +654,11 @@ drawing. Export anything you would mind losing.</p>
 <p>If you share a plan as a link, the document is <i>in</i> the link, after the <code>#</code>. That
 part never reaches the server, but anyone holding the link holds the drawing.</p>
 
-<h2 id="commercial">If this is not enough</h2>
+<h2 id="other-terms">Other terms</h2>
 <p>Wallgraph is dual-licensed: alongside the ${license}, commercial terms are available. If you need
-to use it in a setting where you do require undertakings about warranty, support or liability, write
-to <a href="mailto:${SITE.email}">${SITE.email}</a>. Such undertakings exist only where they have been
-made in writing; this page creates none, and neither does a reply to an email.</p>`;
+undertakings about warranty, support or liability, write to ${mail}. Such undertakings exist only
+where they have been made in writing; this page creates none, and neither does a reply to an
+email.</p>`;
 }
 
 const BODIES: Record<DocId, (lang: Lang, ctx: SiteCtx) => string> = {

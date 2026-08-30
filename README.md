@@ -93,18 +93,24 @@ src/io         autosave, JSON/SVG/DXF/PNG export, plan links
 scripts/site   the generated site: metadata, pages, robots/sitemap/llms, JSON Schema
 ```
 
-## No warranty, and not certified
+## No warranty, and whose drawing it is
 
-Wallgraph is free software provided as is. The AGPL disclaims all warranty and all
-liability in sections 15 and 16, and that is not boilerplate here: **Wallgraph is not
-certified software**, and a drawing it produces is not an architectural drawing, a
-structural calculation, or a NEN 2580 measurement report — only a certified surveyor
-may issue one of those. Areas are computed *following* the NEN 2580 convention; symbols
-and opening marks are our reading of the NEN drawing conventions and carry no official
-status. Every dimension is exactly as correct as the number that was typed in.
+Wallgraph draws floorplans people work from, and it is free software provided as is —
+the AGPL disclaims all warranty and all liability in sections 15 and 16.
 
-Check anything that matters yourself before acting on it. Full text:
-[plattegrond.crocode.nl/disclaimer/](https://plattegrond.crocode.nl/disclaimer/)
+The line that matters is between drawing something and vouching for it. Wallgraph
+draws the dimensions you type; it does not measure your building, check anything
+against regulation, or verify that a drawing is complete. A drawing takes its
+standing from what is on it and from who puts their name to it, never from the
+program that produced it — so the drawing, and the responsibility for it, is yours.
+"It came out of Wallgraph" is not a defence.
+
+Some documents need a qualified person behind them: structural calculations, fire
+safety, and a NEN 2580 measurement report that will actually be accepted. Wallgraph
+computes areas *following* that convention, which is not the same as issuing the
+report.
+
+Full text: [plattegrond.crocode.nl/disclaimer/](https://plattegrond.crocode.nl/disclaimer/)
 ([English](https://plattegrond.crocode.nl/en/disclaimer/)).
 
 ## License

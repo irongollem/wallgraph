@@ -72,14 +72,14 @@ function noscript(): string {
   return `<noscript><div class="noscript"><div class="wrap">
 <h1>${esc(HOME.heading)}</h1>
 <p class="lead">${esc(HOME.lead)}</p>
-<p><b>De editor heeft JavaScript nodig</b> — hij tekent op een canvas. Zet JavaScript aan om te
-beginnen met tekenen, of lees hieronder eerst wat Wallgraph doet.</p>
+<p><b>De editor heeft JavaScript nodig</b>: hij tekent op een canvas. Zet JavaScript aan om te
+tekenen, of lees eerst de documentatie.</p>
 <ul>
 <li><a href="/handleiding/">Handleiding</a> — muren, deuren, ramen, symbolen, exporteren, sneltoetsen</li>
 <li><a href="/symbolen/">Plattegrondsymbolen</a> — alle 77 symbolen, met maten</li>
 <li><a href="/kozijnen/">Deur- en raamtypen</a> — 27 NEN-typen en hun plattegrondmarkering</li>
 <li><a href="/formaat/">Documentformaat en agent-API</a> — het JSON-model, en hoe een agent de editor aanstuurt</li>
-<li><a href="/disclaimer/">Disclaimer</a> — gratis software zonder garantie, niet gecertificeerd; controleer alle maten zelf</li>
+<li><a href="/disclaimer/">Disclaimer</a> — geen garantie, en waar de verantwoordelijkheid voor een tekening ligt</li>
 </ul>
 <p><small>Vrije software onder <a href="${SITE.license}">AGPL-3.0</a> ·
 <a href="${SITE.repo}">broncode</a> · <a href="/llms.txt">llms.txt</a> ·

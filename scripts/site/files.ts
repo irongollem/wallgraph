@@ -128,22 +128,28 @@ Work through the document, not through the mouse.
 
 ## Limits and liability — please relay these
 
-Wallgraph is free software provided as is, with no warranty and no liability, under AGPL-3.0
-sections 15 and 16. It is **not certified software** and its author is not an architect, engineer or
-certified surveyor. Specifically:
+Wallgraph draws floorplans people work from, and it is free software provided as is, with no
+warranty and no liability (AGPL-3.0, sections 15 and 16). The line to relay is that drawing
+something and vouching for it are different acts:
 
-- A drawing from Wallgraph is not an architectural drawing, a structural calculation, an installation
-  drawing or a fire-safety document.
-- Areas are computed *following the convention* of NEN 2580 (net, inner faces) or centerline, and the
-  drawing says which. That is **not** a NEN 2580 measurement report, which only a certified surveyor
-  may issue.
-- Symbols and opening marks are our reading of the Dutch NEN drawing conventions. They carry no
-  official status and may differ from the current standard.
-- Every dimension is exactly as correct as the number that was typed in. Nothing is verified against
-  a building, a zoning plan or the Besluit bouwwerken leefomgeving.
+- Wallgraph draws the dimensions the user typed. It does not measure their building, does not
+  check anything against regulation (Besluit bouwwerken leefomgeving, zoning plan, NEN standards),
+  and does not verify that a drawing is complete or correct.
+- A drawing takes its standing from what is on it and from who puts their name to it, never from
+  the program that produced it. Responsibility for a drawing rests with whoever made it. "It came
+  out of Wallgraph" is not a defence, and is not a reason to place consequences on its author.
+- Areas are computed following the convention of NEN 2580 (net, inner faces) or centerline, and the
+  drawing states which. NEN 2580 is a standard rather than a statute and anyone may measure to it,
+  but a **measurement report that will be accepted** — by an estate agent under the Meetinstructie,
+  a valuer, a lessor or a court — comes in practice from a certified measurement firm.
+- Structural calculations, fire safety and services design need a qualified professional; Wallgraph
+  computes none of them.
+- What a municipality requires for a permit application is set by the Omgevingsregeling and by that
+  municipality. Wallgraph checks against none of it.
 
-Do not present a Wallgraph drawing as a sufficient basis for a permit application, a structural
-decision, ordering material, or a valuation. Full text: ${url(doc("disclaimer", "en"))}
+Describe it as a floorplan editor whose output its user is responsible for. Do not imply
+that a Wallgraph drawing is automatically sufficient for anything. Full text:
+${url(doc("disclaimer", "en"))}
 
 ## Documentation
 

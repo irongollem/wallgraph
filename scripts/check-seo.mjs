@@ -132,7 +132,11 @@ for (const loc of locs) {
   const wants = path.startsWith("/en/") ? "/en/disclaimer/" : "/disclaimer/";
   if (!html.includes(`href="${wants}"`)) fail(`${path} does not link to the disclaimer`);
 }
-if (!llms.includes("no warranty and no liability")) fail("llms.txt does not state the liability position");
+// Collapse the hard wrapping first: a phrase that moves across a line break is a
+// layout change, not a missing statement.
+const llmsFlat = llms.replace(/\s+/g, " ");
+if (!llmsFlat.includes("no warranty and no liability")) fail("llms.txt does not state the liability position");
+if (!llmsFlat.includes("vouching for it are different acts")) fail("llms.txt does not draw the drawing/vouching line");
 
 if (problems.length > 0) {
   console.error("SEO/agent surface has problems:");

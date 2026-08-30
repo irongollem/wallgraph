@@ -64,9 +64,9 @@ export const HOME: PageMeta = {
     "plaats 77 NEN-symbolen en 27 deur- en raamtypen. Gratis, zonder account.",
   heading: "Wallgraph — plattegronden op de millimeter",
   lead:
-    "Een gratis plattegrond-editor die in je browser draait. Muren zijn een graaf " +
-    "van hartlijnen in hele millimeters; alles wat je ziet — muurvlakken, verstekken, " +
-    "ruimtes, oppervlaktes — wordt daaruit afgeleid.",
+    "Een gratis plattegrond-editor in de browser. Maten worden in hele millimeters " +
+    "opgeslagen; muurvlakken, hoekverstekken, ruimtes en oppervlaktes worden daaruit " +
+    "berekend.",
 };
 
 // The paths come from src/links.ts because the editor links to these pages too,
@@ -85,9 +85,8 @@ export const DOCS: Record<DocId, Record<Lang, PageMeta>> = {
         "verwarming, brandveiligheid, keuken en meubels — met maten in millimeters.",
       heading: "Plattegrondsymbolen",
       lead:
-        "Elk symbool hieronder is getekend door dezelfde code als in de editor, dus " +
-        "wat je hier ziet is precies wat er op je plattegrond komt. Maten in millimeters: " +
-        "breedte langs de muur, diepte de ruimte in.",
+        "Alle symbolen uit de bibliotheek, getekend zoals de editor ze tekent. Maten in " +
+        "millimeters: breedte langs de muur, diepte de ruimte in.",
     },
     en: {
       path: DOC_PATHS.symbols.en,
@@ -97,9 +96,8 @@ export const DOCS: Record<DocId, Record<Lang, PageMeta>> = {
         "heating, fire safety, kitchen and furniture — with millimetre dimensions.",
       heading: "Floorplan symbols",
       lead:
-        "Each symbol below is drawn by the same code the editor uses, so what you see " +
-        "here is exactly what lands on the plan. Dimensions are millimetres: width along " +
-        "the wall, depth into the room.",
+        "Every symbol in the library, drawn as the editor draws it. Dimensions in " +
+        "millimetres: width along the wall, depth into the room.",
     },
   },
   openings: {
@@ -111,9 +109,9 @@ export const DOCS: Record<DocId, Record<Lang, PageMeta>> = {
         "hoe elk deur- en raamtype volgens de NEN-bladen in plattegrond wordt getekend.",
       heading: "Deur- en raamtypen",
       lead:
-        "De NEN-bladen kennen meer namen dan er bewegingen zijn — een valraam en een " +
-        "uitzetraam kiepen allebei, ze verschillen in welke dorpel scharniert en welke " +
-        "kant hij opgaat. Wallgraph kent de namen en schrijft de onderdelen.",
+        "De NEN-bladen onderscheiden meer namen dan bewegingen: een valraam en een " +
+        "uitzetraam kiepen allebei en verschillen in de scharnierende dorpel en de " +
+        "draairichting. Hieronder elk type met zijn plattegrondmarkering.",
     },
     en: {
       path: DOC_PATHS.openings.en,
@@ -123,9 +121,9 @@ export const DOCS: Record<DocId, Record<Lang, PageMeta>> = {
         "type is drawn in plan, following the Dutch NEN window and door sheets.",
       heading: "Door and window types",
       lead:
-        "The NEN sheets name more products than there are distinct motions — a valraam " +
-        "and an uitzetraam both tilt, differing in which rail hinges and which way it " +
-        "opens. Wallgraph knows the names and writes the parts.",
+        "The NEN sheets distinguish more names than motions: a valraam and an uitzetraam " +
+        "both tilt, differing in which rail hinges and which way it opens. Each type is " +
+        "shown below with its plan mark.",
     },
   },
   manual: {
@@ -137,8 +135,8 @@ export const DOCS: Record<DocId, Record<Lang, PageMeta>> = {
         "naar PNG, SVG of DXF. Alle sneltoetsen en werkwijzen op één pagina.",
       heading: "Handleiding",
       lead:
-        "Wallgraph is gemaakt om snel in te tekenen: klik een muurketen, typ de lengte " +
-        "in millimeters, druk op Enter. Hieronder staat alles wat er verder in zit.",
+        "De werkwijze en de sneltoetsen. Muren teken je door een keten te klikken, de " +
+        "lengte in millimeters te typen en op Enter te drukken.",
     },
     en: {
       path: DOC_PATHS.manual.en,
@@ -148,8 +146,8 @@ export const DOCS: Record<DocId, Record<Lang, PageMeta>> = {
         "to PNG, SVG or DXF. Every shortcut and workflow on one page.",
       heading: "Manual",
       lead:
-        "Wallgraph is built to draw in quickly: click a chain of walls, type the length " +
-        "in millimetres, press Enter. Everything else it does is below.",
+        "The workflow and the keyboard shortcuts. Walls are drawn by clicking a chain, " +
+        "typing the length in millimetres and pressing Enter.",
     },
   },
   format: {
@@ -161,8 +159,9 @@ export const DOCS: Record<DocId, Record<Lang, PageMeta>> = {
         "AI-agent de editor aanstuurt via een plan-link of window.wallgraph.",
       heading: "Documentformaat en agent-API",
       lead:
-        "Een Wallgraph-plattegrond is één JSON-bestand zonder afgeleide meetkunde erin. " +
-        "Dat maakt hem klein, leesbaar en prima te schrijven door een programma of een agent.",
+        "Een Wallgraph-plattegrond is één JSON-bestand waarin geen afgeleide meetkunde " +
+        "is opgeslagen. Hieronder het model, het JSON Schema, en de twee manieren waarop " +
+        "een programma de editor aanstuurt.",
     },
     en: {
       path: DOC_PATHS.format.en,
@@ -173,32 +172,31 @@ export const DOCS: Record<DocId, Record<Lang, PageMeta>> = {
       heading: "Document format and agent API",
       lead:
         "A Wallgraph plan is a single JSON file with no derived geometry stored in it. " +
-        "That keeps it small, readable, and entirely writable by a program or an agent.",
+        "Below: the model, the JSON Schema, and the two ways a program drives the editor.",
     },
   },
   disclaimer: {
     nl: {
       path: DOC_PATHS.disclaimer.nl,
-      title: "Disclaimer — geen garantie, geen certificering",
+      title: "Disclaimer — wie verantwoordelijk is voor je tekening",
       description:
-        "Wallgraph is gratis software zonder garantie en zonder certificering. Wat een " +
-        "tekening uit Wallgraph wel en niet is, en waarvoor je hem niet moet gebruiken.",
+        "Wallgraph is gratis, vrije software zonder garantie. Wat het niet doet, waar de " +
+        "verantwoordelijkheid voor een tekening ligt, en waar een bevoegd persoon nodig is.",
       heading: "Disclaimer",
       lead:
-        "Wallgraph is gratis, vrije software die door één persoon is gemaakt. Hij is niet " +
-        "gecertificeerd, en een tekening die eruit komt is geen bouwkundig document. Hieronder " +
-        "staat precies wat dat betekent.",
+        "Wallgraph tekent de maten die je intypt. Het staat nergens voor in: de tekening die " +
+        "eruit komt is van jou, en de verantwoordelijkheid ervoor ook.",
     },
     en: {
       path: DOC_PATHS.disclaimer.en,
-      title: "Disclaimer — no warranty, no certification",
+      title: "Disclaimer — who is responsible for your drawing",
       description:
-        "Wallgraph is free software with no warranty and no certification. What a drawing " +
-        "from Wallgraph is and is not, and what you should not use it for.",
+        "Wallgraph is free software provided without warranty. What it does not do, where " +
+        "responsibility for a drawing sits, and where a qualified person is needed.",
       heading: "Disclaimer",
       lead:
-        "Wallgraph is free software written by one person. It is not certified, and a drawing " +
-        "that comes out of it is not a building document. What that means, precisely, is below.",
+        "Wallgraph draws the dimensions you type. It vouches for nothing: the drawing that " +
+        "comes out is yours, and so is the responsibility for it.",
     },
   },
 };
