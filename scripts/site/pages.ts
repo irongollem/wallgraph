@@ -228,6 +228,14 @@ regelgeving. <kbd>R</kbd> draait een kwartslag en <kbd>M</kbd> spiegelt,
 ook vóór het plaatsen. De pijl wijst altijd van beneden naar boven; een trap die naar beneden gaat is
 dezelfde trap, omgedraaid.</p>
 
+<h2 id="vides">Vides</h2>
+<p><kbd>H</kbd> plaatst een vide: een opening in de vloer, open naar de verdieping eronder. Een vide
+hoort bij de verdieping waarin het gat zit, niet bij een verdieping van zichzelf — de vloer heeft een
+gat en de plattegrond van die verdieping tekent het. Een trapgat is hetzelfde: de opening waar de trap
+van beneden doorheen komt, getekend op de plattegrond van de verdieping erboven. Het merk is de
+omtrek met een diagonaal uit elke hoek; de vloerkleur eronder wordt weggenomen, want een vide is geen
+vloer.</p>
+
 <h2 id="ruimtes">Ruimtes en maten</h2>
 <p>Gesloten muurlussen worden automatisch als ruimte herkend en van een oppervlakte voorzien. De maat is
 standaard <b>netto</b> (binnenwerks, NEN 2580); de legenda op het canvas zegt welke conventie geldt en
@@ -238,7 +246,7 @@ selectie van een maatlabel maakt invoer van de lengte mogelijk.</p>
 <ul>
 <li><b>PNG</b> — de plattegrond als afbeelding, op de tekening bijgesneden, zonder raster, met schaalbalk.</li>
 <li><b>SVG</b> — vectorwerk op ware schaal: 1 mm in het document is 1 mm op papier bij 100% afdrukken.</li>
-<li><b>DXF</b> — muren, draaicirkels, symbolen, trappen en oppervlaktes op aparte lagen, in millimeters, voor CAD.</li>
+<li><b>DXF</b> — muren, draaicirkels, symbolen, trappen, vides en oppervlaktes op aparte lagen, in millimeters, voor CAD.</li>
 <li><b>JSON</b> — het document zelf; zie <a href="/formaat/">documentformaat</a>.</li>
 </ul>
 <p>De plattegrond wordt automatisch in de lokale browseropslag bewaard. Hiervoor is geen account of
@@ -251,6 +259,7 @@ applicatieserver vereist. De plattegrond blijft na het sluiten van het tabblad b
 <tr><td><kbd>D</kbd> <kbd>N</kbd> <kbd>P</kbd></td><td>deur, raam, doorgang</td></tr>
 <tr><td><kbd>S</kbd></td><td>symbool plaatsen</td></tr>
 <tr><td><kbd>T</kbd></td><td>trap plaatsen</td></tr>
+<tr><td><kbd>H</kbd></td><td>vide plaatsen</td></tr>
 <tr><td><kbd>O</kbd></td><td>hoeksnapping aan/uit</td></tr>
 <tr><td><kbd>G</kbd></td><td>rastersnapping aan/uit</td></tr>
 <tr><td><kbd>L</kbd></td><td>maatlijnen aan/uit</td></tr>
@@ -307,6 +316,13 @@ regulations. <kbd>R</kbd> turns a
 quarter and <kbd>M</kbd> mirrors, before placing as well as after. The arrow always points from the
 bottom of the flight to the top; a stair going down is the same stair, turned around.</p>
 
+<h2 id="voids">Vides</h2>
+<p><kbd>H</kbd> places a vide: an opening in the floor, open to the storey below. A vide belongs to the
+floor the hole is cut in rather than being a storey of its own — the slab has a hole and the plan of
+that storey draws it. A stairwell opening is the same object: the hole a flight from below comes up
+through, drawn on the plan of the floor above. The mark is the outline with a diagonal from each
+corner, and it cuts the floor tint underneath, because a vide is not floor.</p>
+
 <h2 id="rooms">Rooms and dimensions</h2>
 <p>Closed wall loops are detected as rooms and labelled with their area. That area is <b>net</b> by
 default (inner faces, NEN 2580); the canvas legend states which convention is in force, and the
@@ -317,7 +333,7 @@ selecting a dimension label enables length input.</p>
 <ul>
 <li><b>PNG</b> — the plan as an image, cropped to the drawing, no grid, with a scale bar.</li>
 <li><b>SVG</b> — vector artwork at true scale: 1 mm in the document is 1 mm on paper printed at 100%.</li>
-<li><b>DXF</b> — walls, swings, symbols, stairs and areas on separate layers, in millimetres, for CAD.</li>
+<li><b>DXF</b> — walls, swings, symbols, stairs, voids and areas on separate layers, in millimetres, for CAD.</li>
 <li><b>JSON</b> — the document itself; see <a href="/en/format/">document format</a>.</li>
 </ul>
 <p>The plan is saved automatically in local browser storage. This requires no account or application
@@ -330,6 +346,7 @@ server. The plan remains available after the tab is closed.</p>
 <tr><td><kbd>D</kbd> <kbd>N</kbd> <kbd>P</kbd></td><td>door, window, passage</td></tr>
 <tr><td><kbd>S</kbd></td><td>place a symbol</td></tr>
 <tr><td><kbd>T</kbd></td><td>place a stair</td></tr>
+<tr><td><kbd>H</kbd></td><td>place a vide</td></tr>
 <tr><td><kbd>O</kbd></td><td>angle snap on/off</td></tr>
 <tr><td><kbd>G</kbd></td><td>grid snap on/off</td></tr>
 <tr><td><kbd>L</kbd></td><td>dimension lines on/off</td></tr>
@@ -398,7 +415,7 @@ window.wallgraph.schema</code></pre>`;
     return `<h2 id="model">Het model</h2>
 <p>Een plattegrond is een <b>vlak netwerk van muurhartlijnen</b>: knopen, met muren als verbindingen
 daartussen. Opgeslagen worden die knopen, de muren (hartlijnen met een dikte en eventueel een boog),
-openingen die op hun muur geparametriseerd zijn, geplaatste symbolen en trappen. <b>Niets afgeleids staat in
+openingen die op hun muur geparametriseerd zijn, geplaatste symbolen, trappen en vides. <b>Niets afgeleids staat in
 het bestand</b>: muurvlakken, verstekken, ruimtepolygonen, oppervlaktes en maatlijnen worden bij het
 tekenen opnieuw berekend.</p>
 <p>Hierdoor kan een opening uit de bijbehorende muur worden afgeleid en blijft het bestand compact.
@@ -451,7 +468,7 @@ DOM-elementen. Automatisering gebruikt daarom het documentformaat, plan-links of
   }
   return `<h2 id="model">The model</h2>
 <p>A plan is a <b>planar graph of wall centerlines</b>. What is stored: nodes, walls (centerlines with a
-thickness and an optional arc), openings parameterised along their wall, placed symbols, and stairs.
+thickness and an optional arc), openings parameterised along their wall, placed symbols, stairs, and vides.
 <b>Nothing derived is in the file</b>: wall faces, mitred corners, room polygons, areas and dimension
 labels are all recomputed when the plan is drawn.</p>
 <p>This allows openings to be derived from their walls while keeping the file compact. A generator

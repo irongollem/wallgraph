@@ -116,6 +116,13 @@ lets `recordSymbol()` replay a stair unchanged: SVG, DXF and PNG needed no per-k
 code. `tests/stairs.test.ts` holds the registry to the `StairKind` union and asserts
 that nothing a kind draws falls outside the footprint the rest of the editor trusts.
 
+**A vide is a feature of the floor, not a storey.** `Floor.vides` holds the
+openings cut in this slab: outline plus diagonals plus the word, cutting the room
+tint and drawn under the walls that bound it (`src/model/vide.ts`,
+`src/core/vide.ts`, `src/render/vide.ts`). A trapgat is the same object, seen from
+the floor above. Rectangular for now — one that follows an irregular room needs
+polygon editing.
+
 **Rise comes from the storey.** `Floor.height` is the verdiepingshoogte; a stair with
 no `rise` of its own climbs it, so changing the storey moves every stair that follows
 it. Stating `rise` overrides that, which is what a flight up to a mezzanine beside a
