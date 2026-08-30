@@ -1,7 +1,8 @@
 // Demo document so the editor opens with something worth poking at:
 // a small apartment with exterior walls, two interior walls, doors with swing,
-// a sliding window, a curved wall, and fixtures.
+// a sliding window, a curved wall, fixtures, a kitchen run and named rooms.
 import { PlanDoc, emptyDoc, newId, Wall } from "./model/doc";
+import { Cabinet, cabinetPreset } from "./model/cabinet";
 import { bulgeFromSagitta } from "./geometry/arc";
 import { v } from "./geometry/vec";
 
@@ -68,5 +69,47 @@ export function seedDoc(): PlanDoc {
   S("socket-single", 4950, 3000, -Math.PI / 2);
   S("light-point", 6400, 3900, 0);
   S("light-point", 2200, 3600, 0);
+
+  // Cabinetry. A run along the top wall of the living space: the inner face is
+  // at y = 150 (a 300 mm wall), and rotation 0 puts +y into the room, so the
+  // units stand flush against it and butt end to end the way the tool snaps
+  // them. The sink goes under the window, as it is nearly always built.
+  const K = (preset: string, x: number, y: number, rotation: number, over: Partial<Cabinet> = {}): void => {
+    const p = cabinetPreset(preset);
+    if (!p) return;
+    const { id: _preset, ...spec } = p;
+    f.cabinets ??= [];
+    f.cabinets.push({
+      id: newId("k"), kind: spec.kind, x, y, rotation,
+      width: spec.width, depth: spec.depth, height: spec.height,
+      front: spec.front, hinge: spec.hinge,
+      ...(spec.front === "drawers" ? { drawers: spec.drawers } : {}),
+      ...(spec.corner ? { corner: true } : {}),
+      ...(spec.worktop ? { worktop: true } : {}),
+      ...over,
+    });
+  };
+  K("hoekkast-onder", 600, 150, 0);          // 150..1050, into the left corner
+  K("ladenkast", 1350, 150, 0);              // 1050..1650
+  K("spoelkast", 1950, 150, 0);              // 1650..2250, under the window
+  K("onderkast", 2550, 150, 0);              // 2250..2850
+  // One wall unit, over the corner where there is no window. It hangs above the
+  // plan's section plane, so it draws dashed over the base unit beneath it —
+  // which is what a plattegrond does with overhead work, and worth seeing.
+  K("bovenkast", 450, 150, 0);
+  // The fridge housing against the interior wall, facing back into the living
+  // space: rotation PI/2 turns +y onto -x. Clear of the door at y = 685..1515.
+  K("koelkast-ombouw", 4750, 2200, Math.PI / 2);
+  // A wardrobe in the bedroom, against the bottom wall: rotation PI turns +y
+  // back into the room.
+  K("garderobekast", 7000, 5250, Math.PI);
+
+  // Room names. The name and its point are stored; which room carries it
+  // follows from the walls. See model/room.ts.
+  f.roomNames = [
+    { id: newId("r"), x: 2400, y: 3400, name: "Woonkeuken" },
+    { id: newId("r"), x: 5600, y: 1100, name: "Badkamer" },
+    { id: newId("r"), x: 6400, y: 4400, name: "Slaapkamer" },
+  ];
   return doc;
 }

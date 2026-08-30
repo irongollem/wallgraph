@@ -9,7 +9,7 @@
 // millimetres and the viewBox matches them one-to-one, so printing at 100% puts
 // a 4000 mm wall on paper at 4 m. SVG's y axis runs down exactly as the
 // document's does, so — unlike DXF — nothing is flipped.
-import { PlanDoc, Floor, areaModeOf, stairsOf, videsOf } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf, stairsOf, videsOf, cabinetsOf, roomNamesOf } from "../model/doc";
 import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms } from "../core/rooms";
@@ -20,9 +20,11 @@ import { recordSymbol, Prim } from "./record";
 import { openingMarks } from "./marks";
 import { stairPrims, stairRegionPrims } from "./stair";
 import { videPrims } from "./vide";
+import { cabinetPrims } from "./cabinet";
+import { cabinetOverhead } from "../model/cabinet";
 import { videBox } from "../core/vide";
 import { resolveStair } from "../core/stair";
-import { planBounds } from "./image";
+import { planBounds } from "../core/bounds";
 import { saveViaHost, downloadBlob } from "./save";
 import { t } from "../i18n";
 
@@ -155,6 +157,21 @@ export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
     for (const p of openingMarks(rw)) parts.push(primSvg(p));
   parts.push(`</g>`);
 
+  // Cabinetry between the masonry and the symbols, as on the canvas. A wall
+  // unit is dashed here rather than in its recorded geometry: the recorder
+  // discards dash patterns, so the group carries it (see io/cabinet.ts).
+  if (cabinetsOf(floor).length > 0) {
+    parts.push(`<g id="cabinets" fill="none" stroke-width="${W_SYMBOL}" stroke-linecap="round" stroke-linejoin="round">`);
+    for (const c of cabinetsOf(floor)) {
+      const ink = symbolInk(c);
+      const dash = cabinetOverhead(c) ? ` stroke-dasharray="90 60"` : "";
+      parts.push(`<g color="${ink}" stroke="${ink}"${dash}>`);
+      for (const p of cabinetPrims(c)) parts.push(primSvg(p));
+      parts.push(`</g>`);
+    }
+    parts.push(`</g>`);
+  }
+
   parts.push(`<g id="symbols" fill="none" stroke-width="${W_SYMBOL}" stroke-linecap="round" stroke-linejoin="round">`);
   for (const s of floor.symbols) {
     const def = getSymbol(s.type);
@@ -186,15 +203,31 @@ export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
   }
   parts.push(`</g>`);
 
-  if (rooms.length > 0) {
+  if (rooms.length > 0 || roomNamesOf(floor).length > 0) {
     // Label size in mm: 220 is about 12 px at the zoom the editor opens on, and
     // stays legible when the drawing is printed small.
     parts.push(`<g id="labels" fill="${COLORS.roomLabel}" font-family="system-ui, sans-serif" font-size="220" text-anchor="middle">`);
     for (const r of rooms) {
       const mm2 = net ? r.netAreaMm2 : r.areaMm2;
+      const area = `${esc((mm2 / 1e6).toFixed(1))} m²`;
+      if (r.name === undefined) {
+        parts.push(`<text x="${n(r.centroid.x)}" y="${n(r.centroid.y)}">${area}</text>`);
+        continue;
+      }
+      // Name over area, the way the canvas stacks them. The 150 mm offsets are
+      // the screen-space 8 px at the same 220 mm label size.
       parts.push(
-        `<text x="${n(r.centroid.x)}" y="${n(r.centroid.y)}">` +
-        `${esc((mm2 / 1e6).toFixed(1))} m²</text>`,
+        `<text x="${n(r.centroid.x)}" y="${n(r.centroid.y - 150)}" font-weight="600"` +
+        `${r.nameColor ? ` fill="${r.nameColor}"` : ""}>${esc(r.name)}</text>`,
+      );
+      parts.push(`<text x="${n(r.centroid.x)}" y="${n(r.centroid.y + 150)}">${area}</text>`);
+    }
+    // Names that landed in no detected room still carry onto the sheet.
+    for (const rn of roomNamesOf(floor)) {
+      if (rooms.some(r => r.nameId === rn.id)) continue;
+      parts.push(
+        `<text x="${n(rn.x)}" y="${n(rn.y)}" font-weight="600"` +
+        `${rn.color ? ` fill="${rn.color}"` : ""}>${esc(rn.name)}</text>`,
       );
     }
     parts.push(`</g>`);

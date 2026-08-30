@@ -10,10 +10,11 @@
 // The net boundary is derived by offsetting each face edge inward by half the
 // thickness of the wall it lies on, then intersecting adjacent offset lines —
 // the same miter construction resolve.ts uses at junctions.
-import { Floor } from "../model/doc";
+import { Floor, roomNamesOf } from "../model/doc";
+import type { Id } from "../model/doc";
 import {
   Vec, v, dist, dot, sub, add, norm, perp, scale, angleOf, lineIntersect,
-  polygonArea, polygonCentroid,
+  polygonArea, polygonCentroid, pointInPolygon,
 } from "../geometry/vec";
 import { arcFlatten } from "../geometry/arc";
 
@@ -27,6 +28,16 @@ export interface Room {
   /** Net floor area, mm². This is the NEN 2580-style number. */
   netAreaMm2: number;
   centroid: Vec;
+  /**
+   * What this room is called, when a name has been written inside it. Derived,
+   * not stored: the document holds the name and the point it was written at,
+   * and the room that contains that point takes it. See model/room.ts.
+   */
+  name?: string;
+  /** The RoomName the name came from, so a click can select it. */
+  nameId?: Id;
+  /** That name's pen, when it carries one. */
+  nameColor?: string;
 }
 
 interface HalfEdge { from: number; to: number; visited: boolean; half: number }
@@ -112,7 +123,25 @@ export function detectRooms(f: Floor): Room[] {
       centroid: polygonCentroid(poly),
     });
   }
+  attachNames(f, rooms);
   return rooms;
+}
+
+/**
+ * Hand each room the name written inside it. Matched against the net boundary,
+ * so a name written just inside a wall face still lands in the room the drawer
+ * meant rather than in the wall itself. A name whose point falls in no room is
+ * left unattached; it still draws where it was written, which is what an
+ * open-plan or not-yet-enclosed space needs.
+ *
+ * First match wins: two names in one room is a mistake, not a merge.
+ */
+function attachNames(f: Floor, rooms: Room[]): void {
+  for (const rn of roomNamesOf(f)) {
+    const p = v(rn.x, rn.y);
+    const room = rooms.find(r => r.name === undefined && pointInPolygon(p, r.netPoly));
+    if (room) { room.name = rn.name; room.nameId = rn.id; room.nameColor = rn.color; }
+  }
 }
 
 /**

@@ -8,7 +8,7 @@
 // Angles are degrees in the document's own y-down space, and `sweep` is signed
 // and already normalised to the short way round, because a door swings a
 // quarter turn and not three quarters. Each exporter converts from there.
-import { Opening, sashesOf } from "../model/doc";
+import { Opening, sashesOf, fireLabel } from "../model/doc";
 import { ResolvedWall } from "../core/resolve";
 import { Vec } from "../geometry/vec";
 import { Prim } from "./record";
@@ -148,7 +148,7 @@ export function openingMarks(rw: ResolvedWall): Prim[] {
     const labels: string[] = [];
     if (o.powered) labels.push("E");
     if (o.selfClosing) labels.push("Z");
-    if (o.fireRating) labels.push(`${o.fireRating.minutes} ${o.fireRating.kind}`);
+    if (o.fireRating) labels.push(fireLabel(o.fireRating));
     labels.forEach((text, i) => out.push({
       kind: "text", text, size: 120,
       at: plus(og.center, mul(og.n0, h + 120 + i * 140)),

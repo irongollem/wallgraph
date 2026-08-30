@@ -8,7 +8,7 @@ import { Vec, v } from "../src/geometry/vec";
 import { emptyDoc, videsOf } from "../src/model/doc";
 import { toDxf } from "../src/io/dxf";
 import { toSvg } from "../src/io/svg";
-import { planBounds } from "../src/io/image";
+import { planBounds } from "../src/core/bounds";
 import { resolveFloor } from "../src/core/resolve";
 import { planSchema, validate } from "../scripts/site/schema";
 import { resources } from "../src/i18n";

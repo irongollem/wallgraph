@@ -19,9 +19,15 @@ import { getStair } from "../render/stairs";
 import { COLORS } from "../render/draw";
 import { t } from "../i18n";
 
-/** The row builders panel.ts already uses for every other kind of selection. */
-export interface StairRows {
-  secHead(label: string, opts?: { sel?: boolean }): void;
+/**
+ * The row builders panel.ts already uses for every other kind of selection.
+ *
+ * Named for the panes rather than for stairs because every parametric object
+ * borrows it — a stair, a vide, a cabinet, a room name and the zoom pane all
+ * render through these, so all of them keep one appearance.
+ */
+export interface PaneRows {
+  secHead(label: string, opts?: { sel?: boolean; later?: boolean }): void;
   numRow(label: string, value: number, onCommit: (n: number) => void, step?: number,
          extra?: { title?: string; snap?: (n: number) => number }): void;
   selRow(label: string, value: string, options: Array<[string, string]>, onCommit: (s: string) => void): void;
@@ -32,6 +38,13 @@ export interface StairRows {
   colorRow(label: string, value: string | null, onCommit: (hex: string | null) => void): void;
   btnRow(label: string, fn: () => void): void;
   dangerRow(label: string, fn: () => void): void;
+  checkRow(label: string, value: boolean, onCommit: (b: boolean) => void): void;
+  /**
+   * A row of standard values beside a typed field. Cabinetry and doors are
+   * ordered in steps rather than measured, so the steps have to be one click
+   * away; the number field beside them keeps anything else reachable.
+   */
+  chipRow(label: string, values: readonly number[], value: number, onCommit: (n: number) => void): void;
 }
 
 /**
@@ -85,7 +98,7 @@ function tile(kind: StairKind, active: boolean, ink: string | null, onPick: () =
 
 /** Kind picker plus the dimensions the next stair will be placed with. */
 export function renderStairTool(
-  host: HTMLElement, store: Store, tools: Tools, rows: StairRows, onPick: () => void,
+  host: HTMLElement, store: Store, tools: Tools, rows: PaneRows, onPick: () => void,
 ): void {
   rows.secHead(t("panel.newStair"));
 
@@ -109,7 +122,7 @@ export function renderStairTool(
 }
 
 /** Properties of the selected stair. */
-export function renderStairProps(store: Store, tools: Tools, rows: StairRows, id: string): void {
+export function renderStairProps(store: Store, tools: Tools, rows: PaneRows, id: string): void {
   const raw = stairsOf(store.floor).find(s => s.id === id);
   if (!raw) return;
   const stair = resolveStair(store.floor, raw);
@@ -169,7 +182,7 @@ export function renderStairProps(store: Store, tools: Tools, rows: StairRows, id
  * the stored parameters, and the way to change one is to change what it follows
  * from. Stated as figures rather than as a verdict — see STAIR_LIMITS.
  */
-function metricRows(rows: StairRows, s: ResolvedStair): void {
+function metricRows(rows: PaneRows, s: ResolvedStair): void {
   const m = stairMetrics(s);
   if (m.risers !== null && m.riser !== null) {
     rows.infoRow(t("panel.stairRiser"), `${m.risers} × ${m.riser.toFixed(1)} mm`);
@@ -190,7 +203,7 @@ function metricRows(rows: StairRows, s: ResolvedStair): void {
 
 /** The parameter rows a kind actually reads; see stairFields(). */
 function sizeRows(
-  rows: StairRows, kind: StairKind, p: StairParams, commit: (next: StairParams) => void,
+  rows: PaneRows, kind: StairKind, p: StairParams, commit: (next: StairParams) => void,
   riseInherited = false,
 ): void {
   const fields = stairFields(kind);

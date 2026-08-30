@@ -1,7 +1,7 @@
 // Full scene render. Immediate mode: redraw everything on change (documents at
 // this scale render in well under a frame). Layers: grid, rooms, walls,
 // opening decorations, symbols, selection, labels (labels in screen space).
-import { Floor, SymbolInstance, AreaMode, Sash, sashesOf, stairsOf, videsOf } from "../model/doc";
+import { Floor, SymbolInstance, AreaMode, Sash, sashesOf, stairsOf, videsOf, cabinetsOf, roomNamesOf, fireLabel } from "../model/doc";
 import { Resolved, OpeningGeom } from "../core/resolve";
 import { Room } from "../core/rooms";
 import { Selection } from "../model/store";
@@ -10,6 +10,8 @@ import { Vec, add, sub, scale, perp, v, angleOf, dist, fromAngle } from "../geom
 import { getSymbol } from "./symbols";
 import { drawStair } from "./stair";
 import { drawVide } from "./vide";
+import { drawCabinet } from "./cabinet";
+import { ROOM_NAME_PX } from "../model/room";
 import { resolveStair } from "../core/stair";
 import { t } from "../i18n";
 import { gridSteps, GridSteps } from "./grid";
@@ -79,6 +81,14 @@ const HEX = /^#[0-9a-fA-F]{6}$/;
  */
 export function symbolInk(s: { color?: string }): string {
   return s.color && HEX.test(s.color) ? s.color : COLORS.symbol;
+}
+
+/**
+ * The colour a room name draws in. Annotation rather than drawing ink, so an
+ * uncoloured name takes the label grey the areas use, not the symbol black.
+ */
+export function roomInk(color: string | undefined): string {
+  return color && HEX.test(color) ? color : COLORS.roomLabel;
 }
 
 export interface DrawExtras {
@@ -169,6 +179,17 @@ export function drawScene(
     ctx.fill();
   }
 
+  // Cabinetry, over the masonry and under the symbols. A unit stands against a
+  // wall, so the wall draws first and takes the back edge with it; a socket or
+  // a tap drawn on a unit has to stay visible over its front.
+  for (const c of cabinetsOf(floor)) {
+    drawCabinet(ctx, c, {
+      px, ink: symbolInk(c),
+      selected: sel?.kind === "cabinet" && sel.id === c.id,
+      select: COLORS.select, wash: COLORS.selectWash,
+    });
+  }
+
   // Symbols.
   for (const s of floor.symbols) drawSymbol(ctx, s, px, sel?.kind === "symbol" && sel.id === s.id);
 
@@ -189,17 +210,42 @@ export function drawScene(
 
   ctx.restore(); // back to screen space
 
-  // Room labels (constant px size).
-  ctx.font = "12px system-ui, sans-serif";
+  // Room labels (constant px size): the name over the area, where one has been
+  // written. Screen-space, so a plan stays readable at any zoom.
   ctx.textAlign = "center";
   ctx.fillStyle = COLORS.roomLabel;
+  const named = new Set<string>();
   for (const r of rooms) {
     const c = vp.toScreen(r.centroid);
     // Which number this is, is stated in the legend — a bare "12.0 m²" that
     // silently means centerline is the whole problem this addresses.
     const mm2 = areaMode === "net" ? r.netAreaMm2 : r.areaMm2;
-    ctx.fillText((mm2 / 1e6).toFixed(1) + " m²", c.x, c.y);
+    const area = (mm2 / 1e6).toFixed(1) + " m²";
+    if (r.name === undefined) {
+      ctx.font = "12px system-ui, sans-serif";
+      ctx.fillText(area, c.x, c.y);
+      continue;
+    }
+    if (r.nameId) named.add(r.nameId);
+    const isSel = sel?.kind === "roomName" && sel.id === r.nameId;
+    ctx.font = `600 ${ROOM_NAME_PX}px system-ui, sans-serif`;
+    ctx.fillStyle = isSel ? COLORS.select : roomInk(r.nameColor);
+    ctx.fillText(r.name, c.x, c.y - 8);
+    ctx.font = "12px system-ui, sans-serif";
+    ctx.fillStyle = COLORS.roomLabel;
+    ctx.fillText(area, c.x, c.y + 8);
   }
+  // A name whose point falls in no detected room still draws where it was
+  // written: an open-plan space, or a room whose walls are not yet closed.
+  for (const rn of roomNamesOf(floor)) {
+    if (named.has(rn.id)) continue;
+    const at = vp.toScreen({ x: rn.x, y: rn.y });
+    ctx.font = `600 ${ROOM_NAME_PX}px system-ui, sans-serif`;
+    ctx.fillStyle = sel?.kind === "roomName" && sel.id === rn.id
+      ? COLORS.select : roomInk(rn.color);
+    ctx.fillText(rn.name, at.x, at.y);
+  }
+  ctx.fillStyle = COLORS.roomLabel;
 
   // Snap marker.
   if (extras.hoverSnap) {
@@ -293,7 +339,7 @@ function drawOpening(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number,
   const labels: string[] = [];
   if (o.powered) labels.push("E");
   if (o.selfClosing) labels.push("Z");
-  if (o.fireRating) labels.push(`${o.fireRating.minutes} ${o.fireRating.kind}`);
+  if (o.fireRating) labels.push(fireLabel(o.fireRating));
   if (labels.length > 0) {
     ctx.save();
     ctx.fillStyle = color;

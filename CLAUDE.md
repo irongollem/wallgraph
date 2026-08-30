@@ -16,9 +16,9 @@ operational summary of repository invariants and verification commands.
 npm install        # 4 dev-only deps; the shipped bundle has zero dependencies
 npm run dev        # esbuild watch + static server on http://localhost:5173 (PORT overrides)
 npm run check      # typecheck + tests — run this before every commit
-npm run build      # typecheck + bundle -> dist/ (index.html ~161 kB, plus the site)
+npm run build      # typecheck + bundle -> dist/index.html, plus the site
 npm run typecheck  # tsc over src/ (browser) and tests/+scripts/ (node) separately
-npm test           # 325 checks across six suites, exits non-zero on failure
+npm test           # every suite in tests/, exits non-zero on failure
 npm run check:seo  # asserts the emitted site hangs together (needs a SITE_URL build)
 ```
 
@@ -70,12 +70,21 @@ Use concise, neutral and technical prose in source files and generated pages.
 **The document is a planar graph of wall centerlines. Everything visible is derived.**
 
 Stored: nodes (junctions), walls (centerline edges with thickness + optional arc bulge),
-openings parameterised along a wall, symbol instances.
+openings parameterised along a wall, symbol instances, and the objects that are built to
+a size rather than being one fixed picture — stairs, vides and cabinets, each carrying its
+own dimensions. Plus room NAMES, which are authored and so cannot be derived.
 
 Not stored: wall faces, mitered corners, room polygons, areas and dimension labels. These
 are recomputed by `src/core/` on every document revision. Derived geometry may be cached
 against the revision counter but must not be added to the document (see `derived()` in
 [src/main.ts](src/main.ts)).
+
+**A room is derived; its name is not.** There is no room object to hang a name on, so
+`Floor.roomNames` stores the name and the point it was written at, and `attachNames()` in
+[rooms.ts](src/core/rooms.ts) gives each detected room the name whose point falls inside
+its net boundary. Move a wall so the point lands elsewhere and the name goes with the
+point. Do not add a stored room to make the association durable — that puts derived
+geometry back in the document.
 
 This model supports wall openings, room detection and future direct extrusion to 3D.
 
@@ -121,39 +130,63 @@ src/geometry/  vec.ts    2D math, polygon area/centroid, line + segment helpers
 src/model/     doc.ts    document schema + defaults + id generation
                store.ts  mutable doc, snapshot undo/redo, change notification
                ops.ts    graph maintenance: nodeAt, splitWall, mergeNodes, clampOpening
+               stair.ts  stair parameters + the fifteen kinds; see PLAN.md
+               vide.ts   an opening in the slab: anchor, size, label
+               cabinet.ts cabinetry: height class, module widths, front, named presets
+               room.ts   a room name and the point it was written at
 src/core/      resolve.ts  mitered wall outlines, solid pieces between openings
-               rooms.ts    half-edge face walk -> room polygons + areas
-src/render/    viewport.ts mm<->px transform, zoom-to-cursor, pan
+               rooms.ts    half-edge face walk -> room polygons, areas, names
+               placed.ts   the geometry every anchored, rotated box shares
+               bounds.ts   what a plan occupies; the ONE thing that says so
+               dimensions.ts  dimension chains: one run per facade
+               stair.ts    treads, walking line, break line, reported figures
+               vide.ts     corners, hit-test, where the word goes
+               cabinet.ts  carcass outline, front band, hinge mark, worktop edge
+src/render/    viewport.ts mm<->px transform, zoom-to-cursor, pan, fitBox
                grid.ts     drawable grid spacing for a zoom (multiples of gridMm)
                draw.ts     immediate-mode scene render + COLORS palette
                symbols/    7 category files behind one interface
+               stairs/     the stair kinds, same draw contract plus one argument
+               stair.ts    one placed stair on the canvas
+               vide.ts     one placed vide on the canvas
+               cabinet.ts  one placed cabinet; wall units draw dashed
 src/input/     tools.ts  tool state machine, snapping, typed-mm entry, drag handling
 src/ui/        panel.ts    header, tool rail, storey row, properties, status, foot
                palette.ts  symbol palette: search, fold-out categories, tile grid
                menu.ts     document menu popover (new/open/save/PNG/paste, docs, language)
                icons.ts    the SVG icon set -- one 20x20 grid, one shape table
+               scrub.ts    drag-to-change on a number field
+               stairs.ts   stair pane; defines PaneRows, the shared row vocabulary
+               vide.ts     vide pane
+               cabinets.ts cabinet pane: preset tiles + the parametric fields
+               rooms.ts    room-name pane
+               zoom.ts     zoom pane: fit-all, fit-selection, one zone per room
+               openings.ts what the NEXT door/window/passage is placed with
 src/io/        json.ts   guarded localStorage autosave, export/import/clipboard
                image.ts  PNG export: offscreen re-render, plan bounds, scale bar
                svg.ts    SVG export at true scale; primSvg() is shared with the site
                dxf.ts    DXF export: layers, millimetres, y flipped for CAD
                marks.ts  the geometry one opening contributes, as plain primitives
                record.ts replays a symbol's canvas calls as geometry (no canvas needed)
+               stair.ts  the geometry one stair contributes, as plain primitives
+               vide.ts   the geometry one vide contributes, as plain primitives
+               cabinet.ts the geometry one cabinet contributes, as plain primitives
                link.ts   a whole plan in a URL fragment, base64url
                save.ts   the two file-delivery channels (host capability, blob link)
-src/i18n.ts              i18next-shaped nl/en bundle + the ~130-string engine
+src/i18n.ts              i18next-shaped nl/en bundle + the engine behind t()
 src/links.ts             where the docs live, resolved per context (see Gotchas)
 src/seed.ts              demo apartment shown on first load
 scripts/build.ts         esbuild bundle -> dist/index.html, then the site
 scripts/site/  meta.ts   one source of truth for what the site says about itself
                html.ts   head tags, JSON-LD, page shell, the site stylesheet
-               pages.ts  the five content pages, drawn from the app's own code
+               pages.ts  the content pages, drawn from the app's own code
                files.ts  robots.txt, sitemap, llms.txt, manifest, security.txt
                schema.ts the published JSON Schema + the validator tests use
                sw.ts     the network-first service worker
 ```
 
 The graphify knowledge graph (`graphify-out/`, gitignored — it embeds local absolute
-paths) clusters this into 15 communities. The three tightest couplings worth knowing:
+paths) clusters this into communities. The three tightest couplings worth knowing:
 `resolve.ts` ↔ `arc.ts` (miters need arc-aware tangents), `tools.ts` ↔ `ops.ts` (every
 edit is a graph operation), and `main.ts` as the only place the store, viewport, renderer
 and tools meet.
@@ -215,6 +248,19 @@ No separate published representation is required: `/symbolen/` replays
 `draw()` through `recordSymbol` at build time, so a new symbol appears there, in the SVG
 and DXF exports, and in the palette. Do not add a separately maintained symbol drawing.
 
+**A thing built to a size is not a symbol.** A symbol is one fixed picture: its width and
+depth are constants on the definition, and the mm figures are written into `draw()`. When
+the same thing is built to a different size in every plan — a steektrap, a kastje at
+400/600/800 — it is a document object carrying its dimensions, with the drawing derived
+(`src/model/{stair,vide,cabinet}.ts` and their `core/` and `render/` halves). Adding ten
+palette entries for ten widths is the wrong answer, and it still cannot draw the eleventh.
+
+Those objects extend the `draw(ctx)` contract by exactly one argument, which is what lets
+`recordSymbol()` replay them: SVG, DXF and PNG need no per-kind code. The one thing the
+recorder does NOT carry is a dash pattern — a dash is a screen concern — so a wall
+cabinet, which is dashed because it hangs above the plan's section plane, gets that from
+the SVG group and its own DXF layer instead.
+
 ## Operational constraints
 
 - **Grid lines are always whole multiples of `doc.gridMm`.** `gridSteps()` in
@@ -238,9 +284,17 @@ and DXF exports, and in the palette. Do not add a separately maintained symbol d
 - **PNG export re-renders through `drawScene`, it does not screenshot the canvas.**
   [src/io/image.ts](src/io/image.ts) fits an offscreen `Viewport` to `planBounds()` and drives
   the same hidpi path the retina canvas uses (`vp.dpr` + a scaled transform), so screen-space
-  text scales with the image. `planBounds()` walks the *rotated footprint corners* of each
-  symbol — a symmetric box around the anchor pads the frame with empty paper, because a
-  wall-mounted footprint only extends one way. Grid and legend are off via `extras.showGrid`.
+  text scales with the image. Grid and legend are off via `extras.showGrid`.
+- **`planBounds()` in [src/core/bounds.ts](src/core/bounds.ts) is the only thing that says
+  what a plan occupies.** The PNG crop, the SVG viewBox and the canvas's own zoom-all all
+  call it, so they cannot disagree — a second implementation is how a plan comes to export
+  with its symbols intact and open on screen with them cropped off, which is exactly what
+  happened while `main.ts` fitted the view to the node positions alone. It walks the
+  *rotated footprint corners* of each symbol; a symmetric box around the anchor would pad
+  the frame with empty paper, because a wall-mounted footprint only extends one way.
+- **Framing goes through `Viewport.fitBox()`**, and it measures the canvas's PARENT. The
+  canvas element carries no CSS size until the first render sets one, so a fit at mount —
+  which is every plan's opening view — would frame into a zero-width box.
 - **Autosave uses the storage key `floorplan-doc-v1`**. Renaming it makes existing locally
   stored plans unavailable. Ask before changing or migrating the key.
 - **`Store.mutate()` coalesces** same-`coalesceKey` mutations within 900 ms into one undo
@@ -249,11 +303,15 @@ and DXF exports, and in the palette. Do not add a separately maintained symbol d
 - **`store.replace(doc, undoable)`** — `New`/`Demo`/`Open` pass `true` so Ctrl+Z restores
   the previous plan instead of showing a blocking confirm dialog (unavailable in sandboxed
   hosting anyway).
-- **Keyboard shortcuts are window-level** (V/W/D/N/P/O/G/L/R/M/Del). They can conflict
+- **Keyboard shortcuts are window-level** (V/W/D/N/P/S/T/H/C/K/Z tools, F and Shift+F
+  to frame, O/G/L modes, R/M/Del). They can conflict
   with host-page shortcuts when the editor is embedded. `onKey` ignores
   INPUT/SELECT/TEXTAREA targets.
-- **Everything is single-floor.** `store.floor` is hardcoded to `doc.floors[0]!` even
-  though the schema is a `floors[]` array. Multi-floor is P1.
+- **`store.floor` is the ACTIVE storey**, `doc.floors[store.activeFloor]`, not
+  `floors[0]`. A mutation must go through `store.floorOf(doc)` to land on the right
+  one; reaching for `doc.floors[0]` edits the ground floor from whatever storey the
+  user is on. Selection is cleared on a storey change, since a selection on another
+  storey means nothing here.
 - **All storage access is in try/catch** — `localStorage` can throw outright in sandboxed
   or privacy-mode contexts, not just return null. `src/io/json.ts` also probes a hosted
   `window.claude` downloads capability before falling back to a blob link, then to
@@ -301,7 +359,7 @@ sells commercial exceptions. Three consequences for changes here:
 
 ## Deliberate P0 cuts
 
-Sloped or varying-thickness walls, exact wall-to-arc miters, stairs, mobile/touch UX,
-dimension chains. These are choices, not oversights — check PLAN.md's phase list before
-"fixing" one. (Net room area, i18n and multi-floor were on this list and have since
-shipped; PLAN.md's phase list is the current one.)
+Sloped or varying-thickness walls, exact wall-to-arc miters, mobile/touch UX. These are
+choices, not oversights — check PLAN.md's phase list before "fixing" one. (Net room
+area, i18n, multi-floor, stairs, dimension chains, cabinetry, room names and framing
+were on this list and have since shipped; PLAN.md's phase list is the current one.)

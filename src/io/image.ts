@@ -9,15 +9,13 @@
 // A scale bar goes in the corner because a bare image has no units: whatever
 // the viewer's screen or printer does to the pixels, the bar stays true. True
 // paper-scale output (1:50 at 300 dpi) and vector formats are still the P1 item.
-import { PlanDoc, Floor, areaModeOf, stairsOf, videsOf } from "../model/doc";
-import { resolveFloor, Resolved } from "../core/resolve";
+import { PlanDoc, areaModeOf } from "../model/doc";
+import { resolveFloor } from "../core/resolve";
+import { planBounds } from "../core/bounds";
 import { detectRooms } from "../core/rooms";
 import { Viewport } from "../render/viewport";
 import { drawScene, COLORS } from "../render/draw";
-import { getSymbol } from "../render/symbols";
-import { stairCorners, resolveStair } from "../core/stair";
-import { videCorners } from "../core/vide";
-import { Vec, v } from "../geometry/vec";
+import { v } from "../geometry/vec";
 import { saveViaHost, downloadBlob } from "./save";
 
 const FILENAME = "floorplan.png";
@@ -29,39 +27,6 @@ const LOGICAL_MAX = 1200;
 const SCALE = 3;
 
 export type PngResult = "saved" | "copied" | "empty" | "failed";
-
-/** Tight world-space bounds of everything drawn: wall outlines, nodes, symbols. */
-export function planBounds(floor: Floor, resolved: Resolved): { min: Vec; max: Vec } | null {
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  const grow = (x: number, y: number): void => {
-    minX = Math.min(minX, x); minY = Math.min(minY, y);
-    maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
-  };
-  // Resolved outlines, not centerlines: they carry thickness and miters, so a
-  // thick exterior wall isn't sliced in half by the crop.
-  for (const rw of resolved.walls.values()) for (const p of rw.outline) grow(p.x, p.y);
-  for (const n of floor.nodes) grow(n.x, n.y);
-  for (const s of floor.symbols) {
-    const def = getSymbol(s.type);
-    if (!def) continue;
-    // The four footprint corners, rotated into place. A symmetric box around
-    // the anchor would be wrong for wall-mounted symbols: their footprint runs
-    // y in [0, depth] on one side only, so a box would pad the frame with
-    // empty paper outside the building. Mirroring is a no-op here — the
-    // footprint is symmetric in x. See the draw(ctx) contract in defs.ts.
-    const y0 = def.wallMounted ? 0 : -def.depth / 2;
-    const cos = Math.cos(s.rotation), sin = Math.sin(s.rotation);
-    for (const lx of [-def.width / 2, def.width / 2])
-      for (const ly of [y0, y0 + def.depth])
-        grow(s.x + lx * cos - ly * sin, s.y + lx * sin + ly * cos);
-  }
-  // A stair's footprint depends on its parameters, so the corners come from the
-  // same derived box the hit-test and the selection frame use.
-  for (const st of stairsOf(floor))
-    for (const c of stairCorners(resolveStair(floor, st))) grow(c.x, c.y);
-  for (const vd of videsOf(floor)) for (const c of videCorners(vd)) grow(c.x, c.y);
-  return isFinite(minX) ? { min: v(minX, minY), max: v(maxX, maxY) } : null;
-}
 
 /** Round bar lengths, coarse to fine — a plan can be a housing block or a closet. */
 const BAR_STEPS = [10000, 5000, 2000, 1000, 500, 200, 100];

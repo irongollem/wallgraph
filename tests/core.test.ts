@@ -9,7 +9,8 @@ import { resolveFloor } from "../src/core/resolve";
 import { arcInfo, arcLength, arcPointAt, arcTangentAt, arcFlatten, bulgeFromSagitta } from "../src/geometry/arc";
 import { v, dist, pointInPolygon } from "../src/geometry/vec";
 import { gridSteps, MIN_GRID_PX } from "../src/render/grid";
-import { planBounds, scaleBarMm } from "../src/io/image";
+import { scaleBarMm } from "../src/io/image";
+import { planBounds } from "../src/core/bounds";
 import { symbolInk, COLORS, INKS } from "../src/render/draw";
 
 let failures = 0;

@@ -7,10 +7,10 @@ import { videsOf } from "../model/doc";
 import { Vide, clampVide, VIDE_DEFAULT } from "../model/vide";
 import { stairAngle } from "../model/stair";
 import { t } from "../i18n";
-import type { StairRows } from "./stairs";
+import type { PaneRows } from "./stairs";
 
 /** The vide pane uses the same row builders the stair pane does. */
-export type VideRows = StairRows;
+export type VideRows = PaneRows;
 
 /** Size and angle the next vide will be placed at. */
 export function renderVideTool(store: Store, tools: Tools, rows: VideRows): void {

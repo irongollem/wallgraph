@@ -2,6 +2,8 @@
 // integer millimetres. Everything visible is derived from this at render time.
 import type { Stair } from "./stair";
 import type { Vide } from "./vide";
+import type { Cabinet } from "./cabinet";
+import type { RoomName } from "./room";
 
 export type Id = string;
 
@@ -92,11 +94,10 @@ export interface Opening {
   /** Self-closing, as a fire door must be. */
   selfClosing?: boolean;
   /**
-   * Fire resistance. "wbd" is weerstand tegen branddoorslag, "wrd" weerstand
-   * tegen rookdoorgang; minutes is the rating. Not a motion, so it lives on the
-   * opening rather than a sash — a double door has one rating, not two.
+   * Fire resistance. Not a motion, so it lives on the opening rather than a
+   * sash — a double door has one rating, not two. See FireKind.
    */
-  fireRating?: { kind: "wbd" | "wrd"; minutes: number };
+  fireRating?: FireRating;
   sillHeight?: number;
   height?: number;
 }
@@ -147,6 +148,16 @@ export interface Floor {
    */
   vides?: Vide[];
   /**
+   * Placed cabinetry. Like stairs, a cabinet stores its dimensions because the
+   * same kastje is built 400, 600 or 800 wide; see model/cabinet.ts.
+   */
+  cabinets?: Cabinet[];
+  /**
+   * What the rooms are called. A name is authored, so it is stored; which room
+   * it names is derived from its point. See model/room.ts.
+   */
+  roomNames?: RoomName[];
+  /**
    * Storey height in mm, floor to floor. This is what a stair on this floor
    * climbs unless it states otherwise, so changing it moves every stair that
    * follows it. Absent means the default: a plan nobody has given a storey
@@ -160,6 +171,12 @@ export function stairsOf(f: Floor): Stair[] { return f.stairs ?? []; }
 
 /** A floor's vides. Absent means none, not an error. */
 export function videsOf(f: Floor): Vide[] { return f.vides ?? []; }
+
+/** A floor's cabinets. Absent means none, not an error. */
+export function cabinetsOf(f: Floor): Cabinet[] { return f.cabinets ?? []; }
+
+/** A floor's room names. Absent means none, not an error. */
+export function roomNamesOf(f: Floor): RoomName[] { return f.roomNames ?? []; }
 
 /**
  * Storey height, floor to floor. 2800 is the ordinary Dutch new-build figure and
@@ -200,15 +217,78 @@ export const GRID_DEFAULT_MM = 100;
 export function emptyDoc(): PlanDoc {
   return {
     version: 1, unit: "mm", gridMm: GRID_DEFAULT_MM,
-    floors: [{ id: newId("f"), name: "Floor 1", nodes: [], walls: [], symbols: [], stairs: [], vides: [] }],
+    floors: [{
+      id: newId("f"), name: "Floor 1",
+      nodes: [], walls: [], symbols: [], stairs: [], vides: [], cabinets: [], roomNames: [],
+    }],
   };
+}
+
+/**
+ * What a rating measures.
+ *   wbdbo  weerstand tegen branddoorslag en brandoverslag — the Bouwbesluit
+ *          figure for a door in a compartment wall, and the one written on a
+ *          Dutch drawing. The usual choice, so it is listed first.
+ *   wbd    branddoorslag only, without the overslag half
+ *   wrd    weerstand tegen rookdoorgang: smoke, not fire
+ */
+export type FireKind = "wbdbo" | "wbd" | "wrd";
+
+export const FIRE_KINDS: readonly FireKind[] = ["wbdbo", "wbd", "wrd"];
+
+export interface FireRating { kind: FireKind; minutes: number }
+
+/**
+ * The ratings doors are specified at. Anything else stays typeable — the field
+ * is a number — but a list of five covers what is actually drawn.
+ */
+export const FIRE_MINUTES: readonly number[] = [20, 30, 60, 90, 120];
+
+export const FIRE_MINUTES_DEFAULT = 30;
+
+/**
+ * The rating as it goes on the drawing: "WBDBO 30". The acronym is uppercase
+ * because that is how it is written and how it is read aloud on site, and it
+ * is built here rather than at each call site so the canvas and the exports
+ * cannot drift apart.
+ */
+export function fireLabel(r: FireRating): string {
+  return `${r.kind.toUpperCase()} ${r.minutes}`;
 }
 
 export const WALL_DEFAULT_INTERIOR = 100;
 export const WALL_DEFAULT_EXTERIOR = 300;
-export const DOOR_DEFAULT_WIDTH = 900;
+export const DOOR_DEFAULT_WIDTH = 830;
 export const WINDOW_DEFAULT_WIDTH = 1200;
 export const PASSAGE_DEFAULT_WIDTH = 900;
+
+/**
+ * Standard opening widths, in millimetres of hole in the wall.
+ *
+ * `Opening.width` is the dagmaat — the clear opening the kozijn is set in — not
+ * the deurblad, which is narrower by the frame. These are the Dutch
+ * binnendeurkozijn sizes a door is ordered at (a 830 dagmaat takes the common
+ * 780 x 2015 blad), plus the wider outer and double leaves. Anything else stays
+ * typeable; the list exists because cabinetry and doors are ordered in steps
+ * rather than measured, and 900 for every door was a number nobody builds to.
+ */
+export const DOOR_WIDTHS: readonly number[] = [730, 780, 830, 880, 930, 1010];
+
+/** Double-leaf and pui widths, offered under their own heading. */
+export const DOOR_WIDTHS_DOUBLE: readonly number[] = [1500, 1800, 2100, 2400];
+
+/** Standard window widths. Coarser than doors: a raam is made to size. */
+export const WINDOW_WIDTHS: readonly number[] = [600, 900, 1200, 1500, 1800, 2400];
+
+/** Clear widths a doorway is set out to. A doorway has no kozijn to allow for. */
+export const PASSAGE_WIDTHS: readonly number[] = [800, 900, 1000, 1200, 1500, 1800];
+
+/** The widths offered for an opening of this kind. */
+export function widthsFor(kind: OpeningKind): readonly number[] {
+  return kind === "door" ? DOOR_WIDTHS
+       : kind === "window" ? WINDOW_WIDTHS
+       : PASSAGE_WIDTHS;
+}
 
 /**
  * The sashes of an opening, left to right along a->b, each with a resolved

@@ -205,6 +205,14 @@ uiteinde langs de muurrichting.</p>
 muur. Tijdens het plaatsen worden de afstanden tot beide muuruiteinden weergegeven. Richting, breedte
 en type zijn vervolgens instelbaar in het paneel; alle typen staan op
 <a href="/kozijnen/">deur- en raamtypen</a>.</p>
+<p>Het paneel toont bij een actief openingsgereedschap wat de <b>volgende</b> plaatsing krijgt: breedte,
+draairichting en brandwerendheid. Die keuzes blijven staan, zodat een rij gelijke deuren in één keer
+goed staat in plaats van stuk voor stuk achteraf. De aangeboden breedtes zijn de standaard dagmaten van
+het binnendeurkozijn — 730, 780, 830, 880, 930 en 1010 mm — en daarnaast de dubbele maten; elke andere
+maat blijft intypbaar. <code>width</code> is de dagmaat van het kozijn, niet het deurblad.</p>
+<p>Brandwerendheid wordt genoteerd zoals op een tekening: <b>WBDBO</b> met het aantal minuten, en
+daarnaast WBD en WRD. Het aanzetten van een waardering zet de deur meteen op zelfsluitend. De aanduiding
+komt op de plattegrond en in elke export.</p>
 <p>Een opening blijft aan de bijbehorende muur gekoppeld en verplaatst met die muur mee.</p>
 
 <h2 id="symbolen">Symbolen</h2>
@@ -236,6 +244,36 @@ van beneden doorheen komt, getekend op de plattegrond van de verdieping erboven.
 omtrek met een diagonaal uit elke hoek; de vloerkleur eronder wordt weggenomen, want een vide is geen
 vloer.</p>
 
+<h2 id="kasten">Kasten</h2>
+<p><kbd>C</kbd> opent het kastgereedschap. Een kast is geen symbool en om dezelfde reden als een trap:
+hetzelfde kastje is 400, 600 of 800 mm breed, dus breedte, diepte en hoogte staan in het document en de
+kast, het front, de draairichting en de overstek van het blad volgen daaruit bij het tekenen.</p>
+<p>Het is kastwerk, niet keukenmeubilair: hetzelfde object is een onderkast, een garderobekast, een
+badkamermeubel en een kantoorkast. Het paneel biedt benoemde uitvoeringen — onder meer onderkast,
+ladenkast, spoelkast, hoekkast, bovenkast, hoge kast en apparatenkast — over drie hoogteklassen. Die klasse bepaalt
+hoe de kast het snijvlak van de plattegrond raakt: onderkasten worden van boven gezien en hoge kasten
+worden doorgesneden, beide doorgetrokken; <b>bovenkasten hangen er volledig boven en staan daarom
+gestreept</b>, zoals al het werk boven het snijvlak.</p>
+<p>De maten zijn de gangbare modulematen: 150, 200, 300, 400, 450, 500, 600, 800, 900, 1000 en 1200 mm,
+naast een intypbare maat voor een vulpaneel op maat. Een kast klikt vlak tegen de muur én tegen de kast
+ernaast, zodat een keukenopstelling als aaneengesloten rij ontstaat in plaats van stuk voor stuk op het
+oog uitgelijnd. <kbd>R</kbd> draait een kwartslag, <kbd>M</kbd> spiegelt de draairichting.</p>
+
+<h2 id="ruimtenamen">Ruimtenamen</h2>
+<p><kbd>K</kbd> schrijft een naam in een ruimte. Ruimtes zelf worden afgeleid uit de muren en staan niet
+in het document; wat wél is opgeschreven is de naam en de plaats waar die is gezet, en dat is dan ook
+wat wordt bewaard. Welke ruimte de naam draagt volgt uit dat punt. Verplaatst een muur zich zo dat het
+punt in de volgende ruimte valt, dan gaat de naam met het punt mee.</p>
+<p>De naam komt boven de oppervlakte te staan en gaat mee in PNG, SVG en DXF.</p>
+
+<h2 id="zoomen">Zoomen</h2>
+<p><kbd>F</kbd> brengt de hele plattegrond in beeld, <kbd>Shift</kbd>+<kbd>F</kbd> de selectie. Beide
+werken in elk gereedschap. <kbd>Z</kbd> opent het zoomgereedschap: sleep een kader om daarop in te
+zoomen, of klik een ruimte aan om die vol in beeld te brengen.</p>
+<p>Het paneel toont daarbij de ruimtes als lijst — benoemde eerst, daarna de rest op grootte — zodat
+&ldquo;keuken vol in beeld&rdquo; één klik is. De lijst volgt de muren: een ruimte die in tweeën wordt
+gedeeld verschijnt als twee regels, zonder dat er iets bijgehouden hoeft te worden.</p>
+
 <h2 id="ruimtes">Ruimtes en maten</h2>
 <p>Gesloten muurlussen worden automatisch als ruimte herkend en van een oppervlakte voorzien. De maat is
 standaard <b>netto</b> (binnenwerks, NEN 2580); de legenda op het canvas zegt welke conventie geldt en
@@ -246,7 +284,7 @@ selectie van een maatlabel maakt invoer van de lengte mogelijk.</p>
 <ul>
 <li><b>PNG</b> — de plattegrond als afbeelding, op de tekening bijgesneden, zonder raster, met schaalbalk.</li>
 <li><b>SVG</b> — vectorwerk op ware schaal: 1 mm in het document is 1 mm op papier bij 100% afdrukken.</li>
-<li><b>DXF</b> — muren, draaicirkels, symbolen, trappen, vides en oppervlaktes op aparte lagen, in millimeters, voor CAD.</li>
+<li><b>DXF</b> — muren, draaicirkels, symbolen, trappen, vides, kasten, ruimtenamen en oppervlaktes op aparte lagen, in millimeters, voor CAD. Bovenkasten staan op een eigen laag, omdat zij boven het snijvlak hangen.</li>
 <li><b>JSON</b> — het document zelf; zie <a href="/formaat/">documentformaat</a>.</li>
 </ul>
 <p>De plattegrond wordt automatisch in de lokale browseropslag bewaard. Hiervoor is geen account of
@@ -260,6 +298,11 @@ applicatieserver vereist. De plattegrond blijft na het sluiten van het tabblad b
 <tr><td><kbd>S</kbd></td><td>symbool plaatsen</td></tr>
 <tr><td><kbd>T</kbd></td><td>trap plaatsen</td></tr>
 <tr><td><kbd>H</kbd></td><td>vide plaatsen</td></tr>
+<tr><td><kbd>C</kbd></td><td>kast plaatsen</td></tr>
+<tr><td><kbd>K</kbd></td><td>ruimte benoemen</td></tr>
+<tr><td><kbd>Z</kbd></td><td>zoomgereedschap: kader slepen, ruimte aanklikken</td></tr>
+<tr><td><kbd>F</kbd></td><td>alles in beeld</td></tr>
+<tr><td><kbd>Shift</kbd>+<kbd>F</kbd></td><td>selectie in beeld</td></tr>
 <tr><td><kbd>O</kbd></td><td>hoeksnapping aan/uit</td></tr>
 <tr><td><kbd>G</kbd></td><td>rastersnapping aan/uit</td></tr>
 <tr><td><kbd>L</kbd></td><td>maatlijnen aan/uit</td></tr>
@@ -293,6 +336,14 @@ panel, alongside thickness and length. Editing the length moves the far node alo
 <p><kbd>D</kbd>, <kbd>N</kbd> and <kbd>P</kbd> place a door, window and passage respectively on a wall.
 During placement, dimensions to both wall ends are displayed. Direction, width and type are then
 configured in the panel; all options appear on <a href="/en/openings/">door and window types</a>.</p>
+<p>With an opening tool active, the panel states what the <b>next</b> placement gets: width, hand and
+fire resistance. Those choices persist, so a run of identical doors comes out right in one pass instead
+of one edit at a time afterwards. The widths offered are the standard Dutch internal frame openings —
+730, 780, 830, 880, 930 and 1010 mm — plus the double-leaf sizes; any other width stays typeable.
+<code>width</code> is the clear frame opening, not the door leaf.</p>
+<p>Fire resistance is written the way a drawing writes it: <b>WBDBO</b> with the rating in minutes,
+alongside WBD and WRD. Setting a rating marks the door self-closing. The annotation reaches the plan
+and every export.</p>
 <p>An opening remains associated with its wall and moves when that wall moves.</p>
 
 <h2 id="symbols">Symbols</h2>
@@ -323,6 +374,34 @@ that storey draws it. A stairwell opening is the same object: the hole a flight 
 through, drawn on the plan of the floor above. The mark is the outline with a diagonal from each
 corner, and it cuts the floor tint underneath, because a vide is not floor.</p>
 
+<h2 id="cabinets">Cabinets</h2>
+<p><kbd>C</kbd> opens the cabinet tool. A cabinet is not a symbol, for the reason a stair is not: the
+same unit is built 400, 600 or 800 mm wide, so width, depth and height live in the document and the
+carcass, the front, the hinge mark and the worktop overhang are derived from them at render time.</p>
+<p>It is cabinetry rather than kitchen furniture — the same object is a base unit, a wardrobe, a
+bathroom vanity and an office cupboard. The panel offers named units — among them base, drawer, sink,
+corner, wall, tall and appliance housing — across three height classes. That class decides how the unit meets
+the plan's section plane: base units are seen from above and tall units are cut through, both drawn
+solid; <b>wall units hang entirely above it and are therefore drawn dashed</b>, as overhead work is.</p>
+<p>The sizes offered are the standard module widths: 150, 200, 300, 400, 450, 500, 600, 800, 900, 1000
+and 1200 mm, beside a typed width for a filler cut to size. A cabinet snaps flush to a wall and to the
+unit beside it, so a kitchen comes out as a continuous run rather than a line of units aligned by eye.
+<kbd>R</kbd> turns a quarter, <kbd>M</kbd> flips the hinge side.</p>
+
+<h2 id="roomnames">Room names</h2>
+<p><kbd>K</kbd> writes a name into a room. Rooms themselves are derived from the walls and are not in
+the document; what was authored is the name and the point it was written at, so that is what is stored.
+Which room carries the name follows from that point. Move a wall so the point falls in the next room and
+the name goes with the point.</p>
+<p>The name sits above the area figure and carries into PNG, SVG and DXF.</p>
+
+<h2 id="zoom">Zooming</h2>
+<p><kbd>F</kbd> fits the whole plan, <kbd>Shift</kbd>+<kbd>F</kbd> the selection. Both work in any tool.
+<kbd>Z</kbd> opens the zoom tool: drag a box to zoom into it, or click a room to frame it.</p>
+<p>The panel then lists the rooms — named ones first, the rest by size — so "the kitchen, full screen"
+is one click. The list follows the walls: a room divided in two shows as two entries, with nothing to
+keep in step.</p>
+
 <h2 id="rooms">Rooms and dimensions</h2>
 <p>Closed wall loops are detected as rooms and labelled with their area. That area is <b>net</b> by
 default (inner faces, NEN 2580); the canvas legend states which convention is in force, and the
@@ -333,7 +412,7 @@ selecting a dimension label enables length input.</p>
 <ul>
 <li><b>PNG</b> — the plan as an image, cropped to the drawing, no grid, with a scale bar.</li>
 <li><b>SVG</b> — vector artwork at true scale: 1 mm in the document is 1 mm on paper printed at 100%.</li>
-<li><b>DXF</b> — walls, swings, symbols, stairs, voids and areas on separate layers, in millimetres, for CAD.</li>
+<li><b>DXF</b> — walls, swings, symbols, stairs, voids, cabinets, room names and areas on separate layers, in millimetres, for CAD. Wall units get a layer of their own, since they hang above the section plane.</li>
 <li><b>JSON</b> — the document itself; see <a href="/en/format/">document format</a>.</li>
 </ul>
 <p>The plan is saved automatically in local browser storage. This requires no account or application
@@ -347,6 +426,11 @@ server. The plan remains available after the tab is closed.</p>
 <tr><td><kbd>S</kbd></td><td>place a symbol</td></tr>
 <tr><td><kbd>T</kbd></td><td>place a stair</td></tr>
 <tr><td><kbd>H</kbd></td><td>place a vide</td></tr>
+<tr><td><kbd>C</kbd></td><td>place a cabinet</td></tr>
+<tr><td><kbd>K</kbd></td><td>name a room</td></tr>
+<tr><td><kbd>Z</kbd></td><td>zoom tool: drag a box, click a room</td></tr>
+<tr><td><kbd>F</kbd></td><td>fit everything in view</td></tr>
+<tr><td><kbd>Shift</kbd>+<kbd>F</kbd></td><td>fit the selection</td></tr>
 <tr><td><kbd>O</kbd></td><td>angle snap on/off</td></tr>
 <tr><td><kbd>G</kbd></td><td>grid snap on/off</td></tr>
 <tr><td><kbd>L</kbd></td><td>dimension lines on/off</td></tr>

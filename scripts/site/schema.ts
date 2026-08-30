@@ -67,6 +67,16 @@ export function planSchema(siteUrl: string): JsonSchema {
             type: "array", items: { $ref: "#/$defs/vide" },
             description: "Openings in this floor's slab. Absent means the storey has none.",
           },
+          cabinets: {
+            type: "array", items: { $ref: "#/$defs/cabinet" },
+            description: "Placed cabinetry. Absent means the storey has none.",
+          },
+          roomNames: {
+            type: "array", items: { $ref: "#/$defs/roomName" },
+            description:
+              "What the rooms are called. Rooms themselves are derived from the wall " +
+              "graph, so only the name and the point it was written at are stored.",
+          },
         },
       },
       node: {
@@ -131,7 +141,13 @@ export function planSchema(siteUrl: string): JsonSchema {
             required: ["kind", "minutes"],
             additionalProperties: false,
             properties: {
-              kind: { enum: ["wbd", "wrd"], description: "Branddoorslag or rookdoorgang." },
+              kind: {
+                enum: ["wbdbo", "wbd", "wrd"],
+                description:
+                  "wbdbo: weerstand tegen branddoorslag en brandoverslag, the Bouwbesluit " +
+                  "figure for a door in a compartment wall. wbd: branddoorslag alone. " +
+                  "wrd: weerstand tegen rookdoorgang.",
+              },
               minutes: { type: "integer", minimum: 0 },
             },
           },
@@ -177,6 +193,80 @@ export function planSchema(siteUrl: string): JsonSchema {
           color: {
             type: "string", pattern: "^#[0-9a-fA-F]{6}$",
             description: "Pen colour; absent means the plan's default ink.",
+          },
+        },
+      },
+      cabinet: {
+        type: "object",
+        description:
+          "A cabinet. Like a stair, it stores its dimensions rather than being one fixed " +
+          "picture: the same unit is built 400, 600 or 800 wide, and the carcass, the " +
+          "front, the hinge mark and the worktop overhang are derived from these numbers " +
+          "at render time. Cabinetry rather than kitchen furniture -- the same object is " +
+          "a base unit, a wardrobe and an office cupboard. The anchor (x, y) is the " +
+          "middle of the wall-touching edge, with +y into the room.",
+        required: ["id", "kind", "x", "y", "rotation", "width", "depth", "front"],
+        additionalProperties: false,
+        properties: {
+          id: { $ref: "#/$defs/id" },
+          kind: {
+            enum: ["base", "wall", "tall"],
+            description:
+              "Height class. It decides how the unit meets the plan's section plane at " +
+              "about 1200 mm: base is seen from above and tall is cut, both drawn solid; " +
+              "wall is entirely overhead and drawn dashed.",
+          },
+          x: mm("mm."),
+          y: mm("mm, positive down."),
+          rotation: { type: "number", description: "Radians, clockwise on screen." },
+          mirrored: { type: "boolean", description: "Handedness. Flips the hinge side and a corner unit's diagonal." },
+          width: { type: "integer", minimum: 100, maximum: 3000, description: "mm along the wall." },
+          depth: { type: "integer", minimum: 100, maximum: 1200, description: "mm into the room." },
+          height: {
+            type: "integer", minimum: 100, maximum: 3000,
+            description:
+              "Carcass height in mm, plinth and worktop excluded. Not drawn in plan; " +
+              "absent means the height class's usual figure.",
+          },
+          front: {
+            enum: ["door", "double", "drawers", "open", "slide"],
+            description: "What closes the front. \"open\" is shelving with no front at all.",
+          },
+          hinge: {
+            enum: ["left", "right"],
+            description:
+              "Which side a single door is hung, as seen from the room facing the unit. " +
+              "Absent means left.",
+          },
+          drawers: {
+            type: "integer", minimum: 1, maximum: 8,
+            description: "How many drawers the front is divided into. Read only when front is \"drawers\".",
+          },
+          corner: { type: "boolean", description: "Diagonal-front corner unit." },
+          worktop: { type: "boolean", description: "Blad over the carcass, drawn as an overhang along the front." },
+          label: { type: "string", description: "What the unit is called on the drawing." },
+          color: {
+            type: "string", pattern: "^#[0-9a-fA-F]{6}$",
+            description: "Pen colour; absent means the plan's default ink.",
+          },
+        },
+      },
+      roomName: {
+        type: "object",
+        description:
+          "A room name: the word, and the point it was written at. Which room it names " +
+          "is derived -- the room whose inner boundary contains the point takes it -- " +
+          "because rooms are found by walking the wall graph and are not stored.",
+        required: ["id", "x", "y", "name"],
+        additionalProperties: false,
+        properties: {
+          id: { $ref: "#/$defs/id" },
+          x: mm("mm."),
+          y: mm("mm, positive down."),
+          name: { type: "string", minLength: 1 },
+          color: {
+            type: "string", pattern: "^#[0-9a-fA-F]{6}$",
+            description: "Pen colour; absent means the plan's label ink.",
           },
         },
       },

@@ -1,38 +1,55 @@
 // Tool state machine + snapping + typed-mm input. Owns pointer/keyboard handling
 // for the canvas; rendering of previews goes through getPreview()/getSnap().
 import { Store } from "../model/store";
-import { Floor, Wall, Opening, PlanNode, SymbolInstance, newId, stairsOf, videsOf, floorHeight, DOOR_DEFAULT_WIDTH, WINDOW_DEFAULT_WIDTH, PASSAGE_DEFAULT_WIDTH, OpeningKind } from "../model/doc";
+import {
+  Floor, Wall, Opening, PlanNode, SymbolInstance, newId, stairsOf, videsOf, cabinetsOf,
+  roomNamesOf, floorHeight, DOOR_DEFAULT_WIDTH, WINDOW_DEFAULT_WIDTH, PASSAGE_DEFAULT_WIDTH,
+  OpeningKind, FireRating,
+} from "../model/doc";
 import {
   Stair, ResolvedStair, StairKind, StairParams, stairDefaults, stairFields, clampStair,
   stairAngle, inheritsRise,
 } from "../model/stair";
 import { Vide, VideSize, VIDE_DEFAULT, clampVide } from "../model/vide";
+import {
+  Cabinet, CabinetSpec, cabinetDefaults, cabinetPreset, clampCabinet,
+} from "../model/cabinet";
+import { RoomName } from "../model/room";
 import { nodeAt, splitWall, nearestWall, wallLength, mergeNodes, deleteWall, clampOpening, cleanOrphanNodes } from "../model/ops";
 import { Viewport } from "../render/viewport";
 import { Vec, v, add, sub, scale, norm, perp, dist, angleOf, fromAngle, dot, pointInPolygon } from "../geometry/vec";
 import { arcPointAt, arcTangentAt, bulgeFromSagitta } from "../geometry/arc";
 import { getSymbol, SymbolDef, SYMBOL_TYPES } from "../render/symbols";
-import { stairHit, resolveStair, stairBox, stairIssues, gradient } from "../core/stair";
+import { stairHit, resolveStair, stairBox, stairCorners, stairIssues, gradient } from "../core/stair";
 import { drawStairGhost } from "../render/stair";
-import { videHit } from "../core/vide";
+import { videHit, videCorners } from "../core/vide";
 import { drawVideGhost } from "../render/vide";
+import { cabinetHit, cabinetBox, cabinetCorners } from "../core/cabinet";
+import { drawCabinetGhost } from "../render/cabinet";
+import { planBounds, polyBounds, Bounds } from "../core/bounds";
+import { Room } from "../core/rooms";
 import { drawLabel, COLORS, symbolInk } from "../render/draw";
 import { Resolved, ResolvedWall } from "../core/resolve";
 import { dimensionChains } from "../core/dimensions";
 import { t } from "../i18n";
 
-export type ToolName = "select" | "wall" | "door" | "window" | "passage" | "symbol" | "stair" | "vide";
+export type ToolName =
+  | "select" | "wall" | "door" | "window" | "passage" | "symbol" | "stair" | "vide"
+  | "cabinet" | "roomName" | "zoom";
 
 export interface SnapResult { p: Vec; kind: "node" | "wall" | "grid" | "free"; wall?: Wall; tMm?: number; node?: PlanNode }
 
 interface DragState {
-  kind: "node" | "wall" | "symbol" | "stair" | "vide" | "bow" | "opening" | "pan";
+  kind: "node" | "wall" | "symbol" | "stair" | "vide" | "cabinet" | "roomName"
+      | "bow" | "opening" | "pan" | "zoomBox";
   id?: string;
   wallId?: string;
   startWorld: Vec;
   orig?: unknown;
   moved: boolean;
   lastScreen?: Vec;
+  /** Far corner of the zoom window, world mm. */
+  boxEnd?: Vec;
 }
 
 export class Tools {
@@ -64,6 +81,36 @@ export class Tools {
   videSize: VideSize = { ...VIDE_DEFAULT };
   videRotation = 0;
 
+  /**
+   * The cabinet the tool will place next, and the named preset it came from.
+   * Like a stair, a cabinet carries its size in the document, so the tool holds
+   * a full specification rather than a type.
+   */
+  cabinetSpec: CabinetSpec = cabinetDefaults("base");
+  cabinetPresetId = "onderkast";
+  cabinetRotation = 0;
+  cabinetMirrored = false;
+
+  /** The name the room tool will write next. */
+  roomNameText = "";
+
+  /**
+   * What the next opening is placed at. Openings used to be placed at one fixed
+   * width and edited afterwards, one at a time — walls have had lastThickness
+   * for exactly this reason, and a run of eight identical doors is the same
+   * job. A door also carries the properties that are decided once for a whole
+   * plan rather than per leaf: which way it hangs, and its fire rating.
+   */
+  openingWidth: Record<OpeningKind, number> = {
+    door: DOOR_DEFAULT_WIDTH,
+    window: WINDOW_DEFAULT_WIDTH,
+    passage: PASSAGE_DEFAULT_WIDTH,
+  };
+  doorHinge: "a" | "b" = "a";
+  doorOutward = false;
+  doorSelfClosing = false;
+  doorFire: FireRating | null = null;
+
   private chainStart: Vec | null = null;
   private chainStartNode: string | null = null;
   private cursor: Vec = v(0, 0);
@@ -83,6 +130,7 @@ export class Tools {
     private requestRender: () => void,
     private getResolved: () => Resolved,
     private onToolChange: () => void,
+    private getRooms: () => Room[],
   ) {
     canvas.addEventListener("pointerdown", e => this.onDown(e));
     canvas.addEventListener("pointermove", e => this.onMove(e));
@@ -141,6 +189,45 @@ export class Tools {
 
   setVideSize(s: VideSize): void {
     this.videSize = clampVide(s);
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /** Arm a named unit: an onderkast, a ladenkast, a garderobekast. */
+  setCabinetPreset(id: string): void {
+    const p = cabinetPreset(id);
+    if (!p) return;
+    this.cabinetPresetId = id;
+    const { id: _drop, ...spec } = p;
+    this.cabinetSpec = spec;
+    this.setTool("cabinet");
+  }
+
+  /** Tune the armed unit. The preset id follows what the fields now say. */
+  setCabinetSpec(spec: CabinetSpec): void {
+    this.cabinetSpec = clampCabinet(spec);
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  setCabinetRotation(radians: number): void {
+    this.cabinetRotation = stairAngle(radians);
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /**
+   * Redraw the pane and the canvas after a standing choice changed. The tool
+   * state is public and edited in place by the panes, so this is how they say
+   * so — the store has not changed, and nothing here is undoable.
+   */
+  refresh(): void {
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  setRoomNameText(name: string): void {
+    this.roomNameText = name;
     this.onToolChange();
     this.requestRender();
   }
@@ -226,6 +313,112 @@ export class Tools {
 
   getSnap(): Vec | null { return this.snap?.p ?? null; }
 
+  // ---- zoom ----
+  /**
+   * Canvas size in CSS pixels — what a fit has to frame into.
+   *
+   * Measured on the canvas's PARENT, not the canvas. The canvas carries no CSS
+   * size until the first render sets one, so a fit at mount time — which is
+   * every plan's opening view — would divide a plan into a zero-width box and
+   * frame it into the corner. The parent is laid out by then.
+   */
+  private canvasSize(): { w: number; h: number } {
+    const r = (this.canvas.parentElement ?? this.canvas).getBoundingClientRect();
+    return { w: r.width, h: r.height };
+  }
+
+  private applyFit(b: Bounds | null): boolean {
+    if (!b) return false;
+    const { w, h } = this.canvasSize();
+    this.vp.fitBox(w, h, b.min, b.max);
+    this.requestRender();
+    return true;
+  }
+
+  /** Everything on this storey in view. The zoom-all a plan is read from. */
+  fitAll(): boolean {
+    return this.applyFit(planBounds(this.floor, this.getResolved()));
+  }
+
+  /** Frame the selection. Falls back to the whole plan when nothing is selected. */
+  fitSelection(): boolean {
+    return this.applyFit(this.selectionBounds()) || this.fitAll();
+  }
+
+  /** Frame one detected room — a zone in the zoom pane, or a click on a room. */
+  fitRoom(room: Room): boolean {
+    return this.applyFit(polyBounds(room.poly));
+  }
+
+  /** Frame an arbitrary world box: what the zoom window drags out. */
+  fitWorldBox(a: Vec, b: Vec): boolean {
+    return this.applyFit({
+      min: v(Math.min(a.x, b.x), Math.min(a.y, b.y)),
+      max: v(Math.max(a.x, b.x), Math.max(a.y, b.y)),
+    });
+  }
+
+  /** The rooms of the active storey, as the zoom pane lists them. */
+  rooms(): Room[] { return this.getRooms(); }
+
+  /** The detected room containing `w`, matched on the net boundary. */
+  roomAt(w: Vec): Room | undefined {
+    return this.getRooms().find(r => pointInPolygon(w, r.netPoly));
+  }
+
+  /**
+   * World bounds of whatever is selected. Openings and nodes are points rather
+   * than areas, so they frame the wall they belong to instead of a box of
+   * nothing — zooming to a door means seeing the door in its wall.
+   */
+  private selectionBounds(): Bounds | null {
+    const sel = this.store.sel;
+    if (!sel) return null;
+    const f = this.floor;
+    if (sel.kind === "cabinet") {
+      const c = cabinetsOf(f).find(x => x.id === sel.id);
+      return c ? polyBounds(cabinetCorners(c)) : null;
+    }
+    if (sel.kind === "stair") {
+      const st = stairsOf(f).find(x => x.id === sel.id);
+      return st ? polyBounds(stairCorners(resolveStair(f, st))) : null;
+    }
+    if (sel.kind === "vide") {
+      const vd = videsOf(f).find(x => x.id === sel.id);
+      return vd ? polyBounds(videCorners(vd)) : null;
+    }
+    if (sel.kind === "symbol") {
+      const sym = f.symbols.find(x => x.id === sel.id);
+      const def = sym && getSymbol(sym.type);
+      if (!sym || !def) return null;
+      const y0 = def.wallMounted ? 0 : -def.depth / 2;
+      const pts: Vec[] = [];
+      for (const lx of [-def.width / 2, def.width / 2])
+        for (const ly of [y0, y0 + def.depth])
+          pts.push(add(v(sym.x, sym.y), fromAngleRot(v(lx, ly), sym.rotation)));
+      return polyBounds(pts);
+    }
+    if (sel.kind === "roomName") {
+      const rn = roomNamesOf(f).find(x => x.id === sel.id);
+      if (!rn) return null;
+      // A name is a point. Frame the room it names, which is what was meant.
+      const room = this.roomAt(v(rn.x, rn.y));
+      return room ? polyBounds(room.poly) : polyBounds([v(rn.x, rn.y)]);
+    }
+    const wallId = sel.kind === "wall" ? sel.id
+      : sel.kind === "opening" ? (sel.wallId ?? f.walls.find(x => x.openings.some(o => o.id === sel.id))?.id)
+      : undefined;
+    if (wallId) {
+      const rw = this.getResolved().walls.get(wallId);
+      return rw ? polyBounds(rw.outline) : null;
+    }
+    if (sel.kind === "node") {
+      const n = f.nodes.find(x => x.id === sel.id);
+      return n ? polyBounds([v(n.x, n.y)]) : null;
+    }
+    return null;
+  }
+
   /** Derived geometry for one wall; undefined for a degenerate (zero-length) wall. */
   resolvedWall(id: string): ResolvedWall | undefined {
     return this.getResolved().walls.get(id);
@@ -268,6 +461,9 @@ export class Tools {
       case "symbol": this.placeSymbol(); break;
       case "stair": this.placeStair(); break;
       case "vide": this.placeVide(); break;
+      case "cabinet": this.placeCabinet(); break;
+      case "roomName": this.placeRoomName(); break;
+      case "zoom": this.zoomDown(s, w); return;
       case "select": this.selectDown(s, w); break;
     }
   }
@@ -292,6 +488,7 @@ export class Tools {
     if (!this.drag) return;
     const d = this.drag;
     this.drag = null;
+    if (d.kind === "zoomBox") { this.zoomUp(d); this.requestRender(); return; }
     if (d.kind === "node" && d.moved) {
       // Merge if dropped onto another node.
       this.store.mutate(doc => {
@@ -361,10 +558,17 @@ export class Tools {
     const f = this.floor;
     const nw = nearestWall(f, this.cursor, 30 / this.vp.pxPerMm);
     if (!nw) return;
-    const width = kind === "door" ? DOOR_DEFAULT_WIDTH : kind === "window" ? WINDOW_DEFAULT_WIDTH : PASSAGE_DEFAULT_WIDTH;
     const o: Opening = {
-      id: newId("o"), kind, t: Math.round(nw.tMm / 10) * 10, width,
-      ...(kind === "door" ? { hinge: "a" as const, swingIn: true } : {}),
+      id: newId("o"), kind, t: Math.round(nw.tMm / 10) * 10, width: this.openingWidth[kind],
+      // A door takes the standing choices rather than one fixed default: hinge
+      // side, swing and fire rating are decided once for a plan and then placed
+      // over and over, the way lastThickness works for walls.
+      ...(kind === "door" ? {
+        hinge: this.doorHinge,
+        swingIn: !this.doorOutward,
+        ...(this.doorSelfClosing ? { selfClosing: true } : {}),
+        ...(this.doorFire ? { fireRating: { ...this.doorFire } } : {}),
+      } : {}),
       ...(kind === "window" ? { windowType: "fixed" as const } : {}),
     };
     this.store.mutate(doc => {
@@ -494,6 +698,132 @@ export class Tools {
     this.store.select({ kind: "vide", id: vd.id });
   }
 
+  // ---- cabinets ----
+  /**
+   * Where the cabinet lands for the current cursor.
+   *
+   * Cabinetry stands against a wall, so it takes the wall snap a wall-mounted
+   * symbol does. On top of that it snaps end-to-end with cabinets already
+   * placed: a kitchen is a RUN of units butted together, and lining each one up
+   * by eye against the last is the work the module widths exist to avoid.
+   */
+  private cabinetPose(): { x: number; y: number; rotation: number; mirrored: boolean } {
+    const snap = this.wallSnap();
+    const base = snap
+      ? { x: snap.x, y: snap.y, rotation: snap.rotation }
+      : (() => {
+          const g = this.gridStep;
+          return {
+            x: Math.round(this.cursor.x / g) * g,
+            y: Math.round(this.cursor.y / g) * g,
+            rotation: this.cabinetRotation,
+          };
+        })();
+    const run = this.runSnap(base, this.cabinetSpec.width);
+    return { ...base, ...run, mirrored: this.cabinetMirrored };
+  }
+
+  /**
+   * Pull the cabinet's end onto the end of one already placed, when the two
+   * face the same way and the ends are close. Returns the corrected anchor, or
+   * nothing when no run is within reach.
+   *
+   * Ends are compared in world space rather than along a wall parameter, so a
+   * run also closes up across a wall join and against a unit that was placed
+   * free-standing.
+   */
+  private runSnap(
+    pose: { x: number; y: number; rotation: number }, width: number, skipId?: string,
+  ): { x: number; y: number } | null {
+    const tol = Math.max(120, 16 / this.vp.pxPerMm);
+    // The two ends of the wall-touching edge, in world mm.
+    const endsOf = (x: number, y: number, rot: number, w: number): Vec[] =>
+      [-w / 2, w / 2].map(lx => add(v(x, y), fromAngleRot(v(lx, 0), rot)));
+    const mine = endsOf(pose.x, pose.y, pose.rotation, width);
+    let best: { d: number; shift: Vec } | null = null;
+    for (const c of cabinetsOf(this.floor)) {
+      if (c.id === skipId) continue;
+      // Only units lying the same way: a run is collinear, and pulling a
+      // cabinet onto one at right angles would fight the wall snap.
+      const da = Math.abs(angleDelta(c.rotation, pose.rotation));
+      if (da > 0.05 && Math.abs(da - Math.PI) > 0.05) continue;
+      for (const theirs of endsOf(c.x, c.y, c.rotation, c.width)) {
+        for (const own of mine) {
+          const d = dist(own, theirs);
+          if (d <= tol && (!best || d < best.d)) best = { d, shift: sub(theirs, own) };
+        }
+      }
+    }
+    if (!best) return null;
+    return { x: Math.round(pose.x + best.shift.x), y: Math.round(pose.y + best.shift.y) };
+  }
+
+  private draftCabinet(id: string): Cabinet {
+    const spec = clampCabinet(this.cabinetSpec);
+    const pose = this.cabinetPose();
+    const c: Cabinet = {
+      id, kind: spec.kind,
+      x: pose.x, y: pose.y, rotation: pose.rotation,
+      width: spec.width, depth: spec.depth, height: spec.height,
+      front: spec.front, hinge: spec.hinge,
+    };
+    if (pose.mirrored) c.mirrored = true;
+    if (spec.front === "drawers") c.drawers = spec.drawers;
+    if (spec.corner) c.corner = true;
+    if (spec.worktop) c.worktop = true;
+    if (this.symbolColor) c.color = this.symbolColor;
+    return c;
+  }
+
+  private placeCabinet(): void {
+    const c = this.draftCabinet(newId("k"));
+    this.store.mutate(doc => {
+      const f = this.store.floorOf(doc);
+      (f.cabinets ??= []).push(c);
+    });
+    this.store.select({ kind: "cabinet", id: c.id });
+  }
+
+  /** Topmost cabinet whose carcass (plus the 30 mm grab margin) covers `w`. */
+  private cabinetAt(w: Vec): Cabinet | undefined {
+    const list = cabinetsOf(this.floor);
+    for (let i = list.length - 1; i >= 0; i--) {
+      const c = list[i]!;
+      if (cabinetHit(c, w, 30)) return c;
+    }
+    return undefined;
+  }
+
+  // ---- room names ----
+  private placeRoomName(): void {
+    const name = this.roomNameText.trim();
+    if (!name) return;
+    const g = this.gridStep;
+    const rn: RoomName = {
+      id: newId("r"),
+      x: Math.round(this.cursor.x / g) * g,
+      y: Math.round(this.cursor.y / g) * g,
+      name,
+      ...(this.symbolColor ? { color: this.symbolColor } : {}),
+    };
+    this.store.mutate(doc => {
+      const f = this.store.floorOf(doc);
+      (f.roomNames ??= []).push(rn);
+    });
+    this.store.select({ kind: "roomName", id: rn.id });
+  }
+
+  /** The room name nearest `w`, within a grab radius that follows the zoom. */
+  private roomNameAt(w: Vec): RoomName | undefined {
+    const tol = 14 / this.vp.pxPerMm;
+    const list = roomNamesOf(this.floor);
+    for (let i = list.length - 1; i >= 0; i--) {
+      const rn = list[i]!;
+      if (dist(v(rn.x, rn.y), w) <= tol) return rn;
+    }
+    return undefined;
+  }
+
   /** Topmost vide covering `w`. Picked after the walls: a vide is floor level. */
   private videAt(w: Vec): Vide | undefined {
     const list = videsOf(this.floor);
@@ -531,6 +861,14 @@ export class Tools {
         return;
       }
     }
+    // A room name sits over everything and is small, so it is offered first;
+    // its grab radius is tight enough not to shadow what it labels.
+    const namePick = this.roomNameAt(w);
+    if (namePick) {
+      this.store.select({ kind: "roomName", id: namePick.id });
+      this.drag = { kind: "roomName", id: namePick.id, startWorld: w, moved: false };
+      return;
+    }
     // Stairs, then symbols: picking follows the drawing order, topmost first.
     // A flight is drawn over the symbols it crosses, so a click on it must not
     // reach past it to something underneath.
@@ -544,6 +882,14 @@ export class Tools {
     if (symHit) {
       this.store.select({ kind: "symbol", id: symHit.id });
       this.drag = { kind: "symbol", id: symHit.id, startWorld: w, moved: false };
+      return;
+    }
+    // Cabinetry after the symbols it holds: a socket drawn on a unit's front
+    // has to stay clickable, and a carcass is the larger target underneath.
+    const cabPick = this.cabinetAt(w);
+    if (cabPick) {
+      this.store.select({ kind: "cabinet", id: cabPick.id });
+      this.drag = { kind: "cabinet", id: cabPick.id, startWorld: w, moved: false };
       return;
     }
     // Openings (near their centerline center).
@@ -574,6 +920,24 @@ export class Tools {
     }
     this.store.select(null);
     this.drag = { kind: "pan", startWorld: w, moved: false, lastScreen: s };
+  }
+
+  /**
+   * The zoom tool's press: begin a window. A press that turns out to be a click
+   * rather than a drag frames the room under it — see zoomUp().
+   */
+  private zoomDown(s: Vec, w: Vec): void {
+    this.drag = { kind: "zoomBox", startWorld: w, boxEnd: w, moved: false, lastScreen: s };
+  }
+
+  /** The zoom tool's release: a dragged window, or a click on a room. */
+  private zoomUp(d: DragState): void {
+    const end = d.boxEnd ?? d.startWorld;
+    // A window smaller than a few pixels is a click, not a drag.
+    const small = dist(this.vp.toScreen(d.startWorld), this.vp.toScreen(end)) < 8;
+    if (!small) { this.fitWorldBox(d.startWorld, end); return; }
+    const room = this.roomAt(d.startWorld);
+    if (room) this.fitRoom(room); else this.fitAll();
   }
 
   /** Topmost placed symbol whose footprint (plus a 30 mm grab margin) covers `w`. */
@@ -678,6 +1042,32 @@ export class Tools {
           if (vd) { vd.x += dx; vd.y += dy; }
         }, "drag" + d.id);
       }
+    } else if (d.kind === "cabinet") {
+      // Re-posed under the cursor rather than nudged by a delta: a cabinet
+      // snaps to walls and to its neighbours, and a dragged one has to take
+      // those snaps or a run cannot be rearranged once it is built.
+      this.store.mutate(doc => {
+        const c = cabinetsOf(this.store.floorOf(doc)).find(x => x.id === d.id);
+        if (!c) return;
+        const snap = this.wallSnap();
+        const base = snap
+          ? { x: snap.x, y: snap.y, rotation: snap.rotation }
+          : { x: Math.round(w.x / g) * g, y: Math.round(w.y / g) * g, rotation: c.rotation };
+        Object.assign(c, base, this.runSnap(base, c.width, c.id) ?? {});
+      }, "drag" + d.id);
+    } else if (d.kind === "roomName") {
+      const delta = sub(w, d.startWorld);
+      const dx = Math.round(delta.x / g) * g, dy = Math.round(delta.y / g) * g;
+      if (dx !== 0 || dy !== 0) {
+        d.startWorld = add(d.startWorld, v(dx, dy));
+        this.store.mutate(doc => {
+          const rn = roomNamesOf(this.store.floorOf(doc)).find(x => x.id === d.id);
+          if (rn) { rn.x += dx; rn.y += dy; }
+        }, "drag" + d.id);
+      }
+    } else if (d.kind === "zoomBox") {
+      d.boxEnd = w;
+      this.requestRender();
     } else if (d.kind === "bow") {
       this.store.mutate(doc => {
         const f = this.store.floorOf(doc);
@@ -746,6 +1136,13 @@ export class Tools {
       case "t": case "T": this.setTool("stair"); break;
       // H for the hole in the floor: the vide tool.
       case "h": case "H": this.setTool("vide"); break;
+      // C for cabinetry, K for kamer, Z for the zoom window.
+      case "c": case "C": this.setTool("cabinet"); break;
+      case "k": case "K": this.setTool("roomName"); break;
+      case "z": case "Z": this.setTool("zoom"); break;
+      // Fit, in any tool: the whole plan, or the selection with Shift. Zoom-all
+      // is the move a drawing is read with, so it does not live behind a tool.
+      case "f": case "F": if (e.shiftKey) this.fitSelection(); else this.fitAll(); break;
       case "o": case "O": this.ortho = !this.ortho; this.updateHint(); this.onToolChange(); break;
       case "g": case "G": this.snapGrid = !this.snapGrid; this.updateHint(); this.onToolChange(); this.requestRender(); break;
       case "l": case "L": this.showDims = !this.showDims; this.onToolChange(); this.requestRender(); break;
@@ -844,6 +1241,12 @@ export class Tools {
       this.requestRender();
       return;
     }
+    if (this.tool === "cabinet") {
+      this.cabinetRotation = stairAngle(this.cabinetRotation + Math.PI / 2);
+      this.onToolChange();
+      this.requestRender();
+      return;
+    }
     const sel = this.store.sel;
     if (sel?.kind === "stair") {
       this.store.mutate(doc => {
@@ -856,6 +1259,13 @@ export class Tools {
       this.store.mutate(doc => {
         const vd = videsOf(this.store.floorOf(doc)).find(x => x.id === sel.id);
         if (vd) vd.rotation = stairAngle(vd.rotation + Math.PI / 2);
+      });
+      return;
+    }
+    if (sel?.kind === "cabinet") {
+      this.store.mutate(doc => {
+        const c = cabinetsOf(this.store.floorOf(doc)).find(x => x.id === sel.id);
+        if (c) c.rotation = stairAngle(c.rotation + Math.PI / 2);
       });
       return;
     }
@@ -873,7 +1283,22 @@ export class Tools {
       this.requestRender();
       return;
     }
+    // Mirroring a cabinet swaps the hinge side, which is the reason to reach
+    // for M on one: the run turns the corner and the doors have to follow.
+    if (this.tool === "cabinet") {
+      this.cabinetMirrored = !this.cabinetMirrored;
+      this.onToolChange();
+      this.requestRender();
+      return;
+    }
     const sel = this.store.sel;
+    if (sel?.kind === "cabinet") {
+      this.store.mutate(doc => {
+        const c = cabinetsOf(this.store.floorOf(doc)).find(x => x.id === sel.id);
+        if (c) c.mirrored = !c.mirrored;
+      });
+      return;
+    }
     if (sel?.kind === "stair") {
       this.store.mutate(doc => {
         const st = stairsOf(this.store.floorOf(doc)).find(x => x.id === sel.id);
@@ -900,6 +1325,8 @@ export class Tools {
       } else if (sel.kind === "symbol") f.symbols = f.symbols.filter(s => s.id !== sel.id);
       else if (sel.kind === "stair") f.stairs = stairsOf(f).filter(s => s.id !== sel.id);
       else if (sel.kind === "vide") f.vides = videsOf(f).filter(s => s.id !== sel.id);
+      else if (sel.kind === "cabinet") f.cabinets = cabinetsOf(f).filter(c => c.id !== sel.id);
+      else if (sel.kind === "roomName") f.roomNames = roomNamesOf(f).filter(r => r.id !== sel.id);
       else if (sel.kind === "opening") {
         for (const w of f.walls) w.openings = w.openings.filter(o => o.id !== sel.id);
       }
@@ -927,6 +1354,19 @@ export class Tools {
       case "symbol": this.hint = t("hint.symbol", { label: getSymbol(this.symbolType) ? t("symbol." + this.symbolType) : this.symbolType }); break;
       case "stair": this.hint = t("hint.stair", { label: t("stair." + this.stairKind) }); break;
       case "vide": this.hint = t("hint.vide"); break;
+      case "cabinet": {
+        const preset = cabinetPreset(this.cabinetPresetId);
+        this.hint = t("hint.cabinet", {
+          label: preset ? t("cabinet." + preset.id) : t("panel.cabinetCustom"),
+        });
+        break;
+      }
+      case "roomName":
+        this.hint = this.roomNameText.trim()
+          ? t("hint.roomName", { label: this.roomNameText.trim() })
+          : t("hint.roomNameEmpty");
+        break;
+      case "zoom": this.hint = t("hint.zoom"); break;
     }
   }
 
@@ -1310,13 +1750,48 @@ export class Tools {
       drawVideGhost(ctx, this.draftVide("ghost"), this.symbolColor ?? COLORS.symbol);
     }
 
+    // Cabinet placement ghost, with the two distances to the wall ends when it
+    // is snapped to one — the same measurement a symbol or an opening gets.
+    if (this.tool === "cabinet") {
+      const ghost = this.draftCabinet("ghost");
+      const snap = this.wallSnap();
+      if (snap) this.drawWallOffsets(ctx, vp, px, snap.wall, snap.tMm, snap.side, ghost.depth);
+      drawCabinetGhost(ctx, ghost, this.symbolColor ?? COLORS.symbol);
+      const b = cabinetBox(ghost);
+      drawLabel(ctx, vp,
+        add(v(ghost.x, ghost.y), fromAngleRot(v(0, b.y1), ghost.rotation)),
+        `${ghost.width} x ${ghost.depth}`);
+    }
+
+    // Room-name ghost: the word where the click would write it.
+    if (this.tool === "roomName" && this.roomNameText.trim()) {
+      const g = this.gridStep;
+      drawLabel(ctx, vp,
+        v(Math.round(this.cursor.x / g) * g, Math.round(this.cursor.y / g) * g),
+        this.roomNameText.trim(), COLORS.roomLabel);
+    }
+
+    // Zoom window. Drawn in screen-space line widths so it stays one pixel
+    // wide however far the view is zoomed out while it is being dragged.
+    if (this.drag?.kind === "zoomBox" && this.drag.boxEnd) {
+      const a = this.drag.startWorld, b = this.drag.boxEnd;
+      ctx.save();
+      ctx.strokeStyle = COLORS.select;
+      ctx.fillStyle = COLORS.selectWash;
+      ctx.lineWidth = 1.5 * px;
+      ctx.setLineDash([30, 30]);
+      ctx.fillRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+      ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+      ctx.restore();
+    }
+
     // Opening placement ghost.
     if (this.tool === "door" || this.tool === "window" || this.tool === "passage") {
       const nw = nearestWall(f, this.cursor, 30 / vp.pxPerMm);
       if (nw) {
         const a = f.nodes.find(x => x.id === nw.wall.a)!, b = f.nodes.find(x => x.id === nw.wall.b)!;
         const L = wallLength(f, nw.wall);
-        const width = this.tool === "door" ? DOOR_DEFAULT_WIDTH : this.tool === "window" ? WINDOW_DEFAULT_WIDTH : PASSAGE_DEFAULT_WIDTH;
+        const width = this.openingWidth[this.tool];
         const offset = Math.max(width / 2, Math.min(L - width / 2, nw.tMm));
         const p0 = arcPointAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, (offset - width / 2) / L);
         const p1 = arcPointAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, (offset + width / 2) / L);
@@ -1337,6 +1812,14 @@ export class Tools {
       }
     }
   }
+}
+
+/** Signed difference between two angles, wrapped to (-pi, pi]. */
+function angleDelta(a: number, b: number): number {
+  let d = (a - b) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d <= -Math.PI) d += Math.PI * 2;
+  return d;
 }
 
 function fromAngleRot(p: Vec, ang: number): Vec {

@@ -1,5 +1,5 @@
 // Rail, storey/palette/property pane, and status bar. Plain DOM.
-import { Store } from "../model/store";
+import { Store, type Selection } from "../model/store";
 import { Tools, ToolName } from "../input/tools";
 import { clampOpening, wallLength, deleteWall } from "../model/ops";
 import type { SymbolDef } from "../render/symbols";
@@ -10,14 +10,23 @@ import { exportPng } from "../io/image";
 import { exportDxf } from "../io/dxf";
 import { exportSvg } from "../io/svg";
 import { seedDoc } from "../seed";
-import { emptyDoc, areaModeOf, floorHeight, sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS, doorKindOf, DOOR_KINDS, type AreaMode, type Sash, type HingeEdge, type Opening, type Wall } from "../model/doc";
+import {
+  emptyDoc, areaModeOf, floorHeight, sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS,
+  doorKindOf, DOOR_KINDS, widthsFor, DOOR_WIDTHS_DOUBLE, FIRE_KINDS, FIRE_MINUTES,
+  FIRE_MINUTES_DEFAULT,
+  type AreaMode, type Sash, type HingeEdge, type Opening, type Wall, type Floor, type FireKind,
+} from "../model/doc";
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
 import { COLORS, INKS } from "../render/draw";
 import { icon, type IconName } from "./icons";
 import { docHref, DOC_IDS } from "../links";
 import { openMenu, type MenuEntry } from "./menu";
 import { Palette } from "./palette";
-import { renderStairTool, renderStairProps, type StairRows } from "./stairs";
+import { renderStairTool, renderStairProps, type PaneRows } from "./stairs";
+import { renderCabinetTool, renderCabinetProps } from "./cabinets";
+import { renderRoomNameTool, renderRoomNameProps } from "./rooms";
+import { renderZoomTool } from "./zoom";
+import { renderOpeningTool } from "./openings";
 import { renderVideTool, renderVideProps } from "./vide";
 import { scrubbable } from "./scrub";
 
@@ -135,7 +144,14 @@ export class Panel {
     stair.onclick = () => this.tools.setTool("stair");
     const vide = toolBtn("vide", "vide", "H", t("tool.vide"));
     vide.onclick = () => this.tools.setTool("vide");
-    rail.append(select, wall, door, win, passage, stair, vide, el("hr", "rail-sep"));
+    const cabinet = toolBtn("cabinet", "cabinet", "C", t("tool.cabinet"));
+    cabinet.onclick = () => this.tools.setTool("cabinet");
+    const roomName = toolBtn("roomName", "roomName", "K", t("tool.roomName"));
+    roomName.onclick = () => this.tools.setTool("roomName");
+    const zoom = toolBtn("zoom", "zoom", "Z", t("tool.zoom"));
+    zoom.onclick = () => this.tools.setTool("zoom");
+    rail.append(select, wall, door, win, passage, stair, vide, cabinet, roomName, zoom,
+      el("hr", "rail-sep"));
 
     const modeBtn = (name: IconName, modeKey: string, on: boolean, label: string, key: string): HTMLButtonElement => {
       const b = el("button", "rail-btn is-mode") as HTMLButtonElement;
@@ -290,8 +306,12 @@ export class Panel {
     // pane has a third state: nothing selected, but something to configure.
     const stairMode = this.tools.tool === "stair";
     const videMode = this.tools.tool === "vide";
+    const paneTool = this.tools.tool === "cabinet" || this.tools.tool === "roomName"
+      || this.tools.tool === "zoom" || this.tools.tool === "door"
+      || this.tools.tool === "window" || this.tools.tool === "passage";
     const selSig = (stairMode ? `stair-tool:${this.tools.stairKind}|` : "")
       + (videMode ? "vide-tool|" : "")
+      + (paneTool ? "pane-tool:" + this.tools.tool + "|" : "")
       + (sel ? `${sel.kind}:${sel.id}` : "none");
     // Plan rows and the storey picker read from the document, so they have to
     // rebuild when an undo changes a value under them -- but not on every
@@ -312,8 +332,8 @@ export class Panel {
 
     const swap = selSig !== this.lastSelSig;
     this.lastSelSig = selSig;
-    this.paneBody.hidden = !sel && !stairMode && !videMode;
-    if (sel || stairMode || videMode) {
+    this.paneBody.hidden = !sel && !stairMode && !videMode && !paneTool;
+    if (sel || stairMode || videMode || paneTool) {
       this.paneBody.className = "pane-body" + (swap ? " pane-swap" : "");
       this.renderProps(this.props);
     }
@@ -423,6 +443,77 @@ export class Panel {
    * two leaves — so the picker writes the entire list, unlike the window picker
    * which sets one pane at a time.
    */
+  /**
+   * Properties of the selected opening.
+   *
+   * Width leads with the standard dagmaten beside the typed field, and a door's
+   * fire rating sits next to the self-closing flag it implies rather than three
+   * unrelated checkboxes away — a brandwerende deur is one decision, not four.
+   */
+  private renderOpeningProps(sel: Selection, rows: PaneRows): void {
+    const f = this.store.floor;
+    let wall = sel.wallId ? f.walls.find(x => x.id === sel.wallId) : undefined;
+    if (!wall) wall = f.walls.find(x => x.openings.some(o => o.id === sel.id));
+    const o = wall?.openings.find(x => x.id === sel.id);
+    if (!wall || !o) return;
+    const wid = wall.id;
+    const mutOpening = (fn: (o2: Opening, fl2: Floor, w2: Wall) => void): void => {
+      this.store.mutate(d => {
+        const fl = this.store.floorOf(d);
+        const w2 = fl.walls.find(x => x.id === wid);
+        const o2 = w2?.openings.find(x => x.id === sel.id);
+        if (w2 && o2) { fn(o2, fl, w2); clampOpening(fl, w2, o2); }
+      });
+    };
+    const setWidth = (n: number): void => mutOpening(o2 => { o2.width = Math.max(50, Math.round(n)); });
+
+    rows.secHead(o.kind === "door" ? t("panel.door")
+      : o.kind === "window" ? t("panel.window") : t("panel.passage"), { sel: true });
+    rows.numRow(t("panel.width"), o.width, setWidth);
+    rows.chipRow(t("panel.width"), widthsFor(o.kind), o.width, setWidth);
+    if (o.kind === "door") {
+      rows.chipRow(t("panel.widthDouble"), DOOR_WIDTHS_DOUBLE, o.width, setWidth);
+    }
+    rows.numRow(t("panel.fromCorner"), o.t - o.width / 2,
+      n => mutOpening(o2 => { o2.t = n + o2.width / 2; }));
+
+    if (o.kind === "door") this.renderLeaves(o, mutOpening, rows.selRow, rows.numRow, rows.noteRow);
+    if (o.kind === "window") {
+      this.renderSashes(o, wall, mutOpening, rows.selRow, rows.numRow, rows.btnRow, rows.noteRow);
+    }
+
+    if (o.kind !== "passage") {
+      rows.checkRow(t("panel.glazed"), o.glazed ?? false,
+        b => mutOpening(o2 => { o2.glazed = b || undefined; }));
+      rows.checkRow(t("panel.powered"), o.powered ?? false,
+        b => mutOpening(o2 => { o2.powered = b || undefined; }));
+      rows.selRow(t("panel.fireRating"), o.fireRating?.kind ?? "",
+        [["", t("panel.fireNone")],
+          ...FIRE_KINDS.map(k => [k, t("panel.fire_" + k)] as [string, string])],
+        value => mutOpening(o2 => {
+          o2.fireRating = value
+            ? { kind: value as FireKind, minutes: o2.fireRating?.minutes ?? FIRE_MINUTES_DEFAULT }
+            : undefined;
+          // A fire door is self-closing by definition; clearing the rating
+          // leaves the flag alone, since a door can close itself for other
+          // reasons.
+          if (value) o2.selfClosing = true;
+        }));
+      if (o.fireRating) {
+        rows.noteRow(t("panel.fireHelp"));
+        rows.chipRow(t("panel.fireMinutes"), FIRE_MINUTES, o.fireRating.minutes,
+          n => mutOpening(o2 => { if (o2.fireRating) o2.fireRating.minutes = n; }));
+        rows.numRow(t("panel.fireMinutes"), o.fireRating.minutes,
+          n => mutOpening(o2 => {
+            if (o2.fireRating) o2.fireRating.minutes = Math.max(0, Math.round(n));
+          }), 15);
+      }
+      rows.checkRow(t("panel.selfClosing"), o.selfClosing ?? false,
+        b => mutOpening(o2 => { o2.selfClosing = b || undefined; }));
+    }
+    rows.dangerRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());
+  }
+
   private renderLeaves(
     o: Opening,
     mut: (fn: (o2: Opening) => void) => void,
@@ -631,7 +722,31 @@ export class Panel {
       b.textContent = label; b.onclick = fn;
       p.append(b);
     };
-    return { numRow, selRow, textRow, noteRow, warnRow, btnRow, colorRow };
+    /**
+     * The standard sizes for a field, as chips over the number row it belongs
+     * to. Chips rather than a <select> because the point is that the ordinary
+     * value is one click away and visibly one of a short set — a dropdown hides
+     * both facts, and a bare number field states no opinion at all.
+     */
+    const chipRow = (
+      label: string, values: readonly number[], value: number, onCommit: (n: number) => void,
+    ): void => {
+      const row = el("div", "chip-row");
+      row.setAttribute("role", "group");
+      row.setAttribute("aria-label", label);
+      for (const mm of values) {
+        const b = el("button", "chip") as HTMLButtonElement;
+        b.type = "button";
+        b.textContent = String(mm);
+        const on = mm === Math.round(value);
+        b.setAttribute("aria-pressed", String(on));
+        if (on) b.classList.add("is-on");
+        b.onclick = () => onCommit(mm);
+        row.append(b);
+      }
+      p.append(row);
+    };
+    return { numRow, selRow, textRow, noteRow, warnRow, btnRow, colorRow, chipRow };
   }
 
   /**
@@ -687,7 +802,7 @@ export class Panel {
     p.replaceChildren();
     const sel = this.store.sel;
     const f = this.store.floor;
-    const { numRow, selRow, textRow, noteRow, warnRow, btnRow, colorRow } = this.rowKit(p);
+    const { numRow, selRow, textRow, noteRow, warnRow, btnRow, colorRow, chipRow } = this.rowKit(p);
 
     const secHead = (label: string, opts: { sel?: boolean; later?: boolean } = {}): void => {
       const wrap = el("div", "sec" + (opts.later ? " sec-later" : ""));
@@ -739,18 +854,52 @@ export class Panel {
       p.append(b);
     };
 
-    const stairRows: StairRows = {
-      secHead, numRow, selRow, textRow, infoRow, noteRow, warnRow, colorRow, btnRow, dangerRow,
+    const rows: PaneRows = {
+      secHead, numRow, selRow, textRow, infoRow, noteRow, warnRow, colorRow, btnRow,
+      dangerRow, checkRow, chipRow,
     };
+
+    // The cabinet tool keeps its picker and its fields in the property area,
+    // the way the stair tool does: placing a unit selects it, so the next one
+    // has to be reachable without deselecting first.
+    if (this.tools.tool === "cabinet") {
+      if (sel?.kind === "cabinet") renderCabinetProps(this.store, this.tools, rows, sel.id);
+      renderCabinetTool(p, this.store, this.tools, rows, () => this.refreshToolbar());
+      return;
+    }
+    if (sel?.kind === "cabinet") {
+      renderCabinetProps(this.store, this.tools, rows, sel.id);
+      return;
+    }
+    if (this.tools.tool === "roomName") {
+      if (sel?.kind === "roomName") renderRoomNameProps(this.store, this.tools, rows, sel.id);
+      renderRoomNameTool(this.store, this.tools, rows);
+      return;
+    }
+    if (sel?.kind === "roomName") {
+      renderRoomNameProps(this.store, this.tools, rows, sel.id);
+      return;
+    }
+    if (this.tools.tool === "zoom") {
+      renderZoomTool(p, this.store, this.tools, rows, this.tools.rooms());
+      return;
+    }
+    // The opening tools state what the next opening is placed with, above the
+    // properties of whichever one was just placed.
+    if (this.tools.tool === "door" || this.tools.tool === "window" || this.tools.tool === "passage") {
+      if (sel?.kind === "opening") this.renderOpeningProps(sel, rows);
+      renderOpeningTool(this.store, this.tools, rows, this.tools.tool);
+      return;
+    }
 
     // The vide tool, like the stair tool, keeps its fields in the property area.
     if (this.tools.tool === "vide") {
-      if (sel?.kind === "vide") renderVideProps(this.store, this.tools, stairRows, sel.id);
-      renderVideTool(this.store, this.tools, stairRows);
+      if (sel?.kind === "vide") renderVideProps(this.store, this.tools, rows, sel.id);
+      renderVideTool(this.store, this.tools, rows);
       return;
     }
     if (sel?.kind === "vide") {
-      renderVideProps(this.store, this.tools, stairRows, sel.id);
+      renderVideProps(this.store, this.tools, rows, sel.id);
       return;
     }
 
@@ -758,8 +907,8 @@ export class Panel {
     // palette does: placing a stair selects it, so the next kind has to be
     // reachable without deselecting first.
     if (this.tools.tool === "stair") {
-      if (sel?.kind === "stair") renderStairProps(this.store, this.tools, stairRows, sel.id);
-      renderStairTool(p, this.store, this.tools, stairRows, () => this.refreshToolbar());
+      if (sel?.kind === "stair") renderStairProps(this.store, this.tools, rows, sel.id);
+      renderStairTool(p, this.store, this.tools, rows, () => this.refreshToolbar());
       return;
     }
 
@@ -767,7 +916,7 @@ export class Panel {
     if (!sel) return;
 
     if (sel.kind === "stair") {
-      renderStairProps(this.store, this.tools, stairRows, sel.id);
+      renderStairProps(this.store, this.tools, rows, sel.id);
       return;
     }
 
@@ -814,47 +963,7 @@ export class Panel {
     }
 
     if (sel.kind === "opening") {
-      let wall = sel.wallId ? f.walls.find(x => x.id === sel.wallId) : undefined;
-      if (!wall) wall = f.walls.find(x => x.openings.some(o => o.id === sel.id));
-      const o = wall?.openings.find(x => x.id === sel.id);
-      if (!wall || !o) return;
-      const wid = wall.id;
-      const mutOpening = (fn: (o2: NonNullable<typeof o>, fl2: typeof f, w2: NonNullable<typeof wall>) => void): void => {
-        this.store.mutate(d => {
-          const fl = this.store.floorOf(d);
-          const w2 = fl.walls.find(x => x.id === wid);
-          const o2 = w2?.openings.find(x => x.id === sel.id);
-          if (w2 && o2) { fn(o2, fl, w2); clampOpening(fl, w2, o2); }
-        });
-      };
-      secHead(o.kind === "door" ? t("panel.door") : o.kind === "window" ? t("panel.window") : t("panel.passage"), { sel: true });
-      numRow(t("panel.width"), o.width, n => mutOpening(o2 => { o2.width = n; }));
-      numRow(t("panel.fromCorner"), o.t - o.width / 2, n => mutOpening(o2 => { o2.t = n + o2.width / 2; }));
-      if (o.kind === "door") {
-        this.renderLeaves(o, mutOpening, selRow, numRow, noteRow);
-      }
-      if (o.kind === "window") {
-        this.renderSashes(o, wall, mutOpening, selRow, numRow, btnRow, noteRow);
-      }
-      if (o.kind !== "passage") {
-        checkRow(t("panel.glazed"), o.glazed ?? false,
-          b => mutOpening(o2 => { o2.glazed = b || undefined; }));
-        checkRow(t("panel.powered"), o.powered ?? false,
-          b => mutOpening(o2 => { o2.powered = b || undefined; }));
-        checkRow(t("panel.selfClosing"), o.selfClosing ?? false,
-          b => mutOpening(o2 => { o2.selfClosing = b || undefined; }));
-        selRow(t("panel.fireRating"), o.fireRating?.kind ?? "",
-          [["", t("panel.fireNone")], ["wbd", t("panel.fireWbd")], ["wrd", t("panel.fireWrd")]],
-          v => mutOpening(o2 => {
-            o2.fireRating = v ? { kind: v as "wbd" | "wrd", minutes: o2.fireRating?.minutes ?? 30 } : undefined;
-          }));
-        if (o.fireRating)
-          numRow(t("panel.fireMinutes"), o.fireRating.minutes,
-            n => mutOpening(o2 => {
-              if (o2.fireRating) o2.fireRating.minutes = Math.max(0, Math.round(n));
-            }), 15);
-      }
-      dangerRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());
+      this.renderOpeningProps(sel, rows);
       return;
     }
 

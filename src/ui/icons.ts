@@ -26,6 +26,7 @@ function R(x: number, y: number, w: number, h: number, rx: number, fill = false)
 
 export type IconName =
   | "select" | "wall" | "door" | "window" | "passage" | "stair" | "vide" | "symbols"
+  | "cabinet" | "roomName" | "zoom"
   | "gridSnap" | "angleSnap" | "dimensions"
   | "undo" | "redo" | "dots" | "chevron" | "plus" | "minus" | "close"
   | "trash" | "search" | "floors"
@@ -53,6 +54,17 @@ const ICONS: Record<IconName, Shape[]> = {
   // An opening in the floor: its outline, crossed corner to corner -- the mark
   // the plan itself uses for a hole with no floor in it.
   vide: [P("M4 4 H16 V16 H4 Z M4 4 L16 16 M16 4 L4 16")],
+  // A unit in plan: the carcass, the front band across it, and the diagonal
+  // that says which end the door is hung on -- what the drawing itself shows.
+  cabinet: [P("M3.4 4 H16.6 V15 H3.4 Z M3.4 12.8 H16.6 M3.4 12.8 L16.6 4")],
+  // A room with its name written in it: the outline and two lines of text.
+  roomName: [P("M3 4.5 H17 V15.5 H3 Z"), P("M6 9.4 H14 M6 12.2 H11")],
+  // A lens over a plan, with the plus that says it frames rather than pans.
+  zoom: [
+    C(9, 9, 5.4),
+    P("M12.9 12.9 L17 17"),
+    P("M6.6 9 H11.4 M9 6.6 V11.4"),
+  ],
   symbols: [C(10, 10, 6), P("M5.8 5.8 L14.2 14.2 M14.2 5.8 L5.8 14.2")],
   gridSnap: [
     P("M4 4 H16 M4 10 H16 M4 16 H16 M4 4 V16 M10 4 V16 M16 4 V16"),

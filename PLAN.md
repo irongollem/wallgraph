@@ -43,6 +43,13 @@ Opening      { id, kind: "door" | "window" | "passage",
                slideTo?: "a" | "b",                // sliding window/door: direction
                sillHeight?, height? }              // reserved for elevations/3D
 SymbolInstance { id, type, x, y, rotation, mirrored?, wallId? }  // wallId when wall-snapped
+Cabinet      { id, kind: "base" | "wall" | "tall",
+               x, y, rotation, mirrored?,          // anchor: middle of the wall edge, +y into room
+               width, depth, height?,              // mm; module widths, not measured
+               front: "door" | "double" | "drawers" | "open" | "slide",
+               hinge?: "left" | "right",           // as seen from the room facing the unit
+               drawers?, corner?, worktop?, label?, color? }
+RoomName     { id, x, y, name, color? }            // the name and where it was written
 ```
 
 Openings belong to a wall and are parameterised along it — they *cut* the wall by
@@ -66,7 +73,8 @@ construction. Moving a wall moves its doors. `t` is clamped so jambs stay on the
 ## Editor (`src/input/`, `src/ui/`, `src/render/`)
 
 - **Viewport**: mm→px affine transform, wheel zoom-to-cursor, drag/space pan, DPR-aware.
-- **Tools** (state machine): Select · Wall · Door · Window · Symbol · Stair · Delete.
+- **Tools** (state machine): Select · Wall · Door · Window · Passage · Symbol · Stair ·
+  Vide · Cabinet · Room name · Zoom · Delete.
   - *Wall tool*: click to chain segments; live length/angle readout; **typed input** —
     typing digits while drawing shows a mm box, `Enter` commits the segment at exactly
     that length in the current (snapped) direction. This is the feature that makes it
@@ -77,11 +85,22 @@ construction. Moving a wall moves its doors. `t` is clamped so jambs stay on the
     (writes `bulge`); exact sagitta (mm) editable in the panel.
   - *Openings*: pick door/window, slide along a wall (snapped, mm offset shown), click
     to place; afterwards flip hinge/swing/slide direction in the panel or with keys.
+    The tool pane states what the NEXT opening gets — width, hand, fire rating — and
+    those choices stick, the way `lastThickness` does for walls. Widths are offered as
+    the standard dagmaten (730/780/830/880/930/1010) rather than one fixed default.
+  - *Cabinetry*: named units over a parametric object; snaps flush to a wall AND to the
+    unit beside it, so a kitchen comes out as a run rather than units aligned by eye.
+  - *Framing*: `F` fits the plan, `Shift+F` the selection, both in any tool; the zoom
+    tool drags a window or clicks a room. `Viewport.fitBox()` is the only place a view
+    is fitted, and `core/bounds.ts` the only thing that says what a plan occupies —
+    the canvas, the PNG crop and the SVG viewBox all frame identically.
   - *Symbols*: palette of standard plan symbols (below); wall-mounted ones snap flush
     to the nearest wall face and orient automatically; `R` rotates, `M` mirrors.
 - **Property panel** (selection-driven): wall thickness & exact length (editing length
   moves the far node along the wall direction), opening width/offset/direction fields,
-  symbol rotation, room label.
+  symbol rotation, room label. Standard sizes appear as chips over the typed field
+  wherever a thing is *ordered* in steps rather than measured — cabinet modules, door
+  dagmaten, fire ratings. `PaneRows` is the one row vocabulary every pane renders through.
 - **Undo/redo**: snapshot stack of the (small) document with input coalescing.
   Clean migration path to command objects if documents ever get huge.
 - **Persistence**: autosave to browser storage in try/catch; Export/Import JSON.
@@ -90,11 +109,19 @@ construction. Moving a wall moves its doors. `t` is clamped so jambs stay on the
 
 ## Symbol library (`src/render/symbols/`)
 
-93 standard plan symbols, drawn in mm units against a fixed interface
+Standard plan symbols, drawn in mm units against a fixed interface
 (`{ type, label, category, wallMounted, width, depth, draw(ctx) }`), one file per
-category and aggregated by `index.ts`: electrical (23), safety (15), water (9),
-sanitary (9), furniture (8), heating (7), kitchen (6). Extending the library = adding
-one entry, plus its name in both languages (a test fails otherwise).
+category and aggregated by `index.ts`: electrical, sanitary, safety, water, kitchen,
+furniture, heating. Extending the library = adding one entry, plus its name in both
+languages (a test fails otherwise).
+
+`SYMBOLS.length` is the count. It is not repeated here or anywhere else that has to
+be edited by hand: the palette, the generated pages and the tests all read it, so a
+figure written into prose is one that goes stale the next time a symbol lands.
+
+A symbol is one fixed picture, by construction: its size is a constant on the
+definition. Anything built to a size instead — a stair, a cabinet — is a document
+object, below.
 
 The `draw(ctx)` contract is deliberately narrow — 1 unit = 1 mm, the caller owns
 colour, no text — so symbols compose with selection highlighting and the PNG
@@ -137,6 +164,44 @@ flag survives an export that loses the colour. Kinds that are steep by definitio
 vlizotrap, a spiltrap — are held only to a loose bound that no stair can pass. None of
 it is a compliance check: Wallgraph draws what it is given (see the disclaimer).
 
+## Cabinet library (`src/model/cabinet.ts`, `src/core/cabinet.ts`, `src/render/cabinet.ts`)
+
+Cabinetry, on the stair's argument rather than the symbol's: the same kastje is built
+400, 600 or 800 wide, so `width`, `depth`, `height`, the front type and the hinge side
+are stored, and the carcass outline, the front band, the door diagonal, the drawer
+divisions and the worktop overhang are derived. `cabinetBox()` is the footprint the
+hit-test, the selection frame, the PNG crop and the SVG viewBox all share, exactly as
+`stairBox()` is for a flight.
+
+**Cabinetry, not kitchen furniture.** One object is an onderkast, a garderobekast, a
+badkamermeubel and a kantoorkast; they differ in size, height class and front, all of
+which are fields. `CABINET_PRESETS` carries the Dutch names over that generic object,
+the way `WINDOW_KINDS` names combinations of (action, hinge, outward) — the drawer
+should not have to know a garderobekast is "tall, 1000, double".
+
+**The height class is a drawing decision, not a label.** A plan is a section at about
+1200 mm: a base unit is under it and seen from above, a tall unit is cut, and a wall
+unit hangs entirely above it — so wall units draw **dashed**, as overhead work is.
+That distinction survives export: SVG dashes the group, DXF puts them on
+`CABINETS-OVERHEAD`, because `recordSymbol()` discards dash patterns by design.
+
+**Widths are ordered, not measured.** `CABINET_WIDTHS` is the module ladder
+(150…1200) and the panel offers it as chips beside a typed field. Cabinets snap to a
+wall like a wall-mounted symbol and additionally end-to-end with each other
+(`runSnap()`), which is what makes a kitchen a run instead of a row of guesses.
+
+## Room names (`src/model/room.ts`)
+
+Rooms are derived — `detectRooms()` walks the graph — so there is nothing in the
+document to hang a name on, and a stored room would put derived geometry back in the
+document. What is authored is the **name and the point it was written at**, so that is
+what `Floor.roomNames` stores; `attachNames()` hands each detected room the name whose
+point falls inside its net boundary. Move a wall and the name goes with the point,
+which is the honest outcome. A name in no room still draws where it was written.
+
+The zoom pane lists the detected rooms as zones, which is why naming and framing
+landed together: an unnamed zone is "23,5 m²" among five, a named one is "Keuken".
+
 ## Phases
 
 **P0 — done.** Everything above, single floor.
@@ -148,7 +213,7 @@ it is a compliance check: Wallgraph draws what it is given (see the disclaimer).
 - [x] net room areas — inner-face polygons per wall thickness, and the document
       records *which* convention its numbers mean (see Measurement below)
 - [x] PNG export at true scale, with a scale bar
-- [x] more symbols — kitchen and furniture landed; 93 in total
+- [x] more symbols — kitchen and furniture landed
 - [x] SVG export — vector artwork at true scale, mm-sized with a 1:1 viewBox
 - [x] DXF export — walls, swings, symbols and areas on layers, in millimetres
 - [x] multi-floor with ghost underlay — `Store.activeFloor` with add/duplicate/
@@ -162,6 +227,21 @@ it is a compliance check: Wallgraph draws what it is given (see the disclaimer).
       walking line, arrow and winder fan are derived from those numbers. The drawing
       obeys the symbol library's `draw(ctx)` contract, so SVG, DXF and PNG come out of
       the recorder that already existed
+- [x] cabinetry — a parametric document object with named Dutch units over it, module
+      widths, and wall units drawn dashed because they hang above the section plane.
+      From a builder's review: "meer standaard gegevens, bijvoorbeeld kastje
+      400/600/800 voor keuken". A cabinet snaps to a wall AND to the unit beside it,
+      which is what makes a kitchen a run
+- [x] standing choices for openings — width, hand and fire rating are decided once and
+      then placed, instead of being edited one opening at a time afterwards. Widths are
+      the NL dagmaten, and the rating is written **WBDBO** as a drawing writes it. Same
+      review: "voor deuren div breedte draairichting en wel of niet brandwerend" — all
+      three already existed in the model and none of them was reachable at placement
+- [x] framing — `F` fits the plan, `Shift+F` the selection, and the zoom tool drags a
+      window or clicks a room; the zoom pane lists the rooms as zones. `fitToPlan()`
+      existed and was bound to nothing, and framed the node positions rather than
+      `planBounds()`, so a plan opened cropped where it exported whole
+- [x] room names — stored as a name and a point; which room carries it is derived
 
 **P2 — not started.**
 
@@ -200,7 +280,15 @@ the figures and does not check regulations. A stair does not snap to a wall the 
 a wall-mounted symbol does, and its rise is per stair rather than a storey height on
 the floor, so two stairs between the same two storeys can disagree.
 
-*Closed since P0:* net room area, i18n (Dutch/English, Dutch by default), stairs.
+Cabinetry has its own: a corner unit is a rectangle with the room-facing corner cut by
+the diagonal front, rather than the L-shaped carcass some units are built as; a cabinet
+carries no schedule, so there is no way to total a run; and nothing checks that two
+units overlap, since the run snap makes it easy to avoid and a deliberate overlap
+(a wall unit over a base unit) is the normal case. A room takes ONE name — a second
+name in the same room stays unattached rather than merging.
+
+*Closed since P0:* net room area, i18n (Dutch/English, Dutch by default), stairs,
+cabinetry, room names, framing.
 
 ## Beyond the plan
 
@@ -212,9 +300,9 @@ preview and icons, and the deployment itself.
 every crawler that does not run JavaScript — which is every AI crawler and most
 search engines that are not Google — it was a title, a description and an empty
 div. So the build now emits, alongside the single-file editor, a small set of
-JavaScript-free pages generated from the app's own code: the 93 symbols and the
-27 opening types drawn by replaying `recordSymbol` and `openingMarks`, the
-manual, and the document format. Plus `robots.txt`, a multilingual sitemap,
+JavaScript-free pages generated from the app's own code: every symbol and opening
+type drawn by replaying `recordSymbol` and `openingMarks`, the manual, and the
+document format. Plus `robots.txt`, a multilingual sitemap,
 `llms.txt`, a web manifest, `security.txt` and structured data. Dutch leads
 throughout, matching the editor's own default and the domain; English is a full
 alternate. `scripts/check-seo.mjs` asserts in CI that it all still hangs together.

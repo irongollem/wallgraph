@@ -1,0 +1,71 @@
+// What a plan occupies in world space.
+//
+// One function, because everything that frames a plan has to agree: the PNG
+// crop, the SVG viewBox, and — since zoom-all landed — the canvas view itself.
+// A second implementation is how a plan comes to export with its symbols intact
+// and open on screen with them cropped off, which is exactly what happened while
+// main.ts fitted the view to the node positions alone.
+import { Floor, stairsOf, videsOf, cabinetsOf, roomNamesOf } from "../model/doc";
+import { Resolved } from "./resolve";
+import { getSymbol } from "../render/symbols";
+import { stairCorners, resolveStair } from "./stair";
+import { videCorners } from "./vide";
+import { cabinetCorners } from "./cabinet";
+import { Vec, v } from "../geometry/vec";
+
+export interface Bounds { min: Vec; max: Vec }
+
+/** Tight world-space bounds of everything drawn. Null when the floor is empty. */
+export function planBounds(floor: Floor, resolved: Resolved): Bounds | null {
+  const b = new Grower();
+  // Resolved outlines, not centerlines: they carry thickness and miters, so a
+  // thick exterior wall isn't sliced in half by the crop.
+  for (const rw of resolved.walls.values()) for (const p of rw.outline) b.add(p.x, p.y);
+  for (const n of floor.nodes) b.add(n.x, n.y);
+  for (const s of floor.symbols) {
+    const def = getSymbol(s.type);
+    if (!def) continue;
+    // The four footprint corners, rotated into place. A symmetric box around
+    // the anchor would be wrong for wall-mounted symbols: their footprint runs
+    // y in [0, depth] on one side only, so a box would pad the frame with
+    // empty paper outside the building. Mirroring is a no-op here — the
+    // footprint is symmetric in x. See the draw(ctx) contract in defs.ts.
+    const y0 = def.wallMounted ? 0 : -def.depth / 2;
+    const cos = Math.cos(s.rotation), sin = Math.sin(s.rotation);
+    for (const lx of [-def.width / 2, def.width / 2])
+      for (const ly of [y0, y0 + def.depth])
+        b.add(s.x + lx * cos - ly * sin, s.y + lx * sin + ly * cos);
+  }
+  // A stair's footprint depends on its parameters, so the corners come from the
+  // same derived box the hit-test and the selection frame use.
+  for (const st of stairsOf(floor)) for (const c of stairCorners(resolveStair(floor, st))) b.add(c.x, c.y);
+  for (const vd of videsOf(floor)) for (const c of videCorners(vd)) b.add(c.x, c.y);
+  for (const cb of cabinetsOf(floor)) for (const c of cabinetCorners(cb)) b.add(c.x, c.y);
+  // A room name is a point, and a plan that is nothing but names still has to
+  // frame somewhere rather than reporting itself empty.
+  for (const rn of roomNamesOf(floor)) b.add(rn.x, rn.y);
+  return b.result();
+}
+
+/** Bounds of a polygon, for framing one room. */
+export function polyBounds(poly: Vec[]): Bounds | null {
+  const b = new Grower();
+  for (const p of poly) b.add(p.x, p.y);
+  return b.result();
+}
+
+class Grower {
+  private minX = Infinity; private minY = Infinity;
+  private maxX = -Infinity; private maxY = -Infinity;
+  add(x: number, y: number): void {
+    if (this.minX > x) this.minX = x;
+    if (this.minY > y) this.minY = y;
+    if (this.maxX < x) this.maxX = x;
+    if (this.maxY < y) this.maxY = y;
+  }
+  result(): Bounds | null {
+    return isFinite(this.minX)
+      ? { min: v(this.minX, this.minY), max: v(this.maxX, this.maxY) }
+      : null;
+  }
+}

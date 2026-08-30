@@ -16,7 +16,7 @@
 // context (see recordSymbol) because the library draws them with canvas calls;
 // their arcs flatten to polylines, which is exact enough at symbol scale and
 // avoids guessing how a mirrored, rotated transform maps onto an ARC.
-import { PlanDoc, Floor, areaModeOf, stairsOf, videsOf } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf, stairsOf, videsOf, cabinetsOf, roomNamesOf } from "../model/doc";
 import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms } from "../core/rooms";
@@ -25,6 +25,8 @@ import { recordSymbol, Prim } from "./record";
 import { openingMarks } from "./marks";
 import { stairPrims } from "./stair";
 import { videPrims } from "./vide";
+import { cabinetPrims } from "./cabinet";
+import { cabinetOverhead } from "../model/cabinet";
 import { resolveStair } from "../core/stair";
 import { saveViaHost, downloadBlob } from "./save";
 import { t } from "../i18n";
@@ -39,11 +41,18 @@ const LAYER = {
   stairs: "STAIRS",
   vides: "VOIDS",
   rooms: "ROOMS",
+  // Cabinetry splits by height class, because that is the distinction a reader
+  // of the drawing acts on: base and tall units are cut or seen, wall units are
+  // overhead. A dash pattern cannot carry it — the recorder discards dashes —
+  // so the layer does, which is where CAD expects to find it anyway.
+  cabinets: "CABINETS",
+  cabinetsOverhead: "CABINETS-OVERHEAD",
 } as const;
 
 /** ACI colour indices — 7 is "by background", i.e. black on white paper. */
 const LAYER_COLOR: Record<string, number> = {
   WALLS: 7, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, ROOMS: 8,
+  CABINETS: 6, "CABINETS-OVERHEAD": 6,
 };
 
 class DxfWriter {
@@ -202,7 +211,8 @@ function emitPrims(w: DxfWriter, layer: string, prims: Prim[]): void {
 export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
   const floor: Floor | undefined = doc.floors[floorIndex] ?? doc.floors[0];
   if (!floor || (floor.walls.length === 0 && floor.symbols.length === 0
-      && stairsOf(floor).length === 0 && videsOf(floor).length === 0)) return null;
+      && stairsOf(floor).length === 0 && videsOf(floor).length === 0
+      && cabinetsOf(floor).length === 0 && roomNamesOf(floor).length === 0)) return null;
 
   const resolved = resolveFloor(floor);
   const w = new DxfWriter();
@@ -223,6 +233,9 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
     for (const st of stairsOf(floor))
       emitPrims(w, LAYER.stairs, stairPrims(resolveStair(floor, st)));
 
+    for (const c of cabinetsOf(floor))
+      emitPrims(w, cabinetOverhead(c) ? LAYER.cabinetsOverhead : LAYER.cabinets, cabinetPrims(c));
+
     // Symbols, replayed through the recorder at their placed transform.
     for (const s of floor.symbols) {
       const def = getSymbol(s.type);
@@ -233,9 +246,18 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
 
     // Room areas, in the convention the document says it is using.
     const net = areaModeOf(doc) === "net";
-    for (const r of detectRooms(floor)) {
+    const rooms = detectRooms(floor);
+    for (const r of rooms) {
       const mm2 = net ? r.netAreaMm2 : r.areaMm2;
-      w.text(LAYER.rooms, r.centroid, 200, `${(mm2 / 1e6).toFixed(1)} m2`);
+      // Name over area, as the canvas and the SVG stack them. y is document
+      // space here; the writer flips it for CAD.
+      const at = r.name === undefined ? r.centroid : { x: r.centroid.x, y: r.centroid.y + 150 };
+      if (r.name !== undefined) w.text(LAYER.rooms, { x: r.centroid.x, y: r.centroid.y - 150 }, 220, r.name);
+      w.text(LAYER.rooms, at, 200, `${(mm2 / 1e6).toFixed(1)} m2`);
+    }
+    for (const rn of roomNamesOf(floor)) {
+      if (rooms.some(r => r.nameId === rn.id)) continue;
+      w.text(LAYER.rooms, { x: rn.x, y: rn.y }, 220, rn.name);
     }
   });
   return w.finish();

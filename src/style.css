@@ -95,6 +95,10 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
   background: #fff; color: #2b2e33; font: inherit; min-width: 0; flex: 0 1 auto; max-width: 148px; }
 .prop-row > span { min-width: 0; overflow-wrap: break-word; }
 .prop-row input, .prop-row select { max-width: 100%; }
+/* A select sizes to its widest OPTION, which starves the label beside it and
+   hyphenates a two-word label into three pieces. Let it shrink instead. */
+.prop-row select { min-width: 0; flex: 0 1 auto; }
+.prop-row > span:first-child { flex: 1 1 auto; }
 .prop-readonly { color: #8a8577; font-variant-numeric: tabular-nums; padding-right: 9px; }
 
 /* ---------- colour swatches ---------- */
@@ -118,6 +122,30 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 .ink-custom::-webkit-color-swatch-wrapper { padding: 0; }
 .ink-custom::-webkit-color-swatch { border: none; border-radius: 3px; }
 .ink-custom::-moz-color-swatch { border: none; border-radius: 3px; }
+/* Standard sizes beside a typed field: cabinetry module widths, door dagmaten,
+   fire ratings. They wrap rather than scroll -- a row that scrolls hides the
+   very fact the chips exist to state, which is that the set is short. */
+.chip-row { display: flex; flex-wrap: wrap; gap: 4px; margin: -2px 0 2px; }
+.chip {
+  padding: 2px 7px; border: 1px solid #d8d4c8; border-radius: 999px;
+  background: #fff; color: #6b675c; cursor: pointer;
+  font: 10px/1.5 system-ui, sans-serif; font-variant-numeric: tabular-nums;
+  transition: background var(--dur-quick) var(--ease-std), color var(--dur-quick) var(--ease-std);
+}
+.chip:hover { border-color: #b9b3a3; background: #f4f2ec; }
+.chip.is-on { border-color: #3d4148; background: #3d4148; color: #fff; }
+
+/* The zoom pane's zone list. One row per detected room, named or not. */
+.zone-list { display: flex; flex-direction: column; gap: 3px; padding-bottom: 6px; }
+.zone {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  width: 100%; padding: 5px 9px; border: 1px solid #e2ded2; border-radius: 6px;
+  background: #fff; cursor: pointer; font: inherit; text-align: left;
+}
+.zone:hover { border-color: #b9b3a3; background: #f4f2ec; }
+.zone-name { color: #3d4148; overflow-wrap: anywhere; }
+.zone-area { color: #a09a8a; font-size: 10px; font-variant-numeric: tabular-nums; flex: none; }
+
 .prop-note { font: 10px system-ui, sans-serif; color: #a09a8a; padding: 1px 2px 4px; }
 /* A figure outside what a stair is ordinarily built to. Loud enough to find,
    stated as a figure rather than as a verdict -- see STAIR_LIMITS. */

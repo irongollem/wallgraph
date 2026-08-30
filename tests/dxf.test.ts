@@ -143,7 +143,10 @@ check("declares a DXF version with LWPOLYLINE", (dxf ?? "").includes("AC1015"));
   }] });
   const labels = openingMarks([...resolveFloor(floor).walls.values()][0]!)
     .filter(p => p.kind === "text").map(p => p.text);
-  check("opening metadata is exported", labels.join(",") === "E,Z,60 wbd", labels.join(","));
+  // The rating reads as it is written on a drawing and said on site: the
+  // acronym, then the minutes. fireLabel() builds it for the canvas too, so
+  // this holds both to one form.
+  check("opening metadata is exported", labels.join(",") === "E,Z,WBD 60", labels.join(","));
 }
 
 console.log(failures === 0 ? "ALL DXF TESTS PASSED" : `${failures} FAILURES`);

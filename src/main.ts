@@ -10,7 +10,6 @@ import { Panel } from "./ui/panel";
 import { tryLoadAutosave, scheduleAutosave } from "./io/json";
 import { seedDoc } from "./seed";
 import { areaModeOf, PlanDoc } from "./model/doc";
-import { v } from "./geometry/vec";
 import { language, on as onI18n } from "./i18n";
 
 /**
@@ -77,7 +76,10 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
     requestAnimationFrame(() => { renderQueued = false; render(); });
   }
 
-  const tools = new Tools(store, vp, canvas, requestRender, () => derived().resolved, () => panel.refreshToolbar());
+  const tools = new Tools(
+    store, vp, canvas, requestRender,
+    () => derived().resolved, () => panel.refreshToolbar(), () => derived().rooms,
+  );
   const panel = new Panel(side, store, tools);
 
   function render(): void {
@@ -107,23 +109,12 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
   const saved = tryLoadAutosave();
   store.replace(saved ?? seedDoc());
 
-  // Fit the plan roughly into view. Named rather than run in place because a
-  // programmatic load re-frames too — a plan arriving from a link would
-  // otherwise open somewhere off screen.
-  function fitToPlan(): void {
-    const f = store.floor;
-    if (f.nodes.length === 0) return;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const n of f.nodes) {
-      minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
-      maxX = Math.max(maxX, n.x); maxY = Math.max(maxY, n.y);
-    }
-    const rect = canvasWrap.getBoundingClientRect();
-    const w = maxX - minX + 2000, h = maxY - minY + 2000;
-    vp.pxPerMm = Math.min(rect.width / w, rect.height / h);
-    vp.origin = v(minX - 1000 - (rect.width / vp.pxPerMm - w) / 2, minY - 1000 - (rect.height / vp.pxPerMm - h) / 2);
-  }
-  fitToPlan();
+  // Frame the plan on open, and again whenever one arrives programmatically —
+  // a plan from a link would otherwise land somewhere off screen. This is the
+  // same zoom-all F reaches, so the opening view and the one the reader can get
+  // back to are the same view, and both frame what planBounds() reports rather
+  // than the node positions alone.
+  tools.fitAll();
 
   requestRender();
 
@@ -131,7 +122,7 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
     load(doc: PlanDoc): boolean {
       if (!doc || doc.version !== 1 || !Array.isArray(doc.floors) || !doc.floors[0]) return false;
       store.replace(doc, true);
-      fitToPlan();
+      tools.fitAll();
       requestRender();
       return true;
     },
