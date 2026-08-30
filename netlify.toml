@@ -1,6 +1,9 @@
 # Netlify build for plattegrond.crocode.nl
-# The whole app is one self-contained file: `npm run build` typechecks, runs the
-# bundler, and writes dist/index.html with CSS and JS inlined. No other assets.
+# The app is one self-contained file: `npm run build` typechecks, runs the
+# bundler, and writes dist/index.html with CSS and JS inlined. Alongside it the
+# build emits what only a hosted copy needs — the content pages, robots.txt, the
+# sitemap, llms.txt, the web manifest, the JSON Schema and the icons. index.html
+# still references none of them and still works opened from disk with no network.
 
 [build]
   command = "npm run build"
@@ -12,7 +15,8 @@
   NODE_VERSION = "24"
 
 # dist/index.html IS the application — never let a proxy pin an old copy, or
-# users keep running a stale editor after a deploy.
+# users keep running a stale editor after a deploy. The same default covers the
+# content pages, which are cheap and should always be the current wording.
 [[headers]]
   for = "/*"
   [headers.values]
@@ -26,3 +30,38 @@
     # inlines the script and stylesheet into the HTML. frame-ancestors keeps the
     # door open for embedding on crocode.nl later without allowing the wider web.
     Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'self' https://*.crocode.nl https://crocode.nl"
+
+# Icons and the social preview are content-stable and fetched by filename, so a
+# week of caching costs nothing and a stale one is invisible. Deliberately below
+# the /* rule: Netlify applies the most specific match.
+[[headers]]
+  for = "/*.png"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"
+
+[[headers]]
+  for = "/*.ico"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"
+
+# The machine-readable surface: read by crawlers and agents rather than by a
+# browser holding a page open, so an hour of staleness is not a stale editor.
+[[headers]]
+  for = "/wallgraph.schema.json"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"
+
+[[headers]]
+  for = "/llms.txt"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"
+
+[[headers]]
+  for = "/sitemap.xml"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"
+
+[[headers]]
+  for = "/manifest.webmanifest"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"

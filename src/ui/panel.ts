@@ -14,6 +14,7 @@ import { emptyDoc, areaModeOf, sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
 import { COLORS, INKS } from "../render/draw";
 import { icon, type IconName } from "./icons";
+import { docHref, DOC_IDS } from "../links";
 import { openMenu, type MenuEntry } from "./menu";
 import { Palette } from "./palette";
 import { scrubbable } from "./scrub";
@@ -22,6 +23,7 @@ export class Panel {
   private rail: HTMLElement;
   private pane: HTMLElement;
   private status: HTMLElement;
+  private foot: HTMLElement;
   private palette: Palette;
   /** Persistent pane children. The palette is never detached: removing it even
    *  for one frame drops focus out of its search box. */
@@ -57,8 +59,9 @@ export class Panel {
     sideBody.append(this.rail, this.pane);
 
     this.status = el("div", "status");
+    this.foot = el("div", "side-foot");
 
-    root.append(head, sideBody, this.status);
+    root.append(head, sideBody, this.status, this.foot);
 
     this.palette = new Palette(tools, () => this.refreshToolbar());
 
@@ -76,9 +79,32 @@ export class Panel {
     this.planEl = this.buildPlanSection();
     this.pane.append(this.storeyEl, this.paneScroll, this.planEl);
 
+    this.renderFoot();
     this.refreshToolbar();
     store.onChange(() => this.refreshToolbar());
-    onI18n("languageChanged", () => { this.palette.refresh(); this.refreshToolbar(); });
+    onI18n("languageChanged", () => { this.palette.refresh(); this.renderFoot(); this.refreshToolbar(); });
+  }
+
+  /**
+   * The sidebar's bottom line.
+   *
+   * One muted sentence, and only the disclaimer: Wallgraph draws things people
+   * build from, and "check this yourself" should not require opening a menu to
+   * find. The documentation links live in the document menu instead — five more
+   * links stacked under the status hints turned the bottom of the sidebar into a
+   * wall of small text, which is a good way to make sure none of it is read.
+   *
+   * Rebuilt only on a language change: it does not depend on the document, and
+   * replacing an anchor under the cursor eats the click on it.
+   */
+  private renderFoot(): void {
+    const warn = el("a", "side-foot-warn") as HTMLAnchorElement;
+    warn.href = docHref("disclaimer", language());
+    warn.textContent = t("foot.disclaimer");
+    warn.title = t("foot.disclaimerTitle");
+    warn.target = "_blank";
+    warn.rel = "noopener";
+    this.foot.replaceChildren(warn);
   }
 
   refreshToolbar(): void {
@@ -195,6 +221,14 @@ export class Panel {
         void copyJson(this.store.doc).then(ok => this.flash(ok ? t("status.copied") : t("status.copyFailed")));
       } },
       { kind: "item", icon: "docPaste", label: t("action.paste"), onPick: () => this.pasteDialog() },
+      { kind: "sep" },
+      // The project's own pages, as one small row rather than five menu items.
+      // The disclaimer goes by its short name here; its full sentence belongs on
+      // the one line under the status bar, where it is the only thing being said.
+      { kind: "links", items: DOC_IDS.map(id => ({
+        label: t("foot." + (id === "disclaimer" ? "disclaimerShort" : id)),
+        href: docHref(id, language()),
+      })) },
       { kind: "sep" },
       { kind: "select", label: t("panel.language"), value: language(),
         options: LANGUAGES.map(l => [l.code, l.label] as [string, string]),

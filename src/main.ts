@@ -9,11 +9,27 @@ import { Tools } from "./input/tools";
 import { Panel } from "./ui/panel";
 import { tryLoadAutosave, scheduleAutosave } from "./io/json";
 import { seedDoc } from "./seed";
-import { areaModeOf } from "./model/doc";
+import { areaModeOf, PlanDoc } from "./model/doc";
 import { v } from "./geometry/vec";
 import { language, on as onI18n } from "./i18n";
 
-export function mountWallgraph(app: HTMLElement): void {
+/**
+ * What a caller holds after mounting: enough to put a plan in and take one out,
+ * and nothing else. The editor's internals stay private — an embedder that
+ * wants to drive it programmatically needs exactly these two verbs, and every
+ * further one would be a promise about the state machine we do not want to make.
+ *
+ * `load` goes through `Store.replace(doc, true)`, so it lands as an undoable
+ * step: Ctrl+Z after a programmatic load restores what the visitor had.
+ */
+export interface Wallgraph {
+  /** Replace the document. Returns false if `doc` is not a plan. */
+  load(doc: PlanDoc): boolean;
+  /** The current document. A deep copy — mutating it does not touch the editor. */
+  save(): PlanDoc;
+}
+
+export function mountWallgraph(app: HTMLElement): Wallgraph {
   app.innerHTML = "";
   app.classList.add("app");
 
@@ -91,8 +107,10 @@ export function mountWallgraph(app: HTMLElement): void {
   const saved = tryLoadAutosave();
   store.replace(saved ?? seedDoc());
 
-  // Fit the plan roughly into view.
-  (function fit(): void {
+  // Fit the plan roughly into view. Named rather than run in place because a
+  // programmatic load re-frames too — a plan arriving from a link would
+  // otherwise open somewhere off screen.
+  function fitToPlan(): void {
     const f = store.floor;
     if (f.nodes.length === 0) return;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -104,7 +122,21 @@ export function mountWallgraph(app: HTMLElement): void {
     const w = maxX - minX + 2000, h = maxY - minY + 2000;
     vp.pxPerMm = Math.min(rect.width / w, rect.height / h);
     vp.origin = v(minX - 1000 - (rect.width / vp.pxPerMm - w) / 2, minY - 1000 - (rect.height / vp.pxPerMm - h) / 2);
-  })();
+  }
+  fitToPlan();
 
   requestRender();
+
+  return {
+    load(doc: PlanDoc): boolean {
+      if (!doc || doc.version !== 1 || !Array.isArray(doc.floors) || !doc.floors[0]) return false;
+      store.replace(doc, true);
+      fitToPlan();
+      requestRender();
+      return true;
+    },
+    save(): PlanDoc {
+      return JSON.parse(JSON.stringify(store.doc)) as PlanDoc;
+    },
+  };
 }

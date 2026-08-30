@@ -79,5 +79,6 @@ document that reproduces them.
 ## Commercial licensing
 
 If the AGPL doesn't fit your use — embedding Wallgraph in a closed-source product, or
-running it as a hosted service without publishing your changes — open an issue to start
-the conversation.
+running it as a hosted service without publishing your changes — email <info@crocode.nl>.
+A public issue works too, but licensing terms are usually a conversation people would
+rather not hold in the open.

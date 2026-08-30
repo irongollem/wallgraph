@@ -67,7 +67,14 @@ function primPath(p: Prim): string {
   return "";
 }
 
-function primSvg(p: Prim): string {
+/**
+ * One primitive as SVG. Exported because the site's symbol pages draw the same
+ * library the same way — a page listing the symbols has to show what the editor
+ * actually draws, and a second, hand-kept copy of that would be wrong within a
+ * release. Colour comes from `currentColor`, so a caller sets it once on a
+ * wrapping element.
+ */
+export function primSvg(p: Prim): string {
   if (p.kind === "text") {
     return `<text x="${n(p.at.x)}" y="${n(p.at.y)}" font-size="${n(p.size)}"` +
       ` text-anchor="middle" dominant-baseline="central" fill="currentColor" stroke="none">${esc(p.text)}</text>`;

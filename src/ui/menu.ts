@@ -6,6 +6,11 @@ import { icon, type IconName } from "./icons";
 
 export type MenuEntry =
   | { kind: "item"; icon: IconName; label: string; hint?: string; onPick(): void }
+  /** One quiet row of text links to the project's own pages. Real anchors, so
+   *  they middle-click and copy-link like any other link, and deliberately not
+   *  full menu items: they are reference material, not document actions, and
+   *  five icon rows made the menu look like the manual was the point of it. */
+  | { kind: "links"; items: Array<{ label: string; href: string }> }
   | { kind: "sep" }
   | { kind: "select"; label: string; value: string; options: Array<[string, string]>; onPick(value: string): void };
 
@@ -48,6 +53,24 @@ export function openMenu(anchor: HTMLElement, entries: MenuEntry[]): void {
       menu.appendChild(btn);
       continue;
     }
+    if (entry.kind === "links") {
+      const row = document.createElement("div");
+      row.className = "menu-links";
+      for (const item of entry.items) {
+        const a = document.createElement("a");
+        a.href = item.href;
+        a.textContent = item.label;
+        // A new tab, because the alternative is navigating away from a drawing:
+        // the autosave would survive it, the undo stack would not.
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.addEventListener("click", close);
+        row.appendChild(a);
+      }
+      menu.appendChild(row);
+      continue;
+    }
+
     // entry.kind === "select"
     const row = document.createElement("div");
     row.className = "menu-row";
@@ -94,11 +117,13 @@ export function openMenu(anchor: HTMLElement, entries: MenuEntry[]): void {
     menu.style.left = `${left}px`;
   }
 
-  function items(): HTMLButtonElement[] {
+  // HTMLElement rather than HTMLButtonElement: link entries are anchors, and
+  // keyboard navigation only ever focuses and clicks, which both do.
+  function items(): HTMLElement[] {
     return Array.from(menu.querySelectorAll(".menu-item"));
   }
 
-  function focusIndex(index: number, list: HTMLButtonElement[]): void {
+  function focusIndex(index: number, list: HTMLElement[]): void {
     const n = list.length;
     if (n === 0) return;
     const wrapped = ((index % n) + n) % n;

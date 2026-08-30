@@ -6,9 +6,25 @@
 // Metadata that merely *names* a URL is fine — <link rel="canonical"> and the
 // og:* meta tags point at the site's own address without fetching anything. Only
 // tags that cause a fetch are checked.
-import { readFileSync } from "node:fs";
+//
+// Every emitted page is checked, not just the editor: the content pages are
+// served under the same `default-src 'self'` policy, so a stray Google Font on
+// one of them would not degrade, it would silently render in the fallback face.
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 
-const html = readFileSync("dist/index.html", "utf8");
+function htmlFiles(dir) {
+  return readdirSync(dir).flatMap(name => {
+    const full = join(dir, name);
+    return statSync(full).isDirectory() ? htmlFiles(full) : full.endsWith(".html") ? [full] : [];
+  });
+}
+
+const pages = htmlFiles("dist");
+if (pages.length === 0) {
+  console.error("dist/ holds no HTML — run the build first");
+  process.exit(1);
+}
 
 const LOADING = [
   // <script src="…"> — any external origin, including protocol-relative.
@@ -20,12 +36,17 @@ const LOADING = [
   /url\(\s*["']?(?:https?:)?\/\//gi,
 ];
 
-const hits = LOADING.flatMap(re => [...html.matchAll(re)].map(m => m[0]));
-
-if (hits.length > 0) {
-  console.error("dist/index.html references external resources:");
-  for (const h of new Set(hits)) console.error("  " + h);
-  process.exit(1);
+let failed = false;
+for (const file of pages) {
+  const html = readFileSync(file, "utf8");
+  const hits = LOADING.flatMap(re => [...html.matchAll(re)].map(m => m[0]));
+  if (hits.length > 0) {
+    failed = true;
+    console.error(`${file} references external resources:`);
+    for (const h of new Set(hits)) console.error("  " + h);
+  }
 }
+if (failed) process.exit(1);
 
-console.log(`dist/index.html is self-contained (${(html.length / 1024).toFixed(0)} kB)`);
+const bytes = statSync("dist/index.html").size;
+console.log(`${pages.length} page(s) self-contained · dist/index.html ${(bytes / 1024).toFixed(0)} kB`);

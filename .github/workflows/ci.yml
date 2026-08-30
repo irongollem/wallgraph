@@ -17,6 +17,13 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      # Build with the production origin so CI checks the artifact Netlify
+      # deploys: without SITE_URL the canonical tags, the sitemap and og:image
+      # are deliberately omitted, and half the surface would go unverified.
       - run: npm run build
-      - name: Verify dist is self-contained
+        env:
+          SITE_URL: https://plattegrond.crocode.nl
+      - name: Verify every page is self-contained
         run: npm run check:bundle
+      - name: Verify the SEO and agent surface
+        run: npm run check:seo

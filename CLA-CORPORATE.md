@@ -113,10 +113,11 @@ conflict-of-law provisions.
 
 ## How to execute
 
-Fill in the block below, sign it, and send the signed copy to the Maintainer by opening a
+Fill in the block below, sign it, and email the signed copy to <info@crocode.nl>. If you
+would rather not use email, opening a
 [private security advisory](https://github.com/irongollem/wallgraph/security/advisories/new)
-or by whatever contact channel the Maintainer has given you. Do **not** post a signed copy
-in a public issue or pull request — it contains contact details.
+also reaches the Maintainer privately. Do **not** post a signed copy in a public issue or
+pull request — it contains contact details.
 
 ```text
 Corporation name:      ______________________________________________

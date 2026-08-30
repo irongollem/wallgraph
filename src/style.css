@@ -264,3 +264,29 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 .prop-row input[type="number"]:focus { cursor: text; }
 .prop-row input[type="number"].is-scrubbing { border-color: #2d7de0; background: #f5f9fe;
   box-shadow: 0 0 0 2px rgba(45,125,224,0.13); user-select: none; }
+
+/* The document menu's reference links: one wrapped row of small text, sized to
+   read as a footnote to the menu rather than as more of it. */
+.menu-links { display: flex; flex-wrap: wrap; gap: 3px 12px; padding: 7px 14px 9px; }
+.menu-links a { font: 11px/1.35 system-ui, sans-serif; color: #8a8577; text-decoration: none; }
+.menu-links a:hover { color: #2b2e33; text-decoration: underline; }
+
+/* ---------- sidebar footer ---------- */
+/* One line under the status bar: the liability link, and nothing else. No rule
+   above it and no icon — it continues the status block rather than announcing
+   itself, because a warning label bolted to the editor gets tuned out, and this
+   one needs to still be legible on the day it matters. The documentation links
+   it used to sit beside now live in the document menu. */
+.side-foot { flex: none; padding: 6px 12px 8px; background: #fdfcfa; }
+.side-foot-warn { display: block; font: 10.5px/1.3 system-ui, sans-serif; color: #b0a893; text-decoration: none; }
+.side-foot-warn:hover { color: #8a8577; text-decoration: underline; }
+
+/* ---------- no-JavaScript fallback ---------- */
+/* The editor is a canvas application, so with JavaScript off the page is an
+   empty div. This block is what a visitor — and every crawler that fetches HTML
+   without running it — sees instead. It is fixed and scrollable because body
+   sets overflow:hidden for the editor's benefit, which would otherwise clip it.
+   Typography comes from the shared page stylesheet the build appends after
+   this one, so the fallback looks like the rest of the site. */
+.noscript { position: fixed; inset: 0; overflow: auto; background: #f4f2ec; z-index: 10; padding: 3rem 0; }
+.noscript .wrap { max-width: 44rem; margin: 0 auto; padding: 0 1.25rem; }

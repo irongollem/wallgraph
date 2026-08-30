@@ -159,3 +159,28 @@ stairs, mobile/touch UX.
 Shipped because publishing demanded it, not because the roadmap asked: AGPL-3.0
 with a CLA and automated enforcement, CI, a versioned release workflow, social
 preview and icons, and the deployment itself.
+
+**The site around the editor.** `/` is a canvas application, which means that to
+every crawler that does not run JavaScript — which is every AI crawler and most
+search engines that are not Google — it was a title, a description and an empty
+div. So the build now emits, alongside the single-file editor, a small set of
+JavaScript-free pages generated from the app's own code: the 77 symbols and the
+27 opening types drawn by replaying `recordSymbol` and `openingMarks`, the
+manual, and the document format. Plus `robots.txt`, a multilingual sitemap,
+`llms.txt`, a web manifest, `security.txt` and structured data. Dutch leads
+throughout, matching the editor's own default and the domain; English is a full
+alternate. `scripts/check-seo.mjs` asserts in CI that it all still hangs together.
+
+**Liability, stated plainly.** A tool that draws things people build from needs to
+say what it is not, in words rather than in a licence file: not certified, not a
+NEN 2580 meetrapport, and no substitute for measuring. That lives on its own page
+in both languages, on one muted line under the status bar, in every page footer,
+in the document menu, and in `llms.txt` so an assistant summarising Wallgraph
+relays the caveat too. The AGPL's sections 15 and 16 still do the legal work.
+
+**Agent access.** Two client-side channels, no account and no server: a whole
+plan carried in the URL fragment (`#plan=<base64url>`), and a `window.wallgraph`
+surface on the hosted page with `load`, `save`, `link` and `language`. The
+document format is published as JSON Schema and tested against the documents the
+editor actually writes, so the description of the format cannot quietly drift
+from the format.

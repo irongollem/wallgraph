@@ -89,8 +89,23 @@ src/core       derived geometry: mitered wall outlines, room detection
 src/render     viewport, scene renderer, symbol library
 src/input      tool state machine, snapping, typed input
 src/ui         toolbar + property panel
-src/io         autosave + JSON import/export
+src/io         autosave, JSON/SVG/DXF/PNG export, plan links
+scripts/site   the generated site: metadata, pages, robots/sitemap/llms, JSON Schema
 ```
+
+## No warranty, and not certified
+
+Wallgraph is free software provided as is. The AGPL disclaims all warranty and all
+liability in sections 15 and 16, and that is not boilerplate here: **Wallgraph is not
+certified software**, and a drawing it produces is not an architectural drawing, a
+structural calculation, or a NEN 2580 measurement report — only a certified surveyor
+may issue one of those. Areas are computed *following* the NEN 2580 convention; symbols
+and opening marks are our reading of the NEN drawing conventions and carry no official
+status. Every dimension is exactly as correct as the number that was typed in.
+
+Check anything that matters yourself before acting on it. Full text:
+[plattegrond.crocode.nl/disclaimer/](https://plattegrond.crocode.nl/disclaimer/)
+([English](https://plattegrond.crocode.nl/en/disclaimer/)).
 
 ## License
 
@@ -104,8 +119,8 @@ under the AGPL too.
 
 **Commercial licensing is available.** If the AGPL doesn't fit — you want to embed
 Wallgraph in a closed-source product or offer it as a hosted service without
-publishing your changes — open an issue to start the conversation. As sole copyright
-holder I can grant separate commercial terms.
+publishing your changes — email <info@crocode.nl>. As sole copyright holder I can
+grant separate commercial terms.
 
 ## Contributing
 
