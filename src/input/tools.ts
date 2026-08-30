@@ -1,11 +1,12 @@
 // Tool state machine + snapping + typed-mm input. Owns pointer/keyboard handling
 // for the canvas; rendering of previews goes through getPreview()/getSnap().
 import { Store } from "../model/store";
-import { Floor, Wall, Opening, PlanNode, SymbolInstance, newId, stairsOf, floorHeight, DOOR_DEFAULT_WIDTH, WINDOW_DEFAULT_WIDTH, PASSAGE_DEFAULT_WIDTH, OpeningKind } from "../model/doc";
+import { Floor, Wall, Opening, PlanNode, SymbolInstance, newId, stairsOf, videsOf, floorHeight, DOOR_DEFAULT_WIDTH, WINDOW_DEFAULT_WIDTH, PASSAGE_DEFAULT_WIDTH, OpeningKind } from "../model/doc";
 import {
   Stair, ResolvedStair, StairKind, StairParams, stairDefaults, stairFields, clampStair,
   stairAngle, inheritsRise,
 } from "../model/stair";
+import { Vide, VideSize, VIDE_DEFAULT, clampVide } from "../model/vide";
 import { nodeAt, splitWall, nearestWall, wallLength, mergeNodes, deleteWall, clampOpening, cleanOrphanNodes } from "../model/ops";
 import { Viewport } from "../render/viewport";
 import { Vec, v, add, sub, scale, norm, perp, dist, angleOf, fromAngle, dot, pointInPolygon } from "../geometry/vec";
@@ -13,17 +14,19 @@ import { arcPointAt, arcTangentAt, bulgeFromSagitta } from "../geometry/arc";
 import { getSymbol, SymbolDef, SYMBOL_TYPES } from "../render/symbols";
 import { stairHit, resolveStair, stairBox, stairIssues, gradient } from "../core/stair";
 import { drawStairGhost } from "../render/stair";
+import { videHit } from "../core/vide";
+import { drawVideGhost } from "../render/vide";
 import { drawLabel, COLORS, symbolInk } from "../render/draw";
 import { Resolved, ResolvedWall } from "../core/resolve";
 import { dimensionChains } from "../core/dimensions";
 import { t } from "../i18n";
 
-export type ToolName = "select" | "wall" | "door" | "window" | "passage" | "symbol" | "stair";
+export type ToolName = "select" | "wall" | "door" | "window" | "passage" | "symbol" | "stair" | "vide";
 
 export interface SnapResult { p: Vec; kind: "node" | "wall" | "grid" | "free"; wall?: Wall; tMm?: number; node?: PlanNode }
 
 interface DragState {
-  kind: "node" | "wall" | "symbol" | "stair" | "bow" | "opening" | "pan";
+  kind: "node" | "wall" | "symbol" | "stair" | "vide" | "bow" | "opening" | "pan";
   id?: string;
   wallId?: string;
   startWorld: Vec;
@@ -56,6 +59,10 @@ export class Tools {
   stairSize: StairParams = stairDefaults("steektrap");
   stairRotation = 0;
   stairMirrored = false;
+
+  /** The opening the vide tool will place next. */
+  videSize: VideSize = { ...VIDE_DEFAULT };
+  videRotation = 0;
 
   private chainStart: Vec | null = null;
   private chainStartNode: string | null = null;
@@ -128,6 +135,18 @@ export class Tools {
   followStoreyHeight(mm: number): void {
     if (!inheritsRise(this.stairKind)) return;
     this.stairSize = clampStair({ ...this.stairSize, rise: mm });
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  setVideSize(s: VideSize): void {
+    this.videSize = clampVide(s);
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  setVideRotation(radians: number): void {
+    this.videRotation = stairAngle(radians);
     this.onToolChange();
     this.requestRender();
   }
@@ -248,6 +267,7 @@ export class Tools {
       case "passage": this.placeOpening("passage"); break;
       case "symbol": this.placeSymbol(); break;
       case "stair": this.placeStair(); break;
+      case "vide": this.placeVide(); break;
       case "select": this.selectDown(s, w); break;
     }
   }
@@ -452,6 +472,38 @@ export class Tools {
     this.store.select({ kind: "stair", id: st.id });
   }
 
+  private draftVide(id: string): Vide {
+    const g = this.gridStep;
+    const s = clampVide(this.videSize);
+    return {
+      id,
+      x: Math.round(this.cursor.x / g) * g,
+      y: Math.round(this.cursor.y / g) * g,
+      rotation: this.videRotation,
+      width: s.width, depth: s.depth,
+      ...(this.symbolColor ? { color: this.symbolColor } : {}),
+    };
+  }
+
+  private placeVide(): void {
+    const vd = this.draftVide(newId("v"));
+    this.store.mutate(doc => {
+      const f = this.store.floorOf(doc);
+      (f.vides ??= []).push(vd);
+    });
+    this.store.select({ kind: "vide", id: vd.id });
+  }
+
+  /** Topmost vide covering `w`. Picked after the walls: a vide is floor level. */
+  private videAt(w: Vec): Vide | undefined {
+    const list = videsOf(this.floor);
+    for (let i = list.length - 1; i >= 0; i--) {
+      const vd = list[i]!;
+      if (videHit(vd, w, 30)) return vd;
+    }
+    return undefined;
+  }
+
   // ---- select tool ----
   private selectDown(s: Vec, w: Vec): void {
     this.lengthBuffer = "";
@@ -511,6 +563,14 @@ export class Tools {
         this.drag = { kind: "wall", id: rw.wall.id, startWorld: w, moved: false };
         return;
       }
+    }
+    // A vide last of all: it is the floor, so anything standing on it wins the
+    // click, and its own area is otherwise empty.
+    const videPick = this.videAt(w);
+    if (videPick) {
+      this.store.select({ kind: "vide", id: videPick.id });
+      this.drag = { kind: "vide", id: videPick.id, startWorld: w, moved: false };
+      return;
     }
     this.store.select(null);
     this.drag = { kind: "pan", startWorld: w, moved: false, lastScreen: s };
@@ -608,6 +668,16 @@ export class Tools {
           if (st) { st.x += dx; st.y += dy; }
         }, "drag" + d.id);
       }
+    } else if (d.kind === "vide") {
+      const delta = sub(w, d.startWorld);
+      const dx = Math.round(delta.x / g) * g, dy = Math.round(delta.y / g) * g;
+      if (dx !== 0 || dy !== 0) {
+        d.startWorld = add(d.startWorld, v(dx, dy));
+        this.store.mutate(doc => {
+          const vd = videsOf(this.store.floorOf(doc)).find(x => x.id === d.id);
+          if (vd) { vd.x += dx; vd.y += dy; }
+        }, "drag" + d.id);
+      }
     } else if (d.kind === "bow") {
       this.store.mutate(doc => {
         const f = this.store.floorOf(doc);
@@ -674,6 +744,8 @@ export class Tools {
       case "s": case "S": this.setTool("symbol"); break;
       // T for trap: the stair tool, armed with whatever kind was last chosen.
       case "t": case "T": this.setTool("stair"); break;
+      // H for the hole in the floor: the vide tool.
+      case "h": case "H": this.setTool("vide"); break;
       case "o": case "O": this.ortho = !this.ortho; this.updateHint(); this.onToolChange(); break;
       case "g": case "G": this.snapGrid = !this.snapGrid; this.updateHint(); this.onToolChange(); this.requestRender(); break;
       case "l": case "L": this.showDims = !this.showDims; this.onToolChange(); this.requestRender(); break;
@@ -766,11 +838,24 @@ export class Tools {
       this.requestRender();
       return;
     }
+    if (this.tool === "vide") {
+      this.videRotation = stairAngle(this.videRotation + Math.PI / 2);
+      this.onToolChange();
+      this.requestRender();
+      return;
+    }
     const sel = this.store.sel;
     if (sel?.kind === "stair") {
       this.store.mutate(doc => {
         const st = stairsOf(this.store.floorOf(doc)).find(x => x.id === sel.id);
         if (st) st.rotation = stairAngle(st.rotation + Math.PI / 2);
+      });
+      return;
+    }
+    if (sel?.kind === "vide") {
+      this.store.mutate(doc => {
+        const vd = videsOf(this.store.floorOf(doc)).find(x => x.id === sel.id);
+        if (vd) vd.rotation = stairAngle(vd.rotation + Math.PI / 2);
       });
       return;
     }
@@ -814,6 +899,7 @@ export class Tools {
         cleanOrphanNodes(f);
       } else if (sel.kind === "symbol") f.symbols = f.symbols.filter(s => s.id !== sel.id);
       else if (sel.kind === "stair") f.stairs = stairsOf(f).filter(s => s.id !== sel.id);
+      else if (sel.kind === "vide") f.vides = videsOf(f).filter(s => s.id !== sel.id);
       else if (sel.kind === "opening") {
         for (const w of f.walls) w.openings = w.openings.filter(o => o.id !== sel.id);
       }
@@ -840,6 +926,7 @@ export class Tools {
       case "passage": this.hint = t("hint.passage"); break;
       case "symbol": this.hint = t("hint.symbol", { label: getSymbol(this.symbolType) ? t("symbol." + this.symbolType) : this.symbolType }); break;
       case "stair": this.hint = t("hint.stair", { label: t("stair." + this.stairKind) }); break;
+      case "vide": this.hint = t("hint.vide"); break;
     }
   }
 
@@ -1216,6 +1303,11 @@ export class Tools {
     // Stair placement ghost, in the armed pen and already turned by R/M.
     if (this.tool === "stair") {
       drawStairGhost(ctx, this.draftStair("ghost"), this.symbolColor ?? COLORS.symbol);
+    }
+
+    // Vide placement ghost.
+    if (this.tool === "vide") {
+      drawVideGhost(ctx, this.draftVide("ghost"), this.symbolColor ?? COLORS.symbol);
     }
 
     // Opening placement ghost.

@@ -25,6 +25,7 @@ export interface StairRows {
   numRow(label: string, value: number, onCommit: (n: number) => void, step?: number,
          extra?: { title?: string; snap?: (n: number) => number }): void;
   selRow(label: string, value: string, options: Array<[string, string]>, onCommit: (s: string) => void): void;
+  textRow(label: string, value: string, onCommit: (s: string) => void): void;
   infoRow(label: string, text: string, title?: string): void;
   noteRow(text: string): void;
   warnRow(text: string): void;

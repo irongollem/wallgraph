@@ -1,6 +1,7 @@
 // The document is a planar graph of wall centerlines. All lengths/coords are
 // integer millimetres. Everything visible is derived from this at render time.
 import type { Stair } from "./stair";
+import type { Vide } from "./vide";
 
 export type Id = string;
 
@@ -140,6 +141,12 @@ export interface Floor {
    */
   stairs?: Stair[];
   /**
+   * Openings in this floor's slab, open to the storey below. A vide is a
+   * feature of the floor rather than a storey of its own: the slab has a hole,
+   * and the plan of this storey is where it is drawn.
+   */
+  vides?: Vide[];
+  /**
    * Storey height in mm, floor to floor. This is what a stair on this floor
    * climbs unless it states otherwise, so changing it moves every stair that
    * follows it. Absent means the default: a plan nobody has given a storey
@@ -150,6 +157,9 @@ export interface Floor {
 
 /** A floor's stairs. Absent means none, not an error. */
 export function stairsOf(f: Floor): Stair[] { return f.stairs ?? []; }
+
+/** A floor's vides. Absent means none, not an error. */
+export function videsOf(f: Floor): Vide[] { return f.vides ?? []; }
 
 /**
  * Storey height, floor to floor. 2800 is the ordinary Dutch new-build figure and
@@ -190,7 +200,7 @@ export const GRID_DEFAULT_MM = 100;
 export function emptyDoc(): PlanDoc {
   return {
     version: 1, unit: "mm", gridMm: GRID_DEFAULT_MM,
-    floors: [{ id: newId("f"), name: "Floor 1", nodes: [], walls: [], symbols: [], stairs: [] }],
+    floors: [{ id: newId("f"), name: "Floor 1", nodes: [], walls: [], symbols: [], stairs: [], vides: [] }],
   };
 }
 

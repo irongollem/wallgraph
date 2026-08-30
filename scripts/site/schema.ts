@@ -63,6 +63,10 @@ export function planSchema(siteUrl: string): JsonSchema {
             type: "array", items: { $ref: "#/$defs/stair" },
             description: "Placed stairs. Absent means the storey has none.",
           },
+          vides: {
+            type: "array", items: { $ref: "#/$defs/vide" },
+            description: "Openings in this floor's slab. Absent means the storey has none.",
+          },
         },
       },
       node: {
@@ -151,6 +155,29 @@ export function planSchema(siteUrl: string): JsonSchema {
           slideTo: { enum: ["a", "b"] },
           spin: { enum: ["cw", "ccw"], description: "Revolving doors only." },
           bars: { type: "integer", minimum: 0, description: "Roedeverdeling: panes per sash. 0 or absent = undivided." },
+        },
+      },
+      vide: {
+        type: "object",
+        description:
+          "A vide: an opening in the floor slab, open to the storey below. It is a feature " +
+          "of this floor rather than a storey of its own -- the slab has a hole, and the " +
+          "plan of this storey is where it is drawn. A trapgat is the same object. The " +
+          "anchor (x, y) is the centre of the opening.",
+        required: ["id", "x", "y", "rotation", "width", "depth"],
+        additionalProperties: false,
+        properties: {
+          id: { $ref: "#/$defs/id" },
+          x: mm("mm."),
+          y: mm("mm, positive down."),
+          rotation: { type: "number", description: "Radians, clockwise on screen." },
+          width: { type: "integer", minimum: 200, description: "mm." },
+          depth: { type: "integer", minimum: 200, description: "mm." },
+          label: { type: "string", description: "What the opening is called on the drawing. Absent means the plain word." },
+          color: {
+            type: "string", pattern: "^#[0-9a-fA-F]{6}$",
+            description: "Pen colour; absent means the plan's default ink.",
+          },
         },
       },
       stair: {

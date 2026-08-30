@@ -25,7 +25,7 @@ function R(x: number, y: number, w: number, h: number, rx: number, fill = false)
 }
 
 export type IconName =
-  | "select" | "wall" | "door" | "window" | "passage" | "stair" | "symbols"
+  | "select" | "wall" | "door" | "window" | "passage" | "stair" | "vide" | "symbols"
   | "gridSnap" | "angleSnap" | "dimensions"
   | "undo" | "redo" | "dots" | "chevron" | "plus" | "minus" | "close"
   | "trash" | "search" | "floors"
@@ -50,6 +50,9 @@ const ICONS: Record<IconName, Shape[]> = {
     P("M5 3 H15 V17 H5 Z M5 6.5 H15 M5 10 H15 M5 13.5 H15"),
     P("M10 16 V5.4 M7.8 7.6 L10 5.4 L12.2 7.6"),
   ],
+  // An opening in the floor: its outline, crossed corner to corner -- the mark
+  // the plan itself uses for a hole with no floor in it.
+  vide: [P("M4 4 H16 V16 H4 Z M4 4 L16 16 M16 4 L4 16")],
   symbols: [C(10, 10, 6), P("M5.8 5.8 L14.2 14.2 M14.2 5.8 L5.8 14.2")],
   gridSnap: [
     P("M4 4 H16 M4 10 H16 M4 16 H16 M4 4 V16 M10 4 V16 M16 4 V16"),

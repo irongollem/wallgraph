@@ -9,7 +9,7 @@
 // millimetres and the viewBox matches them one-to-one, so printing at 100% puts
 // a 4000 mm wall on paper at 4 m. SVG's y axis runs down exactly as the
 // document's does, so — unlike DXF — nothing is flipped.
-import { PlanDoc, Floor, areaModeOf, stairsOf } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf, stairsOf, videsOf } from "../model/doc";
 import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms } from "../core/rooms";
@@ -19,9 +19,12 @@ import { stairBox } from "../core/stair";
 import { recordSymbol, Prim } from "./record";
 import { openingMarks } from "./marks";
 import { stairPrims, stairRegionPrims } from "./stair";
+import { videPrims } from "./vide";
+import { videBox } from "../core/vide";
 import { resolveStair } from "../core/stair";
 import { planBounds } from "./image";
 import { saveViaHost, downloadBlob } from "./save";
+import { t } from "../i18n";
 
 export type SvgResult = "saved" | "empty" | "failed";
 
@@ -122,6 +125,19 @@ export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
   if (rooms.length > 0) {
     parts.push(`<g id="rooms" fill="${COLORS.roomFill}">`);
     for (const r of rooms) parts.push(`<path d="${polyPath(r.poly, true)}"/>`);
+    parts.push(`</g>`);
+  }
+
+  // Vides cut the room tint and are drawn under the walls, as on the canvas.
+  if (videsOf(floor).length > 0) {
+    parts.push(`<g id="vides" fill="none" stroke-width="${W_SYMBOL}" stroke-linecap="round">`);
+    for (const vd of videsOf(floor)) {
+      const ink = symbolInk(vd);
+      parts.push(`<path d="${polyPath(boxPoly(videBox(vd), vd), true)}" fill="${COLORS.bg}" stroke="none"/>`);
+      parts.push(`<g color="${ink}" stroke="${ink}">`);
+      for (const p of videPrims(vd, t("vide.label"))) parts.push(primSvg(p));
+      parts.push(`</g>`);
+    }
     parts.push(`</g>`);
   }
 

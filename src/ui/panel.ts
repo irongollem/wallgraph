@@ -18,6 +18,7 @@ import { docHref, DOC_IDS } from "../links";
 import { openMenu, type MenuEntry } from "./menu";
 import { Palette } from "./palette";
 import { renderStairTool, renderStairProps, type StairRows } from "./stairs";
+import { renderVideTool, renderVideProps } from "./vide";
 import { scrubbable } from "./scrub";
 
 export class Panel {
@@ -132,7 +133,9 @@ export class Panel {
     passage.onclick = () => this.tools.setTool("passage");
     const stair = toolBtn("stair", "stair", "T", t("tool.stair"));
     stair.onclick = () => this.tools.setTool("stair");
-    rail.append(select, wall, door, win, passage, stair, el("hr", "rail-sep"));
+    const vide = toolBtn("vide", "vide", "H", t("tool.vide"));
+    vide.onclick = () => this.tools.setTool("vide");
+    rail.append(select, wall, door, win, passage, stair, vide, el("hr", "rail-sep"));
 
     const modeBtn = (name: IconName, modeKey: string, on: boolean, label: string, key: string): HTMLButtonElement => {
       const b = el("button", "rail-btn is-mode") as HTMLButtonElement;
@@ -286,7 +289,9 @@ export class Panel {
     // The stair tool shows its picker where a selection's properties go, so the
     // pane has a third state: nothing selected, but something to configure.
     const stairMode = this.tools.tool === "stair";
+    const videMode = this.tools.tool === "vide";
     const selSig = (stairMode ? `stair-tool:${this.tools.stairKind}|` : "")
+      + (videMode ? "vide-tool|" : "")
       + (sel ? `${sel.kind}:${sel.id}` : "none");
     // Plan rows and the storey picker read from the document, so they have to
     // rebuild when an undo changes a value under them -- but not on every
@@ -307,8 +312,8 @@ export class Panel {
 
     const swap = selSig !== this.lastSelSig;
     this.lastSelSig = selSig;
-    this.paneBody.hidden = !sel && !stairMode;
-    if (sel || stairMode) {
+    this.paneBody.hidden = !sel && !stairMode && !videMode;
+    if (sel || stairMode || videMode) {
       this.paneBody.className = "pane-body" + (swap ? " pane-swap" : "");
       this.renderProps(this.props);
     }
@@ -682,7 +687,7 @@ export class Panel {
     p.replaceChildren();
     const sel = this.store.sel;
     const f = this.store.floor;
-    const { numRow, selRow, noteRow, warnRow, btnRow, colorRow } = this.rowKit(p);
+    const { numRow, selRow, textRow, noteRow, warnRow, btnRow, colorRow } = this.rowKit(p);
 
     const secHead = (label: string, opts: { sel?: boolean; later?: boolean } = {}): void => {
       const wrap = el("div", "sec" + (opts.later ? " sec-later" : ""));
@@ -735,8 +740,19 @@ export class Panel {
     };
 
     const stairRows: StairRows = {
-      secHead, numRow, selRow, infoRow, noteRow, warnRow, colorRow, btnRow, dangerRow,
+      secHead, numRow, selRow, textRow, infoRow, noteRow, warnRow, colorRow, btnRow, dangerRow,
     };
+
+    // The vide tool, like the stair tool, keeps its fields in the property area.
+    if (this.tools.tool === "vide") {
+      if (sel?.kind === "vide") renderVideProps(this.store, this.tools, stairRows, sel.id);
+      renderVideTool(this.store, this.tools, stairRows);
+      return;
+    }
+    if (sel?.kind === "vide") {
+      renderVideProps(this.store, this.tools, stairRows, sel.id);
+      return;
+    }
 
     // With the stair tool armed the picker stays put, the way the symbol
     // palette does: placing a stair selects it, so the next kind has to be

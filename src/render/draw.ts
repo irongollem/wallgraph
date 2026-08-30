@@ -1,7 +1,7 @@
 // Full scene render. Immediate mode: redraw everything on change (documents at
 // this scale render in well under a frame). Layers: grid, rooms, walls,
 // opening decorations, symbols, selection, labels (labels in screen space).
-import { Floor, SymbolInstance, AreaMode, Sash, sashesOf, stairsOf } from "../model/doc";
+import { Floor, SymbolInstance, AreaMode, Sash, sashesOf, stairsOf, videsOf } from "../model/doc";
 import { Resolved, OpeningGeom } from "../core/resolve";
 import { Room } from "../core/rooms";
 import { Selection } from "../model/store";
@@ -9,6 +9,7 @@ import { Viewport } from "./viewport";
 import { Vec, add, sub, scale, perp, v, angleOf, dist, fromAngle } from "../geometry/vec";
 import { getSymbol } from "./symbols";
 import { drawStair } from "./stair";
+import { drawVide } from "./vide";
 import { resolveStair } from "../core/stair";
 import { t } from "../i18n";
 import { gridSteps, GridSteps } from "./grid";
@@ -116,6 +117,16 @@ export function drawScene(
     tracePoly(ctx, r.poly);
     ctx.fillStyle = COLORS.roomFill;
     ctx.fill();
+  }
+
+  // Vides sit at floor level: the slab has a hole, so the room tint is cut and
+  // the mark goes under the walls that bound the opening.
+  for (const vd of videsOf(floor)) {
+    drawVide(ctx, vd, {
+      px, ink: symbolInk(vd), fallbackLabel: t("vide.label"), cut: COLORS.bg,
+      selected: sel?.kind === "vide" && sel.id === vd.id,
+      select: COLORS.select, wash: COLORS.selectWash,
+    });
   }
 
   // Ghost underlay first, so the active storey draws over it.

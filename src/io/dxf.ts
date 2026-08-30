@@ -16,7 +16,7 @@
 // context (see recordSymbol) because the library draws them with canvas calls;
 // their arcs flatten to polylines, which is exact enough at symbol scale and
 // avoids guessing how a mirrored, rotated transform maps onto an ARC.
-import { PlanDoc, Floor, areaModeOf, stairsOf } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf, stairsOf, videsOf } from "../model/doc";
 import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms } from "../core/rooms";
@@ -24,8 +24,10 @@ import { getSymbol } from "../render/symbols";
 import { recordSymbol, Prim } from "./record";
 import { openingMarks } from "./marks";
 import { stairPrims } from "./stair";
+import { videPrims } from "./vide";
 import { resolveStair } from "../core/stair";
 import { saveViaHost, downloadBlob } from "./save";
+import { t } from "../i18n";
 
 export type DxfResult = "saved" | "empty" | "failed";
 
@@ -35,12 +37,13 @@ const LAYER = {
   openings: "OPENINGS",
   symbols: "SYMBOLS",
   stairs: "STAIRS",
+  vides: "VOIDS",
   rooms: "ROOMS",
 } as const;
 
 /** ACI colour indices — 7 is "by background", i.e. black on white paper. */
 const LAYER_COLOR: Record<string, number> = {
-  WALLS: 7, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, ROOMS: 8,
+  WALLS: 7, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, ROOMS: 8,
 };
 
 class DxfWriter {
@@ -199,7 +202,7 @@ function emitPrims(w: DxfWriter, layer: string, prims: Prim[]): void {
 export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
   const floor: Floor | undefined = doc.floors[floorIndex] ?? doc.floors[0];
   if (!floor || (floor.walls.length === 0 && floor.symbols.length === 0
-      && stairsOf(floor).length === 0)) return null;
+      && stairsOf(floor).length === 0 && videsOf(floor).length === 0)) return null;
 
   const resolved = resolveFloor(floor);
   const w = new DxfWriter();
@@ -214,6 +217,8 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
     for (const j of resolved.junctions) w.polyline(LAYER.walls, j.poly, true);
 
     for (const rw of resolved.walls.values()) emitPrims(w, LAYER.openings, openingMarks(rw));
+
+    for (const vd of videsOf(floor)) emitPrims(w, LAYER.vides, videPrims(vd, t("vide.label")));
 
     for (const st of stairsOf(floor))
       emitPrims(w, LAYER.stairs, stairPrims(resolveStair(floor, st)));
