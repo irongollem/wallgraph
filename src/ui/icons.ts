@@ -27,6 +27,7 @@ function R(x: number, y: number, w: number, h: number, rx: number, fill = false)
 export type IconName =
   | "select" | "wall" | "door" | "window" | "passage" | "stair" | "vide" | "symbols"
   | "cabinet" | "zoom" | "rename"
+  | "shapeLine" | "shapeRect" | "shapeCircle" | "shapePoly"
   | "gridSnap" | "angleSnap" | "dimensions"
   | "undo" | "redo" | "dots" | "chevron" | "plus" | "minus" | "close"
   | "trash" | "search" | "floors" | "backspace" | "confirm"
@@ -57,6 +58,13 @@ const ICONS: Record<IconName, Shape[]> = {
   // A unit in plan: the carcass, the front band across it, and the diagonal
   // that says which end the door is hung on -- what the drawing itself shows.
   cabinet: [P("M3.4 4 H16.6 V15 H3.4 Z M3.4 12.8 H16.6 M3.4 12.8 L16.6 4")],
+  // The four runs the wall tool draws, each shown as the ring it leaves behind.
+  // The line carries its two end nodes because that is what distinguishes it
+  // from the shapes: it is drawn point by point.
+  shapeLine: [P("M4.6 15.4 L15.4 4.6"), C(4.6, 15.4, 1.7), C(15.4, 4.6, 1.7)],
+  shapeRect: [R(3.5, 4.5, 13, 11, 1)],
+  shapeCircle: [C(10, 10, 6.5)],
+  shapePoly: [P("M16.6 10 L13.3 15.7 L6.7 15.7 L3.4 10 L6.7 4.3 L13.3 4.3 Z")],
   // A pencil laid over the line it writes: the mark for "change this word".
   rename: [P("M3.4 16.6 L4.2 13.2 L13 4.4 L15.6 7 L6.8 15.8 Z"), P("M11.4 6 L14 8.6")],
   // A lens over a plan, with the plus that says it frames rather than pans.

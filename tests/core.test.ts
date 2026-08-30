@@ -3,6 +3,8 @@ import { emptyDoc, newId, Wall, GRID_DEFAULT_MM } from "../src/model/doc";
 import { Store } from "../src/model/store";
 import { sashesOf, sashSpecsOf, doorKindOf, windowKindOf, DOOR_KINDS, WINDOW_KINDS, type Opening } from "../src/model/doc";
 import { detectRooms } from "../src/core/rooms";
+import { insertWall, insertRun, nodeAt } from "../src/model/ops";
+import { shapeRun } from "../src/model/shape";
 import { dimensionChains } from "../src/core/dimensions";
 import { seedDoc } from "../src/seed";
 import { resolveFloor } from "../src/core/resolve";
@@ -567,6 +569,121 @@ function rectFloor(wallTh = 100) {
   f.walls.push({ id: newId("w"), a: a.id, b: b.id, thickness: 100, bulge: 0, openings: [] });
   const chains = dimensionChains(f);
   check("a lone wall still dimensions", chains.length === 1 && Math.abs(chains[0]!.total - 3000) < 1);
+}
+
+// --- welded wall insertion ---
+{
+  // Two rooms drawn side by side share one wall. Stacking two would put two
+  // walls in the same place, and detectRooms would walk between them.
+  const f = emptyDoc().floors[0]!;
+  const left = shapeRun("rect", v(0, 0), v(4000, 3000))!;
+  insertRun(f, left.points, left.bulges, 100);
+  check("a rectangle is four walls", f.walls.length === 4 && f.nodes.length === 4);
+  check("a rectangle is one room", detectRooms(f).length === 1);
+
+  const right = shapeRun("rect", v(4000, 0), v(8000, 3000))!;
+  insertRun(f, right.points, right.bulges, 100);
+  check("the shared wall is not doubled", f.walls.length === 7, String(f.walls.length));
+  check("the shared corners are not doubled", f.nodes.length === 6, String(f.nodes.length));
+  check("two rooms side by side", detectRooms(f).length === 2);
+
+  insertRun(f, right.points, right.bulges, 100);
+  check("drawing the same rectangle again adds nothing",
+    f.walls.length === 7 && f.nodes.length === 6);
+}
+{
+  // A rectangle overlapping part of an existing wall splits that wall at both
+  // ends of the overlap rather than laying a second wall along it.
+  const f = emptyDoc().floors[0]!;
+  const room = shapeRun("rect", v(0, 0), v(4000, 3000))!;
+  insertRun(f, room.points, room.bulges, 100);
+  const inner = shapeRun("rect", v(4000, 1000), v(6000, 2000))!;
+  insertRun(f, inner.points, inner.bulges, 100);
+  const onSeam = f.walls.filter(w => {
+    const a = f.nodes.find(n => n.id === w.a)!, b = f.nodes.find(n => n.id === w.b)!;
+    return a.x === 4000 && b.x === 4000;
+  });
+  check("a partial overlap splits the wall it shares", onSeam.length === 3, String(onSeam.length));
+  const areas = detectRooms(f).map(r => Math.round(r.areaMm2 / 1000)).sort((a, b) => a - b);
+  check("both rooms come out whole", areas.join(",") === "2000,12000", areas.join(","));
+}
+{
+  // A wall drawn straight across a room divides it: both walls it crosses are
+  // split, and so is the new wall, or the two rooms share no boundary.
+  const f = emptyDoc().floors[0]!;
+  const room = shapeRun("rect", v(0, 0), v(4000, 3000))!;
+  insertRun(f, room.points, room.bulges, 100);
+  const a = nodeAt(f, v(2000, -500)), b = nodeAt(f, v(2000, 3500));
+  insertWall(f, a.id, b.id, 100);
+  check("a crossing wall splits what it crosses", f.walls.length === 9, String(f.walls.length));
+  const areas = detectRooms(f).map(r => Math.round(r.areaMm2 / 1000));
+  check("the room is divided in two", areas.length === 2 && areas.every(x => x === 6000), areas.join(","));
+}
+{
+  // An opening on a wall that gets split travels with the piece it sits on.
+  const f = emptyDoc().floors[0]!;
+  const a = nodeAt(f, v(0, 0)), b = nodeAt(f, v(4000, 0));
+  const wall = insertWall(f, a.id, b.id, 100)[0]!;
+  wall.openings.push({ id: newId("o"), kind: "door", t: 3000, width: 900 });
+  const c = nodeAt(f, v(1000, 0)), d = nodeAt(f, v(1000, 2000));
+  insertWall(f, c.id, d.id, 100);
+  const holders = f.walls.filter(w => w.openings.length > 0);
+  check("a split wall keeps its opening", holders.length === 1, String(holders.length));
+  check("the opening keeps its place on the piece it landed on",
+    Math.abs((holders[0]?.openings[0]?.t ?? 0) - 2000) < 1, String(holders[0]?.openings[0]?.t));
+}
+{
+  // The circle is four quarter arcs on one centre, not a many-sided polygon.
+  const f = emptyDoc().floors[0]!;
+  const ring = shapeRun("circle", v(0, 0), v(2000, 0))!;
+  insertRun(f, ring.points, ring.bulges, 100);
+  check("a circle is four walls", f.walls.length === 4, String(f.walls.length));
+  const centres = f.walls.map(w => {
+    const a = f.nodes.find(n => n.id === w.a)!, b = f.nodes.find(n => n.id === w.b)!;
+    return arcInfo(v(a.x, a.y), v(b.x, b.y), w.bulge)!;
+  });
+  check("every quarter has the drawn radius", centres.every(i => near(i.radius, 2000, 1)),
+    centres.map(i => i.radius.toFixed(1)).join(","));
+  check("every quarter shares the centre",
+    centres.every(i => dist(i.center, v(0, 0)) < 1));
+  const rooms = detectRooms(f);
+  // Room detection flattens arcs, so the area is a shade under the true circle.
+  check("a circle encloses one room", rooms.length === 1);
+  check("the enclosed area is the circle's",
+    near(rooms[0]?.areaMm2 ?? 0, Math.PI * 2000 * 2000, 60_000), String(rooms[0]?.areaMm2));
+}
+{
+  const f = emptyDoc().floors[0]!;
+  const hex = shapeRun("polygon", v(0, 0), v(2000, 0), { sides: 6 })!;
+  insertRun(f, hex.points, hex.bulges, 100);
+  check("a hexagon is six walls", f.walls.length === 6, String(f.walls.length));
+  check("a hexagon is one room", detectRooms(f).length === 1);
+  const sides = hex.points.map((p, i) => dist(p, hex.points[(i + 1) % hex.points.length]!));
+  check("its sides are equal", sides.every(x => near(x, sides[0]!, 1)));
+}
+{
+  // The shapes themselves: what two points mean, and what is too small to be a
+  // shape at all.
+  const square = shapeRun("rect", v(0, 0), v(4000, -1000), { square: true })!;
+  check("Shift squares the rectangle off",
+    square.points[1]!.x === 4000 && square.points[2]!.y === -4000,
+    JSON.stringify(square.points));
+  check("a rectangle with no span is not a shape", shapeRun("rect", v(0, 0), v(4000, 5)) === null);
+  check("a circle with no radius is not a shape", shapeRun("circle", v(0, 0), v(3, 0)) === null);
+  check("sides are clamped to a ring that closes",
+    shapeRun("polygon", v(0, 0), v(1000, 0), { sides: 1 })!.points.length === 3);
+}
+{
+  // Closing a chain runs one wall back to the node it started from.
+  const f = emptyDoc().floors[0]!;
+  const pts = [v(0, 0), v(3000, 0), v(3000, 2000)];
+  const ids = pts.map(p => nodeAt(f, p).id);
+  insertWall(f, ids[0]!, ids[1]!, 100);
+  insertWall(f, ids[1]!, ids[2]!, 100);
+  check("an open chain encloses nothing", detectRooms(f).length === 0);
+  insertWall(f, ids[2]!, ids[0]!, 100);
+  check("closing it makes a room", detectRooms(f).length === 1);
+  check("closing it makes exactly one more wall", f.walls.length === 3, String(f.walls.length));
 }
 
 console.log(failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURES`);

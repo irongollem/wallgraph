@@ -27,6 +27,7 @@ import { renderStairTool, renderStairProps, type PaneRows } from "./stairs";
 import { renderCabinetTool, renderCabinetProps } from "./cabinets";
 import { renderZoomTool, type RoomEdit } from "./zoom";
 import { renderOpeningTool } from "./openings";
+import { renderWallTool } from "./walls";
 import { renderVideTool, renderVideProps } from "./vide";
 import { scrubbable } from "./scrub";
 import { watchLayout, isTouchPrimary, type LayoutMode } from "./layout";
@@ -57,6 +58,8 @@ export class Panel {
   private sheet: Sheet | null = null;
   private keypadEl: HTMLElement | null = null;
   private chainBar: HTMLElement | null = null;
+  /** What the bar over the sheet currently says; "" when there is no bar. */
+  private chainBarSig = "";
   private actionsEl: HTMLElement | null = null;
   /** Told when the shell changes, so the host can re-frame the plan. */
   onLayoutChange: (() => void) | null = null;
@@ -181,6 +184,7 @@ export class Panel {
     // Both are re-added by renderTyping, which runs at the end of every refresh.
     this.keypadEl = null;
     this.chainBar = null;
+    this.chainBarSig = "";
     sheet.body.replaceChildren(this.paneScroll, this.planEl, this.foot);
     this.root.replaceChildren(top, modes, sheet.el);
   }
@@ -464,10 +468,14 @@ export class Panel {
     const videMode = this.tools.tool === "vide";
     const paneTool = this.tools.tool === "cabinet"
       || this.tools.tool === "zoom" || this.tools.tool === "door"
-      || this.tools.tool === "window" || this.tools.tool === "passage";
+      || this.tools.tool === "window" || this.tools.tool === "passage"
+      || this.tools.tool === "wall";
     const selSig = (stairMode ? `stair-tool:${this.tools.stairKind}|` : "")
       + (videMode ? "vide-tool|" : "")
       + (paneTool ? "pane-tool:" + this.tools.tool + "|" : "")
+      + (this.tools.tool === "wall"
+        ? `wall:${this.tools.wallShape}:${this.tools.polygonSides}:${this.tools.squareLock}:${this.tools.canCloseChain}|`
+        : "")
       + (sel ? `${sel.kind}:${sel.id}` : "none");
     // Plan rows and the storey picker read from the document, so they have to
     // rebuild when an undo changes a value under them -- but not on every
@@ -527,21 +535,39 @@ export class Panel {
     const sheet = this.sheet;
     if (!sheet) return;
 
-    if (this.tools.chaining && !this.chainBar) {
-      const bar = el("div", "wg-chain");
-      const label = el("span", "sec-label");
-      label.textContent = t("panel.wall");
-      const done = el("button", "wg-done") as HTMLButtonElement;
-      done.type = "button";
-      done.textContent = t("panel.chainDone");
-      done.title = t("panel.chainDoneTitle");
-      done.onclick = () => this.tools.endChain();
-      bar.append(label, el("div", "sec-rule"), done);
-      sheet.body.prepend(bar);
-      this.chainBar = bar;
-    } else if (!this.tools.chaining && this.chainBar) {
-      this.chainBar.remove();
+    // The bar over the sheet while a wall is being drawn: a way to close the
+    // ring, and a way to stop -- both keys on a keyboard, neither of them on a
+    // phone. It is rebuilt rather than patched, since which buttons belong on it
+    // changes as the chain grows.
+    const barSig = this.tools.shaping ? "shape"
+      : this.tools.chaining ? (this.tools.canCloseChain ? "chain-close" : "chain")
+      : "";
+    if (barSig !== this.chainBarSig) {
+      this.chainBarSig = barSig;
+      this.chainBar?.remove();
       this.chainBar = null;
+      if (barSig) {
+        const bar = el("div", "wg-chain");
+        const label = el("span", "sec-label");
+        label.textContent = t("panel.wall");
+        bar.append(label, el("div", "sec-rule"));
+        if (this.tools.canCloseChain) {
+          const close = el("button", "wg-done") as HTMLButtonElement;
+          close.type = "button";
+          close.textContent = t("panel.chainClose");
+          close.title = t("panel.chainCloseTitle");
+          close.onclick = () => this.tools.closeChain();
+          bar.append(close);
+        }
+        const done = el("button", "wg-done") as HTMLButtonElement;
+        done.type = "button";
+        done.textContent = this.tools.shaping ? t("panel.shapeCancel") : t("panel.chainDone");
+        done.title = this.tools.shaping ? t("panel.shapeCancelTitle") : t("panel.chainDoneTitle");
+        done.onclick = () => this.tools.endChain();
+        bar.append(done);
+        sheet.body.prepend(bar);
+        this.chainBar = bar;
+      }
     }
 
     if (this.tools.typingLength && !this.keypadEl) {
@@ -1105,6 +1131,12 @@ export class Panel {
       renderZoomTool(p, this.store, this.tools, rows, this.tools.rooms(), this.roomEdit);
       return;
     }
+    // The wall tool states what the next wall is drawn with. With a wall
+    // selected the same rows follow its properties, below.
+    if (this.tools.tool === "wall" && sel?.kind !== "wall") {
+      renderWallTool(p, this.tools, rows, () => this.refreshToolbar());
+      return;
+    }
     // The opening tools state what the next opening is placed with, above the
     // properties of whichever one was just placed.
     if (this.tools.tool === "door" || this.tools.tool === "window" || this.tools.tool === "passage") {
@@ -1180,6 +1212,7 @@ export class Panel {
         });
       }, 50);
       dangerRow(t("panel.deleteWall"), () => { this.store.mutate(d => deleteWall(this.store.floorOf(d), sel.id)); this.store.select(null); });
+      if (this.tools.tool === "wall") renderWallTool(p, this.tools, rows, () => this.refreshToolbar());
       return;
     }
 

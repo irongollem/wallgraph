@@ -14,10 +14,16 @@ import { Vide, VideSize, VIDE_DEFAULT, clampVide } from "../model/vide";
 import {
   Cabinet, CabinetSpec, cabinetDefaults, cabinetPreset, clampCabinet,
 } from "../model/cabinet";
-import { nodeAt, splitWall, nearestWall, wallLength, mergeNodes, deleteWall, clampOpening, cleanOrphanNodes } from "../model/ops";
+import {
+  nodeAt, splitWall, nearestWall, wallLength, mergeNodes, deleteWall, clampOpening,
+  cleanOrphanNodes, insertWall, insertRun, MIN_WALL_MM,
+} from "../model/ops";
+import {
+  WallShape, WALL_SHAPES, ShapeRun, shapeRun, clampSides, POLYGON_DEFAULT_SIDES,
+} from "../model/shape";
 import { Viewport } from "../render/viewport";
-import { Vec, v, add, sub, scale, norm, perp, dist, angleOf, fromAngle, dot, pointInPolygon } from "../geometry/vec";
-import { arcPointAt, arcTangentAt, bulgeFromSagitta } from "../geometry/arc";
+import { Vec, v, add, sub, scale, norm, perp, dist, mid, angleOf, fromAngle, dot, pointInPolygon } from "../geometry/vec";
+import { arcInfo, arcPointAt, arcTangentAt, bulgeFromSagitta } from "../geometry/arc";
 import { getSymbol, SymbolDef, SYMBOL_TYPES } from "../render/symbols";
 import { stairHit, resolveStair, stairBox, stairCorners, stairIssues, gradient } from "../core/stair";
 import { drawStairGhost } from "../render/stair";
@@ -80,6 +86,15 @@ export class Tools {
   showDims = false; // always show wall measurements (clickable), not only on selection
   lastThickness = 100;
   /**
+   * What the wall tool draws: a chain of single walls, or a closed shape struck
+   * out between two points. A room is four walls either way -- the shape is only
+   * how they are entered, so nothing about it is stored (see model/shape.ts).
+   */
+  wallShape: WallShape = "line";
+  /** Rectangle only: keep it square. Shift does the same while drawing. */
+  squareLock = false;
+  polygonSides = POLYGON_DEFAULT_SIDES;
+  /**
    * Pen for the next symbol placed; null = the plan's default ink. Same idea as
    * lastThickness: the work is "place twenty sockets in red", so the colour is a
    * standing choice rather than something to set twenty times afterwards.
@@ -137,6 +152,12 @@ export class Tools {
 
   private chainStart: Vec | null = null;
   private chainStartNode: string | null = null;
+  /** Where the open chain began, so it can be closed back onto itself. */
+  private chainFirstNode: string | null = null;
+  /** First point of the shape being drawn; no document change until the second. */
+  private shapeStart: Vec | null = null;
+  /** Shift, as the last pointer or key event reported it. */
+  private shiftKey = false;
   private cursor: Vec = v(0, 0);
   lengthBuffer = "";
   private drag: DragState | null = null;
@@ -162,6 +183,8 @@ export class Tools {
   private pinch: { dist: number; mid: Vec } | null = null;
   /** Where a single touch went down, so a tap can be told from a drag. */
   private tapStart: { screen: Vec; time: number } | null = null;
+  /** Where the first pointer went down, whatever device it was. */
+  private pressScreen: Vec | null = null;
   /** True from the moment a second finger lands until the last one lifts. */
   private navigated = false;
   private lastTapTime = 0;
@@ -201,6 +224,13 @@ export class Tools {
       if (this.lastPointerType === "mouse") this.cancel();
     });
     window.addEventListener("keydown", e => this.onKey(e));
+    // Shift squares off the rectangle being struck out, so letting go of it has
+    // to reach the ghost as well as the commit.
+    window.addEventListener("keyup", e => {
+      if (e.key !== "Shift") return;
+      this.shiftKey = false;
+      if (this.shapeStart) this.requestRender();
+    });
   }
 
   setTool(t: ToolName, symbolType?: string): void {
@@ -306,9 +336,33 @@ export class Tools {
     this.requestRender();
   }
 
+  /**
+   * Arm one of the wall shapes. W cycles through them, which is why the order
+   * in WALL_SHAPES is the order they are offered in.
+   */
+  setWallShape(shape: WallShape): void {
+    this.wallShape = shape;
+    this.cancel(false);
+    this.updateHint();
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  cycleWallShape(): void {
+    const i = WALL_SHAPES.indexOf(this.wallShape);
+    this.setWallShape(WALL_SHAPES[(i + 1) % WALL_SHAPES.length]!);
+  }
+
+  setPolygonSides(n: number): void {
+    this.polygonSides = clampSides(n);
+    this.refresh();
+  }
+
   cancel(render = true): void {
     this.chainStart = null;
     this.chainStartNode = null;
+    this.chainFirstNode = null;
+    this.shapeStart = null;
     this.lengthBuffer = "";
     this.drag = null;
     if (render) this.requestRender();
@@ -316,6 +370,32 @@ export class Tools {
 
   /** True while a wall chain is open, so the host can offer a way to close it. */
   get chaining(): boolean { return this.chainStart !== null; }
+
+  /** True while a shape has its first point down and is waiting for the second. */
+  get shaping(): boolean { return this.shapeStart !== null; }
+
+  /**
+   * True when the chain has somewhere to close back to. Two points make a line,
+   * not a ring, so the first wall of a chain cannot close it.
+   */
+  get canCloseChain(): boolean {
+    return this.chainFirstNode !== null && this.chainStartNode !== null
+        && this.chainFirstNode !== this.chainStartNode;
+  }
+
+  /**
+   * Run a last wall from where the chain stands back to where it began, and end
+   * it. Four clicks then draw a room rather than five, and the ring closes on
+   * the node it started from rather than on a second node in the same place.
+   */
+  closeChain(): void {
+    if (!this.canCloseChain) return;
+    const from = this.chainStartNode!, to = this.chainFirstNode!;
+    this.store.mutate(doc => {
+      insertWall(this.store.floorOf(doc), from, to, this.lastThickness);
+    });
+    this.endChain();
+  }
 
   /**
    * True when a typed length would be acted on: a chain waiting for its next
@@ -640,11 +720,13 @@ export class Tools {
     // take the rest of the gesture down with it.
     try { this.canvas.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
     this.lastPointerType = e.pointerType;
+    this.shiftKey = e.shiftKey;
     this.hoverSymbol = null; // a name pill has no business sitting under a click or drag
     this.hoverStair = null;
     const s = this.screenOf(e);
     const w = this.vp.toWorld(s);
     this.pointers.set(e.pointerId, s);
+    if (this.pointers.size === 1) this.pressScreen = s;
 
     // A second finger takes over as navigation. A drag already under way is
     // finished where it stands rather than dropped: dragMove commits as it
@@ -713,6 +795,7 @@ export class Tools {
     const s = this.screenOf(e);
     const w = this.vp.toWorld(s);
     this.lastPointerType = e.pointerType;
+    this.shiftKey = e.shiftKey;
     if (this.pointers.has(e.pointerId)) this.pointers.set(e.pointerId, s);
     if (this.pointers.size >= 2) { this.pinchMove(); return; }
     this.cursor = w;
@@ -749,6 +832,20 @@ export class Tools {
       const held = e.timeStamp - tap.time > TAP_MS;
       if (!travelled && !held) this.onTap(e.timeStamp);
     }
+
+    // A shape can be struck out in one gesture as well as clicked corner to
+    // corner: with its first point already down, a release that travelled is
+    // the second one. The first point is not a document change, so unlike a
+    // placement this can safely begin on contact.
+    if (this.tool === "wall" && this.shapeStart && !this.drag && this.pressScreen
+        && dist(this.screenOf(e), this.pressScreen) > TAP_SLOP_PX) {
+      this.pressScreen = null;
+      this.cursor = this.vp.toWorld(this.screenOf(e));
+      this.snap = this.computeSnap(this.cursor, false);
+      this.shapeClick();
+      return;
+    }
+    this.pressScreen = null;
 
     if (!this.drag) { this.requestRender(); return; }
     const d = this.drag;
@@ -789,6 +886,7 @@ export class Tools {
 
   // ---- wall tool ----
   private wallClick(): void {
+    if (this.wallShape !== "line") { this.shapeClick(); return; }
     const snap = this.snap ?? this.computeSnap(this.cursor, true);
     let target = snap.p;
     if (this.chainStart && this.lengthBuffer) {
@@ -804,21 +902,63 @@ export class Tools {
         const n = this.anchorNode(f, snap, target);
         this.chainStart = v(n.x, n.y);
         this.chainStartNode = n.id;
+        this.chainFirstNode = n.id;
       });
     } else {
-      if (dist(target, this.chainStart) < 10) return;
+      if (dist(target, this.chainStart) < MIN_WALL_MM) return;
       this.store.mutate(doc => {
         const f = this.store.floorOf(doc);
         const startId = this.chainStartNode!;
         const endSnap = this.lengthBuffer ? null : snap;
         const nEnd = endSnap ? this.anchorNode(f, endSnap, target) : nodeAt(f, target);
         if (nEnd.id === startId) return;
-        f.walls.push({ id: newId("w"), a: startId, b: nEnd.id, thickness: this.lastThickness, bulge: 0, openings: [] });
+        insertWall(f, startId, nEnd.id, this.lastThickness);
         this.chainStart = v(nEnd.x, nEnd.y);
         this.chainStartNode = nEnd.id;
       });
       this.lengthBuffer = "";
     }
+    this.updateHint();
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /**
+   * The shape being struck out, or null when there is nothing to draw yet.
+   * Both the ghost and the walls come from here, so what is drawn is what was
+   * previewed.
+   */
+  private pendingShape(to?: Vec): ShapeRun | null {
+    if (!this.shapeStart) return null;
+    return shapeRun(this.wallShape, this.shapeStart, to ?? this.snap?.p ?? this.cursor, {
+      square: this.squareLock || this.shiftKey,
+      sides: this.polygonSides,
+    });
+  }
+
+  /**
+   * A shape takes two points: corner to opposite corner for a rectangle, centre
+   * to rim for a circle and a polygon. The first only arms it -- nothing reaches
+   * the document until the second, so a shape can be abandoned with Escape and
+   * leaves no stray node behind.
+   */
+  private shapeClick(): void {
+    const snap = this.snap ?? this.computeSnap(this.cursor, false);
+    if (!this.shapeStart) {
+      this.shapeStart = snap.p;
+      this.updateHint();
+      this.onToolChange();
+      this.requestRender();
+      return;
+    }
+    const run = this.pendingShape(snap.p);
+    // Too small to be a shape: hold the first point rather than throwing the
+    // gesture away, since this is what a double click on one spot produces.
+    if (!run) return;
+    this.store.mutate(doc => {
+      insertRun(this.store.floorOf(doc), run.points, run.bulges, this.lastThickness);
+    });
+    this.shapeStart = null;
     this.updateHint();
     this.onToolChange();
     this.requestRender();
@@ -1384,6 +1524,11 @@ export class Tools {
     const tag = (e.target as HTMLElement)?.tagName;
     if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
 
+    if (e.shiftKey !== this.shiftKey) {
+      this.shiftKey = e.shiftKey;
+      if (this.shapeStart) this.requestRender();
+    }
+
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
       e.preventDefault();
       if (e.shiftKey) this.store.redo(); else this.store.undo();
@@ -1404,7 +1549,11 @@ export class Tools {
     switch (e.key) {
       case "Escape": this.cancel(); this.updateHint(); break;
       case "v": case "V": this.setTool("select"); break;
-      case "w": case "W": this.setTool("wall"); break;
+      // W arms the wall tool; pressing it again steps through the shapes it
+      // draws, so the four live behind one key and one rail button.
+      case "w": case "W":
+        if (this.tool === "wall") this.cycleWallShape(); else this.setTool("wall");
+        break;
       case "d": case "D": this.setTool("door"); break;
       case "n": case "N": this.setTool("window"); break;
       case "p": case "P": this.setTool("passage"); break;
@@ -1425,6 +1574,9 @@ export class Tools {
       case "l": case "L": this.showDims = !this.showDims; this.onToolChange(); this.requestRender(); break;
       case "r": case "R": this.rotateSelected(); break;
       case "m": case "M": this.mirrorSelected(); break;
+      // Nothing else reads Enter without a typed length in the buffer, and
+      // closing the ring is what a chain is usually four clicks away from.
+      case "Enter": if (this.tool === "wall") this.closeChain(); break;
       case "Delete": case "Backspace": this.deleteSelected(); break;
     }
   }
@@ -1625,11 +1777,18 @@ export class Tools {
   updateHint(): void {
     const h = (base: string, vars?: Record<string, string | number>): string => t(this.hintKey(base), vars);
     switch (this.tool) {
-      case "wall":
+      case "wall": {
+        if (this.wallShape !== "line") {
+          const base = this.wallShape === "rect" ? "wallRect"
+            : this.wallShape === "circle" ? "wallCircle" : "wallPolygon";
+          this.hint = h(this.shapeStart ? base + "To" : base);
+          break;
+        }
         this.hint = this.chainStart
           ? (this.lengthBuffer ? h("wallTyped", { length: this.lengthBuffer }) : h("wallChain"))
           : h("wallStart");
         break;
+      }
       case "select":
         this.hint = this.store.sel?.kind === "wall"
           ? (this.lengthBuffer
@@ -1652,6 +1811,52 @@ export class Tools {
       }
       case "zoom": this.hint = h("zoom"); break;
     }
+  }
+
+  /**
+   * The shape about to be drawn, at the thickness it will have, labelled with
+   * the figure being aimed for: the two sides of a rectangle, the diameter of a
+   * circle, the side of a polygon.
+   */
+  private drawShapeGhost(ctx: CanvasRenderingContext2D, vp: Viewport, run: ShapeRun): void {
+    const th = this.lastThickness;
+    ctx.save();
+    ctx.fillStyle = "rgba(61,65,72,0.35)";
+    ctx.strokeStyle = "rgba(61,65,72,0.35)";
+    ctx.lineWidth = th;
+    for (let i = 0; i < run.points.length; i++) {
+      const A = run.points[i]!, B = run.points[(i + 1) % run.points.length]!;
+      const info = arcInfo(A, B, run.bulges[i] ?? 0);
+      if (info) {
+        ctx.beginPath();
+        ctx.arc(info.center.x, info.center.y, info.radius, info.a0, info.a1, info.ccw);
+        ctx.stroke();
+      } else {
+        const n = scale(perp(norm(sub(B, A))), th / 2);
+        ctx.beginPath();
+        ctx.moveTo(A.x + n.x, A.y + n.y);
+        ctx.lineTo(B.x + n.x, B.y + n.y);
+        ctx.lineTo(B.x - n.x, B.y - n.y);
+        ctx.lineTo(A.x - n.x, A.y - n.y);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+    const box = polyBounds(run.points);
+    if (box) drawLabel(ctx, vp, mid(box.min, box.max), this.shapeFigure(run));
+  }
+
+  /** What the shape ghost is labelled with. */
+  private shapeFigure(run: ShapeRun): string {
+    const pts = run.points;
+    if (this.wallShape === "rect") {
+      return `${Math.abs(pts[1]!.x - pts[0]!.x)} \u00d7 ${Math.abs(pts[2]!.y - pts[1]!.y)} mm`;
+    }
+    if (this.wallShape === "circle" && this.shapeStart) {
+      return `\u2300 ${Math.round(2 * dist(this.shapeStart, pts[0]!))} mm`;
+    }
+    return `${pts.length} \u00d7 ${Math.round(dist(pts[0]!, pts[1]!))} mm`;
   }
 
   /**
@@ -2010,6 +2215,13 @@ export class Tools {
       const L = Math.round(dist(this.chainStart, target));
       drawLabel(ctx, vp, scale(add(this.chainStart, target), 0.5),
         this.lengthBuffer ? `${this.lengthBuffer}▎mm` : `${L} mm`);
+    }
+
+    // Shape preview. Drawn from the same run that will be welded in, so what is
+    // shown is what lands.
+    if (this.tool === "wall" && this.shapeStart) {
+      const run = this.pendingShape();
+      if (run) this.drawShapeGhost(ctx, vp, run);
     }
 
     // Symbol placement ghost.

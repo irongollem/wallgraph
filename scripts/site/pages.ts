@@ -185,13 +185,25 @@ function manualBody(lang: Lang): string {
   const editor = editorHref(lang);
   if (lang === "nl") {
     return `<h2 id="muren">Muren tekenen</h2>
-<p><kbd>W</kbd> activeert het muurgereedschap. Een klik plaatst het beginpunt; volgende klikken vormen
-een keten. Tijdens het tekenen kan een lengte in millimeters worden getypt. <kbd>Enter</kbd> legt het
-segment op die lengte vast in de gekozen richting. <kbd>Esc</kbd> sluit de keten af.</p>
+<p><kbd>W</kbd> activeert het muurgereedschap; nogmaals <kbd>W</kbd> loopt door de vier vormen waarin
+het tekent: lijn, rechthoek, cirkel en veelhoek. Diezelfde keuze staat in het paneel, samen met de dikte
+waarmee de volgende muur wordt getekend.</p>
+<p>Met de lijn plaatst een klik het beginpunt en vormen volgende klikken een keten. Tijdens het tekenen
+kan een lengte in millimeters worden getypt. <kbd>Enter</kbd> legt het segment op die lengte vast in de
+gekozen richting; zonder getypte lengte sluit <kbd>Enter</kbd> de keten terug op het beginpunt.
+<kbd>Esc</kbd> sluit de keten af.</p>
+<p>De andere drie vormen nemen twee punten: hoek en tegenoverliggende hoek voor de rechthoek,
+middelpunt en straal voor de cirkel en de veelhoek. Klikken of slepen, beide werken. <kbd>Shift</kbd>
+houdt de rechthoek vierkant, en op een aanraakscherm doet de schakelaar Vierkant hetzelfde. Wat blijft
+staan zijn gewone muren — de cirkel is vier kwartbogen — die daarna te verplaatsen en te buigen zijn
+en openingen kunnen dragen.</p>
 <ul>
 <li><kbd>O</kbd> zet hoeksnapping (90°/45°) aan en uit.</li>
 <li><kbd>G</kbd> zet rastersnapping aan en uit. Uit blijft nog steeds op hele millimeters afronden.</li>
-<li>Aansluiting op een bestaande muur splitst die muur en vormt een T-knoop.</li>
+<li>Een nieuwe muur splitst elke muur die hij kruist, en zichzelf op elke knoop waar hij doorheen loopt.</li>
+<li>Een stuk dat al door een muur op dezelfde lijn wordt gedragen, wordt niet nog eens getekend: twee
+rechthoeken naast elkaar delen één muur in plaats van er twee op elkaar te leggen. Die muur houdt
+de dikte die hij had.</li>
 </ul>
 
 <h2 id="selecteren">Selecteren, verplaatsen, krommen</h2>
@@ -296,7 +308,7 @@ applicatieserver vereist. De plattegrond blijft na het sluiten van het tabblad b
 <h2 id="sneltoetsen">Sneltoetsen</h2>
 <table><thead><tr><th>Toets</th><th>Doet</th></tr></thead><tbody>
 <tr><td><kbd>V</kbd></td><td>selecteren en verplaatsen</td></tr>
-<tr><td><kbd>W</kbd></td><td>muren tekenen</td></tr>
+<tr><td><kbd>W</kbd></td><td>muren tekenen; nogmaals: volgende vorm</td></tr>
 <tr><td><kbd>D</kbd> <kbd>N</kbd> <kbd>P</kbd></td><td>deur, raam, doorgang</td></tr>
 <tr><td><kbd>S</kbd></td><td>symbool plaatsen</td></tr>
 <tr><td><kbd>T</kbd></td><td>trap plaatsen</td></tr>
@@ -310,6 +322,7 @@ applicatieserver vereist. De plattegrond blijft na het sluiten van het tabblad b
 <tr><td><kbd>L</kbd></td><td>maatlijnen aan/uit</td></tr>
 <tr><td><kbd>R</kbd> <kbd>M</kbd></td><td>roteren, spiegelen</td></tr>
 <tr><td><kbd>Del</kbd></td><td>selectie verwijderen</td></tr>
+<tr><td><kbd>Enter</kbd></td><td>muurketen sluiten (zonder getypte lengte)</td></tr>
 <tr><td><kbd>Esc</kbd></td><td>afbreken / keten afsluiten</td></tr>
 <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>ongedaan maken</td></tr>
 <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></td><td>opnieuw</td></tr>
@@ -320,13 +333,23 @@ applicatieserver vereist. De plattegrond blijft na het sluiten van het tabblad b
 documentwijziging ongedaan.</p>`;
   }
   return `<h2 id="walls">Drawing walls</h2>
-<p><kbd>W</kbd> activates the wall tool. The first click places a start point; subsequent clicks form a
-chain. A length in millimetres can be typed while drawing. <kbd>Enter</kbd> commits the segment at that
-length in the selected direction. <kbd>Esc</kbd> ends the chain.</p>
+<p><kbd>W</kbd> activates the wall tool; pressing <kbd>W</kbd> again steps through the four shapes it
+draws: line, rectangle, circle and polygon. The same choice is in the panel, next to the thickness the
+next wall is drawn at.</p>
+<p>With the line, the first click places a start point and subsequent clicks form a chain. A length in
+millimetres can be typed while drawing. <kbd>Enter</kbd> commits the segment at that length in the
+selected direction; with nothing typed, <kbd>Enter</kbd> closes the chain back onto its first point.
+<kbd>Esc</kbd> ends the chain.</p>
+<p>The other three shapes take two points: corner and opposite corner for the rectangle, centre and
+radius for the circle and the polygon. Clicking and dragging both work. <kbd>Shift</kbd> keeps the
+rectangle square, and on a touch screen the Square toggle does the same. What they leave behind are
+ordinary walls — the circle is four quarter arcs — free to be moved, curved and given openings.</p>
 <ul>
 <li><kbd>O</kbd> toggles angle snapping (90°/45°).</li>
 <li><kbd>G</kbd> toggles grid snapping. Off still rounds to whole millimetres.</li>
-<li>Connecting to an existing wall splits that wall and creates a T-junction.</li>
+<li>A new wall splits every wall it crosses, and splits itself at every node it runs through.</li>
+<li>A stretch a collinear wall already carries is not drawn again: two rectangles side by side share one
+wall rather than stacking two. That wall keeps the thickness it had.</li>
 </ul>
 
 <h2 id="select">Selecting, moving, curving</h2>
@@ -425,7 +448,7 @@ server. The plan remains available after the tab is closed.</p>
 <h2 id="shortcuts">Keyboard shortcuts</h2>
 <table><thead><tr><th>Key</th><th>Does</th></tr></thead><tbody>
 <tr><td><kbd>V</kbd></td><td>select and move</td></tr>
-<tr><td><kbd>W</kbd></td><td>draw walls</td></tr>
+<tr><td><kbd>W</kbd></td><td>draw walls; again: next shape</td></tr>
 <tr><td><kbd>D</kbd> <kbd>N</kbd> <kbd>P</kbd></td><td>door, window, passage</td></tr>
 <tr><td><kbd>S</kbd></td><td>place a symbol</td></tr>
 <tr><td><kbd>T</kbd></td><td>place a stair</td></tr>
@@ -439,6 +462,7 @@ server. The plan remains available after the tab is closed.</p>
 <tr><td><kbd>L</kbd></td><td>dimension lines on/off</td></tr>
 <tr><td><kbd>R</kbd> <kbd>M</kbd></td><td>rotate, mirror</td></tr>
 <tr><td><kbd>Del</kbd></td><td>delete the selection</td></tr>
+<tr><td><kbd>Enter</kbd></td><td>close the wall chain (with no length typed)</td></tr>
 <tr><td><kbd>Esc</kbd></td><td>cancel / end the chain</td></tr>
 <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>undo</td></tr>
 <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></td><td>redo</td></tr>

@@ -195,6 +195,7 @@ export function alternatesFor(page: PageMeta): Partial<Record<Lang, string>> {
 export const FEATURES: Record<Lang, string[]> = {
   nl: [
     "Muren tekenen met getypte lengtes in hele millimeters",
+    "Rechthoek, cirkel en veelhoek in twee klikken; gedeelde muren worden samengevoegd",
     "Deuren, ramen en doorgangen die de muur automatisch doorsnijden",
     "27 NEN deur- en raamtypen met draai-, kiep-, schuif- en tuimelrichting",
     `${N} plattegrondsymbolen: elektra, water, sanitair, verwarming, ventilatie, brandveiligheid, keuken, meubels`,
@@ -206,6 +207,7 @@ export const FEATURES: Record<Lang, string[]> = {
   ],
   en: [
     "Draw walls by typing exact lengths in whole millimetres",
+    "Rectangle, circle and polygon in two clicks, with shared walls merged",
     "Doors, windows and passages that cut the wall automatically",
     "27 NEN door and window types with turn, tilt, slide and tumble direction",
     `${N} plan symbols: electrical, water, sanitary, heating, ventilation, fire safety, kitchen, furniture`,

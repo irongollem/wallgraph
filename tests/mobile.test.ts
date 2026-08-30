@@ -80,6 +80,7 @@ function check(name: string, cond: boolean, detail = ""): void {
   const bases = [
     "select", "selectWall", "selectWallTyped",
     "wallStart", "wallChain", "wallTyped",
+    "wallRect", "wallRectTo", "wallCircle", "wallCircleTo", "wallPolygon", "wallPolygonTo",
     "door", "window", "passage", "symbol", "stair", "vide",
     "cabinet", "zoom",
   ];

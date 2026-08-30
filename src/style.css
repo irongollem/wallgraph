@@ -289,6 +289,12 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
      than mid-syllable. break-word only splits a word that cannot fit alone. */
   hyphens: auto; -webkit-hyphens: auto; overflow-wrap: break-word; }
 
+/* The wall tool's shape picker. Four across rather than the symbol grid's three,
+   so line, rectangle, circle and polygon read as one row of choices. */
+.shape-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; padding-bottom: 8px; }
+.shape-tile { color: #3d4148; }
+.shape-tile.is-active { color: #fff; }
+
 /* ---------- menu ---------- */
 
 .menu-backdrop { position: fixed; inset: 0; z-index: 20; background: none; }
