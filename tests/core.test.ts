@@ -2,8 +2,8 @@
 import { emptyDoc, newId, Wall, GRID_DEFAULT_MM } from "../src/model/doc";
 import { Store } from "../src/model/store";
 import { sashesOf, sashSpecsOf, doorKindOf, windowKindOf, DOOR_KINDS, WINDOW_KINDS, type Opening } from "../src/model/doc";
-import { detectRooms } from "../src/core/rooms";
-import { insertWall, insertRun, nodeAt, wallLength } from "../src/model/ops";
+import { detectRooms, rectSize, roomSize } from "../src/core/rooms";
+import { insertWall, insertRun, nodeAt, wallLength, wallOnRay } from "../src/model/ops";
 import { shapeRun } from "../src/model/shape";
 import { dimensionChains } from "../src/core/dimensions";
 import { seedDoc } from "../src/seed";
@@ -543,6 +543,148 @@ function rectFloor(wallTh = 100) {
   f.walls.push({ id: newId("w"), a: a.id, b: b.id, thickness: 100, bulge: 0, openings: [] });
   const chains = dimensionChains(f);
   check("a lone wall still dimensions", chains.length === 1 && Math.abs(chains[0]!.total - 3000) < 1);
+}
+
+// --- aiming a wall at a wall ---
+{
+  const f = rectFloor(100);
+  // Straight across from the middle of the left wall: the run has to land on
+  // the right wall, not on whatever grid multiple the cursor was over.
+  const hit = wallOnRay(f, v(0, 1500), v(1, 0), v(3900, 1520), 200);
+  check("a locked ray lands on the wall it crosses",
+    hit !== null && near(hit.p.x, 4000, 1) && near(hit.p.y, 1500, 1), JSON.stringify(hit?.p));
+  check("the crossing knows where along that wall it is",
+    hit !== null && near(hit.tMm, 1500, 1), String(hit?.tMm));
+  // Out of reach of the cursor: a ray crosses the whole plan, and grabbing
+  // something the drawer is nowhere near would move the wall by itself.
+  check("a crossing far from the cursor is not snapped to",
+    wallOnRay(f, v(0, 1500), v(1, 0), v(2000, 1500), 200) === null);
+  // A generous tolerance still must not reach a wall already passed.
+  check("the ray only looks forward",
+    wallOnRay(f, v(2000, 1500), v(1, 0), v(0, 1500), 3000) === null);
+  // A wall running the same way is not something to meet.
+  check("a parallel wall is not a crossing",
+    wallOnRay(f, v(0, 0), v(1, 0), v(2000, 0), 200) === null);
+}
+
+// --- clear (dagmaat) chains ---
+{
+  // Interior work is set out from the face, not the axis: a clear chain stands
+  // off half a wall at each corner, so a 4000 facade measures 3700 inside.
+  const f = rectFloor(300);
+  const clear = dimensionChains(f, "clear");
+  check("a clear chain per facade", clear.length === 4, String(clear.length));
+  for (const c of clear) {
+    const first = c.spans[0]!.from, last = c.spans[c.spans.length - 1]!.to;
+    check("a clear run stands off both corners",
+      near(first, 150, 1) && near(last, c.total - 150, 1), `${first}..${last} of ${c.total}`);
+    check("the clear overall is one wall shorter than hart-op-hart",
+      near(last - first, c.total - 300, 1), String(last - first));
+    check("a clear chain reports its convention", c.mode === "clear");
+  }
+  // The default convention is unchanged: those runs still measure node to node.
+  const axis = dimensionChains(f);
+  check("centerline chains still run node to node",
+    axis.every(c => c.spans[0]!.from === 0
+      && near(c.spans[c.spans.length - 1]!.to, c.total, 1)
+      && c.mode === "centerline"));
+}
+{
+  // Two rooms side by side: the partition tees into the facade, so the clear
+  // chain measures each room to its face and the partition between them.
+  const f = emptyDoc().floors[0]!;
+  const left = shapeRun("rect", v(0, 0), v(4000, 3000))!;
+  insertRun(f, left.points, left.bulges, 100);
+  const right = shapeRun("rect", v(4000, 0), v(8000, 3000))!;
+  insertRun(f, right.points, right.bulges, 100);
+  const top = dimensionChains(f, "clear").find(c => Math.abs(c.dir.x) > 0.99 && c.origin.y < 100);
+  const mm = (top?.spans ?? []).map(s2 => s2.mm).join(",");
+  check("a clear chain measures the rooms and the partition between them",
+    mm === "3900,100,3900", mm);
+}
+{
+  // An opening is carved to its width, so its jambs are clear either way.
+  const f = seedDoc().floors[0]!;
+  const top = dimensionChains(f, "clear").find(c => Math.abs(c.dir.x) > 0.99 && c.origin.y < 100);
+  check("an opening keeps its own span in a clear chain",
+    top !== undefined && top.spans.some(s2 => s2.mm === 1800),
+    top ? top.spans.map(s2 => s2.mm).join(",") : "no top chain");
+}
+{
+  // `t` is measured from the wall's node a. A run traverses walls in its own
+  // direction, so a wall stored the other way round has to be read backwards or
+  // its opening lands mirrored within the chain.
+  const f = emptyDoc().floors[0]!;
+  const a = { id: newId("n"), x: 0, y: 0 }, b = { id: newId("n"), x: 4000, y: 0 };
+  const c = { id: newId("n"), x: 8000, y: 0 };
+  f.nodes.push(a, b, c);
+  // The second wall runs c -> b, against the run, and carries a 1000 opening
+  // 1500 from c, which is 6500 from the run's origin.
+  f.walls.push({ id: newId("w"), a: a.id, b: b.id, thickness: 100, bulge: 0, openings: [] });
+  f.walls.push({
+    id: newId("w"), a: c.id, b: b.id, thickness: 100, bulge: 0,
+    openings: [{ id: newId("o"), kind: "door", t: 1500, width: 1000, sashes: [] }],
+  });
+  const run = dimensionChains(f)[0]!;
+  check("an opening on a reversed wall measures from the run's own start",
+    run.spans.some(s2 => s2.from === 6000 && s2.to === 7000),
+    run.spans.map(s2 => `${s2.from}-${s2.to}`).join(" "));
+}
+{
+  // A run grows from both ends of its seed. Whichever wall the floor happens to
+  // list first, the facade is one chain.
+  const f = emptyDoc().floors[0]!;
+  const ids = [0, 3000, 6000, 9000].map(x => {
+    const id = newId("n"); f.nodes.push({ id, x, y: 0 }); return id;
+  });
+  // Middle wall first, so the run has to grow backwards to reach the start.
+  for (const [i, j] of [[1, 2], [0, 1], [2, 3]] as const)
+    f.walls.push({ id: newId("w"), a: ids[i]!, b: ids[j]!, thickness: 100, bulge: 0, openings: [] });
+  const chains2 = dimensionChains(f);
+  check("a run grows backwards from its seed",
+    chains2.length === 1 && near(chains2[0]!.total, 9000, 1),
+    chains2.map(c2 => c2.total).join(","));
+}
+
+// --- room clear size ---
+{
+  const f = rectFloor(300);
+  const r = detectRooms(f)[0]!;
+  const clear = rectSize(r.netPoly);
+  check("a rectangular room states its clear size",
+    clear !== undefined && clear.w === 3700 && clear.d === 2700, JSON.stringify(clear));
+  const axis = rectSize(r.poly);
+  check("the same room centerline is the size the graph stores",
+    axis !== undefined && axis.w === 4000 && axis.d === 3000, JSON.stringify(axis));
+  // The size printed in a room is the dagmaat or nothing: a centerline size is
+  // not a span anything is built to.
+  check("centerline prints no room size", roomSize(r, "centerline") === undefined);
+  check("clear and both print the dagmaat",
+    roomSize(r, "clear")?.w === 3700 && roomSize(r, "both")?.w === 3700);
+}
+{
+  // A wall that a partition tees into leaves extra vertices along a straight
+  // side; they are not corners, and the room is still a rectangle.
+  const f = emptyDoc().floors[0]!;
+  const left = shapeRun("rect", v(0, 0), v(4000, 3000))!;
+  insertRun(f, left.points, left.bulges, 100);
+  const right = shapeRun("rect", v(4000, 0), v(8000, 3000))!;
+  insertRun(f, right.points, right.bulges, 100);
+  const rooms = detectRooms(f);
+  check("a tee on a wall does not stop a room stating its size",
+    rooms.length === 2 && rooms.every(r => rectSize(r.netPoly) !== undefined),
+    rooms.map(r => JSON.stringify(rectSize(r.netPoly))).join(" "));
+}
+{
+  // An L-shaped room has no single width and depth; its bounding box would
+  // state a span that is not there.
+  const f = emptyDoc().floors[0]!;
+  const pts = [v(0, 0), v(4000, 0), v(4000, 2000), v(2000, 2000), v(2000, 4000), v(0, 4000)];
+  insertRun(f, pts, pts.map(() => 0), 100);
+  const rooms = detectRooms(f);
+  check("an L-shaped room states no size",
+    rooms.length === 1 && rectSize(rooms[0]!.netPoly) === undefined,
+    String(rooms.length));
 }
 
 // --- welded wall insertion ---

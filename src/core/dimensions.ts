@@ -6,12 +6,21 @@
 // builder sets out from, and it is why the two are separate here rather than
 // one being a special case of the other.
 //
+// A chain measures in one of two conventions. Centerline runs axis to axis,
+// which is what the graph stores and what the structure is set out from. Clear
+// (dagmaat) puts every break on a wall face, which is what interior work is set
+// out from: the span a kitchen run or a cupboard has to fit into. The two
+// differ by half a wall at each junction, so a chain states which it is.
+//
 // A chain is a run of straight, collinear walls. Curved walls are excluded: a
 // chain measures along a line, and a bowed wall has no single line to measure
 // along. Its length still shows on the wall itself.
 import { Floor, Wall, Id } from "../model/doc";
 import { Vec, v, add, sub, scale, norm, dist, dot, cross, perp, pointInPolygon } from "../geometry/vec";
 import { detectRooms } from "./rooms";
+
+/** Which convention a chain's spans are measured in. */
+export type ChainMode = "centerline" | "clear";
 
 /** One measured span within a chain, as distances from the run's origin. */
 export interface DimSpan {
@@ -33,9 +42,14 @@ export interface DimChain {
   out: Vec;
   /** Half-thickness of the thickest wall in the run: how far the faces reach. */
   half: number;
+  /**
+   * Centerline length of the run. The measured extent is the spans: in clear
+   * mode the first begins and the last ends on a wall face, inside `total`.
+   */
   total: number;
-  /** Openings and junctions, in order. Always includes 0 and `total`. */
+  /** Openings and junctions, in order. */
   spans: DimSpan[];
+  mode: ChainMode;
   wallIds: Id[];
 }
 
@@ -43,8 +57,39 @@ export interface DimChain {
 const PARALLEL_TOL = 0.003;
 /** Ignore spans below this; they are miter slivers, not dimensions. */
 const MIN_SPAN_MM = 20;
+/** Below this sine a crossing wall is too near parallel to have a face across the run. */
+const CROSS_TOL = 0.05;
 
-interface Straight { wall: Wall; a: Vec; b: Vec; dir: Vec; len: number }
+interface Straight { wall: Wall; a: Vec; b: Vec; na: Id; nb: Id; dir: Vec; len: number }
+
+/** The same wall traversed the other way. */
+const flip = (s: Straight): Straight =>
+  ({ ...s, a: s.b, b: s.a, na: s.nb, nb: s.na, dir: scale(s.dir, -1) });
+
+/**
+ * How far the faces of the walls crossing at `node` sit from it, measured along
+ * `dir`. A wall meeting the run at an angle presents its face further along,
+ * hence the 1/sin, capped the way resolve.ts caps a miter. Zero when nothing
+ * crosses: a free end caps square on the node, so the face is the node.
+ */
+function faceOffset(floor: Floor, node: Id, dir: Vec, run: Set<Id>, pos: Map<Id, Vec>): number {
+  const here = pos.get(node);
+  if (!here) return 0;
+  let off = 0;
+  for (const w of floor.walls) {
+    if (run.has(w.id)) continue;
+    const other = w.a === node ? w.b : w.b === node ? w.a : undefined;
+    if (other === undefined) continue;
+    const p = pos.get(other);
+    if (!p || dist(p, here) < 1) continue;
+    // Chord direction. For an arc the tangent at the node differs slightly —
+    // the same approximation resolve.ts makes at an arc miter.
+    const sin = Math.abs(cross(norm(sub(p, here)), dir));
+    if (sin < CROSS_TOL) continue;
+    off = Math.max(off, Math.min(w.thickness / 2 / sin, w.thickness * 2));
+  }
+  return off;
+}
 
 /**
  * Every chain on a floor: one per run of collinear straight walls.
@@ -54,7 +99,7 @@ interface Straight { wall: Wall; a: Vec; b: Vec; dir: Vec; len: number }
  * one facade — which is why runs are grown from direction rather than from
  * node degree.
  */
-export function dimensionChains(floor: Floor): DimChain[] {
+export function dimensionChains(floor: Floor, mode: ChainMode = "centerline"): DimChain[] {
   const pos = new Map<Id, Vec>(floor.nodes.map(n => [n.id, v(n.x, n.y)] as const));
   const straights: Straight[] = [];
   for (const w of floor.walls) {
@@ -63,7 +108,7 @@ export function dimensionChains(floor: Floor): DimChain[] {
     if (!a || !b) continue;
     const len = dist(a, b);
     if (len < 1) continue;
-    straights.push({ wall: w, a, b, dir: norm(sub(b, a)), len });
+    straights.push({ wall: w, a, b, na: w.a, nb: w.b, dir: norm(sub(b, a)), len });
   }
   if (straights.length === 0) return [];
 
@@ -96,35 +141,50 @@ export function dimensionChains(floor: Floor): DimChain[] {
           && Math.abs(cross(s.dir, end.dir)) < PARALLEL_TOL
           && (dist(s.a, tip) < 1 || dist(s.b, tip) < 1));
         if (!next) break;
-        // Orient it to run the same way as the chain.
-        const oriented: Straight = dist(next.a, tip) < 1
-          ? next
-          : { ...next, a: next.b, b: next.a, dir: scale(next.dir, -1) };
+        // Orient it to run the same way as the chain: growing forward it leaves
+        // the tip, growing backward it arrives at it.
+        const oriented = dist(forward ? next.a : next.b, tip) < 1 ? next : flip(next);
         if (dot(oriented.dir, end.dir) < 0) break;   // doubles back; not a run
         used.add(next.wall.id);
         if (forward) run.push(oriented);
-        else run.unshift({ ...oriented, a: oriented.b, b: oriented.a, dir: oriented.dir });
+        else run.unshift(oriented);
       }
     }
 
-    // The first wall may itself need flipping so the run reads start to end.
     const origin = run[0]!.a;
     const dir = run[0]!.dir;
+    const runIds = new Set(run.map(s => s.wall.id));
     let cursor = 0;
-    const breaks: number[] = [0];
     let half = 0;
+    const joints: Array<{ d: number; node: Id }> = [{ d: 0, node: run[0]!.na }];
+    const jambs: number[] = [];
     for (const s of run) {
       half = Math.max(half, s.wall.thickness / 2);
-      // Openings: a jamb on each side of the centre, in run distance.
-      const flipped = dot(s.dir, dir) < 0;
+      // A wall whose stored a->b runs against the chain carries its openings
+      // the other way round: `t` is measured from node a, so read it from the
+      // far end.
+      const flipped = s.na !== s.wall.a;
       for (const o of s.wall.openings) {
         const t = flipped ? s.len - o.t : o.t;
-        breaks.push(cursor + t - o.width / 2, cursor + t + o.width / 2);
+        jambs.push(cursor + t - o.width / 2, cursor + t + o.width / 2);
       }
       cursor += s.len;
-      breaks.push(cursor);                    // the junction with the next wall
+      joints.push({ d: cursor, node: s.nb });
     }
     const total = cursor;
+
+    // Opening jambs are already clear in either convention — an opening is
+    // carved to its width — so only the junctions move.
+    const breaks: number[] = [...jambs];
+    for (const j of joints) {
+      const off = mode === "clear" ? faceOffset(floor, j.node, dir, runIds, pos) : 0;
+      if (off < 1) { breaks.push(j.d); continue; }
+      // A junction inside the run contributes both faces of the wall crossing
+      // there, which dimensions that wall between them; the run's own ends
+      // contribute only the face that looks inward.
+      if (j.d > 0) breaks.push(j.d - off);
+      if (j.d < total) breaks.push(j.d + off);
+    }
 
     const sorted = [...new Set(breaks.map(x => Math.round(x)))]
       .filter(x => x >= 0 && x <= Math.round(total))
@@ -159,7 +219,7 @@ export function dimensionChains(floor: Floor): DimChain[] {
       continue;                                   // encloses nothing; not a facade
     }
 
-    chains.push({ origin, dir, out, half, total, spans, wallIds: run.map(s => s.wall.id) });
+    chains.push({ origin, dir, out, half, total, spans, mode, wallIds: run.map(s => s.wall.id) });
   }
   return chains;
 }

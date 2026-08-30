@@ -12,10 +12,10 @@ import { exportDxf } from "../io/dxf";
 import { exportSvg } from "../io/svg";
 import { seedDoc } from "../seed";
 import {
-  emptyDoc, areaModeOf, floorHeight, sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS,
+  emptyDoc, areaModeOf, dimModeOf, floorHeight, sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS,
   doorKindOf, DOOR_KINDS, widthsFor, DOOR_WIDTHS_DOUBLE, FIRE_KINDS, FIRE_MINUTES,
   FIRE_MINUTES_DEFAULT,
-  type AreaMode, type Sash, type HingeEdge, type Opening, type Wall, type Floor, type FireKind,
+  type AreaMode, type DimMode, type Sash, type HingeEdge, type Opening, type Wall, type Floor, type FireKind,
 } from "../model/doc";
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
 import { COLORS, INKS } from "../render/draw";
@@ -1045,6 +1045,14 @@ export class Panel {
       [["net", t("panel.areaNet")], ["centerline", t("panel.areaCenterline")]],
       m => this.store.mutate(d => { d.areaMode = m as AreaMode; }));
     if (areaModeOf(this.store.doc) === "net") noteRow(t("panel.areaNote"));
+    // Which convention the dimension lines use, separately from the areas: the
+    // structure is set out hart-op-hart and interior work from the dagmaat, and
+    // a sheet can carry both. Only "L" decides whether they are drawn at all.
+    selRow(t("panel.dimMode"), dimModeOf(this.store.doc),
+      [["centerline", t("panel.dimCenterline")], ["clear", t("panel.dimClear")],
+       ["both", t("panel.dimBoth")]],
+      m => this.store.mutate(d => { d.dimMode = m as DimMode; }));
+    if (dimModeOf(this.store.doc) !== "centerline") noteRow(t("panel.dimNote"));
 
     wrap.append(head, body);
     return wrap;

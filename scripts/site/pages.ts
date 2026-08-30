@@ -198,7 +198,10 @@ houdt de rechthoek vierkant, en op een aanraakscherm doet de schakelaar Vierkant
 staan zijn gewone muren — de cirkel is vier kwartbogen — die daarna te verplaatsen en te buigen zijn
 en openingen kunnen dragen.</p>
 <ul>
-<li><kbd>O</kbd> zet hoeksnapping (90°/45°) aan en uit.</li>
+<li><kbd>O</kbd> zet hoeksnapping (90°/45°) aan en uit. <kbd>Shift</kbd> houdt de hoek vast zolang die
+ingedrukt blijft, ook als hoeksnapping uit staat.</li>
+<li>Een muur onder hoeksnapping eindigt op de muur waar hij op gericht wordt: kruist de vastgezette
+richting een muur vlak bij de cursor, dan valt het eindpunt op dat snijpunt en wordt die muur gesplitst.</li>
 <li><kbd>G</kbd> zet rastersnapping aan en uit. Uit blijft nog steeds op hele millimeters afronden.</li>
 <li>Een nieuwe muur splitst elke muur die hij kruist, en zichzelf op elke knoop waar hij doorheen loopt.</li>
 <li>Een stuk dat al door een muur op dezelfde lijn wordt gedragen, wordt niet nog eens getekend: twee
@@ -294,6 +297,11 @@ naam met het punt mee.</p>
 standaard <b>netto</b> (binnenwerks, NEN 2580); de legenda op het canvas zegt welke conventie geldt en
 in het Plan-paneel kan hart-op-hart worden gekozen. <kbd>L</kbd> zet maatlijnen op alle muren aan en uit;
 selectie van een maatlabel maakt invoer van de lengte mogelijk.</p>
+<p>De maatlijnen kennen dezelfde twee conventies, los te kiezen onder <b>Maatlijnen</b>: hart-op-hart,
+<b>dagmaat</b> — gemeten tussen de wandvlakken, waar interieurwerk vanaf wordt uitgezet — of beide,
+waarbij elke keten zijn eigen regel krijgt en de dagmaat het dichtst bij het gebouw ligt. Zodra de
+dagmaat wordt getoond, krijgt elke rechthoekige ruimte ook haar vrije breedte en diepte onder de
+oppervlakte, in PNG, SVG en DXF mee.</p>
 
 <h2 id="exporteren">Opslaan en exporteren</h2>
 <ul>
@@ -318,6 +326,7 @@ applicatieserver vereist. De plattegrond blijft na het sluiten van het tabblad b
 <tr><td><kbd>F</kbd></td><td>alles in beeld</td></tr>
 <tr><td><kbd>Shift</kbd>+<kbd>F</kbd></td><td>selectie in beeld</td></tr>
 <tr><td><kbd>O</kbd></td><td>hoeksnapping aan/uit</td></tr>
+<tr><td><kbd>Shift</kbd></td><td>hoek vasthouden tijdens het tekenen</td></tr>
 <tr><td><kbd>G</kbd></td><td>rastersnapping aan/uit</td></tr>
 <tr><td><kbd>L</kbd></td><td>maatlijnen aan/uit</td></tr>
 <tr><td><kbd>R</kbd> <kbd>M</kbd></td><td>roteren, spiegelen</td></tr>
@@ -345,7 +354,10 @@ radius for the circle and the polygon. Clicking and dragging both work. <kbd>Shi
 rectangle square, and on a touch screen the Square toggle does the same. What they leave behind are
 ordinary walls — the circle is four quarter arcs — free to be moved, curved and given openings.</p>
 <ul>
-<li><kbd>O</kbd> toggles angle snapping (90°/45°).</li>
+<li><kbd>O</kbd> toggles angle snapping (90°/45°). <kbd>Shift</kbd> holds the angle for as long as it
+is down, angle snapping on or off.</li>
+<li>A wall drawn under the angle lock ends on the wall it is aimed at: where the locked direction
+crosses a wall near the cursor, the end lands on that crossing and splits that wall.</li>
 <li><kbd>G</kbd> toggles grid snapping. Off still rounds to whole millimetres.</li>
 <li>A new wall splits every wall it crosses, and splits itself at every node it runs through.</li>
 <li>A stretch a collinear wall already carries is not drawn again: two rectangles side by side share one
@@ -434,6 +446,11 @@ from that point. Move a wall so the point falls in the next room and the name go
 default (inner faces, NEN 2580); the canvas legend states which convention is in force, and the
 Plan panel can select centerline measurement. <kbd>L</kbd> toggles dimension lines on every wall;
 selecting a dimension label enables length input.</p>
+<p>The dimension lines carry the same two conventions, chosen separately under <b>Dimensions</b>:
+centerline, <b>clear span</b> — measured between the wall faces, which is what interior work is set
+out from — or both, in which case each chain gets its own line and the clear one sits nearest the
+building. With the clear span shown, every rectangular room also states its free width and depth
+below the area, in PNG, SVG and DXF.</p>
 
 <h2 id="export">Saving and exporting</h2>
 <ul>
@@ -458,6 +475,7 @@ server. The plan remains available after the tab is closed.</p>
 <tr><td><kbd>F</kbd></td><td>fit everything in view</td></tr>
 <tr><td><kbd>Shift</kbd>+<kbd>F</kbd></td><td>fit the selection</td></tr>
 <tr><td><kbd>O</kbd></td><td>angle snap on/off</td></tr>
+<tr><td><kbd>Shift</kbd></td><td>hold the angle while drawing</td></tr>
 <tr><td><kbd>G</kbd></td><td>grid snap on/off</td></tr>
 <tr><td><kbd>L</kbd></td><td>dimension lines on/off</td></tr>
 <tr><td><kbd>R</kbd> <kbd>M</kbd></td><td>rotate, mirror</td></tr>

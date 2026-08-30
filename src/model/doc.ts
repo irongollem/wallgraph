@@ -183,17 +183,33 @@ export const floorHeight = (f: Floor): number => f.height ?? FLOOR_HEIGHT_DEFAUL
  */
 export type AreaMode = "net" | "centerline";
 
+/**
+ * Which convention the LINEAR dimensions use. Separate from `areaMode` because
+ * the two answer different questions: a drawing states one area per room, but
+ * it can carry two dimension chains, and interior work is set out from the
+ * clear span while the structure is set out hart-op-hart.
+ *   centerline axis to axis; one break per junction, as the graph stores it
+ *   clear      face to face (dagmaat); breaks move onto the wall faces
+ *   both       both chains, the clear one nearest the building
+ */
+export type DimMode = "centerline" | "clear" | "both";
+
 export interface PlanDoc {
   version: 1;
   unit: "mm";
   gridMm: number;
   /** Absent on documents written before this existed; treat as "net". */
   areaMode?: AreaMode;
+  /** Absent means "centerline": the convention the editor drew before this. */
+  dimMode?: DimMode;
   floors: Floor[];
 }
 
 export const AREA_MODE_DEFAULT: AreaMode = "net";
 export const areaModeOf = (d: PlanDoc): AreaMode => d.areaMode ?? AREA_MODE_DEFAULT;
+
+export const DIM_MODE_DEFAULT: DimMode = "centerline";
+export const dimModeOf = (d: PlanDoc): DimMode => d.dimMode ?? DIM_MODE_DEFAULT;
 
 let seq = 0;
 export const newId = (p: string): Id => `${p}${(++seq).toString(36)}${Date.now().toString(36).slice(-4)}`;

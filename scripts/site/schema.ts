@@ -36,6 +36,13 @@ export function planSchema(siteUrl: string): JsonSchema {
           "Which convention reported room areas use. 'net' is inner wall faces (NEN 2580) " +
           "and is the default when absent; 'centerline' is hart-op-hart.",
       },
+      dimMode: {
+        enum: ["centerline", "clear", "both"],
+        description:
+          "Which convention the drawn dimensions use. 'centerline' is hart-op-hart and is " +
+          "the default when absent; 'clear' measures face to face (dagmaat); 'both' draws " +
+          "each as its own chain.",
+      },
       floors: {
         type: "array", minItems: 1, items: { $ref: "#/$defs/floor" },
         description: "Storeys, lowest first. The floor below draws as a tracing underlay.",

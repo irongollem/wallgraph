@@ -9,7 +9,7 @@ import { Tools } from "./input/tools";
 import { Panel } from "./ui/panel";
 import { tryLoadAutosave, scheduleAutosave } from "./io/json";
 import { seedDoc } from "./seed";
-import { areaModeOf, PlanDoc } from "./model/doc";
+import { areaModeOf, dimModeOf, PlanDoc } from "./model/doc";
 import { v } from "./geometry/vec";
 import { language, on as onI18n } from "./i18n";
 
@@ -105,7 +105,7 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
       hoverSnap: tools.getSnap(),
       ghost,
       preview: (c, viewport) => tools.drawPreview(c, viewport),
-    }, store.doc.gridMm, areaModeOf(store.doc));
+    }, store.doc.gridMm, areaModeOf(store.doc), dimModeOf(store.doc));
     renderLoupe(rect, dpr, resolved, rooms, ghost);
   }
 
@@ -154,7 +154,7 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
       // pass: they are tested in canvas screen coordinates, not the lens's.
       preview: (c, viewport) => tools.drawPreview(c, viewport, false),
       showGrid: false,
-    }, store.doc.gridMm, areaModeOf(store.doc));
+    }, store.doc.gridMm, areaModeOf(store.doc), dimModeOf(store.doc));
     // Crosshair at the exact point, drawn last so nothing covers it.
     lctx.strokeStyle = COLORS.snap;
     lctx.lineWidth = 1;

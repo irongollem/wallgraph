@@ -4,7 +4,7 @@ import { Store } from "../model/store";
 import {
   Floor, Wall, Opening, PlanNode, SymbolInstance, newId, stairsOf, videsOf, cabinetsOf,
   roomNamesOf, floorHeight, DOOR_DEFAULT_WIDTH, WINDOW_DEFAULT_WIDTH, PASSAGE_DEFAULT_WIDTH,
-  OpeningKind, FireRating,
+  OpeningKind, FireRating, dimModeOf,
 } from "../model/doc";
 import {
   Stair, ResolvedStair, StairKind, StairParams, stairDefaults, stairFields, clampStair,
@@ -15,7 +15,7 @@ import {
   Cabinet, CabinetSpec, cabinetDefaults, cabinetPreset, clampCabinet,
 } from "../model/cabinet";
 import {
-  nodeAt, splitWall, nearestWall, wallLength, mergeNodes, deleteWall, clampOpening,
+  nodeAt, splitWall, nearestWall, wallOnRay, wallLength, mergeNodes, deleteWall, clampOpening,
   cleanOrphanNodes, insertWall, insertRun, MIN_WALL_MM,
 } from "../model/ops";
 import {
@@ -35,7 +35,7 @@ import { planBounds, polyBounds, Bounds } from "../core/bounds";
 import { Room, roomAnchor } from "../core/rooms";
 import { drawLabel, COLORS, symbolInk } from "../render/draw";
 import { Resolved, ResolvedWall } from "../core/resolve";
-import { dimensionChains } from "../core/dimensions";
+import { dimensionChains, DimChain } from "../core/dimensions";
 import { t } from "../i18n";
 
 export type ToolName =
@@ -50,6 +50,10 @@ const TAP_MS = 500;
 const DOUBLE_TAP_MS = 300;
 /** Smallest share of an axis a fit will frame into, whatever the chrome covers. */
 const MIN_FIT_FRACTION = 0.5;
+/** How far a second convention's chains sit outside the first's overall line. */
+const DIM_CHAIN_LIFT = 840;
+/** How far one chain reaches past the wall it measures: line, overall, labels. */
+const DIM_CHAIN_REACH = 900;
 /**
  * Half-size of a room label's clickable box on screen, in px. The label is
  * drawn at a constant pixel size rather than in world mm, so it is hit-tested
@@ -224,12 +228,13 @@ export class Tools {
       if (this.lastPointerType === "mouse") this.cancel();
     });
     window.addEventListener("keydown", e => this.onKey(e));
-    // Shift squares off the rectangle being struck out, so letting go of it has
-    // to reach the ghost as well as the commit.
+    // Shift squares off the rectangle being struck out and locks the angle of
+    // the wall being chained, so letting go of it has to reach the ghost as
+    // well as the commit.
     window.addEventListener("keyup", e => {
       if (e.key !== "Shift") return;
       this.shiftKey = false;
-      if (this.shapeStart) this.requestRender();
+      this.shiftChanged();
     });
   }
 
@@ -479,12 +484,17 @@ export class Tools {
   private computeSnap(raw: Vec, forWall: boolean): SnapResult {
     const f = this.floor;
     const tolNode = 12 / this.vp.pxPerMm;
-    const tolWall = 9 / this.vp.pxPerMm;
+    // Drawing a wall, landing on one is the usual aim, so it is as sticky as a
+    // node. Placing a symbol or an opening it stays tighter: there the wall
+    // under the cursor decides what the thing is mounted on.
+    const tolWall = (forWall ? 12 : 9) / this.vp.pxPerMm;
     let p = raw;
 
     // Ortho constraint first when chaining a wall (direction), then snap along it.
+    // Shift locks it for as long as it is held, so the angle can be held to
+    // the eighth it is already near without leaving the gesture to press O.
     let orthoDir: Vec | null = null;
-    if (forWall && this.chainStart && this.ortho) {
+    if (forWall && this.chainStart && (this.ortho || this.shiftKey)) {
       const d = sub(raw, this.chainStart);
       const ang = Math.round(angleOf(d) / (Math.PI / 4)) * (Math.PI / 4);
       orthoDir = fromAngle(ang);
@@ -495,6 +505,14 @@ export class Tools {
     for (const n of f.nodes) {
       if (dist(v(n.x, n.y), raw) <= tolNode) return { p: v(n.x, n.y), kind: "node", node: n };
     }
+    // Under the angle lock the point that matters is where the locked ray meets
+    // a wall: the drawer is aiming at that wall, and a grid point short of it
+    // leaves an end hanging in the room.
+    if (orthoDir && this.chainStart) {
+      const ray = wallOnRay(f, this.chainStart, orthoDir, p, tolWall);
+      if (ray) return { p: ray.p, kind: "wall", wall: ray.wall, tMm: ray.tMm };
+    }
+
     // Wall snap.
     const nw = nearestWall(f, p, tolWall);
     if (nw) {
@@ -516,6 +534,17 @@ export class Tools {
   }
 
   getSnap(): Vec | null { return this.snap?.p ?? null; }
+
+  /**
+   * Shift went down or came up without the pointer moving. A shape only needs
+   * redrawing, but a chained wall's constraint is applied in computeSnap, so
+   * the snap has to be taken again from where the cursor already is.
+   */
+  private shiftChanged(): void {
+    if (this.tool === "wall" && this.chainStart) this.snap = this.computeSnap(this.cursor, true);
+    else if (!this.shapeStart) return;
+    this.requestRender();
+  }
 
   // ---- zoom ----
   /**
@@ -559,7 +588,19 @@ export class Tools {
 
   /** Everything on this storey in view. The zoom-all a plan is read from. */
   fitAll(): boolean {
-    return this.applyFit(planBounds(this.floor, this.getResolved()));
+    const b = planBounds(this.floor, this.getResolved());
+    if (!b) return false;
+    // The chains are drawn outside the walls they measure, and two conventions
+    // stack. Zoom-all is the view a plan is read from, so it frames what is
+    // drawn rather than cropping the numbers off it. Nothing else grows: the
+    // other fits frame something the user picked out, not the whole sheet.
+    const reach = this.showDims
+      ? DIM_CHAIN_REACH + (dimModeOf(this.store.doc) === "both" ? DIM_CHAIN_LIFT : 0)
+      : 0;
+    return this.applyFit(reach === 0 ? b : {
+      min: v(b.min.x - reach, b.min.y - reach),
+      max: v(b.max.x + reach, b.max.y + reach),
+    });
   }
 
   /** Frame the selection. Falls back to the whole plan when nothing is selected. */
@@ -1540,7 +1581,7 @@ export class Tools {
 
     if (e.shiftKey !== this.shiftKey) {
       this.shiftKey = e.shiftKey;
-      if (this.shapeStart) this.requestRender();
+      this.shiftChanged();
     }
 
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
@@ -1955,21 +1996,32 @@ export class Tools {
    * in sequence and an overall beneath. Read-only — a segment spans whatever
    * the openings make it, so there is no single wall for a typed value to
    * resize; editing stays on the selected wall's own dimension.
+   *
+   * `lift` stacks a second convention's chains outside the first; `tag` names
+   * the convention when both are drawn, where position alone would not say
+   * which run is the dagmaat.
    */
-  private drawDimChains(ctx: CanvasRenderingContext2D, vp: Viewport, px: number): void {
-    const chains = dimensionChains(this.floor);
+  private drawDimChains(
+    ctx: CanvasRenderingContext2D, vp: Viewport, px: number,
+    chains: DimChain[], lift: number, tag: string,
+  ): void {
     ctx.strokeStyle = COLORS.dimension;
     for (const c of chains) {
       // Skip a run too small on screen to read; at that size it is noise.
       if (c.total / px < 40) continue;
-      const gap = c.half + 260;
+      const gap = c.half + 260 + lift;
       const at = (d: number, off: number): Vec =>
         add(add(c.origin, scale(c.dir, d)), scale(c.out, off));
+      // The measured extent. In clear mode it starts and ends on a wall face,
+      // inside the run's own nodes, so the line is drawn to the spans rather
+      // than from 0 to total.
+      const first = c.spans[0]!.from, last = c.spans[c.spans.length - 1]!.to;
+      const ticks = [first, ...c.spans.map(s => s.to)];
 
       ctx.globalAlpha = 0.7;
       ctx.lineWidth = 1.1 * px;
       // Extension lines from the wall face out past the chain.
-      for (const d of [0, ...c.spans.map(s => s.to)]) {
+      for (const d of ticks) {
         ctx.beginPath();
         const from = at(d, c.half + 60), to = at(d, gap + 90);
         ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y);
@@ -1977,32 +2029,27 @@ export class Tools {
       }
       // The chain line, and a tick at every break.
       ctx.beginPath();
-      const l0 = at(0, gap), l1 = at(c.total, gap);
+      const l0 = at(first, gap), l1 = at(last, gap);
       ctx.moveTo(l0.x, l0.y); ctx.lineTo(l1.x, l1.y);
       ctx.stroke();
       const tick = 7 * px;
-      for (const d of [0, ...c.spans.map(s => s.to)]) {
+      const slash = (d: number, off: number): void => {
         // A 45-degree slash, the surveyor's tick, rather than an arrowhead —
         // arrowheads collide once spans get short.
-        const p = at(d, gap);
+        const p = at(d, off);
         const m = add(scale(c.dir, tick), scale(c.out, tick));
         ctx.beginPath();
         ctx.moveTo(p.x - m.x, p.y - m.y); ctx.lineTo(p.x + m.x, p.y + m.y);
         ctx.stroke();
-      }
+      };
+      for (const d of ticks) slash(d, gap);
       // An overall line below, only when it says something the spans do not.
       if (c.spans.length > 1) {
-        const o0 = at(0, gap + 420), o1 = at(c.total, gap + 420);
+        const o0 = at(first, gap + 420), o1 = at(last, gap + 420);
         ctx.beginPath();
         ctx.moveTo(o0.x, o0.y); ctx.lineTo(o1.x, o1.y);
         ctx.stroke();
-        for (const d of [0, c.total]) {
-          const p = at(d, gap + 420);
-          const m = add(scale(c.dir, tick), scale(c.out, tick));
-          ctx.beginPath();
-          ctx.moveTo(p.x - m.x, p.y - m.y); ctx.lineTo(p.x + m.x, p.y + m.y);
-          ctx.stroke();
-        }
+        for (const d of [first, last]) slash(d, gap + 420);
       }
       ctx.globalAlpha = 1;
 
@@ -2033,8 +2080,11 @@ export class Tools {
         if (span.mm / px < 26) continue;
         label(String(span.mm), (span.from + span.to) / 2, gap - 130, "500 10px system-ui, sans-serif");
       }
-      if (c.spans.length > 1)
-        label(String(Math.round(c.total)), c.total / 2, gap + 420 - 130, "600 11px system-ui, sans-serif");
+      if (c.spans.length > 1) {
+        const overall = Math.round(last - first);
+        label(tag ? `${tag} ${overall}` : String(overall),
+          (first + last) / 2, gap + 420 - 130, "600 11px system-ui, sans-serif");
+      }
       ctx.restore();
     }
   }
@@ -2130,7 +2180,16 @@ export class Tools {
         // its openings and piers measured in sequence. The selected wall still
         // gets its own editable dimension below, since a chain segment has no
         // single wall to resize.
-        this.drawDimChains(ctx, vp, px);
+        // The clear chain sits nearest the building and the hart-op-hart one
+        // outside it, the order a sheet stacks them in.
+        const dimMode = dimModeOf(this.store.doc);
+        const both = dimMode === "both";
+        if (dimMode !== "centerline")
+          this.drawDimChains(ctx, vp, px, dimensionChains(this.floor, "clear"), 0,
+            both ? t("hint.dimTagClear") : "");
+        if (dimMode !== "clear")
+          this.drawDimChains(ctx, vp, px, dimensionChains(this.floor, "centerline"),
+            both ? DIM_CHAIN_LIFT : 0, both ? t("hint.dimTagCenterline") : "");
         if (selDim?.kind === "wall") {
           const wall = f.walls.find(x => x.id === selDim.id);
           if (wall) this.drawDimension(ctx, vp, px, wall, true, collectHits);

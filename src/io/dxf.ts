@@ -16,10 +16,10 @@
 // context (see recordSymbol) because the library draws them with canvas calls;
 // their arcs flatten to polylines, which is exact enough at symbol scale and
 // avoids guessing how a mirrored, rotated transform maps onto an ARC.
-import { PlanDoc, Floor, areaModeOf, stairsOf, videsOf, cabinetsOf, roomNamesOf } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf, dimModeOf, stairsOf, videsOf, cabinetsOf, roomNamesOf } from "../model/doc";
 import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
-import { detectRooms } from "../core/rooms";
+import { detectRooms, roomSize, sizeLabel } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
 import { recordSymbol, Prim } from "./record";
 import { openingMarks } from "./marks";
@@ -246,14 +246,19 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
 
     // Room areas, in the convention the document says it is using.
     const net = areaModeOf(doc) === "net";
+    const dim = dimModeOf(doc);
     const rooms = detectRooms(floor);
     for (const r of rooms) {
       const mm2 = net ? r.netAreaMm2 : r.areaMm2;
-      // Name over area, as the canvas and the SVG stack them. y is document
-      // space here; the writer flips it for CAD.
-      const at = r.name === undefined ? r.centroid : { x: r.centroid.x, y: r.centroid.y + 150 };
-      if (r.name !== undefined) w.text(LAYER.rooms, { x: r.centroid.x, y: r.centroid.y - 150 }, 220, r.name);
-      w.text(LAYER.rooms, at, 200, `${(mm2 / 1e6).toFixed(1)} m2`);
+      // Name over area over clear size, as the canvas and the SVG stack them.
+      // y is document space here; the writer flips it for CAD.
+      const size = roomSize(r, dim);
+      const at = (dy: number): Vec => ({ x: r.centroid.x, y: r.centroid.y + dy });
+      if (r.name !== undefined) w.text(LAYER.rooms, at(size ? -300 : -150), 220, r.name);
+      w.text(LAYER.rooms, at(r.name === undefined ? (size ? -150 : 0) : (size ? 0 : 150)), 200,
+        `${(mm2 / 1e6).toFixed(1)} m2`);
+      // DXF text is written as plain ASCII, so the clear size takes an x.
+      if (size) w.text(LAYER.rooms, at(r.name === undefined ? 150 : 300), 200, sizeLabel(size, "x"));
     }
     for (const rn of roomNamesOf(floor)) {
       if (rooms.some(r => r.nameId === rn.id)) continue;

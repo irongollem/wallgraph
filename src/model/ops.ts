@@ -2,7 +2,7 @@
 // welded wall insertion, opening placement bounds, orphan cleanup. All take the
 // floor mutably; callers wrap them in store.mutate().
 import { Floor, PlanNode, Wall, Opening, Id, newId } from "./doc";
-import { Vec, dist, distToSeg, v, add, sub, scale, dot, norm, perp, lineIntersect } from "../geometry/vec";
+import { Vec, dist, distToSeg, v, add, sub, scale, dot, cross, norm, perp, lineIntersect } from "../geometry/vec";
 import { arcLength, arcPointAt, arcFlatten } from "../geometry/arc";
 
 export const NODE_MERGE_TOL = 1; // mm
@@ -107,6 +107,46 @@ export function nearestWall(f: Floor, p: Vec, tol: number): { wall: Wall; d: num
         if (d <= tol && (!best || d < best.d)) best = { wall: w, d, tMm: acc + t * segLen };
         acc += segLen;
       }
+    }
+  }
+  return best;
+}
+
+/**
+ * Where a ray from `origin` crosses a wall, taking the crossing nearest `near`
+ * and only within `tol` of it.
+ *
+ * A wall drawn under the angle lock is aimed rather than placed: the drawer
+ * points at the wall to be met, and the cursor lands wherever the pixel it is
+ * over falls. Without this the quantised point stops short of that wall or runs
+ * past it, leaving an end hanging in the room that no room detection can close.
+ */
+export function wallOnRay(
+  f: Floor, origin: Vec, dir: Vec, near: Vec, tol: number,
+): { wall: Wall; d: number; tMm: number; p: Vec } | null {
+  let best: { wall: Wall; d: number; tMm: number; p: Vec } | null = null;
+  const hit = (w: Wall, A: Vec, B: Vec, acc: number): void => {
+    const seg = sub(B, A);
+    const den = cross(dir, seg);
+    if (Math.abs(den) < 1e-9) return;                 // parallel: nothing to meet
+    const q = sub(A, origin);
+    const s = cross(q, seg) / den;                    // along the ray
+    const u = cross(q, dir) / den;                    // along the segment
+    if (s <= WELD_TOL || u < 0 || u > 1) return;      // behind the origin, or past an end
+    const p = add(origin, scale(dir, s));
+    const d = dist(p, near);
+    if (d <= tol && (!best || d < best.d)) best = { wall: w, d, tMm: acc + u * dist(A, B), p };
+  };
+  for (const w of f.walls) {
+    const a = f.nodes.find(n => n.id === w.a)!;
+    const b = f.nodes.find(n => n.id === w.b)!;
+    const A = v(a.x, a.y), B = v(b.x, b.y);
+    if (w.bulge === 0) { hit(w, A, B, 0); continue; }
+    const pts = arcFlatten(A, B, w.bulge, 2);
+    let acc = 0;
+    for (let i = 0; i + 1 < pts.length; i++) {
+      hit(w, pts[i]!, pts[i + 1]!, acc);
+      acc += dist(pts[i]!, pts[i + 1]!);
     }
   }
   return best;

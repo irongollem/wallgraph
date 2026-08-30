@@ -9,10 +9,10 @@
 // millimetres and the viewBox matches them one-to-one, so printing at 100% puts
 // a 4000 mm wall on paper at 4 m. SVG's y axis runs down exactly as the
 // document's does, so — unlike DXF — nothing is flipped.
-import { PlanDoc, Floor, areaModeOf, stairsOf, videsOf, cabinetsOf, roomNamesOf } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf, dimModeOf, stairsOf, videsOf, cabinetsOf, roomNamesOf } from "../model/doc";
 import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
-import { detectRooms } from "../core/rooms";
+import { detectRooms, roomSize, sizeLabel } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
 import { COLORS, symbolInk } from "../render/draw";
 import { stairBox } from "../core/stair";
@@ -123,6 +123,7 @@ export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
 
   // Rooms beneath everything, as the editor draws them.
   const net = areaModeOf(doc) === "net";
+  const dim = dimModeOf(doc);
   const rooms = detectRooms(floor);
   if (rooms.length > 0) {
     parts.push(`<g id="rooms" fill="${COLORS.roomFill}">`);
@@ -210,16 +211,17 @@ export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
     for (const r of rooms) {
       const mm2 = net ? r.netAreaMm2 : r.areaMm2;
       const area = `${esc((mm2 / 1e6).toFixed(1))} m²`;
-      if (r.name === undefined) {
-        parts.push(`<text x="${n(r.centroid.x)}" y="${n(r.centroid.y)}">${area}</text>`);
-        continue;
-      }
-      // Name over area, the way the canvas stacks them. The 150 mm offsets are
-      // the screen-space 8 px at the same 220 mm label size.
-      parts.push(
-        `<text x="${n(r.centroid.x)}" y="${n(r.centroid.y - 150)}" font-weight="600">${esc(r.name)}</text>`,
-      );
-      parts.push(`<text x="${n(r.centroid.x)}" y="${n(r.centroid.y + 150)}">${area}</text>`);
+      // Name over area over clear size, the way the canvas stacks them. The
+      // 150 mm offsets are the screen-space 8 px at the same 220 mm label size,
+      // and a third line spreads the stack to twice that.
+      const size = roomSize(r, dim);
+      const x = n(r.centroid.x);
+      const y = (dy: number): string => n(r.centroid.y + dy);
+      if (r.name !== undefined)
+        parts.push(`<text x="${x}" y="${y(size ? -300 : -150)}" font-weight="600">${esc(r.name)}</text>`);
+      parts.push(`<text x="${x}" y="${y(r.name === undefined ? (size ? -150 : 0) : (size ? 0 : 150))}">${area}</text>`);
+      if (size)
+        parts.push(`<text x="${x}" y="${y(r.name === undefined ? 150 : 300)}" fill="${COLORS.dimension}" font-size="200">${esc(sizeLabel(size))}</text>`);
     }
     // Names that landed in no detected room still carry onto the sheet.
     for (const rn of roomNamesOf(floor)) {

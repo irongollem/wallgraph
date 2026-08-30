@@ -10,11 +10,11 @@
 // The net boundary is derived by offsetting each face edge inward by half the
 // thickness of the wall it lies on, then intersecting adjacent offset lines —
 // the same miter construction resolve.ts uses at junctions.
-import { Floor, roomNamesOf } from "../model/doc";
+import { Floor, DimMode, roomNamesOf } from "../model/doc";
 import type { Id } from "../model/doc";
 import type { RoomName } from "../model/room";
 import {
-  Vec, v, dist, dot, sub, add, norm, perp, scale, angleOf, lineIntersect,
+  Vec, v, dist, dot, sub, add, norm, perp, scale, cross, angleOf, lineIntersect,
   polygonArea, polygonCentroid, pointInPolygon,
 } from "../geometry/vec";
 import { arcFlatten } from "../geometry/arc";
@@ -124,6 +124,62 @@ export function detectRooms(f: Floor): Room[] {
   }
   attachNames(f, rooms);
   return rooms;
+}
+
+/** Corners count as square within about two degrees. */
+const SQUARE_TOL = 0.035;
+/** Two edges count as one straight run within about half a degree. */
+const STRAIGHT_TOL = 0.01;
+
+/**
+ * The two dimensions of a rectangular room, width first — the pair an interior
+ * fitter sets out from. Undefined for anything else: an L-shaped room has no
+ * single width and depth, and reporting its bounding box would state a span
+ * that is not there.
+ *
+ * Run over `netPoly` this is the dagmaat, over `poly` the centerline size. A
+ * room bounded by a wall that a partition tees into has extra vertices along a
+ * straight side, so collinear runs are collapsed before the corners are counted.
+ */
+export function rectSize(poly: Vec[]): { w: number; d: number } | undefined {
+  const p = corners(poly);
+  if (p.length !== 4) return undefined;
+  const edge = (i: number): { len: number; dir: Vec } => {
+    const a = p[i]!, b = p[(i + 1) % 4]!;
+    return { len: dist(a, b), dir: norm(sub(b, a)) };
+  };
+  const e = [edge(0), edge(1), edge(2), edge(3)];
+  for (let i = 0; i < 4; i++) if (Math.abs(dot(e[i]!.dir, e[(i + 1) % 4]!.dir)) > SQUARE_TOL) return undefined;
+  // Width is the more horizontal side, so the pair reads as it does on the
+  // sheet rather than in the order the face happened to be walked.
+  const wide = Math.abs(e[0]!.dir.x) >= Math.abs(e[1]!.dir.x) ? e[0]! : e[1]!;
+  const deep = wide === e[0]! ? e[1]! : e[0]!;
+  return { w: Math.round(wide.len), d: Math.round(deep.len) };
+}
+
+/**
+ * The clear size to print inside a room, when the drawing's convention asks for
+ * one and the room has one. Always the dagmaat: the centerline size of a room
+ * is not a span anything is built to, so `centerline` prints nothing here and
+ * leaves the wall chains to say it.
+ */
+export const roomSize = (r: Room, mode: DimMode): { w: number; d: number } | undefined =>
+  mode === "centerline" ? undefined : rectSize(r.netPoly);
+
+/** "4120 × 6890" — width first, in mm, the way a sheet writes a clear size. */
+export const sizeLabel = (s: { w: number; d: number }, times = "×"): string =>
+  `${s.w} ${times} ${s.d}`;
+
+/** The polygon's real corners: vertices where the boundary turns. */
+function corners(poly: Vec[]): Vec[] {
+  const out: Vec[] = [];
+  const n = poly.length;
+  for (let i = 0; i < n; i++) {
+    const a = poly[(i + n - 1) % n]!, b = poly[i]!, c = poly[(i + 1) % n]!;
+    if (dist(a, b) < 1 || dist(b, c) < 1) continue;
+    if (Math.abs(cross(norm(sub(b, a)), norm(sub(c, b)))) > STRAIGHT_TOL) out.push(b);
+  }
+  return out;
 }
 
 /**

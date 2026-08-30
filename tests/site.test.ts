@@ -29,7 +29,7 @@ ck("validates the demo plan", validate(schema, seedDoc()).length === 0, validate
 
 // Exercise every optional document field in one valid fixture.
 const full: PlanDoc = {
-  version: 1, unit: "mm", gridMm: 50, areaMode: "centerline",
+  version: 1, unit: "mm", gridMm: 50, areaMode: "centerline", dimMode: "both",
   floors: [{
     id: "f1", name: "Begane grond",
     nodes: [{ id: "n1", x: 0, y: 0 }, { id: "n2", x: 4000, y: 0 }],

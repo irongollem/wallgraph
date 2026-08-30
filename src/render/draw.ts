@@ -1,9 +1,9 @@
 // Full scene render. Immediate mode: redraw everything on change (documents at
 // this scale render in well under a frame). Layers: grid, rooms, walls,
 // opening decorations, symbols, selection, labels (labels in screen space).
-import { Floor, SymbolInstance, AreaMode, Sash, sashesOf, stairsOf, videsOf, cabinetsOf, roomNamesOf, fireLabel } from "../model/doc";
+import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, videsOf, cabinetsOf, roomNamesOf, fireLabel } from "../model/doc";
 import { Resolved, OpeningGeom } from "../core/resolve";
-import { Room } from "../core/rooms";
+import { Room, roomSize, sizeLabel } from "../core/rooms";
 import { Selection } from "../model/store";
 import { Viewport } from "./viewport";
 import { Vec, add, sub, scale, perp, v, angleOf, dist, fromAngle } from "../geometry/vec";
@@ -99,7 +99,7 @@ export interface DrawExtras {
 export function drawScene(
   ctx: CanvasRenderingContext2D, vp: Viewport, canvasW: number, canvasH: number,
   floor: Floor, resolved: Resolved, rooms: Room[], sel: Selection | null,
-  extras: DrawExtras, gridMm: number, areaMode: AreaMode,
+  extras: DrawExtras, gridMm: number, areaMode: AreaMode, dimMode: DimMode,
 ): void {
   ctx.save();
   ctx.fillStyle = COLORS.bg;
@@ -205,7 +205,6 @@ export function drawScene(
   // Room labels (constant px size): the name over the area, where one has been
   // written. Screen-space, so a plan stays readable at any zoom.
   ctx.textAlign = "center";
-  ctx.fillStyle = COLORS.roomLabel;
   const named = new Set<string>();
   for (const r of rooms) {
     const c = vp.toScreen(r.centroid);
@@ -213,17 +212,30 @@ export function drawScene(
     // silently means centerline is the whole problem this addresses.
     const mm2 = areaMode === "net" ? r.netAreaMm2 : r.areaMm2;
     const area = (mm2 / 1e6).toFixed(1) + " m²";
+    // The clear size, where the room has one to state. Skipped once the room is
+    // narrower on screen than the figures themselves, which would smear them
+    // over the walls rather than shrink them.
+    const size = roomSize(r, dimMode);
+    const fits = size !== undefined && size.w * vp.pxPerMm > 76;
+    const lift = fits ? 8 : 0;
+    ctx.fillStyle = COLORS.roomLabel;
     if (r.name === undefined) {
       ctx.font = "12px system-ui, sans-serif";
-      ctx.fillText(area, c.x, c.y);
-      continue;
+      ctx.fillText(area, c.x, c.y - lift);
+    } else {
+      if (r.nameId) named.add(r.nameId);
+      ctx.font = `600 ${ROOM_NAME_PX}px system-ui, sans-serif`;
+      ctx.fillText(r.name, c.x, c.y - 8 - lift);
+      ctx.font = "12px system-ui, sans-serif";
+      ctx.fillText(area, c.x, c.y + 8 - lift);
     }
-    if (r.nameId) named.add(r.nameId);
-    ctx.font = `600 ${ROOM_NAME_PX}px system-ui, sans-serif`;
-    ctx.fillText(r.name, c.x, c.y - 8);
-    ctx.font = "12px system-ui, sans-serif";
-    ctx.fillText(area, c.x, c.y + 8);
+    if (size && fits) {
+      ctx.fillStyle = COLORS.dimension;
+      ctx.font = "11px system-ui, sans-serif";
+      ctx.fillText(sizeLabel(size), c.x, c.y + (r.name === undefined ? 8 : 24) - lift);
+    }
   }
+  ctx.fillStyle = COLORS.roomLabel;
   // A name whose point falls in no detected room still draws where it was
   // written: an open-plan space, or a room whose walls are not yet closed.
   for (const rn of roomNamesOf(floor)) {
@@ -243,7 +255,7 @@ export function drawScene(
     ctx.stroke();
   }
 
-  if (steps) drawGridLegend(ctx, canvasH, gridMm, steps, areaMode);
+  if (steps) drawGridLegend(ctx, canvasH, gridMm, steps, areaMode, dimMode);
 
   // Selected node handle & wall handles drawn by tools layer via preview.
   ctx.restore();
@@ -282,7 +294,10 @@ function drawGrid(ctx: CanvasRenderingContext2D, vp: Viewport, w: number, h: num
 
 /** Bottom-left legend naming the document grid and, when the zoom forced a
  * coarser spacing, what the lines on screen actually measure. */
-function drawGridLegend(ctx: CanvasRenderingContext2D, h: number, gridMm: number, steps: GridSteps, areaMode: AreaMode): void {
+function drawGridLegend(
+  ctx: CanvasRenderingContext2D, h: number, gridMm: number, steps: GridSteps,
+  areaMode: AreaMode, dimMode: DimMode,
+): void {
   ctx.font = "11px system-ui, sans-serif";
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
@@ -290,9 +305,11 @@ function drawGridLegend(ctx: CanvasRenderingContext2D, h: number, gridMm: number
   const grid = steps.stepped
     ? t("hint.gridLegendStepped", { grid: fmtMm(gridMm), minor: fmtMm(steps.minor), major: fmtMm(steps.major) })
     : t("hint.gridLegend", { grid: fmtMm(gridMm), major: fmtMm(steps.major) });
-  // Always name the area convention: an unlabelled figure is the ambiguity.
+  // Always name both conventions: an unlabelled figure is the ambiguity, and a
+  // dimension read as hart-op-hart when it is a dagmaat is off by half a wall.
   const text = grid + " · " +
-    t(areaMode === "net" ? "hint.areaLegendNet" : "hint.areaLegendCenterline");
+    t(areaMode === "net" ? "hint.areaLegendNet" : "hint.areaLegendCenterline") + " · " +
+    t(`hint.dimLegend${dimMode[0]!.toUpperCase()}${dimMode.slice(1)}`);
   ctx.fillText(text, 10, h - 10);
 }
 
