@@ -20,8 +20,10 @@ export function renderZoomTool(
   host: HTMLElement, store: Store, tools: Tools, rows: PaneRows, rooms: Room[],
 ): void {
   rows.secHead(t("panel.zoom"));
-  rows.btnRow(t("panel.zoomAll"), () => tools.fitAll());
-  rows.btnRow(t("panel.zoomSelection"), () => tools.fitSelection());
+  // The shortcut rides in the title, not in the label: on a phone there is no
+  // F to press, and the label has to read the same either way.
+  rows.btnRow(t("panel.zoomAll"), () => tools.fitAll(), t("panel.zoomAllTitle"));
+  rows.btnRow(t("panel.zoomSelection"), () => tools.fitSelection(), t("panel.zoomSelectionTitle"));
 
   if (rooms.length > 0) {
     rows.secHead(t("panel.zoomZones"), { later: true });

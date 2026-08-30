@@ -134,7 +134,7 @@ export function renderCabinetProps(store: Store, tools: Tools, rows: PaneRows, i
     tools.symbolColor = hex;
     mut(c => { if (hex) c.color = hex; else delete c.color; }, "color:" + id);
   });
-  rows.btnRow(t("panel.mirror"), () => mut(c => { c.mirrored = !c.mirrored; }));
+  rows.btnRow(t("panel.mirror"), () => mut(c => { c.mirrored = !c.mirrored; }), t("panel.mirrorTitle"));
   rows.infoRow(t("panel.cabinetFootprint"),
     `${cab.width} × ${cab.depth} × ${cabinetHeight(cab)} mm`);
   rows.noteRow(t("panel.cabinetNote"));

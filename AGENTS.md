@@ -54,6 +54,15 @@ npm run check:seo  # asserts the emitted site hangs together (needs a SITE_URL b
 - Adding a symbol is one entry in `src/render/symbols/<category>.ts` plus its
   name in both languages — a test fails otherwise. The published symbol page,
   the palette, the SVG and DXF exports all follow automatically.
+- **The editor has two layouts.** Below 768 px wide or 500 px tall it wears a
+  compact shell — top bar, bottom sheet, tool bar over a full-bleed canvas —
+  instead of the sidebar. Both are built from the same elements by
+  `Panel.mountShell()`, so UI work has to hold in both. A new tool needs a short
+  caption (`tool.short<Name>`) and a touch hint (`hint.touch<Name>`) or
+  `tests/mobile.test.ts` fails; keyboard shortcuts go in a button's `title`, not
+  in its label; anything that frames a view goes through `Tools.applyFit()` so it
+  insets by the floating chrome. Check changes at 390×844 and 844×390, not only
+  at desktop width. CLAUDE.md has the full rules.
 
 ## Using Wallgraph from an agent (rather than developing it)
 

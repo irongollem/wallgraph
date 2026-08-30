@@ -162,6 +162,9 @@ src/ui/        panel.ts    header, tool rail, storey row, properties, status, fo
                rooms.ts    room-name pane
                zoom.ts     zoom pane: fit-all, fit-selection, one zone per room
                openings.ts what the NEXT door/window/passage is placed with
+               layout.ts   the one breakpoint: which shell the editor wears
+               sheet.ts    the compact bottom sheet and its three detents
+               keypad.ts   the millimetre keypad, for a device with no keyboard
 src/io/        json.ts   guarded localStorage autosave, export/import/clipboard
                image.ts  PNG export: offscreen re-render, plan bounds, scale bar
                svg.ts    SVG export at true scale; primSvg() is shared with the site
@@ -307,6 +310,24 @@ the SVG group and its own DXF layer instead.
   to frame, O/G/L modes, R/M/Del). They can conflict
   with host-page shortcuts when the editor is embedded. `onKey` ignores
   INPUT/SELECT/TEXTAREA targets.
+- **There are TWO layouts, and a change has to hold in both.** `layoutFor()` in
+  [src/ui/layout.ts](src/ui/layout.ts) is the only breakpoint: narrower than 768 px or
+  shorter than 500 px is `compact`, everything else is `wide`. `Panel.mountShell()`
+  re-parents the *same* elements between them rather than building a second set, which
+  is why the rail is three `rail-group` containers — `display: contents` in the sidebar,
+  three different destinations on a phone. Consequences for anything new:
+  - **A new tool needs `tool.short<Name>` and `hint.touch<Name>`.** There is no `title`
+    to hover without a mouse, and the desktop hints name clicks and keys. `tests/mobile.test.ts`
+    fails if either is missing, or if a touch hint mentions a key or a mouse button.
+  - **A shortcut belongs in a button's `title`, never in its label.** A phone has no
+    key to press, and the label has to read the same either way.
+  - **Anything that frames a view goes through `Tools.applyFit()`**, which insets by
+    `viewInsets` — in the compact layout the chrome floats over a full-bleed canvas, so a
+    fit that used the whole canvas would centre the plan behind the sheet.
+  - **One finger is the tool, two navigate.** Placement acts on pointer*up*, so half a
+    pinch never leaves an object behind; a tool that must act on contact (select, zoom)
+    is listed explicitly in `onDown`.
+  - Check a change at 390×844 and 844×390, not only at desktop width.
 - **`store.floor` is the ACTIVE storey**, `doc.floors[store.activeFloor]`, not
   `floors[0]`. A mutation must go through `store.floorOf(doc)` to land on the right
   one; reaching for `doc.floors[0]` edits the ground floor from whatever storey the
@@ -359,7 +380,8 @@ sells commercial exceptions. Three consequences for changes here:
 
 ## Deliberate P0 cuts
 
-Sloped or varying-thickness walls, exact wall-to-arc miters, mobile/touch UX. These are
+Sloped or varying-thickness walls, exact wall-to-arc miters. These are
 choices, not oversights — check PLAN.md's phase list before "fixing" one. (Net room
-area, i18n, multi-floor, stairs, dimension chains, cabinetry, room names and framing
-were on this list and have since shipped; PLAN.md's phase list is the current one.)
+area, i18n, multi-floor, stairs, dimension chains, cabinetry, room names, framing and
+mobile/touch UX were on this list and have since shipped; PLAN.md's phase list is the
+current one.)
