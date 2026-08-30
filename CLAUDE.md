@@ -16,19 +16,29 @@ operational summary — the invariants you must not break and the commands that 
 npm install        # 4 dev-only deps; the shipped bundle has zero dependencies
 npm run dev        # esbuild watch + static server on http://localhost:5173 (PORT overrides)
 npm run check      # typecheck + tests — run this before every commit
-npm run build      # typecheck + bundle -> dist/index.html (single file, ~69 kB)
-npm run typecheck  # tsc over src/ (browser) and tests/ (node) separately
-npm test           # engine tests — 19 checks, exits non-zero on failure
+npm run build      # typecheck + bundle -> dist/ (index.html ~161 kB, plus the site)
+npm run typecheck  # tsc over src/ (browser) and tests/+scripts/ (node) separately
+npm test           # 325 checks across six suites, exits non-zero on failure
+npm run check:seo  # asserts the emitted site hangs together (needs a SITE_URL build)
 ```
 
-`dist/index.html` is fully self-contained (CSS + JS inlined); host it on any static
-server. CI runs `typecheck`, `test`, `build`, and asserts the bundle references no
-external URL.
+`dist/index.html` is fully self-contained (CSS + JS inlined) and references nothing it
+does not carry; host it on any static server or open it from disk. `SITE_URL` in the
+environment additionally emits the pages that only a hosted copy needs — the content
+pages, `robots.txt`, sitemap, `llms.txt`, manifest, `sw.js`, the JSON Schema and the
+icons. Without it those are omitted rather than pointing at someone else's domain.
+
+CI runs `typecheck`, `test`, then `build` **with the production `SITE_URL`**, and asserts
+that every emitted page loads nothing over the network (`check:bundle`) and that the site
+is internally consistent (`check:seo`). Building without a `SITE_URL` in CI would leave
+half the surface unverified.
 
 Two tsconfigs on purpose: [tsconfig.json](tsconfig.json) covers `src/` with `"types": []`
 so browser code cannot accidentally reach for node globals;
-[tsconfig.test.json](tsconfig.test.json) adds `tests/` with node types. `npm run
-typecheck` runs both — if you only run bare `tsc --noEmit`, tests are not checked.
+[tsconfig.test.json](tsconfig.test.json) adds `tests/` and `scripts/` with node types —
+the build and the site generator are TypeScript and import from `src/`, so they are
+typechecked too. `npm run typecheck` runs both — if you only run bare `tsc --noEmit`,
+neither tests nor the build are checked.
 
 `strict` is on with `noUncheckedIndexedAccess` (indexing needs `!` or a guard) plus
 `noUnusedLocals`/`noUnusedParameters` — prefix a genuinely unused parameter with `_`
@@ -66,10 +76,12 @@ extrudes directly from the graph.
 5. **Mutations go through `store.mutate()`.** It snapshots for undo and bumps `revision`,
    which is what invalidates the derived-geometry cache. Mutating `store.doc` directly
    leaves stale geometry on screen and no undo entry.
-6. **`mountWallgraph(el)` is the public API.** No globals beyond window-level key
-   listeners. [src/boot.ts](src/boot.ts) is only the standalone-page entry; frameworks
-   (Astro/Vue/etc.) call `mountWallgraph` directly. Don't add module-level side effects to
-   [src/main.ts](src/main.ts).
+6. **`mountWallgraph(el)` is the public API**, returning a `{ load, save }` handle. No
+   globals beyond window-level key listeners. [src/boot.ts](src/boot.ts) is only the
+   standalone-page entry; frameworks (Astro/Vue/etc.) call `mountWallgraph` directly.
+   Don't add module-level side effects to [src/main.ts](src/main.ts). The hosted page's
+   `window.wallgraph` automation surface lives in `boot.ts` for exactly this reason — an
+   embedder gets the handle and no global.
 
 ## No legacy
 
@@ -98,14 +110,28 @@ src/render/    viewport.ts mm<->px transform, zoom-to-cursor, pan
                draw.ts     immediate-mode scene render + COLORS palette
                symbols/    77 symbols in 7 category files behind one interface
 src/input/     tools.ts  tool state machine, snapping, typed-mm entry, drag handling
-src/ui/        panel.ts    header, tool rail, storey row, selection-driven properties, status
+src/ui/        panel.ts    header, tool rail, storey row, properties, status, foot
                palette.ts  symbol palette: search, fold-out categories, tile grid
-               menu.ts     document menu popover (new/open/save/PNG/paste, language)
+               menu.ts     document menu popover (new/open/save/PNG/paste, docs, language)
                icons.ts    the SVG icon set -- one 20x20 grid, one shape table
 src/io/        json.ts   guarded localStorage autosave, export/import/clipboard
                image.ts  PNG export: offscreen re-render, plan bounds, scale bar
+               svg.ts    SVG export at true scale; primSvg() is shared with the site
+               dxf.ts    DXF export: layers, millimetres, y flipped for CAD
+               marks.ts  the geometry one opening contributes, as plain primitives
+               record.ts replays a symbol's canvas calls as geometry (no canvas needed)
+               link.ts   a whole plan in a URL fragment, base64url
                save.ts   the two file-delivery channels (host capability, blob link)
+src/i18n.ts              i18next-shaped nl/en bundle + the ~130-string engine
+src/links.ts             where the docs live, resolved per context (see Gotchas)
 src/seed.ts              demo apartment shown on first load
+scripts/build.ts         esbuild bundle -> dist/index.html, then the site
+scripts/site/  meta.ts   one source of truth for what the site says about itself
+               html.ts   head tags, JSON-LD, page shell, the site stylesheet
+               pages.ts  the five content pages, drawn from the app's own code
+               files.ts  robots.txt, sitemap, llms.txt, manifest, security.txt
+               schema.ts the published JSON Schema + the validator tests use
+               sw.ts     the service worker, network-first on purpose
 ```
 
 The graphify knowledge graph (`graphify-out/`, gitignored — it embeds local absolute
@@ -167,6 +193,12 @@ The `draw(ctx)` contract in [defs.ts](src/render/symbols/defs.ts) is strict:
   to add — those stay in screen space, drawn by the caller.
 - Wrap in `withCtx()`, which handles `save`/`restore` and sets `lineWidth = 20`.
 
+Nothing else needs touching, the published symbol page included: `/symbolen/` replays
+`draw()` through `recordSymbol` at build time, so a new symbol appears there, in the SVG
+and DXF exports, and in the palette from the one entry. A second, hand-drawn copy of a
+symbol anywhere would be wrong within a release — and wrong in the worst way, since a page
+that authoritatively shows a mark would be showing a different mark from the editor.
+
 ## Gotchas
 
 - **Grid lines are always whole multiples of `doc.gridMm`.** `gridSteps()` in
@@ -217,6 +249,26 @@ The `draw(ctx)` contract in [defs.ts](src/render/symbols/defs.ts) is strict:
 - **Rendering is immediate-mode and full-redraw**, coalesced through one
   `requestAnimationFrame`. Documents at this scale redraw in well under a frame; don't add
   dirty-rect machinery until profiling says otherwise.
+- **`npm run dev` watches `src/style.css` separately.** esbuild only watches `boot.ts`'s
+  import graph, and the stylesheet is not in it — the build reads it at emit time. Without
+  the extra watcher a CSS-only edit rebuilt nothing and looked exactly like a rule that
+  does not work. Editing `scripts/` still needs a restart: those modules are already
+  loaded into the dev process.
+- **Site paths keep their trailing slash, everywhere.** The content pages are directory
+  indexes, so `/symbolen` and `/symbolen/` are two URLs to a crawler and only the second is
+  what the host serves. Normalising it away in one place once put the canonical and the
+  hreflang on the slashless twin while the sitemap listed the real one — the same page
+  claimed twice. `check:seo` fails on it now.
+- **`src/links.ts` resolves documentation links per context**, and the app must go through
+  `docHref()` rather than concatenating. Same-origin when the page came from a site build
+  over http (dev *and* production emit the pages), the canonical origin otherwise —
+  `file://` has no origin to be relative to, and an embedder has no `/handleiding/`.
+  Hardcoding the production URL sends `npm run dev` to a site that may not exist yet.
+- **The service worker is network-first, deliberately.** [netlify.toml](netlify.toml) sets
+  `Cache-Control: no-cache` on the HTML so no proxy pins an old editor, and a service
+  worker is a proxy in the user's browser that outlives the tab. Cache-first would be
+  exactly that stale editor and far harder to dislodge. The cache is a fallback for when
+  the network fails and nothing else; `check:seo` fails if that inverts.
 
 ## Licensing constraint
 
@@ -239,6 +291,7 @@ sells commercial exceptions. Three consequences for changes here:
 
 ## Deliberate P0 cuts
 
-Sloped or varying-thickness walls, exact wall-to-arc miters, net (inner-face) room area,
-stairs, mobile/touch UX, i18n, multi-floor. These are choices, not oversights — check
-PLAN.md's phase list before "fixing" one.
+Sloped or varying-thickness walls, exact wall-to-arc miters, stairs, mobile/touch UX,
+dimension chains. These are choices, not oversights — check PLAN.md's phase list before
+"fixing" one. (Net room area, i18n and multi-floor were on this list and have since
+shipped; PLAN.md's phase list is the current one.)
