@@ -12,8 +12,8 @@
 // divided in two appears as two rows with no bookkeeping.
 import { Store } from "../model/store";
 import { Tools } from "../input/tools";
-import { Room, roomKey } from "../core/rooms";
-import { ROOM_NAMES } from "../model/room";
+import { Room, roomKey, unattachedRoomNames } from "../core/rooms";
+import { ROOM_NAMES, type RoomName } from "../model/room";
 import { areaModeOf } from "../model/doc";
 import { icon } from "./icons";
 import { t } from "../i18n";
@@ -51,7 +51,8 @@ export function renderZoomTool(
   rows.btnRow(t("panel.zoomAll"), () => tools.fitAll(), t("panel.zoomAllTitle"), "F");
   rows.btnRow(t("panel.zoomSelection"), () => tools.fitSelection(), t("panel.zoomSelectionTitle"), "Shift+F");
 
-  if (rooms.length > 0) {
+  const loose = unattachedRoomNames(store.floor, rooms);
+  if (rooms.length > 0 || loose.length > 0) {
     rows.secHead(t("panel.zoomZones"), { later: true });
     const net = areaModeOf(store.doc) === "net";
     const list = el("div", "zone-list");
@@ -66,10 +67,63 @@ export function renderZoomTool(
         ? nameRow(tools, edit, r, area)
         : zoneRow(tools, edit, r, area));
     }
+    for (const rn of loose) {
+      const key = "name:" + rn.id;
+      list.append(edit.key === key
+        ? looseNameRow(tools, edit, rn)
+        : looseRow(tools, edit, rn, key));
+    }
     list.append(nameOptions());
     host.append(list);
   }
   rows.noteRow(t("panel.zoomNote"));
+}
+
+/** A stored label outside every closed room; it still needs a route to edit it. */
+function looseRow(tools: Tools, edit: RoomEdit, rn: RoomName, key: string): HTMLElement {
+  const row = el("div", "zone-row");
+  const label = el("button", "zone") as HTMLButtonElement;
+  label.type = "button";
+  label.append(
+    Object.assign(el("span", "zone-name"), { textContent: rn.name }),
+    Object.assign(el("span", "zone-area"), { textContent: t("panel.zoomUnattached") }),
+  );
+  label.onclick = () => tools.fitWorldBox(rn, rn);
+  const pen = el("button", "zone-edit") as HTMLButtonElement;
+  pen.type = "button";
+  pen.title = t("panel.roomRename");
+  pen.setAttribute("aria-label", t("panel.roomRename"));
+  pen.append(icon("rename", 15));
+  pen.onclick = () => edit.open(key);
+  row.append(label, pen);
+  return row;
+}
+
+/** Rename an unattached label, or delete it by leaving the field empty. */
+function looseNameRow(tools: Tools, edit: RoomEdit, rn: RoomName): HTMLElement {
+  const row = el("div", "zone-row is-editing");
+  const input = el("input", "zone-input") as HTMLInputElement;
+  input.type = "text";
+  input.value = rn.name;
+  input.setAttribute("aria-label", t("panel.roomName"));
+  input.setAttribute("list", NAMES_LIST_ID);
+  let done = false;
+  const finish = (save: boolean): void => {
+    if (done) return;
+    done = true;
+    if (!input.isConnected) return;
+    edit.clear();
+    if (save && input.value.trim() !== rn.name) tools.renameRoomName(rn.id, input.value);
+    else tools.refresh();
+  };
+  input.onkeydown = e => {
+    if (e.key === "Enter") { e.preventDefault(); finish(true); }
+    else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+  };
+  input.onblur = () => finish(true);
+  row.append(input, Object.assign(el("span", "zone-area"), { textContent: t("panel.zoomUnattached") }));
+  queueMicrotask(() => { input.focus(); input.select(); input.scrollIntoView({ block: "nearest" }); });
+  return row;
 }
 
 /** A room at rest: press it to frame it, press the pencil to name it. */

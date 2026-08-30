@@ -10,8 +10,6 @@ export type Id = string;
 export interface PlanNode { id: Id; x: number; y: number }
 
 export type OpeningKind = "door" | "window" | "passage";
-/** Legacy single-sash shorthand. New documents use `Opening.sashes`. */
-export type WindowType = "fixed" | "casement" | "sliding" | "tilt-turn";
 
 /**
  * What one movable pane does. Kept deliberately small: the NEN window sheets
@@ -72,18 +70,8 @@ export interface Opening {
   kind: OpeningKind;
   t: number;      // centre distance from node a along the centerline, mm
   width: number;  // mm
-  hinge?: "a" | "b";
-  /**
-   * Opens toward the perp(a->b) side when true. Doors swing that way; for
-   * windows it also picks the line style, since a NEN window sheet encodes
-   * direction as solid = naar buiten, dashed = naar binnen draaiend.
-   */
-  swingIn?: boolean;
-  /** Legacy single-sash shorthand; `sashes` wins when both are present. */
-  windowType?: WindowType;
-  /** Panes across the opening, in a->b order. Absent = one sash from windowType. */
-  sashes?: Sash[];
-  slideTo?: "a" | "b";
+  /** Panes across the opening, in a->b order. Empty for an open passage. */
+  sashes: Sash[];
   /**
    * Glazed leaf (glaspartij). A glazed door reads as a frame with glass rather
    * than a solid panel, so its leaf is drawn as a thin double line.
@@ -292,8 +280,7 @@ export function widthsFor(kind: OpeningKind): readonly number[] {
 
 /**
  * The sashes of an opening, left to right along a->b, each with a resolved
- * width in mm. Falls back to the legacy windowType so documents written before
- * sashes existed keep rendering exactly as they did.
+ * width in mm.
  */
 export function sashesOf(o: Opening, openingWidth: number): Array<Sash & { width: number }> {
   const list = sashSpecsOf(o);
@@ -306,21 +293,7 @@ export function sashesOf(o: Opening, openingWidth: number): Array<Sash & { width
 
 /** Editable sash specifications, retaining omitted widths as automatic. */
 export function sashSpecsOf(o: Opening): Sash[] {
-  return (o.sashes?.length ? o.sashes : [legacySash(o)]).map(s => ({ ...s }));
-}
-
-function legacySash(o: Opening): Sash {
-  const outward = o.swingIn === false;
-  // A door with no sashes is a single hinged leaf — windowType says nothing
-  // about it, and defaulting to "fixed" would silently erase every door's swing.
-  if (o.kind === "door") return { action: "turn", hinge: o.hinge ?? "a", outward };
-  if (o.kind === "passage") return { action: "fixed" };
-  switch (o.windowType ?? "fixed") {
-    case "casement":  return { action: "turn", hinge: o.hinge ?? "a", outward };
-    case "tilt-turn": return { action: "turn-tilt", hinge: o.hinge ?? "a", outward };
-    case "sliding":   return { action: "slide", slideTo: o.slideTo ?? "b" };
-    default:          return { action: "fixed" };
-  }
+  return o.sashes.map(s => ({ ...s }));
 }
 
 /**
@@ -414,6 +387,9 @@ export const DOOR_KINDS: DoorKind[] = [
                                 { action: "fixed" }] },
   { id: "draaipui",    sashes: [{ action: "fixed" }, { action: "turn", hinge: "b" }] },
 ];
+
+/** Named door and window presets exposed by the editor and documentation. */
+export const OPENING_TYPE_COUNT = WINDOW_KINDS.length + DOOR_KINDS.length;
 
 /** Which named door set a sash list matches, or null for a tuned combination. */
 export function doorKindOf(sashes: Sash[]): DoorKind | null {

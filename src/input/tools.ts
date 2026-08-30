@@ -971,7 +971,10 @@ export class Tools {
       const wall = f.walls.find(x => x.id === snap.wall!.id);
       if (wall) {
         const L = wallLength(f, wall);
-        if (snap.tMm > 40 && snap.tMm < L - 40) return splitWall(f, wall, snap.tMm);
+        if (snap.tMm > 40 && snap.tMm < L - 40) {
+          const split = splitWall(f, wall, snap.tMm);
+          if (split) return split;
+        }
       }
     }
     return nodeAt(f, p);
@@ -984,16 +987,16 @@ export class Tools {
     if (!nw) return;
     const o: Opening = {
       id: newId("o"), kind, t: Math.round(nw.tMm / 10) * 10, width: this.openingWidth[kind],
+      sashes: kind === "door"
+        ? [{ action: "turn", hinge: this.doorHinge, outward: this.doorOutward }]
+        : kind === "window" ? [{ action: "fixed" }] : [],
       // A door takes the standing choices rather than one fixed default: hinge
       // side, swing and fire rating are decided once for a plan and then placed
       // over and over, the way lastThickness works for walls.
       ...(kind === "door" ? {
-        hinge: this.doorHinge,
-        swingIn: !this.doorOutward,
         ...(this.doorSelfClosing ? { selfClosing: true } : {}),
         ...(this.doorFire ? { fireRating: { ...this.doorFire } } : {}),
       } : {}),
-      ...(kind === "window" ? { windowType: "fixed" as const } : {}),
     };
     this.store.mutate(doc => {
       const fl = this.store.floorOf(doc);
@@ -1242,6 +1245,17 @@ export class Tools {
       }
       const at = roomAnchor(room);
       (f.roomNames ??= []).push({ id: newId("r"), x: at.x, y: at.y, name: text });
+    });
+  }
+
+  /** Rename or remove a stored label that is not attached to a detected room. */
+  renameRoomName(id: string, name: string): void {
+    const text = name.trim();
+    this.store.mutate(doc => {
+      const f = this.store.floorOf(doc);
+      if (!text) { f.roomNames = roomNamesOf(f).filter(r => r.id !== id); return; }
+      const rn = roomNamesOf(f).find(r => r.id === id);
+      if (rn) rn.name = text;
     });
   }
 

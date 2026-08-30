@@ -37,11 +37,9 @@ Wall         { id, a: NodeId, b: NodeId,
 Opening      { id, kind: "door" | "window" | "passage",
                t: number,                          // centre distance from node a along centerline, mm
                width: number,                      // mm
-               hinge?: "a" | "b",                  // door: hinge side
-               swingIn?: boolean,                  // door: opens toward left of a→b
-               windowType?: "fixed" | "casement" | "sliding",
-               slideTo?: "a" | "b",                // sliding window/door: direction
+               sashes: Sash[],                     // empty for an open passage
                sillHeight?, height? }              // reserved for elevations/3D
+Sash         { width?, action, hinge?, outward?, slideTo?, spin?, bars? }
 SymbolInstance { id, type, x, y, rotation, mirrored?, wallId? }  // wallId when wall-snapped
 Cabinet      { id, kind: "base" | "wall" | "tall",
                x, y, rotation, mirrored?,          // anchor: middle of the wall edge, +y into room

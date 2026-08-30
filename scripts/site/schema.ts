@@ -115,24 +115,17 @@ export function planSchema(siteUrl: string): JsonSchema {
         description:
           "A hole in one wall, parameterised along it. Openings are never nodes in the " +
           "graph: moving the wall moves its doors, and the hole is carved when drawn.",
-        required: ["id", "kind", "t", "width"],
+        required: ["id", "kind", "t", "width", "sashes"],
         additionalProperties: false,
         properties: {
           id: { $ref: "#/$defs/id" },
           kind: { enum: ["door", "window", "passage"] },
           t: mm("Centre of the opening, measured from node a along the centerline, mm."),
           width: { type: "integer", minimum: 1, description: "mm across the wall opening." },
-          hinge: { enum: ["a", "b"], description: "Which jamb hinges, named by the wall's own a->b direction." },
-          swingIn: { type: "boolean", description: "Opens toward the perp(a->b) side." },
-          windowType: {
-            enum: ["fixed", "casement", "sliding", "tilt-turn"],
-            description: "Single-sash shorthand. `sashes` wins when both are present.",
-          },
           sashes: {
-            type: "array", minItems: 1, items: { $ref: "#/$defs/sash" },
-            description: "Panes across the opening in a->b order. One hole, divided by mullions.",
+            type: "array", items: { $ref: "#/$defs/sash" },
+            description: "Panes across the opening in a->b order. Empty for a passage.",
           },
-          slideTo: { enum: ["a", "b"] },
           glazed: { type: "boolean", description: "Glazed leaf — drawn as a thin double line." },
           powered: { type: "boolean", description: "Electrically operated." },
           selfClosing: { type: "boolean", description: "Self-closing, as a fire door must be." },

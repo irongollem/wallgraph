@@ -7,6 +7,7 @@
 // rectangle: the document is a wall graph, and a shape is only how the walls
 // were entered.
 import { Vec, v, sub, add, dist, angleOf, fromAngle } from "../geometry/vec";
+import { MIN_WALL_MM } from "./ops";
 
 export type WallShape = "line" | "rect" | "circle" | "polygon";
 export const WALL_SHAPES: readonly WallShape[] = ["line", "rect", "circle", "polygon"];
@@ -61,6 +62,11 @@ export function shapeRun(shape: WallShape, from: Vec, to: Vec, opts: ShapeOpts =
     const p = add(from, fromAngle(start + (i * 2 * Math.PI) / n, r));
     points.push(v(Math.round(p.x), Math.round(p.y)));
   }
+  // Rounding a high-sided, small polygon can make every edge shorter than the
+  // wall operation accepts. Refuse the gesture instead of previewing a shape
+  // that inserts no walls.
+  if (shape === "polygon" && points.some((p, i) =>
+    dist(p, points[(i + 1) % points.length]!) < MIN_WALL_MM)) return null;
   return { points, bulges: points.map(() => ringBulge(shape, n)) };
 }
 

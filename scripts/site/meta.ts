@@ -3,9 +3,11 @@
 import type { Lang } from "../../src/i18n";
 import { DOC_PATHS, DOC_IDS as PATH_IDS, type DocId } from "../../src/links";
 import { SYMBOLS } from "../../src/render/symbols";
+import { OPENING_TYPE_COUNT } from "../../src/model/doc";
 
 /** Counted from the registry so the copy cannot drift from the library. */
 const N = SYMBOLS.length;
+const O = OPENING_TYPE_COUNT;
 
 export const LANGS: Lang[] = ["nl", "en"];
 export const PRIMARY: Lang = "nl";
@@ -37,7 +39,7 @@ export const HOME: PageMeta = {
   title: "Wallgraph — gratis plattegrond tekenen, op de millimeter",
   description:
     `Browsergebaseerde plattegrond-editor met maten in hele millimeters, ${N} NEN-symbolen ` +
-    "en 27 deur- en raamtypen. Gratis en zonder account.",
+    `en ${O} deur- en raamtypen. Gratis en zonder account.`,
   heading: "Wallgraph — plattegronden op de millimeter",
   lead:
     "Een gratis plattegrond-editor in de browser. Maten worden in hele millimeters " +
@@ -77,7 +79,7 @@ export const DOCS: Record<DocId, Record<Lang, PageMeta>> = {
   openings: {
     nl: {
       path: DOC_PATHS.openings.nl,
-      title: "Deur- en raamtypen — 27 kozijntypen in plattegrond",
+      title: `Deur- en raamtypen — ${O} kozijntypen in plattegrond`,
       description:
         "Draairaam, valraam, uitzetraam, stolpraam, schuifpui, taatsdeur, tourniquet: " +
         "hoe elk deur- en raamtype volgens de NEN-bladen in plattegrond wordt getekend.",
@@ -89,7 +91,7 @@ export const DOCS: Record<DocId, Record<Lang, PageMeta>> = {
     },
     en: {
       path: DOC_PATHS.openings.en,
-      title: "Door and window types — 27 NEN opening types",
+      title: `Door and window types — ${O} NEN opening types`,
       description:
         "Turn, tilt, project, pivot, revolve, slide and fold: how each door and window " +
         "type is drawn in plan, following the Dutch NEN window and door sheets.",
@@ -197,7 +199,7 @@ export const FEATURES: Record<Lang, string[]> = {
     "Muren tekenen met getypte lengtes in hele millimeters",
     "Rechthoek, cirkel en veelhoek in twee klikken; gedeelde muren worden samengevoegd",
     "Deuren, ramen en doorgangen die de muur automatisch doorsnijden",
-    "27 NEN deur- en raamtypen met draai-, kiep-, schuif- en tuimelrichting",
+    `${O} NEN deur- en raamtypen met draai-, kiep-, schuif- en tuimelrichting`,
     `${N} plattegrondsymbolen: elektra, water, sanitair, verwarming, ventilatie, brandveiligheid, keuken, meubels`,
     "15 traptypen met eigen maatvoering: steektrap, bordestrap, kwartslag, spiltrap, wenteltrap",
     "Automatische ruimtedetectie met netto-oppervlakte volgens NEN 2580",
@@ -209,7 +211,7 @@ export const FEATURES: Record<Lang, string[]> = {
     "Draw walls by typing exact lengths in whole millimetres",
     "Rectangle, circle and polygon in two clicks, with shared walls merged",
     "Doors, windows and passages that cut the wall automatically",
-    "27 NEN door and window types with turn, tilt, slide and tumble direction",
+    `${O} NEN door and window types with turn, tilt, slide and tumble direction`,
     `${N} plan symbols: electrical, water, sanitary, heating, ventilation, fire safety, kitchen, furniture`,
     "15 stair types, each sized for its own plan: straight, landing, quarter-turn, spiral, helical",
     "Automatic room detection with net floor area per NEN 2580",

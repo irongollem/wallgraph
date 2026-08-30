@@ -3,7 +3,7 @@ import { emptyDoc, newId, Wall, GRID_DEFAULT_MM } from "../src/model/doc";
 import { Store } from "../src/model/store";
 import { sashesOf, sashSpecsOf, doorKindOf, windowKindOf, DOOR_KINDS, WINDOW_KINDS, type Opening } from "../src/model/doc";
 import { detectRooms } from "../src/core/rooms";
-import { insertWall, insertRun, nodeAt } from "../src/model/ops";
+import { insertWall, insertRun, nodeAt, wallLength } from "../src/model/ops";
 import { shapeRun } from "../src/model/shape";
 import { dimensionChains } from "../src/core/dimensions";
 import { seedDoc } from "../src/seed";
@@ -107,7 +107,8 @@ function rectFloor(wallTh = 100) {
 
   // Add a door to the top wall -> 2 pieces.
   const top = f.walls[0]!;
-  top.openings.push({ id: newId("o"), kind: "door", t: 2000, width: 900, hinge: "a", swingIn: true });
+  top.openings.push({ id: newId("o"), kind: "door", t: 2000, width: 900,
+    sashes: [{ action: "turn", hinge: "a", outward: false }] });
   const res2 = resolveFloor(f);
   check("door splits wall into 2 pieces", res2.walls.get(top.id)!.pieces.length === 2,
     String(res2.walls.get(top.id)!.pieces.length));
@@ -361,27 +362,7 @@ function rectFloor(wallTh = 100) {
 // --- window sashes ---
 {
   const mk = (o: Partial<Opening>): Opening =>
-    ({ id: "o", kind: "window", t: 1000, width: 2000, ...o } as Opening);
-
-  // Documents written before sashes existed must resolve to the same window.
-  const legacy: Array<[string, Opening, string]> = [
-    ["fixed", mk({ windowType: "fixed" }), "fixed"],
-    ["casement", mk({ windowType: "casement" }), "turn"],
-    ["tilt-turn", mk({ windowType: "tilt-turn" }), "turn-tilt"],
-    ["sliding", mk({ windowType: "sliding" }), "slide"],
-    ["untyped", mk({}), "fixed"],
-  ];
-  for (const [name, o, action] of legacy) {
-    const s2 = sashesOf(o, 2000);
-    check(`legacy ${name} maps to one ${action} sash`,
-      s2.length === 1 && s2[0]!.action === action && s2[0]!.width === 2000,
-      JSON.stringify(s2));
-  }
-  // swingIn false is "naar buiten", which is what drives the solid line style.
-  check("legacy swingIn:false becomes outward",
-    sashesOf(mk({ windowType: "casement", swingIn: false }), 2000)[0]!.outward === true);
-  check("legacy swingIn:true stays inward",
-    sashesOf(mk({ windowType: "casement", swingIn: true }), 2000)[0]!.outward === false);
+    ({ id: "o", kind: "window", t: 1000, width: 2000, sashes: [{ action: "fixed" }], ...o });
 
   // A combination window is one hole subdivided; widths must total the opening.
   const combo = sashesOf(mk({ width: 2400, sashes: [
@@ -404,30 +385,23 @@ function rectFloor(wallTh = 100) {
   ] }), 1000);
   check("remainder never goes negative", over[1]!.width === 0, String(over[1]!.width));
 
-  // sashes wins over a stale windowType, so the two can never disagree.
-  check("sashes override a legacy windowType",
-    sashesOf(mk({ windowType: "sliding", sashes: [{ action: "fold" }] }), 2000)[0]!.action === "fold");
+  check("an explicit single sash spans the opening",
+    sashesOf(mk({ sashes: [{ action: "fold" }] }), 2000)[0]!.width === 2000);
 }
 
 // --- doors get sashes too, and named kinds survive tuning ---
 {
   const door = (o: Partial<Opening>): Opening =>
-    ({ id: "o", kind: "door", t: 1000, width: 900, ...o } as Opening);
-
-  // A door with no sashes is a hinged leaf. Defaulting to "fixed" — which the
-  // window-only fallback did — silently erased every existing door's swing.
-  const legacy = sashesOf(door({ hinge: "b", swingIn: true }), 900);
-  check("legacy door is one hinged leaf",
-    legacy.length === 1 && legacy[0]!.action === "turn" && legacy[0]!.hinge === "b",
-    JSON.stringify(legacy));
+    ({ id: "o", kind: "door", t: 1000, width: 900,
+      sashes: [{ action: "turn", hinge: "a", outward: false }], ...o });
   check("passage has no leaf action",
-    sashesOf({ id: "o", kind: "passage", t: 1, width: 900 } as Opening, 900)[0]!.action === "fixed");
+    sashesOf({ id: "o", kind: "passage", t: 1, width: 900, sashes: [] }, 900).length === 0);
 
   // Hinge side and swing are tunings, not identity: all four read as one door.
   for (const hinge of ["a", "b"] as const)
-    for (const swingIn of [true, false])
-      check(`door hinge=${hinge} swingIn=${swingIn} is still a single door`,
-        doorKindOf(sashesOf(door({ hinge, swingIn }), 900))?.id === "enkel");
+    for (const outward of [true, false])
+      check(`door hinge=${hinge} outward=${outward} is still a single door`,
+        doorKindOf(sashesOf(door({ sashes: [{ action: "turn", hinge, outward }] }), 900))?.id === "enkel");
 
   for (const k of DOOR_KINDS)
     check(`door kind ${k.id} round-trips`, doorKindOf(k.sashes)?.id === k.id);
@@ -624,13 +598,30 @@ function rectFloor(wallTh = 100) {
   const f = emptyDoc().floors[0]!;
   const a = nodeAt(f, v(0, 0)), b = nodeAt(f, v(4000, 0));
   const wall = insertWall(f, a.id, b.id, 100)[0]!;
-  wall.openings.push({ id: newId("o"), kind: "door", t: 3000, width: 900 });
+  wall.openings.push({ id: newId("o"), kind: "door", t: 3000, width: 900,
+    sashes: [{ action: "turn", hinge: "a" }] });
   const c = nodeAt(f, v(1000, 0)), d = nodeAt(f, v(1000, 2000));
   insertWall(f, c.id, d.id, 100);
   const holders = f.walls.filter(w => w.openings.length > 0);
   check("a split wall keeps its opening", holders.length === 1, String(holders.length));
   check("the opening keeps its place on the piece it landed on",
     Math.abs((holders[0]?.openings[0]?.t ?? 0) - 2000) < 1, String(holders[0]?.openings[0]?.t));
+}
+{
+  // A junction may not cut through the span occupied by an opening. Doing so
+  // would put one or both jambs beyond the child wall that retains the record.
+  const f = emptyDoc().floors[0]!;
+  const a = nodeAt(f, v(0, 0)), b = nodeAt(f, v(4000, 0));
+  const wall = insertWall(f, a.id, b.id, 100)[0]!;
+  wall.openings.push({ id: newId("o"), kind: "door", t: 2000, width: 900,
+    sashes: [{ action: "turn", hinge: "a" }] });
+  const c = nodeAt(f, v(2000, -1000)), d = nodeAt(f, v(2000, 1000));
+  const before = f.walls.length;
+  const made = insertWall(f, c.id, d.id, 100);
+  check("a wall crossing through an opening is rejected", made.length === 0);
+  check("the rejected crossing leaves the carrying wall whole",
+    f.walls.length === before && wallLength(f, wall) === 4000 && wall.openings[0]!.t === 2000,
+    JSON.stringify({ walls: f.walls.length, t: wall.openings[0]!.t }));
 }
 {
   // The circle is four quarter arcs on one centre, not a many-sided polygon.
@@ -672,6 +663,8 @@ function rectFloor(wallTh = 100) {
   check("a circle with no radius is not a shape", shapeRun("circle", v(0, 0), v(3, 0)) === null);
   check("sides are clamped to a ring that closes",
     shapeRun("polygon", v(0, 0), v(1000, 0), { sides: 1 })!.points.length === 3);
+  check("a polygon whose rounded edges are too short is rejected",
+    shapeRun("polygon", v(0, 0), v(20, 0), { sides: 24 }) === null);
 }
 {
   // Closing a chain runs one wall back to the node it started from.

@@ -4,6 +4,7 @@ import { LANGS, PRIMARY, SITE, HOME, DOCS, DOC_IDS, FEATURES, allPages, alternat
 import { abs, type SiteCtx } from "./html";
 import type { Lang } from "../../src/i18n";
 import { SYMBOLS } from "../../src/render/symbols";
+import { OPENING_TYPE_COUNT } from "../../src/model/doc";
 
 const xml = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -115,7 +116,7 @@ ${url(doc("disclaimer", "en"))}
 - [Document format and agent API](${url(doc("format", "en"))}): the JSON model, the two agent channels, and their limits.
 - [JSON Schema](${url("/wallgraph.schema.json")}): draft 2020-12, every field described, unknown fields rejected.
 - [Floorplan symbols](${url(doc("symbols", "en"))}): all ${SYMBOLS.length} plan symbols with their type ids and millimetre dimensions.
-- [Door and window types](${url(doc("openings", "en"))}): all 27 NEN opening types and how each is drawn in plan.
+- [Door and window types](${url(doc("openings", "en"))}): all ${OPENING_TYPE_COUNT} NEN opening types and how each is drawn in plan.
 - [Manual](${url(doc("manual", "en"))}): tools, snapping, exports and every keyboard shortcut.
 
 ## In Dutch

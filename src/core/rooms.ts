@@ -12,6 +12,7 @@
 // the same miter construction resolve.ts uses at junctions.
 import { Floor, roomNamesOf } from "../model/doc";
 import type { Id } from "../model/doc";
+import type { RoomName } from "../model/room";
 import {
   Vec, v, dist, dot, sub, add, norm, perp, scale, angleOf, lineIntersect,
   polygonArea, polygonCentroid, pointInPolygon,
@@ -140,6 +141,12 @@ function attachNames(f: Floor, rooms: Room[]): void {
     const room = rooms.find(r => r.name === undefined && pointInPolygon(p, r.netPoly));
     if (room) { room.name = rn.name; room.nameId = rn.id; }
   }
+}
+
+/** Stored labels that currently fall in no detected room (including duplicates). */
+export function unattachedRoomNames(f: Floor, rooms: Room[]): RoomName[] {
+  const attached = new Set(rooms.flatMap(r => r.nameId === undefined ? [] : [r.nameId]));
+  return roomNamesOf(f).filter(rn => !attached.has(rn.id));
 }
 
 /**

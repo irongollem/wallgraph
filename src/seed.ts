@@ -45,12 +45,17 @@ export function seedDoc(): PlanDoc {
   W(nC2, nBR, 300);
 
   // Openings.
-  const frontDoor = { id: newId("o"), kind: "door" as const, t: 2400, width: 930, hinge: "a" as const, swingIn: true };
+  const frontDoor = { id: newId("o"), kind: "door" as const, t: 2400, width: 930,
+    sashes: [{ action: "turn" as const, hinge: "a" as const, outward: false }] };
   bottom2.openings.push(frontDoor);
-  top1.openings.push({ id: newId("o"), kind: "window" as const, t: 2400, width: 1800, windowType: "sliding" as const, slideTo: "b" as const });
-  left.openings.push({ id: newId("o"), kind: "window" as const, t: 2700, width: 1400, windowType: "fixed" as const });
-  inner.openings.push({ id: newId("o"), kind: "door" as const, t: 1100, width: 830, hinge: "b" as const, swingIn: false });
-  bath.openings.push({ id: newId("o"), kind: "door" as const, t: 800, width: 730, hinge: "a" as const, swingIn: false });
+  top1.openings.push({ id: newId("o"), kind: "window", t: 2400, width: 1800,
+    sashes: [{ action: "slide", slideTo: "b" }] });
+  left.openings.push({ id: newId("o"), kind: "window", t: 2700, width: 1400,
+    sashes: [{ action: "fixed" }] });
+  inner.openings.push({ id: newId("o"), kind: "door", t: 1100, width: 830,
+    sashes: [{ action: "turn", hinge: "b", outward: true }] });
+  bath.openings.push({ id: newId("o"), kind: "door", t: 800, width: 730,
+    sashes: [{ action: "turn", hinge: "a", outward: true }] });
 
   // Symbols. Rotations: 0 faces +y (down on screen).
   const S = (type: string, x: number, y: number, rotation: number, wallId?: string): void => {

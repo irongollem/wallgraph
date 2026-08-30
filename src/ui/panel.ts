@@ -607,11 +607,7 @@ export class Panel {
     if (floors.length > 1) btnRow(t("panel.floorDelete"), () => this.store.deleteFloor());
   }
 
-  /**
-   * Sash editor. An opening is one hole; the sashes divide it. Editing writes
-   * `sashes` even when the opening still carries a legacy windowType, so the
-   * two never disagree — sashesOf() prefers `sashes` once it exists.
-   */
+  /** Sash editor. An opening is one hole; the sashes divide it. */
   private renderSashes(
     o: Opening, wall: Wall,
     mut: (fn: (o2: Opening) => void) => void,

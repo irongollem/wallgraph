@@ -22,12 +22,13 @@ export function nodeAt(f: Floor, p: Vec, tol = NODE_MERGE_TOL): PlanNode {
   return n;
 }
 
-/** Split wall w at parameter t (mm along centerline) into two walls sharing a new node. */
-export function splitWall(f: Floor, w: Wall, tMm: number): PlanNode {
+/** Split a wall, or return null when the cut would pass through an opening. */
+export function splitWall(f: Floor, w: Wall, tMm: number): PlanNode | null {
   const a = f.nodes.find(n => n.id === w.a)!;
   const b = f.nodes.find(n => n.id === w.b)!;
   const L = wallLength(f, w);
   const tt = Math.max(1, Math.min(L - 1, tMm));
+  if (!openingsFitCuts(w, L, [tt])) return null;
   // Split point on the centerline (arc-aware).
   const frac = tt / L;
   const p = arcPointAt(v(a.x, a.y), v(b.x, b.y), w.bulge, frac);
@@ -121,6 +122,20 @@ export const WELD_TOL = 1; // mm
 /** Shortest wall the tools create; below this the two ends are one node. */
 export const MIN_WALL_MM = 10;
 
+/** Clearance between an opening jamb and the end of the wall that carries it. */
+const OPENING_END_CLEARANCE_MM = 10;
+
+/** True when every opening remains wholly on one wall segment after these cuts. */
+function openingsFitCuts(w: Wall, length: number, cuts: number[]): boolean {
+  const stops = dedupe([0, length, ...cuts.filter(t => t > WELD_TOL && t < length - WELD_TOL)]);
+  return w.openings.every(o => {
+    const left = o.t - o.width / 2 - OPENING_END_CLEARANCE_MM;
+    const right = o.t + o.width / 2 + OPENING_END_CLEARANCE_MM;
+    return stops.some((start, i) => i + 1 < stops.length
+      && left >= start - WELD_TOL && right <= stops[i + 1]! + WELD_TOL);
+  });
+}
+
 /**
  * Add a wall from node a to node b, welded into what is already drawn.
  *
@@ -210,6 +225,14 @@ export function insertWall(f: Floor, aId: Id, bId: Id, thickness: number, bulge 
     if (Math.abs(offset(P)) > WELD_TOL) continue;
     const s = along(P);
     if (s > WELD_TOL && s < L - WELD_TOL) cuts.push(s);
+  }
+
+  // A split through an opening would leave its jambs outside the child wall.
+  // Reject the insertion before splitting walls; moving or shrinking an
+  // authored opening silently would be worse than refusing this junction.
+  for (const [id, ts] of splits) {
+    const w = f.walls.find(x => x.id === id);
+    if (w && !openingsFitCuts(w, wallLength(f, w), ts)) return [];
   }
 
   for (const [id, ts] of splits) {

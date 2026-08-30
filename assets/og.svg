@@ -83,7 +83,7 @@
         fill="#8a8577">Gratis · geen account</text>
 
   <text x="90" y="482" font-family="Helvetica,Arial,sans-serif" font-size="23"
-        fill="#8a8577">77 NEN-symbolen · 27 deur- en raamtypes</text>
+        fill="#8a8577">{{SYMBOL_COUNT}} NEN-symbolen · {{OPENING_TYPE_COUNT}} deur- en raamtypen</text>
 
   <text x="90" y="532" font-family="Helvetica,Arial,sans-serif" font-size="25"
         font-weight="600" fill="#e05d2d">plattegrond.crocode.nl</text>

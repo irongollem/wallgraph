@@ -5,9 +5,10 @@ import { docPages } from "../scripts/site/pages";
 import { robotsTxt, llmsTxt, sitemapXml } from "../scripts/site/files";
 import { seedDoc } from "../src/seed";
 import { SYMBOL_TYPES } from "../src/render/symbols";
-import { WINDOW_KINDS, DOOR_KINDS, type PlanDoc } from "../src/model/doc";
+import { WINDOW_KINDS, DOOR_KINDS, type Opening, type PlanDoc } from "../src/model/doc";
 import { resources, changeLanguage } from "../src/i18n";
 import { DOC_PATHS, DOC_IDS as LINK_IDS, docHref, SITE_ORIGIN } from "../src/links";
+import { ogSvg } from "../scripts/render-og";
 
 let fail = 0;
 const ck = (n: string, c: boolean, d = "") => { if (!c) { fail++; console.error("FAIL " + n + " " + d); } else console.log("ok   " + n); };
@@ -15,6 +16,12 @@ const ck = (n: string, c: boolean, d = "") => { if (!c) { fail++; console.error(
 const ORIGIN = "https://plattegrond.crocode.nl";
 const schema = planSchema(ORIGIN);
 const ctx = { siteUrl: ORIGIN, favicon: "", version: "0.0.0-test" };
+
+const socialCard = ogSvg();
+ck("social card uses the current symbol count", socialCard.includes(`${SYMBOL_TYPES.length} NEN-symbolen`));
+ck("social card uses the current opening count",
+  socialCard.includes(`${WINDOW_KINDS.length + DOOR_KINDS.length} deur- en raamtypen`));
+ck("social card has no unresolved count", !socialCard.includes("{{"));
 
 /* ── schema ── */
 
@@ -30,7 +37,6 @@ const full: PlanDoc = {
       id: "w1", a: "n1", b: "n2", thickness: 300, bulge: 0.25,
       openings: [{
         id: "o1", kind: "door", t: 2000, width: 1800,
-        hinge: "a", swingIn: true, windowType: "tilt-turn", slideTo: "b",
         glazed: true, powered: true, selfClosing: true,
         fireRating: { kind: "wbd", minutes: 30 },
         sillHeight: 0, height: 2300,
@@ -56,9 +62,15 @@ const rejects = (name: string, mutate: (d: PlanDoc) => void) => {
 rejects("rejects an unknown property", d => { (d as unknown as Record<string, unknown>).extra = 1; });
 rejects("rejects a non-integer coordinate", d => { d.floors[0]!.nodes[0]!.x = 12.5; });
 rejects("rejects a missing bulge", d => { delete (d.floors[0]!.walls[0]! as { bulge?: number }).bulge; });
+rejects("rejects an opening without sashes", d => {
+  delete (d.floors[0]!.walls[0]!.openings[0]! as Partial<Opening>).sashes;
+});
+rejects("rejects removed opening shorthand", d => {
+  (d.floors[0]!.walls[0]!.openings[0]! as Opening & { windowType: string }).windowType = "fixed";
+});
 rejects("rejects an unknown symbol type", d => { d.floors[0]!.symbols[0]!.type = "teleporter"; });
 rejects("rejects a bad colour", d => { d.floors[0]!.symbols[0]!.color = "red"; });
-rejects("rejects an unknown sash action", d => { d.floors[0]!.walls[0]!.openings[0]!.sashes![0]!.action = "wobble" as never; });
+rejects("rejects an unknown sash action", d => { d.floors[0]!.walls[0]!.openings[0]!.sashes[0]!.action = "wobble" as never; });
 rejects("rejects version 2", d => { (d as unknown as Record<string, unknown>).version = 2; });
 
 // Keep schema enums aligned with runtime opening and symbol definitions.

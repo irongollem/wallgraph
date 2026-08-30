@@ -139,6 +139,7 @@ check("declares a DXF version with LWPOLYLINE", (dxf ?? "").includes("AC1015"));
   floor.nodes.push({ id: a, x: 0, y: 0 }, { id: b, x: 3000, y: 0 });
   floor.walls.push({ id: newId("w"), a, b, thickness: 200, bulge: 0, openings: [{
     id: newId("o"), kind: "door", t: 1500, width: 1000, powered: true,
+    sashes: [{ action: "turn", hinge: "a" }],
     selfClosing: true, fireRating: { kind: "wbd", minutes: 60 },
   }] });
   const labels = openingMarks([...resolveFloor(floor).walls.values()][0]!)

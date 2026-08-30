@@ -7,7 +7,7 @@
 // derived room it belongs to.
 import { Viewport, MIN_PX_PER_MM, MAX_PX_PER_MM, clampZoom } from "../src/render/viewport";
 import { planBounds, polyBounds } from "../src/core/bounds";
-import { detectRooms, roomAnchor, roomKey } from "../src/core/rooms";
+import { detectRooms, roomAnchor, roomKey, unattachedRoomNames } from "../src/core/rooms";
 import { resolveFloor } from "../src/core/resolve";
 import { emptyDoc, newId, roomNamesOf, Floor } from "../src/model/doc";
 import { ROOM_NAMES } from "../src/model/room";
@@ -285,6 +285,18 @@ function box(f: Floor, x0: number, y0: number, x1: number, y1: number, thickness
   bad2.floors[0].roomNames[0].room = "r1";
   // Which room a name belongs to is derived, so there is nothing to store.
   check("a stored room reference is rejected", validate(planSchema(""), bad2).length > 0);
+}
+
+{
+  const doc = emptyDoc(), f = doc.floors[0]!;
+  box(f, 0, 0, 4000, 3000);
+  f.roomNames = [
+    { id: "inside", x: 2000, y: 1500, name: "Keuken" },
+    { id: "outside", x: 5000, y: 1500, name: "Terras" },
+  ];
+  const loose = unattachedRoomNames(f, detectRooms(f));
+  check("room labels outside detected rooms remain manageable",
+    loose.length === 1 && loose[0]!.id === "outside", JSON.stringify(loose));
 }
 
 for (const lng of ["nl", "en"] as const) {
