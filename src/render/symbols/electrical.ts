@@ -6,71 +6,71 @@ import { SymbolDef, withCtx } from "./defs";
 // device footprint. See ./defs.ts for the full drawing contract.
 // ---------------------------------------------------------------------------
 
-const socketSingle: SymbolDef = {
-  type: "socket-single",
-  label: "Socket",
-  category: "electrical",
-  wallMounted: true,
-  width: 220,
-  depth: 300,
-  draw(ctx) {
-    withCtx(ctx, () => {
-      // Wandcontactdoos: stem from the wall with one cup opening into the room
-      // (wine-glass form; the stem foot marks the exact position).
-      const r = 100;
-      const c = 200; // cup circle centre distance from the wall
-      ctx.moveTo(0, 0);
-      ctx.lineTo(0, c - r); // stem to the cup's back (apex)
-      ctx.moveTo(r, c);
-      ctx.arc(0, c, r, 0, Math.PI, true); // half-circle, open side facing the room
-      ctx.stroke();
-    });
-  },
-};
+// Wandcontactdoos family. One stem out of the wall carries one cup per outlet
+// (half-circle, apex on the stem, open side facing the room). "Met randaarde"
+// adds a bar across the stem at each cup's apex, parallel to the wall and
+// reaching past the cup on both sides.
+const CUP_R = 100;      // cup radius
+const CUP_FIRST = 200;  // first cup centre, measured from the wall
+const CUP_STEP = 120;   // further cups follow along the stem at this spacing
+const EARTH_HALF = 120; // earth bar half-length
 
-const socketDouble: SymbolDef = {
-  type: "socket-double",
-  label: "Double socket",
-  category: "electrical",
-  wallMounted: true,
-  width: 220,
-  depth: 420,
-  draw(ctx) {
-    withCtx(ctx, () => {
-      // Dubbele wandcontactdoos: one stem, two nested cups along it.
-      const r = 100;
-      const c1 = 200, c2 = 320;
-      ctx.moveTo(0, 0);
-      ctx.lineTo(0, c1 - r);
-      ctx.moveTo(r, c1);
-      ctx.arc(0, c1, r, 0, Math.PI, true);
-      ctx.moveTo(r, c2);
-      ctx.arc(0, c2, r, 0, Math.PI, true);
-      ctx.stroke();
-    });
-  },
-};
+function socketPath(ctx: CanvasRenderingContext2D, cups: number, earthed: boolean): void {
+  ctx.moveTo(0, 0);
+  ctx.lineTo(0, CUP_FIRST - CUP_R); // stem, up to the first cup's apex
+  for (let i = 0; i < cups; i++) {
+    const c = CUP_FIRST + i * CUP_STEP;
+    ctx.moveTo(CUP_R, c);
+    ctx.arc(0, c, CUP_R, 0, Math.PI, true);
+    if (earthed) {
+      ctx.moveTo(-EARTH_HALF, c - CUP_R);
+      ctx.lineTo(EARTH_HALF, c - CUP_R);
+    }
+  }
+  ctx.stroke();
+}
 
-const socketEarthed: SymbolDef = {
-  type: "socket-earthed",
-  label: "Socket (earthed)",
+const socketWidth = (earthed: boolean) => (earthed ? EARTH_HALF : CUP_R) * 2 + 20;
+const socketDepth = (cups: number) => CUP_FIRST + (cups - 1) * CUP_STEP + CUP_R;
+
+function socket(type: string, label: string, cups: number, earthed: boolean): SymbolDef {
+  return {
+    type,
+    label,
+    category: "electrical",
+    wallMounted: true,
+    width: socketWidth(earthed),
+    depth: socketDepth(cups),
+    draw(ctx) {
+      withCtx(ctx, () => socketPath(ctx, cups, earthed));
+    },
+  };
+}
+
+const socketSingle = socket("socket-single", "Socket", 1, false);
+const socketEarthed = socket("socket-earthed", "Socket (earthed)", 1, true);
+const socketDouble = socket("socket-double", "Double socket", 2, false);
+const socketDoubleEarthed = socket("socket-double-earthed", "Double socket (earthed)", 2, true);
+const socketTriple = socket("socket-triple", "Triple socket", 3, false);
+const socketTripleEarthed = socket("socket-triple-earthed", "Triple socket (earthed)", 3, true);
+
+const socketShaver: SymbolDef = {
+  type: "socket-shaver",
+  label: "Shaver socket",
   category: "electrical",
   wallMounted: true,
-  width: 220,
-  depth: 300,
+  width: socketWidth(true),
+  depth: socketDepth(1),
   draw(ctx) {
     withCtx(ctx, () => {
-      // Same wine-glass form as socket-single, plus a short earthing tick
-      // crossing the stem, parallel to the wall.
-      const r = 100;
-      const c = 200;
+      // Scheerapparaat: the socket stem and crossbar, with the isolating
+      // transformer's full circle in place of the open cup.
       ctx.moveTo(0, 0);
-      ctx.lineTo(0, c - r);
-      ctx.moveTo(r, c);
-      ctx.arc(0, c, r, 0, Math.PI, true);
-      // earthing tick, parallel to the wall, crossing the stem at y=60
-      ctx.moveTo(-45, 60);
-      ctx.lineTo(45, 60);
+      ctx.lineTo(0, CUP_FIRST - CUP_R);
+      ctx.moveTo(-EARTH_HALF, CUP_FIRST - CUP_R);
+      ctx.lineTo(EARTH_HALF, CUP_FIRST - CUP_R);
+      ctx.moveTo(CUP_R, CUP_FIRST);
+      ctx.arc(0, CUP_FIRST, CUP_R, 0, Math.PI * 2);
       ctx.stroke();
     });
   },
@@ -642,8 +642,12 @@ const motionSensor: SymbolDef = {
 
 export const SYMBOLS_ELECTRICAL: SymbolDef[] = [
   socketSingle,
-  socketDouble,
   socketEarthed,
+  socketDouble,
+  socketDoubleEarthed,
+  socketTriple,
+  socketTripleEarthed,
+  socketShaver,
   socketFloor,
   switchSingle,
   switchDouble,

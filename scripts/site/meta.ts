@@ -2,6 +2,10 @@
 // Dutch is primary; each documentation page has an English alternate.
 import type { Lang } from "../../src/i18n";
 import { DOC_PATHS, DOC_IDS as PATH_IDS, type DocId } from "../../src/links";
+import { SYMBOLS } from "../../src/render/symbols";
+
+/** Counted from the registry so the copy cannot drift from the library. */
+const N = SYMBOLS.length;
 
 export const LANGS: Lang[] = ["nl", "en"];
 export const PRIMARY: Lang = "nl";
@@ -32,7 +36,7 @@ export const HOME: PageMeta = {
   path: "/",
   title: "Wallgraph — gratis plattegrond tekenen, op de millimeter",
   description:
-    "Browsergebaseerde plattegrond-editor met maten in hele millimeters, 77 NEN-symbolen " +
+    `Browsergebaseerde plattegrond-editor met maten in hele millimeters, ${N} NEN-symbolen ` +
     "en 27 deur- en raamtypen. Gratis en zonder account.",
   heading: "Wallgraph — plattegronden op de millimeter",
   lead:
@@ -49,9 +53,9 @@ export const DOCS: Record<DocId, Record<Lang, PageMeta>> = {
   symbols: {
     nl: {
       path: DOC_PATHS.symbols.nl,
-      title: "Plattegrondsymbolen — alle 77 NEN-symbolen",
+      title: `Plattegrondsymbolen — alle ${N} NEN-symbolen`,
       description:
-        "Alle 77 plattegrondsymbolen die Wallgraph tekent: elektra, water, sanitair, " +
+        `Alle ${N} plattegrondsymbolen die Wallgraph tekent: elektra, water, sanitair, ` +
         "verwarming, brandveiligheid, keuken en meubels — met maten in millimeters.",
       heading: "Plattegrondsymbolen",
       lead:
@@ -60,9 +64,9 @@ export const DOCS: Record<DocId, Record<Lang, PageMeta>> = {
     },
     en: {
       path: DOC_PATHS.symbols.en,
-      title: "Floorplan symbols — all 77 NEN plan symbols",
+      title: `Floorplan symbols — all ${N} NEN plan symbols`,
       description:
-        "Every one of the 77 plan symbols Wallgraph draws: electrical, water, sanitary, " +
+        `Every one of the ${N} plan symbols Wallgraph draws: electrical, water, sanitary, ` +
         "heating, fire safety, kitchen and furniture — with millimetre dimensions.",
       heading: "Floorplan symbols",
       lead:
@@ -193,7 +197,7 @@ export const FEATURES: Record<Lang, string[]> = {
     "Muren tekenen met getypte lengtes in hele millimeters",
     "Deuren, ramen en doorgangen die de muur automatisch doorsnijden",
     "27 NEN deur- en raamtypen met draai-, kiep-, schuif- en tuimelrichting",
-    "77 plattegrondsymbolen: elektra, water, sanitair, verwarming, brandveiligheid, keuken, meubels",
+    `${N} plattegrondsymbolen: elektra, water, sanitair, verwarming, brandveiligheid, keuken, meubels`,
     "15 traptypen met eigen maatvoering: steektrap, bordestrap, kwartslag, spiltrap, wenteltrap",
     "Automatische ruimtedetectie met netto-oppervlakte volgens NEN 2580",
     "Meerdere verdiepingen met de laag eronder als onderlegger",
@@ -204,7 +208,7 @@ export const FEATURES: Record<Lang, string[]> = {
     "Draw walls by typing exact lengths in whole millimetres",
     "Doors, windows and passages that cut the wall automatically",
     "27 NEN door and window types with turn, tilt, slide and tumble direction",
-    "77 plan symbols: electrical, water, sanitary, heating, fire safety, kitchen, furniture",
+    `${N} plan symbols: electrical, water, sanitary, heating, fire safety, kitchen, furniture`,
     "15 stair types, each sized for its own plan: straight, landing, quarter-turn, spiral, helical",
     "Automatic room detection with net floor area per NEN 2580",
     "Multiple storeys with the one below as a tracing underlay",

@@ -212,7 +212,7 @@ en type zijn vervolgens instelbaar in het paneel; alle typen staan op
 &ldquo;socket&rdquo; vindt bijvoorbeeld de wandcontactdoos in de Nederlandse interface. Symbolen die aan
 een muur horen klikken vlak tegen het muurvlak en draaien mee. <kbd>R</kbd> roteert, <kbd>M</kbd>
 spiegelt. Kleur is betekenis, geen opmaak: zwart is bestaand, rood is nieuw, geel verdwijnt.
-Alle 77 staan op <a href="/symbolen/">plattegrondsymbolen</a>.</p>
+Alle ${SYMBOLS.length} staan op <a href="/symbolen/">plattegrondsymbolen</a>.</p>
 
 <h2 id="trappen">Trappen</h2>
 <p><kbd>T</kbd> opent het trapgereedschap met de vijftien traptypen van het symbolenblad: steektrap,
@@ -299,7 +299,7 @@ configured in the panel; all options appear on <a href="/en/openings/">door and 
 <p><kbd>S</kbd> opens the symbol tool. Palette search matches both languages; for example,
 &ldquo;wandcontactdoos&rdquo; finds the socket in the English interface. Wall-mounted symbols
 snap to the wall face and align with it. <kbd>R</kbd> rotates and <kbd>M</kbd> mirrors. Colour indicates
-status: black is existing, red is new work and yellow is to be removed. All 77 are listed under
+status: black is existing, red is new work and yellow is to be removed. All ${SYMBOLS.length} are listed under
 <a href="/en/symbols/">floorplan symbols</a>.</p>
 
 <h2 id="stairs">Stairs</h2>

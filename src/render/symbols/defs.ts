@@ -75,3 +75,71 @@ export function code(
   ctx.fillText(text, 0, 0);
   ctx.restore();
 }
+
+/** Length of the connection stub on an appliance outline. */
+export const STUB = 70;
+
+/**
+ * "Toestel": the appliance outline as the standard draws it -- the footprint
+ * box plus a stub on the edge facing the supply, which is what distinguishes
+ * an installation symbol from a plain furniture outline. Wall-mounted
+ * appliances put the stub on the wall edge, pointing into the wall.
+ */
+export function applianceBox(ctx: CanvasRenderingContext2D, w: number, d: number): void {
+  ctx.rect(-w / 2, 0, w, d);
+  ctx.moveTo(0, 0);
+  ctx.lineTo(0, -STUB);
+}
+
+/** Filled dot, the mark burners and drains are drawn with. */
+export function dot(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+}
+
+/** Open circle. Kept off any preceding subpath. */
+export function circle(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+  ctx.moveTo(x + r, y);
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+}
+
+/** The asterisk that marks refrigeration: three lines crossing at the centre. */
+export function asterisk(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+  for (let i = 0; i < 3; i++) {
+    const a = (i * Math.PI) / 3;
+    ctx.moveTo(x - Math.cos(a) * r, y - Math.sin(a) * r);
+    ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+  }
+}
+
+/** A horizontal wave of `humps` half-periods, centred on (x, y). */
+export function wave(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number, humps: number, amp: number,
+): void {
+  const seg = w / humps;
+  ctx.moveTo(x - w / 2, y);
+  for (let i = 0; i < humps; i++) {
+    const x1 = x - w / 2 + (i + 1) * seg;
+    ctx.quadraticCurveTo(x1 - seg / 2, y + (i % 2 ? amp : -amp), x1, y);
+  }
+}
+
+/** Rectangle with both ends on one axis rounded to a half-circle. */
+export function rounded(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number, h: number, r: number,
+): void {
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h);
+  ctx.arcTo(x, y + h, x, y + h - r, r);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
+}

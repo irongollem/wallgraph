@@ -1,4 +1,4 @@
-import { SymbolDef, withCtx } from "./defs";
+import { SymbolDef, withCtx, applianceBox, circle, code, dot } from "./defs";
 
 // ---------------------------------------------------------------------------
 // Water
@@ -65,6 +65,58 @@ const waterPointHot: SymbolDef = {
   },
 };
 
+// Vloeraansluitpunt: the wall-mounted tap-point form re-centred inside a round
+// floor box, the way socket-floor relates to socket-single.
+const BOX_R = 150;      // floor box radius
+const TRI_BASE = -10;   // triangle base line, from the box centre
+const TRI_SIDE = 150;
+const TRI_H = (TRI_SIDE * Math.sqrt(3)) / 2;
+
+function floorWaterPath(ctx: CanvasRenderingContext2D, hot: boolean): void {
+  ctx.moveTo(0, -BOX_R);
+  ctx.lineTo(0, TRI_BASE); // stem, from the box outline to the triangle base
+  const half = TRI_SIDE / 2;
+  ctx.moveTo(-half, TRI_BASE);
+  ctx.lineTo(half, TRI_BASE);
+  ctx.lineTo(0, TRI_BASE + TRI_H);
+  ctx.closePath();
+  if (hot) {
+    const innerSide = 70;
+    const innerHalf = innerSide / 2;
+    ctx.moveTo(-innerHalf, TRI_BASE);
+    ctx.lineTo(innerHalf, TRI_BASE);
+    ctx.lineTo(0, TRI_BASE + (innerSide * Math.sqrt(3)) / 2);
+    ctx.closePath();
+  }
+  ctx.moveTo(BOX_R, 0);
+  ctx.arc(0, 0, BOX_R, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+const waterPointFloor: SymbolDef = {
+  type: "water-point-floor",
+  label: "Cold tap (floor)",
+  category: "water",
+  wallMounted: false,
+  width: BOX_R * 2 + 20,
+  depth: BOX_R * 2 + 20,
+  draw(ctx) {
+    withCtx(ctx, () => floorWaterPath(ctx, false));
+  },
+};
+
+const waterPointFloorHot: SymbolDef = {
+  type: "water-point-floor-hot",
+  label: "Hot tap (floor)",
+  category: "water",
+  wallMounted: false,
+  width: BOX_R * 2 + 20,
+  depth: BOX_R * 2 + 20,
+  draw(ctx) {
+    withCtx(ctx, () => floorWaterPath(ctx, true));
+  },
+};
+
 const mixerTap: SymbolDef = {
   type: "mixer-tap",
   label: "Mixer tap",
@@ -103,14 +155,11 @@ const washingMachine: SymbolDef = {
   depth: 600,
   draw(ctx) {
     withCtx(ctx, () => {
-      ctx.rect(-300, 0, 600, 600);
-      ctx.moveTo(200, 330);
-      ctx.arc(0, 330, 200, 0, Math.PI * 2);
+      // Wasmachine: the drum seen through the door, centre marked.
+      applianceBox(ctx, 600, 600);
+      circle(ctx, 0, 330, 200);
       ctx.stroke();
-      // small filled dot at the drum centre
-      ctx.beginPath();
-      ctx.arc(0, 330, 12, 0, Math.PI * 2);
-      ctx.fill();
+      dot(ctx, 0, 330, 60);
     });
   },
 };
@@ -124,13 +173,14 @@ const dryer: SymbolDef = {
   depth: 600,
   draw(ctx) {
     withCtx(ctx, () => {
-      // Square footprint plus two concentric drum circles.
-      ctx.rect(-300, 0, 600, 600);
-      ctx.moveTo(200, 330);
-      ctx.arc(0, 330, 200, 0, Math.PI * 2);
-      ctx.moveTo(120, 330);
-      ctx.arc(0, 330, 120, 0, Math.PI * 2);
+      // Wasdroger: two small marks over one large one. The sizes carry the
+      // distinction from the washing machine, because an export replays fills
+      // as outlines (see io/record.ts).
+      applianceBox(ctx, 600, 600);
+      circle(ctx, -105, 230, 85);
+      circle(ctx, 105, 230, 85);
       ctx.stroke();
+      dot(ctx, 0, 425, 125);
     });
   },
 };
@@ -144,11 +194,13 @@ const dishwasher: SymbolDef = {
   depth: 600,
   draw(ctx) {
     withCtx(ctx, () => {
-      ctx.rect(-300, 0, 600, 600);
+      // Vaatwasser: both diagonals with the spray arm at their crossing.
+      applianceBox(ctx, 600, 600);
       ctx.moveTo(-300, 0);
       ctx.lineTo(300, 600);
-      ctx.moveTo(-100, 300);
-      ctx.lineTo(100, 300);
+      ctx.moveTo(300, 0);
+      ctx.lineTo(-300, 600);
+      circle(ctx, 0, 300, 130);
       ctx.stroke();
     });
   },
@@ -222,9 +274,53 @@ const floorDrain: SymbolDef = {
   },
 };
 
+const wastePoint: SymbolDef = {
+  type: "waste-point",
+  label: "Waste connection",
+  category: "water",
+  wallMounted: false,
+  width: 240,
+  depth: 240,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      // Afvoeraansluitpunt: the waste stub where it comes up through the
+      // floor, drawn as the pipe run terminating in its riser. The nominal
+      // diameter is not part of the mark and belongs in the drawing's notes.
+      circle(ctx, 0, 0, 90);
+      ctx.moveTo(0, 90);
+      ctx.lineTo(0, 200);
+      ctx.stroke();
+    });
+  },
+};
+
+const gasPoint: SymbolDef = {
+  type: "gas-point",
+  label: "Gas connection",
+  category: "water",
+  wallMounted: true,
+  width: 260,
+  depth: 300,
+  draw(ctx) {
+    withCtx(ctx, () => {
+      // Gasaansluitpunt: the stem and crossbar of the connection-point family,
+      // ending in the circle that carries the service letter.
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, 100);
+      ctx.moveTo(-120, 100);
+      ctx.lineTo(120, 100);
+      circle(ctx, 0, 200, 100);
+      ctx.stroke();
+      code(ctx, "G", 0, 200, 120);
+    });
+  },
+};
+
 export const SYMBOLS_WATER: SymbolDef[] = [
   waterPoint,
   waterPointHot,
+  waterPointFloor,
+  waterPointFloorHot,
   mixerTap,
   washingMachine,
   dryer,
@@ -232,4 +328,6 @@ export const SYMBOLS_WATER: SymbolDef[] = [
   boiler,
   waterMeter,
   floorDrain,
+  wastePoint,
+  gasPoint,
 ];

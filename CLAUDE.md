@@ -126,7 +126,7 @@ src/core/      resolve.ts  mitered wall outlines, solid pieces between openings
 src/render/    viewport.ts mm<->px transform, zoom-to-cursor, pan
                grid.ts     drawable grid spacing for a zoom (multiples of gridMm)
                draw.ts     immediate-mode scene render + COLORS palette
-               symbols/    77 symbols in 7 category files behind one interface
+               symbols/    7 category files behind one interface
 src/input/     tools.ts  tool state machine, snapping, typed-mm entry, drag handling
 src/ui/        panel.ts    header, tool rail, storey row, properties, status, foot
                palette.ts  symbol palette: search, fold-out categories, tile grid
@@ -185,8 +185,8 @@ convention, a T-junction finiteness check, and door-splits-wall-into-2-pieces.
 
 Symbols live in `src/render/symbols/<category>.ts` and are aggregated by
 [index.ts](src/render/symbols/index.ts). One entry = one new symbol; nothing else needs
-touching. Current count: 77 across electrical (23), safety (15), sanitary (9), water (9),
-furniture (8), heating (7), kitchen (6) — Dutch/NEN-style plan conventions.
+touching. They follow Dutch/NEN-style plan conventions; `SYMBOLS.length` is the count,
+and the generated pages read it from there rather than restating it.
 
 The `draw(ctx)` contract in [defs.ts](src/render/symbols/defs.ts) is strict:
 

@@ -90,7 +90,7 @@ construction. Moving a wall moves its doors. `t` is clamped so jambs stay on the
 
 ## Symbol library (`src/render/symbols/`)
 
-77 standard plan symbols, drawn in mm units against a fixed interface
+93 standard plan symbols, drawn in mm units against a fixed interface
 (`{ type, label, category, wallMounted, width, depth, draw(ctx) }`), one file per
 category and aggregated by `index.ts`: electrical (23), safety (15), water (9),
 sanitary (9), furniture (8), heating (7), kitchen (6). Extending the library = adding
@@ -148,7 +148,7 @@ it is a compliance check: Wallgraph draws what it is given (see the disclaimer).
 - [x] net room areas — inner-face polygons per wall thickness, and the document
       records *which* convention its numbers mean (see Measurement below)
 - [x] PNG export at true scale, with a scale bar
-- [x] more symbols — kitchen and furniture landed; 77 in total
+- [x] more symbols — kitchen and furniture landed; 93 in total
 - [x] SVG export — vector artwork at true scale, mm-sized with a 1:1 viewBox
 - [x] DXF export — walls, swings, symbols and areas on layers, in millimetres
 - [x] multi-floor with ghost underlay — `Store.activeFloor` with add/duplicate/
@@ -212,7 +212,7 @@ preview and icons, and the deployment itself.
 every crawler that does not run JavaScript — which is every AI crawler and most
 search engines that are not Google — it was a title, a description and an empty
 div. So the build now emits, alongside the single-file editor, a small set of
-JavaScript-free pages generated from the app's own code: the 77 symbols and the
+JavaScript-free pages generated from the app's own code: the 93 symbols and the
 27 opening types drawn by replaying `recordSymbol` and `openingMarks`, the
 manual, and the document format. Plus `robots.txt`, a multilingual sitemap,
 `llms.txt`, a web manifest, `security.txt` and structured data. Dutch leads

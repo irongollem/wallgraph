@@ -10,6 +10,7 @@ import { dirname } from "node:path";
 import { HOME, SITE } from "./site/meta";
 import { headTags, PAGE_CSS, esc, type SiteCtx } from "./site/html";
 import { docPages } from "./site/pages";
+import { SYMBOLS } from "../src/render/symbols";
 import { siteFiles } from "./site/files";
 import { planSchema } from "./site/schema";
 import { serviceWorker, registration } from "./site/sw";
@@ -61,7 +62,7 @@ function noscript(): string {
 tekenen, of lees eerst de documentatie.</p>
 <ul>
 <li><a href="/handleiding/">Handleiding</a> — muren, deuren, ramen, symbolen, exporteren, sneltoetsen</li>
-<li><a href="/symbolen/">Plattegrondsymbolen</a> — alle 77 symbolen, met maten</li>
+<li><a href="/symbolen/">Plattegrondsymbolen</a> — alle ${SYMBOLS.length} symbolen, met maten</li>
 <li><a href="/kozijnen/">Deur- en raamtypen</a> — 27 NEN-typen en hun plattegrondmarkering</li>
 <li><a href="/formaat/">Documentformaat en agent-API</a> — het JSON-model, en hoe een agent de editor aanstuurt</li>
 <li><a href="/disclaimer/">Disclaimer</a> — geen garantie, en waar de verantwoordelijkheid voor een tekening ligt</li>
