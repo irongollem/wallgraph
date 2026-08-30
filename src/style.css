@@ -55,6 +55,7 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 .rail { width: 52px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0 10px; background: #faf9f5; border-right: 1px solid #eceadf; overflow-y: auto; scrollbar-width: none; }
 .rail::-webkit-scrollbar { display: none; }
 .rail-btn {
+  position: relative;
   width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
   border-radius: 8px; color: #6b675c; border: 1px solid transparent; background: none;
   cursor: pointer; padding: 0; font: inherit;
@@ -81,6 +82,16 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
    compounds in the palette, which would otherwise break these down the middle. */
 .rail-name { display: none; font: 500 9px/1.1 system-ui, sans-serif; font-style: normal;
   text-align: center; hyphens: none; -webkit-hyphens: none; letter-spacing: -0.01em; }
+
+/* The key that arms the button, in its top corner -- the caption's opposite
+   number. A pointing device has a keyboard to press it and a title to confirm
+   it; a finger has neither, so wherever the caption comes on this goes off.
+   Monospace and muted, the same voice the document menu states its keys in. */
+.rail-key { position: absolute; top: 3px; right: 3px; pointer-events: none;
+  font: 500 8px/1 ui-monospace, Menlo, monospace; color: #bdb8aa; }
+.rail-btn:hover .rail-key { color: #8a8577; }
+.rail-btn.is-active .rail-key { color: rgba(255,255,255,0.6); }
+.rail-btn.is-mode.is-on .rail-key { color: #7ba7e4; }
 
 @keyframes rail-pulse {
   from { box-shadow: 0 0 0 0 rgba(45,125,224,.35); }
@@ -320,6 +331,10 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 .tool-btn { border: 1px solid #d8d4c8; background: #faf9f5; color: #2b2e33; border-radius: 6px; padding: 6px 9px; cursor: pointer; font: inherit; }
 .tool-btn:hover { background: #f0eee6; }
 .tool-btn.small { padding: 4px 8px; font-size: 12px; }
+/* A shortcut beside the label rather than inside it, so the button reads the
+   same on a phone, where the badge is off. */
+.tool-btn.has-key { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.btn-key { font: 500 10px/1 ui-monospace, Menlo, monospace; color: #b5afa0; }
 
 /* Every animated state above also differs statically (colour, border, chevron
    rotation, is-open/is-active class), so collapsing all durations to ~0 here
@@ -405,6 +420,8 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
   .rail-btn { width: 52px; height: 52px; border-radius: 10px; }
   .rail-btn.is-mode { height: 50px; }
   .rail-name { display: block; }
+  /* No keyboard to name. The caption above takes the space instead. */
+  .rail-key, .btn-key { display: none; }
   .storey-add { width: 36px; height: 36px; }
   .sec-close { width: 34px; height: 34px; margin: -8px -8px -8px 0;
     display: flex; align-items: center; justify-content: center; }
@@ -449,6 +466,7 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 /* Icon over caption. The base rail button is a row, which on a 46 px tool would
    put the name beside the icon and hyphenate "Doorgang" down the middle. */
 .side.is-compact .rail-btn { flex-direction: column; gap: 3px; padding: 0 1px; }
+.side.is-compact .rail-key, .side.is-compact .btn-key { display: none; }
 /* The compact shell sizes its own controls rather than leaning on the coarse
    block below: it is the layout a phone gets, and a stylesheet that only fits
    when a media query happens to match is one that silently does not. */

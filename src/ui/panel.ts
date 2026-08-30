@@ -264,7 +264,9 @@ export class Panel {
     /**
      * Every button carries its short name as well as its icon. Without a mouse
      * there is no `title` to hover, so touch layouts show the caption and the
-     * wide desktop rail hides it again in CSS.
+     * wide desktop rail hides it again in CSS. The key badge is the mirror of
+     * that: it states the shortcut where there is a keyboard to press it, and
+     * CSS hides it wherever the caption appears.
      */
     const caption = (b: HTMLElement, short: string): void => {
       b.append(Object.assign(el("em", "rail-name"), { textContent: short }));
@@ -278,7 +280,7 @@ export class Panel {
       b.setAttribute("aria-label", label);
       b.setAttribute("aria-pressed", String(active));
       if (active) b.classList.add("is-active");
-      b.append(icon(name));
+      b.append(icon(name), keyTag(key, "rail-key"));
       caption(b, short);
       b.onclick = () => this.tools.setTool(tool);
       return b;
@@ -315,7 +317,7 @@ export class Panel {
       b.setAttribute("aria-label", label);
       b.setAttribute("aria-pressed", String(on));
       if (on) b.classList.add("is-on");
-      b.append(icon(name));
+      b.append(icon(name), keyTag(key, "rail-key"));
       caption(b, short);
       return b;
     };
@@ -938,12 +940,16 @@ export class Panel {
       row.append(chips);
       p.append(row);
     };
-    /** `title` carries a keyboard shortcut, which is where one belongs: the
-     *  label has to read the same with or without a keyboard. */
-    const btnRow = (label: string, fn: () => void, title?: string): void => {
+    /** `key` is shown beside the label and `title` explains the button; neither
+     *  is part of the label, which has to read the same without a keyboard. */
+    const btnRow = (label: string, fn: () => void, title?: string, key?: string): void => {
       const b = el("button", "tool-btn small wide") as HTMLButtonElement;
-      b.textContent = label; b.onclick = fn;
+      b.onclick = fn;
       if (title) b.title = title;
+      if (key) {
+        b.classList.add("has-key");
+        b.append(Object.assign(el("span"), { textContent: label }), keyTag(key));
+      } else b.textContent = label;
       p.append(b);
     };
     /**
@@ -1204,7 +1210,7 @@ export class Panel {
       btnRow(t("panel.mirror"), () => this.store.mutate(d => {
         const s2 = this.store.floorOf(d).symbols.find(x => x.id === sel.id);
         if (s2) s2.mirrored = !s2.mirrored;
-      }), t("panel.mirrorTitle"));
+      }), t("panel.mirrorTitle"), "M");
       dangerRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());
       return;
     }
@@ -1242,6 +1248,17 @@ export interface NumRowExtra {
 function dist2(a: { x: number; y: number }, b: { x: number; y: number }): number {
   return Math.hypot(b.x - a.x, b.y - a.y);
 }
+/**
+ * The key that fires a control, beside it. Hidden by CSS wherever there is no
+ * keyboard, and `aria-hidden` so the control's accessible name stays its label.
+ */
+function keyTag(key: string, cls = "btn-key"): HTMLElement {
+  const k = el("kbd", cls);
+  k.textContent = key;
+  k.setAttribute("aria-hidden", "true");
+  return k;
+}
+
 function el(tag: string, cls?: string): HTMLElement {
   const e = document.createElement(tag);
   if (cls) e.className = cls;

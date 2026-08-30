@@ -32,6 +32,13 @@ function check(name: string, cond: boolean, detail = ""): void {
   // compact DOM in the sidebar's clothes.
   const css = readFileSync(new URL("../src/style.css", import.meta.url), "utf8");
   check("the stylesheet carries the compact rules", css.includes(".side.is-compact"));
+  // The key badges on the rail are the captions' opposite number: a finger has
+  // no key to press and no title to hover, so every shell that shows a caption
+  // has to drop them, or the two labels collide on one 52 px tool.
+  check("the compact shell drops the key badges",
+    css.includes(".side.is-compact .rail-key"));
+  check("a coarse pointer drops the key badges",
+    css.includes(".rail-key, .btn-key { display: none; }"));
   check("the stylesheet agrees on the short breakpoint",
     css.includes(`max-height: ${SHORT_MAX_PX}px`), COMPACT_QUERY);
   check("the compact query names both limits",

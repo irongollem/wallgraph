@@ -45,10 +45,11 @@ export function renderZoomTool(
   edit: RoomEdit,
 ): void {
   rows.secHead(t("panel.zoom"));
-  // The shortcut rides in the title, not in the label: on a phone there is no
-  // F to press, and the label has to read the same either way.
-  rows.btnRow(t("panel.zoomAll"), () => tools.fitAll(), t("panel.zoomAllTitle"));
-  rows.btnRow(t("panel.zoomSelection"), () => tools.fitSelection(), t("panel.zoomSelectionTitle"));
+  // The shortcut rides beside the label and in the title, never in the label
+  // itself: on a phone there is no F to press, and the button has to read the
+  // same either way. CSS drops the badge where there is no keyboard.
+  rows.btnRow(t("panel.zoomAll"), () => tools.fitAll(), t("panel.zoomAllTitle"), "F");
+  rows.btnRow(t("panel.zoomSelection"), () => tools.fitSelection(), t("panel.zoomSelectionTitle"), "Shift+F");
 
   if (rooms.length > 0) {
     rows.secHead(t("panel.zoomZones"), { later: true });

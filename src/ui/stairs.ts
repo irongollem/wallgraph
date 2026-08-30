@@ -36,8 +36,9 @@ export interface PaneRows {
   noteRow(text: string): void;
   warnRow(text: string): void;
   colorRow(label: string, value: string | null, onCommit: (hex: string | null) => void): void;
-  /** `title` carries a keyboard shortcut; the label reads the same without one. */
-  btnRow(label: string, fn: () => void, title?: string): void;
+  /** `key` is drawn beside the label where there is a keyboard, `title`
+   *  explains the button; the label reads the same without either. */
+  btnRow(label: string, fn: () => void, title?: string, key?: string): void;
   dangerRow(label: string, fn: () => void): void;
   checkRow(label: string, value: boolean, onCommit: (b: boolean) => void): void;
   /**
@@ -171,7 +172,7 @@ export function renderStairProps(store: Store, tools: Tools, rows: PaneRows, id:
     tools.symbolColor = hex;
     mut(s => { if (hex) s.color = hex; else delete s.color; }, "color:" + id);
   });
-  rows.btnRow(t("panel.mirror"), () => mut(s => { s.mirrored = !s.mirrored; }), t("panel.mirrorTitle"));
+  rows.btnRow(t("panel.mirror"), () => mut(s => { s.mirrored = !s.mirrored; }), t("panel.mirrorTitle"), "M");
   metricRows(rows, stair);
   rows.noteRow(t("panel.stairNote"));
   rows.dangerRow(t("panel.deleteOpening"), () => tools.deleteSelected());
