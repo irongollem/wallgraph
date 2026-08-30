@@ -43,6 +43,8 @@ const TAP_SLOP_PX = 10;
 const TAP_MS = 500;
 /** Gap between two taps that makes them one double tap. */
 const DOUBLE_TAP_MS = 300;
+/** Smallest share of an axis a fit will frame into, whatever the chrome covers. */
+const MIN_FIT_FRACTION = 0.5;
 
 export interface SnapResult { p: Vec; kind: "node" | "wall" | "grid" | "free"; wall?: Wall; tMm?: number; node?: PlanNode }
 
@@ -148,6 +150,8 @@ export class Tools {
   /** True from the moment a second finger lands until the last one lifts. */
   private navigated = false;
   private lastTapTime = 0;
+  /** Whether the previous tap selected nothing; both halves of a double tap must. */
+  private lastTapOnNothing = false;
   /** Which device produced the most recent pointer event. */
   private lastPointerType = "mouse";
   /**
@@ -450,8 +454,15 @@ export class Tools {
     if (!pad) {
       this.vp.fitBox(w, h, b.min, b.max);
     } else {
-      this.vp.fitBox(Math.max(1, w - pad.left - pad.right), Math.max(1, h - pad.top - pad.bottom), b.min, b.max);
-      this.vp.panPx(pad.left, pad.top);
+      // Never give back more than half of an axis. A sheet at its tallest
+      // detent covers most of the canvas, and fitting into the ~50 px it leaves
+      // would shrink the plan to a hairline; better to frame it into half the
+      // canvas and let the sheet overlap the bottom of it.
+      const boxW = Math.max(w * MIN_FIT_FRACTION, w - pad.left - pad.right);
+      const boxH = Math.max(h * MIN_FIT_FRACTION, h - pad.top - pad.bottom);
+      this.vp.fitBox(boxW, boxH, b.min, b.max);
+      // Clamped, the box no longer starts at the inset, so keep it on screen.
+      this.vp.panPx(Math.min(pad.left, w - boxW), Math.min(pad.top, h - boxH));
     }
     this.requestRender();
     return true;
@@ -594,14 +605,19 @@ export class Tools {
    */
   private onTap(time: number): void {
     if (this.tool === "select") {
-      // Double tap on empty paper frames the plan. Only when the tap selected
-      // nothing, so double-tapping an object stays a plain selection.
-      if (time - this.lastTapTime <= DOUBLE_TAP_MS && this.store.sel === null) {
+      // Double tap on empty paper frames the plan. BOTH taps have to have hit
+      // nothing: testing only the second one turns an ordinary tap-a-wall then
+      // tap-away-to-deselect into a zoom-all, which throws away the view the
+      // reader was working in.
+      const onNothing = this.store.sel === null;
+      if (onNothing && this.lastTapOnNothing && time - this.lastTapTime <= DOUBLE_TAP_MS) {
         this.lastTapTime = 0;
+        this.lastTapOnNothing = false;
         this.fitAll();
         return;
       }
       this.lastTapTime = time;
+      this.lastTapOnNothing = onNothing;
       return;
     }
     switch (this.tool) {
@@ -629,18 +645,35 @@ export class Tools {
     const w = this.vp.toWorld(s);
     this.pointers.set(e.pointerId, s);
 
-    // A second finger takes over as navigation. Whatever the first one started
-    // has not travelled far enough to have changed the document, so dropping it
-    // costs nothing.
+    // A second finger takes over as navigation. A drag already under way is
+    // finished where it stands rather than dropped: dragMove commits as it
+    // goes, so abandoning a node mid-drag would leave it sitting on top of
+    // another one without the weld that onUp performs. A zoom window is the
+    // exception — the second finger means "navigate", not "frame this box".
     if (this.pointers.size === 2) {
       this.navigated = true;
+      const held = this.drag;
       this.drag = null;
+      if (held && held.kind !== "zoomBox") this.finishDrag(held);
       this.tapStart = null;
       this.pinch = this.pinchState();
       this.requestRender();
       return;
     }
     if (this.pointers.size > 2) return;
+
+    // A dimension value opens for editing however it was pressed. This sat in
+    // the mouse path only, which left the touch hint ("tik de mm-waarde om te
+    // bewerken") promising something a finger could not do.
+    if (this.tool === "select") {
+      const hit = this.dimRects.find(r => s.x >= r.x && s.x <= r.x + r.w && s.y >= r.y && s.y <= r.y + r.h);
+      if (hit) {
+        e.preventDefault();
+        this.closeDimInput();
+        this.openDimInput(hit);
+        return;
+      }
+    }
 
     if (e.pointerType !== "mouse") {
       this.cursor = w;
@@ -661,16 +694,6 @@ export class Tools {
       return;
     }
     if (e.button !== 0) return;
-
-    if (this.tool === "select") {
-      const hit = this.dimRects.find(r => s.x >= r.x && s.x <= r.x + r.w && s.y >= r.y && s.y <= r.y + r.h);
-      if (hit) {
-        e.preventDefault();
-        this.closeDimInput();
-        this.openDimInput(hit);
-        return;
-      }
-    }
     switch (this.tool) {
       case "wall": this.wallClick(); break;
       case "door": this.placeOpening("door"); break;
@@ -731,18 +754,27 @@ export class Tools {
     const d = this.drag;
     this.drag = null;
     if (d.kind === "zoomBox") { this.zoomUp(d); this.requestRender(); return; }
-    if (d.kind === "node" && d.moved) {
-      // Merge if dropped onto another node.
-      this.store.mutate(doc => {
-        const f = this.store.floorOf(doc);
-        const me = f.nodes.find(n => n.id === d.id);
-        if (!me) return;
-        for (const n of f.nodes) {
-          if (n.id !== me.id && dist(v(n.x, n.y), v(me.x, me.y)) <= 1) { mergeNodes(f, n.id, me.id); break; }
-        }
-      }, "nodedrop");
-    }
+    this.finishDrag(d);
     this.requestRender();
+  }
+
+  /**
+   * The end of a drag, from a finger lifting or from a second finger taking
+   * over. dragMove has already written the new position, so this is only the
+   * part that cannot be done per move: a node dropped onto another has to weld,
+   * or the graph keeps two coincident nodes and resolveFloor miters them as two
+   * separate degree-1 ends.
+   */
+  private finishDrag(d: DragState): void {
+    if (d.kind !== "node" || !d.moved) return;
+    this.store.mutate(doc => {
+      const f = this.store.floorOf(doc);
+      const me = f.nodes.find(n => n.id === d.id);
+      if (!me) return;
+      for (const n of f.nodes) {
+        if (n.id !== me.id && dist(v(n.x, n.y), v(me.x, me.y)) <= 1) { mergeNodes(f, n.id, me.id); break; }
+      }
+    }, "nodedrop");
   }
 
   // ---- wall tool ----
@@ -1786,7 +1818,10 @@ export class Tools {
   }
 
   /** One wall's dimension line + clickable value pill. Registers the pill in dimRects. */
-  private drawDimension(ctx: CanvasRenderingContext2D, vp: Viewport, px: number, wall: Wall, emphasized: boolean): void {
+  private drawDimension(
+    ctx: CanvasRenderingContext2D, vp: Viewport, px: number, wall: Wall,
+    emphasized: boolean, collectHits = true,
+  ): void {
     const f = this.floor;
     const a = f.nodes.find(n => n.id === wall.a), b = f.nodes.find(n => n.id === wall.b);
     if (!a || !b) return;
@@ -1839,11 +1874,18 @@ export class Tools {
     ctx.fillText(text, sMid.x, sMid.y + 1);
     ctx.restore();
     ctx.globalAlpha = 1;
-    this.dimRects.push({ x: rx, y: ry, w: rw, h: rh, wallId: wall.id });
+    if (collectHits) this.dimRects.push({ x: rx, y: ry, w: rw, h: rh, wallId: wall.id });
   }
 
   /** World-space preview drawing, called inside the world transform. */
-  drawPreview(ctx: CanvasRenderingContext2D, vp: Viewport): void {
+  /**
+   * `collectHits` is false for a pass that is not the one being clicked on. The
+   * dimension pills are hit-tested in canvas screen coordinates, so a second
+   * pass through another viewport — the loupe — must draw them and leave
+   * `dimRects` alone, or the rects end up in that viewport's space and tapping
+   * a dimension to type a length hits nothing.
+   */
+  drawPreview(ctx: CanvasRenderingContext2D, vp: Viewport, collectHits = true): void {
     const px = 1 / vp.pxPerMm;
     const f = this.floor;
 
@@ -1857,7 +1899,7 @@ export class Tools {
         ctx.arc(n.x, n.y, 3.5 * px, 0, Math.PI * 2);
         ctx.fill(); ctx.stroke();
       }
-      this.dimRects = [];
+      if (collectHits) this.dimRects = [];
       // Dimension lines with editable values: all walls when toggled on,
       // otherwise only the selected wall.
       const selDim = this.store.sel;
@@ -1869,11 +1911,11 @@ export class Tools {
         this.drawDimChains(ctx, vp, px);
         if (selDim?.kind === "wall") {
           const wall = f.walls.find(x => x.id === selDim.id);
-          if (wall) this.drawDimension(ctx, vp, px, wall, true);
+          if (wall) this.drawDimension(ctx, vp, px, wall, true, collectHits);
         }
       } else if (selDim?.kind === "wall") {
         const wall = f.walls.find(x => x.id === selDim.id);
-        if (wall) this.drawDimension(ctx, vp, px, wall, true);
+        if (wall) this.drawDimension(ctx, vp, px, wall, true, collectHits);
       }
       // Sliding something that is already on a wall: measure it the same way
       // the placement preview does.

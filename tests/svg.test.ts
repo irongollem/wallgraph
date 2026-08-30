@@ -74,5 +74,26 @@ for (const id of ["rooms", "walls", "openings", "symbols", "labels"])
     vb !== null && Number(vb[1]) < 0 && Number(vb[2]) < 0, vb ? `${vb[1]},${vb[2]}` : "");
 }
 
+// A colour reaches the document by paste, by link or by hand-editing, and is
+// only ever validated on the way out. Interpolated raw into a fill attribute it
+// would put an arbitrary string inside a file the user hands to someone else,
+// and would disagree with the canvas, which draws through roomInk().
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.roomNames = [
+    { id: newId("rn"), name: "Woonkamer", x: 0, y: 0, color: "#d0342c" },
+    { id: newId("rn"), name: "Keuken", x: 2000, y: 0, color: "#zzzzzz" },
+    { id: newId("rn"), name: "Hal", x: 4000, y: 0, color: 'red" onload="boom' },
+  ];
+  const out = toSvg(doc, 0) ?? "";
+  check("a valid pen survives export", out.includes('fill="#d0342c"'));
+  check("an invalid hex is not emitted", !out.includes("#zzzzzz"));
+  check("a colour cannot break out of its attribute", !out.includes("onload"));
+  // Every name still draws, in the label grey the canvas falls back to.
+  for (const name of ["Woonkamer", "Keuken", "Hal"])
+    check(`${name} is still exported`, out.includes(`>${name}</text>`));
+}
+
 console.log(failures === 0 ? "ALL SVG TESTS PASSED" : `${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

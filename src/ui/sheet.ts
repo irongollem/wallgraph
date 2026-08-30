@@ -93,7 +93,11 @@ export class Sheet {
       moved = false;
       this.dragging = true;
       this.el.classList.add("is-dragging");
-      this.handle.setPointerCapture(e.pointerId);
+      // Guarded like the release below: this throws for a pointer id with no
+      // active pointer, and an escaping throw would leave `dragging` true with
+      // no pointerup to clear it — after which setDetent() returns early
+      // forever and the sheet cannot be moved by drag, tap or keyboard again.
+      try { this.handle.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
     });
 
     this.handle.addEventListener("pointermove", e => {

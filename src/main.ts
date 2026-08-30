@@ -150,7 +150,9 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
     drawScene(lctx, lens, LOUPE_PX, LOUPE_PX, store.floor, resolved, rooms, store.sel, {
       hoverSnap: tools.getSnap(),
       ghost,
-      preview: (c, viewport) => tools.drawPreview(c, viewport),
+      // Draws the preview, but leaves the dimension hit rects to the canvas
+      // pass: they are tested in canvas screen coordinates, not the lens's.
+      preview: (c, viewport) => tools.drawPreview(c, viewport, false),
       showGrid: false,
     }, store.doc.gridMm, areaModeOf(store.doc));
     // Crosshair at the exact point, drawn last so nothing covers it.

@@ -14,7 +14,10 @@ import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
-import { COLORS, symbolInk } from "../render/draw";
+// roomInk, not the stored value: a colour arrives by paste or by hand-editing
+// and is only validated on the way out. Interpolated raw it would put an
+// arbitrary string inside a fill attribute of a file the user hands on.
+import { COLORS, symbolInk, roomInk } from "../render/draw";
 import { stairBox } from "../core/stair";
 import { recordSymbol, Prim } from "./record";
 import { openingMarks } from "./marks";
@@ -218,7 +221,7 @@ export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
       // the screen-space 8 px at the same 220 mm label size.
       parts.push(
         `<text x="${n(r.centroid.x)}" y="${n(r.centroid.y - 150)}" font-weight="600"` +
-        `${r.nameColor ? ` fill="${r.nameColor}"` : ""}>${esc(r.name)}</text>`,
+        ` fill="${roomInk(r.nameColor)}">${esc(r.name)}</text>`,
       );
       parts.push(`<text x="${n(r.centroid.x)}" y="${n(r.centroid.y + 150)}">${area}</text>`);
     }
@@ -227,7 +230,7 @@ export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
       if (rooms.some(r => r.nameId === rn.id)) continue;
       parts.push(
         `<text x="${n(rn.x)}" y="${n(rn.y)}" font-weight="600"` +
-        `${rn.color ? ` fill="${rn.color}"` : ""}>${esc(rn.name)}</text>`,
+        ` fill="${roomInk(rn.color)}">${esc(rn.name)}</text>`,
       );
     }
     parts.push(`</g>`);
