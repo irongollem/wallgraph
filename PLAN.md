@@ -178,6 +178,18 @@ in both languages, on one muted line under the status bar, in every page footer,
 in the document menu, and in `llms.txt` so an assistant summarising Wallgraph
 relays the caveat too. The AGPL's sections 15 and 16 still do the legal work.
 
+That page describes today, not an ambition. The goal is a tool whose output can
+be leaned on, and it is worth being precise about what stands between here and
+there, because the two halves are not the same problem. *Commercial* licensing is
+already possible and always has been — sole copyright holder, a CLA, zero runtime
+dependencies — which is exactly why the dependency count is treated as
+load-bearing rather than as a size goal. *Certification* is the other half, and no
+amount of code buys it: a NEN 2580 meetrapport is valid because a certified
+meetdeskundige signed it, not because the arithmetic was right. So the path there
+runs through a person and a process — a surveyor in the loop, a review step, an
+audit trail on the document — not through a better resolver. Until such a
+workflow exists, the disclaimer is simply accurate.
+
 **Agent access.** Two client-side channels, no account and no server: a whole
 plan carried in the URL fragment (`#plan=<base64url>`), and a `window.wallgraph`
 surface on the hosted page with `load`, `save`, `link` and `language`. The
