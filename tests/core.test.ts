@@ -1,7 +1,5 @@
 // Engine sanity tests, run with tsx.
-import {
-  emptyDoc, newId, Wall, Opening, sashSpecsOf, sashesOf, GRID_DEFAULT_MM,
-} from "../src/model/doc";
+import { emptyDoc, newId, Wall, GRID_DEFAULT_MM } from "../src/model/doc";
 import { Store } from "../src/model/store";
 import { sashesOf, sashSpecsOf, doorKindOf, windowKindOf, DOOR_KINDS, WINDOW_KINDS, type Opening } from "../src/model/doc";
 import { detectRooms, rectSize, roomSize } from "../src/core/rooms";
