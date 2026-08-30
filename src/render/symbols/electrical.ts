@@ -15,7 +15,7 @@ const CUP_FIRST = 200;  // first cup centre, measured from the wall
 const CUP_STEP = 120;   // further cups follow along the stem at this spacing
 const EARTH_HALF = 120; // earth bar half-length
 
-function socketPath(ctx: CanvasRenderingContext2D, cups: number, earthed: boolean): void {
+export function socketPath(ctx: CanvasRenderingContext2D, cups: number, earthed: boolean): void {
   ctx.moveTo(0, 0);
   ctx.lineTo(0, CUP_FIRST - CUP_R); // stem, up to the first cup's apex
   for (let i = 0; i < cups; i++) {
@@ -100,6 +100,27 @@ const socketFloor: SymbolDef = {
   },
 };
 
+// Schakelaar: the body circle plus one operating arm leaving the circle at 45
+// degrees away from the wall, ticked across its end. The whole switch family is
+// this mark with more arms or more ticks.
+export const SWITCH_CY = 90;
+export const SWITCH_R = 70;
+
+export function switchMark(ctx: CanvasRenderingContext2D, cy = SWITCH_CY, r = SWITCH_R): void {
+  ctx.moveTo(r, cy);
+  ctx.arc(0, cy, r, 0, Math.PI * 2);
+  const dirX = Math.cos(Math.PI / 4);
+  const dirY = Math.sin(Math.PI / 4);
+  ctx.moveTo(dirX * r, cy + dirY * r);
+  const endX = dirX * (r + 90);
+  const endY = cy + dirY * (r + 90);
+  ctx.lineTo(endX, endY);
+  // short perpendicular tick at the end
+  const tick = 18;
+  ctx.moveTo(endX + dirY * tick, endY - dirX * tick);
+  ctx.lineTo(endX - dirY * tick, endY + dirX * tick);
+}
+
 const switchSingle: SymbolDef = {
   type: "switch-single",
   label: "Switch",
@@ -109,26 +130,7 @@ const switchSingle: SymbolDef = {
   depth: 240,
   draw(ctx) {
     withCtx(ctx, () => {
-      const cx = 0;
-      const cy = 90;
-      const r = 70;
-      ctx.moveTo(cx + r, cy);
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      // diagonal line from circle going away from the wall at ~45deg
-      const dirX = Math.cos(Math.PI / 4);
-      const dirY = Math.sin(Math.PI / 4);
-      const startX = cx + dirX * r;
-      const startY = cy + dirY * r;
-      const endX = cx + dirX * (r + 90);
-      const endY = cy + dirY * (r + 90);
-      ctx.moveTo(startX, startY);
-      ctx.lineTo(endX, endY);
-      // short perpendicular tick at the end
-      const perpX = -dirY;
-      const perpY = dirX;
-      const tick = 18;
-      ctx.moveTo(endX - perpX * tick, endY - perpY * tick);
-      ctx.lineTo(endX + perpX * tick, endY + perpY * tick);
+      switchMark(ctx);
       ctx.stroke();
     });
   },

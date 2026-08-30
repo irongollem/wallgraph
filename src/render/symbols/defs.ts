@@ -19,7 +19,8 @@
 //     to add. Those are still the caller's job, in screen space (see drawLabel).
 //   - Set ctx.lineWidth = 20 and wrap in ctx.save()/ctx.restore().
 export type SymbolCategory =
-  | "electrical" | "water" | "sanitary" | "heating" | "safety" | "kitchen" | "furniture";
+  | "electrical" | "water" | "sanitary" | "heating" | "ventilation"
+  | "safety" | "kitchen" | "furniture";
 
 export interface SymbolDef {
   type: string;          // unique kebab-case id
@@ -124,6 +125,22 @@ export function wave(
   for (let i = 0; i < humps; i++) {
     const x1 = x - w / 2 + (i + 1) * seg;
     ctx.quadraticCurveTo(x1 - seg / 2, y + (i % 2 ? amp : -amp), x1, y);
+  }
+}
+
+/**
+ * Open V arrowhead with its tip at (x, y), barbs opening back along dirDeg
+ * (degrees, y-down). Air-direction marks are the reason this is shared: the
+ * supply and extract points differ only in which way the barbs face.
+ */
+export function arrowHead(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, dirDeg: number, len = 60, spread = 30,
+): void {
+  for (const off of [spread, -spread]) {
+    const a = ((dirDeg + 180 + off) * Math.PI) / 180;
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
   }
 }
 

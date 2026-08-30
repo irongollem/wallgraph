@@ -56,7 +56,7 @@ export const DOCS: Record<DocId, Record<Lang, PageMeta>> = {
       title: `Plattegrondsymbolen — alle ${N} NEN-symbolen`,
       description:
         `Alle ${N} plattegrondsymbolen die Wallgraph tekent: elektra, water, sanitair, ` +
-        "verwarming, brandveiligheid, keuken en meubels — met maten in millimeters.",
+        "verwarming, ventilatie, brandveiligheid, keuken en meubels — met maten in millimeters.",
       heading: "Plattegrondsymbolen",
       lead:
         "Alle symbolen uit de bibliotheek, getekend zoals de editor ze tekent. Maten in " +
@@ -66,8 +66,8 @@ export const DOCS: Record<DocId, Record<Lang, PageMeta>> = {
       path: DOC_PATHS.symbols.en,
       title: `Floorplan symbols — all ${N} NEN plan symbols`,
       description:
-        `Every one of the ${N} plan symbols Wallgraph draws: electrical, water, sanitary, ` +
-        "heating, fire safety, kitchen and furniture — with millimetre dimensions.",
+        `All ${N} plan symbols Wallgraph draws: electrical, water, sanitary, ` +
+        "heating, ventilation, fire safety, kitchen and furniture — with millimetre dimensions.",
       heading: "Floorplan symbols",
       lead:
         "Every symbol in the library, drawn as the editor draws it. Dimensions in " +
@@ -197,7 +197,7 @@ export const FEATURES: Record<Lang, string[]> = {
     "Muren tekenen met getypte lengtes in hele millimeters",
     "Deuren, ramen en doorgangen die de muur automatisch doorsnijden",
     "27 NEN deur- en raamtypen met draai-, kiep-, schuif- en tuimelrichting",
-    `${N} plattegrondsymbolen: elektra, water, sanitair, verwarming, brandveiligheid, keuken, meubels`,
+    `${N} plattegrondsymbolen: elektra, water, sanitair, verwarming, ventilatie, brandveiligheid, keuken, meubels`,
     "15 traptypen met eigen maatvoering: steektrap, bordestrap, kwartslag, spiltrap, wenteltrap",
     "Automatische ruimtedetectie met netto-oppervlakte volgens NEN 2580",
     "Meerdere verdiepingen met de laag eronder als onderlegger",
@@ -208,7 +208,7 @@ export const FEATURES: Record<Lang, string[]> = {
     "Draw walls by typing exact lengths in whole millimetres",
     "Doors, windows and passages that cut the wall automatically",
     "27 NEN door and window types with turn, tilt, slide and tumble direction",
-    `${N} plan symbols: electrical, water, sanitary, heating, fire safety, kitchen, furniture`,
+    `${N} plan symbols: electrical, water, sanitary, heating, ventilation, fire safety, kitchen, furniture`,
     "15 stair types, each sized for its own plan: straight, landing, quarter-turn, spiral, helical",
     "Automatic room detection with net floor area per NEN 2580",
     "Multiple storeys with the one below as a tracing underlay",

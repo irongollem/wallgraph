@@ -2,7 +2,7 @@
 //
 // The symbol library draws with canvas calls against a contract (1 unit = 1 mm,
 // caller owns colour). Rather than maintain a second, hand-written outline for
-// every one of the 93 symbols — which would drift the first time somebody edited
+// every symbol in the library — which would drift the first time somebody edited
 // one — an export replays `draw()` against an object that implements just
 // enough of CanvasRenderingContext2D to capture the path.
 //
