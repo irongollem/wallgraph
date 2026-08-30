@@ -37,6 +37,13 @@ export type ToolName =
   | "select" | "wall" | "door" | "window" | "passage" | "symbol" | "stair" | "vide"
   | "cabinet" | "roomName" | "zoom";
 
+/** Finger travel that still counts as a tap rather than a drag. */
+const TAP_SLOP_PX = 10;
+/** Longest press still read as a tap. */
+const TAP_MS = 500;
+/** Gap between two taps that makes them one double tap. */
+const DOUBLE_TAP_MS = 300;
+
 export interface SnapResult { p: Vec; kind: "node" | "wall" | "grid" | "free"; wall?: Wall; tMm?: number; node?: PlanNode }
 
 interface DragState {
@@ -123,6 +130,33 @@ export class Tools {
   private dimInput: HTMLInputElement | null = null;
   hint = "";
 
+  /**
+   * How much of the canvas the chrome covers, in CSS px, or null when it covers
+   * none of it. Zero in the sidebar layout, where the panel is beside the
+   * canvas; in the compact layout the chrome floats over a full-bleed canvas,
+   * and a fit that ignored it would centre the plan behind the sheet. Set by
+   * the host, which is what decides the layout.
+   */
+  viewInsets: (() => { top: number; right: number; bottom: number; left: number }) | null = null;
+
+  /** Live pointers on the canvas. Two of them navigate instead of drawing. */
+  private pointers = new Map<number, Vec>();
+  /** Separation and midpoint of the two fingers at the previous move. */
+  private pinch: { dist: number; mid: Vec } | null = null;
+  /** Where a single touch went down, so a tap can be told from a drag. */
+  private tapStart: { screen: Vec; time: number } | null = null;
+  /** True from the moment a second finger lands until the last one lifts. */
+  private navigated = false;
+  private lastTapTime = 0;
+  /** Which device produced the most recent pointer event. */
+  private lastPointerType = "mouse";
+  /**
+   * True when the editor is laid out for touch. Set by the host, which is what
+   * decides the layout; it selects the gesture wording for every hint rather
+   * than the click-and-key wording.
+   */
+  touchUi = false;
+
   constructor(
     private store: Store,
     private vp: Viewport,
@@ -134,12 +168,19 @@ export class Tools {
   ) {
     canvas.addEventListener("pointerdown", e => this.onDown(e));
     canvas.addEventListener("pointermove", e => this.onMove(e));
-    canvas.addEventListener("pointerup", () => this.onUp());
+    canvas.addEventListener("pointerup", e => this.onUp(e));
+    canvas.addEventListener("pointercancel", e => this.onCancelPointer(e));
     canvas.addEventListener("wheel", e => this.onWheel(e), { passive: false });
     canvas.addEventListener("pointerleave", () => {
       this.hoverSymbol = null; this.hoverStair = null; this.requestRender();
     });
-    canvas.addEventListener("contextmenu", e => { e.preventDefault(); this.cancel(); });
+    // A long press raises this on touch, where it means nothing: the gesture is
+    // already the tool's, and cancelling a wall chain by resting a finger would
+    // be a trap. Suppressed either way so the OS menu never covers the plan.
+    canvas.addEventListener("contextmenu", e => {
+      e.preventDefault();
+      if (this.lastPointerType === "mouse") this.cancel();
+    });
     window.addEventListener("keydown", e => this.onKey(e));
   }
 
@@ -260,6 +301,76 @@ export class Tools {
     if (render) this.requestRender();
   }
 
+  /** True while a wall chain is open, so the host can offer a way to close it. */
+  get chaining(): boolean { return this.chainStart !== null; }
+
+  /**
+   * True when a typed length would be acted on: a chain waiting for its next
+   * point, or a selected wall waiting to be resized. These are the two states
+   * the keyboard accepts digits in, and so the two the millimetre keypad
+   * appears for.
+   */
+  get typingLength(): boolean {
+    return (this.tool === "wall" && this.chainStart !== null)
+        || (this.tool === "select" && this.store.sel?.kind === "wall");
+  }
+
+  /**
+   * Append one character to the typed length. Digits and the decimal point,
+   * matching what the keyboard accepts; the keypad offers digits only, since
+   * the document stores integer millimetres.
+   */
+  typeLength(ch: string): void {
+    if (!this.typingLength || !/^[0-9.]$/.test(ch)) return;
+    this.lengthBuffer += ch;
+    this.afterTyping();
+  }
+
+  backspaceLength(): void {
+    if (!this.lengthBuffer) return;
+    this.lengthBuffer = this.lengthBuffer.slice(0, -1);
+    this.afterTyping();
+  }
+
+  clearLength(): void {
+    if (!this.lengthBuffer) return;
+    this.lengthBuffer = "";
+    this.afterTyping();
+  }
+
+  /** Act on the typed length: place the next chain point, or resize the wall. */
+  commitLength(): void {
+    if (!this.lengthBuffer) return;
+    if (this.tool === "wall" && this.chainStart) { this.wallClick(); return; }
+    if (this.tool === "select" && this.store.sel?.kind === "wall") this.applyTypedLength();
+  }
+
+  private afterTyping(): void {
+    this.updateHint();
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /** Close an open wall chain. What Escape and the right mouse button do. */
+  endChain(): void {
+    this.cancel();
+    this.updateHint();
+    this.onToolChange();
+  }
+
+  /**
+   * Where to draw the magnified inset, or null when it would not help. At wall
+   * scale a fingertip covers the point being placed, so a touch that is placing
+   * or dragging gets the geometry under it shown beside the finger. A mouse has
+   * a one-pixel hotspot and needs none.
+   */
+  loupeAt(): Vec | null {
+    if (this.lastPointerType === "mouse" || this.navigated) return null;
+    if (this.pointers.size !== 1) return null;
+    if (this.tool === "select" && !this.drag) return null;
+    return [...this.pointers.values()][0] ?? null;
+  }
+
   private screenOf(e: PointerEvent | WheelEvent): Vec {
     const r = this.canvas.getBoundingClientRect();
     return v(e.clientX - r.left, e.clientY - r.top);
@@ -330,7 +441,18 @@ export class Tools {
   private applyFit(b: Bounds | null): boolean {
     if (!b) return false;
     const { w, h } = this.canvasSize();
-    this.vp.fitBox(w, h, b.min, b.max);
+    // The compact layout floats its chrome over a full-bleed canvas, so a fit
+    // frames into what is left uncovered and then shifts by the top-left
+    // margin: fitBox centres in the box it is handed, and that box is the
+    // visible part rather than the whole canvas. Without this every zoom --
+    // zoom-all, a room, the zoom window -- lands half behind the sheet.
+    const pad = this.viewInsets?.() ?? null;
+    if (!pad) {
+      this.vp.fitBox(w, h, b.min, b.max);
+    } else {
+      this.vp.fitBox(Math.max(1, w - pad.left - pad.right), Math.max(1, h - pad.top - pad.bottom), b.min, b.max);
+      this.vp.panPx(pad.left, pad.top);
+    }
     this.requestRender();
     return true;
   }
@@ -432,12 +554,108 @@ export class Tools {
     this.requestRender();
   }
 
+  /** Separation and midpoint of the first two live pointers. */
+  private pinchState(): { dist: number; mid: Vec } | null {
+    const [a, b] = [...this.pointers.values()];
+    if (!a || !b) return null;
+    return { dist: dist(a, b), mid: v((a.x + b.x) / 2, (a.y + b.y) / 2) };
+  }
+
+  /**
+   * Two-finger navigation: pan by the midpoint's travel and zoom by the change
+   * in separation, applied together so the plan stays under both fingers. This
+   * is what replaces the wheel — the one gesture a touch device has no other
+   * way to spell.
+   */
+  private pinchMove(): void {
+    const prev = this.pinch;
+    const now = this.pinchState();
+    this.pinch = now;
+    if (!prev || !now) return;
+    this.vp.panPx(now.mid.x - prev.mid.x, now.mid.y - prev.mid.y);
+    if (prev.dist > 0 && now.dist > 0) this.vp.zoomAt(now.mid, now.dist / prev.dist);
+    this.requestRender();
+  }
+
+  private onCancelPointer(e: PointerEvent): void {
+    this.pointers.delete(e.pointerId);
+    if (this.pointers.size < 2) this.pinch = null;
+    if (this.pointers.size === 0) this.navigated = false;
+    this.tapStart = null;
+    this.drag = null;
+    this.requestRender();
+  }
+
+  /**
+   * A tap that landed: the placement tools act here rather than on contact,
+   * because until the finger lifts the gesture could still turn out to be the
+   * first half of a pinch, and a wall placed on contact cannot be taken back by
+   * lifting. Select is the exception — it acts on contact so a drag can start.
+   */
+  private onTap(time: number): void {
+    if (this.tool === "select") {
+      // Double tap on empty paper frames the plan. Only when the tap selected
+      // nothing, so double-tapping an object stays a plain selection.
+      if (time - this.lastTapTime <= DOUBLE_TAP_MS && this.store.sel === null) {
+        this.lastTapTime = 0;
+        this.fitAll();
+        return;
+      }
+      this.lastTapTime = time;
+      return;
+    }
+    switch (this.tool) {
+      case "wall": this.wallClick(); break;
+      case "door": case "window": case "passage": this.placeOpening(this.tool); break;
+      case "symbol": this.placeSymbol(); break;
+      case "stair": this.placeStair(); break;
+      case "vide": this.placeVide(); break;
+      case "cabinet": this.placeCabinet(); break;
+      case "roomName": this.placeRoomName(); break;
+      // zoom acted on contact; its release is handled as a zoomBox drag.
+      case "zoom": break;
+    }
+  }
+
   private onDown(e: PointerEvent): void {
-    this.canvas.setPointerCapture(e.pointerId);
+    // Capture keeps a drag alive when the finger leaves the canvas. It throws
+    // for a pointer id the browser has no active pointer for, which must not
+    // take the rest of the gesture down with it.
+    try { this.canvas.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
+    this.lastPointerType = e.pointerType;
     this.hoverSymbol = null; // a name pill has no business sitting under a click or drag
     this.hoverStair = null;
     const s = this.screenOf(e);
     const w = this.vp.toWorld(s);
+    this.pointers.set(e.pointerId, s);
+
+    // A second finger takes over as navigation. Whatever the first one started
+    // has not travelled far enough to have changed the document, so dropping it
+    // costs nothing.
+    if (this.pointers.size === 2) {
+      this.navigated = true;
+      this.drag = null;
+      this.tapStart = null;
+      this.pinch = this.pinchState();
+      this.requestRender();
+      return;
+    }
+    if (this.pointers.size > 2) return;
+
+    if (e.pointerType !== "mouse") {
+      this.cursor = w;
+      this.snap = this.tool === "select" ? null : this.computeSnap(w, this.tool === "wall");
+      this.tapStart = { screen: s, time: e.timeStamp };
+      // Two tools need the press itself rather than the release: select, so a
+      // drag can start, and zoom, so the window can be dragged out. Neither has
+      // changed the document by the time a second finger could arrive, so both
+      // are safe to abandon mid-gesture.
+      if (this.tool === "select") this.selectDown(s, w);
+      else if (this.tool === "zoom") this.zoomDown(s, w);
+      this.requestRender();
+      return;
+    }
+
     if (e.button === 1 || e.button === 2 || (e.button === 0 && e.getModifierState("Space"))) {
       this.drag = { kind: "pan", startWorld: w, moved: false, lastScreen: s };
       return;
@@ -471,6 +689,9 @@ export class Tools {
   private onMove(e: PointerEvent): void {
     const s = this.screenOf(e);
     const w = this.vp.toWorld(s);
+    this.lastPointerType = e.pointerType;
+    if (this.pointers.has(e.pointerId)) this.pointers.set(e.pointerId, s);
+    if (this.pointers.size >= 2) { this.pinchMove(); return; }
     this.cursor = w;
 
     if (this.drag) { this.dragMove(s, w); return; }
@@ -484,8 +705,29 @@ export class Tools {
     this.requestRender();
   }
 
-  private onUp(): void {
-    if (!this.drag) return;
+  private onUp(e: PointerEvent): void {
+    this.pointers.delete(e.pointerId);
+    if (this.pointers.size < 2) this.pinch = null;
+
+    // The fingers of a pinch lift one at a time; neither is a tap.
+    if (this.navigated) {
+      if (this.pointers.size === 0) this.navigated = false;
+      this.tapStart = null;
+      this.drag = null;
+      this.requestRender();
+      return;
+    }
+
+    const tap = this.tapStart;
+    this.tapStart = null;
+    if (tap && e.pointerType !== "mouse") {
+      const s = this.screenOf(e);
+      const travelled = dist(s, tap.screen) > TAP_SLOP_PX;
+      const held = e.timeStamp - tap.time > TAP_MS;
+      if (!travelled && !held) this.onTap(e.timeStamp);
+    }
+
+    if (!this.drag) { this.requestRender(); return; }
     const d = this.drag;
     this.drag = null;
     if (d.kind === "zoomBox") { this.zoomUp(d); this.requestRender(); return; }
@@ -1108,19 +1350,13 @@ export class Tools {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); this.store.redo(); return; }
     if (e.ctrlKey || e.metaKey) return;
 
-    // Typed mm entry during wall drawing.
-    if (this.tool === "wall" && this.chainStart) {
-      if (/^[0-9.]$/.test(e.key)) { this.lengthBuffer += e.key; this.updateHint(); this.onToolChange(); this.requestRender(); return; }
-      if (e.key === "Backspace") { this.lengthBuffer = this.lengthBuffer.slice(0, -1); this.updateHint(); this.onToolChange(); this.requestRender(); return; }
-      if (e.key === "Enter" && this.lengthBuffer) { this.wallClick(); return; }
-    }
-
-    // Typed mm entry with a wall selected: type digits, Enter resizes it.
-    if (this.tool === "select" && this.store.sel?.kind === "wall") {
-      if (/^[0-9.]$/.test(e.key)) { this.lengthBuffer += e.key; this.updateHint(); this.onToolChange(); this.requestRender(); return; }
-      if (e.key === "Backspace" && this.lengthBuffer) { this.lengthBuffer = this.lengthBuffer.slice(0, -1); this.updateHint(); this.onToolChange(); this.requestRender(); return; }
-      if (e.key === "Enter" && this.lengthBuffer) { this.applyTypedLength(); return; }
-      if (e.key === "Escape" && this.lengthBuffer) { this.lengthBuffer = ""; this.updateHint(); this.onToolChange(); this.requestRender(); return; }
+    // Typed mm entry, in the two states typingLength describes. The keypad
+    // calls the same methods, so the keyboard and the touch pad cannot drift.
+    if (this.typingLength) {
+      if (/^[0-9.]$/.test(e.key)) { this.typeLength(e.key); return; }
+      if (e.key === "Backspace" && (this.lengthBuffer || this.chainStart)) { this.backspaceLength(); return; }
+      if (e.key === "Enter" && this.lengthBuffer) { this.commitLength(); return; }
+      if (e.key === "Escape" && this.lengthBuffer) { this.clearLength(); return; }
     }
 
     switch (e.key) {
@@ -1334,39 +1570,52 @@ export class Tools {
     this.store.select(null);
   }
 
+  /**
+   * The hint key for `base`, in the voice of whatever is driving the editor.
+   * The desktop wording names clicks and keys — "klik", "Del", "Esc" — none of
+   * which a phone has, so every hint the two modes disagree about carries a
+   * `touch` twin.
+   */
+  private hintKey(base: string): string {
+    return this.touchUi
+      ? `hint.touch${base[0]!.toUpperCase()}${base.slice(1)}`
+      : `hint.${base}`;
+  }
+
   updateHint(): void {
+    const h = (base: string, vars?: Record<string, string | number>): string => t(this.hintKey(base), vars);
     switch (this.tool) {
       case "wall":
         this.hint = this.chainStart
-          ? (this.lengthBuffer ? t("hint.wallTyped", { length: this.lengthBuffer }) : t("hint.wallChain"))
-          : t("hint.wallStart");
+          ? (this.lengthBuffer ? h("wallTyped", { length: this.lengthBuffer }) : h("wallChain"))
+          : h("wallStart");
         break;
       case "select":
         this.hint = this.store.sel?.kind === "wall"
           ? (this.lengthBuffer
-            ? t("hint.selectWallTyped", { length: this.lengthBuffer })
-            : t("hint.selectWall"))
-          : t("hint.select");
+            ? h("selectWallTyped", { length: this.lengthBuffer })
+            : h("selectWall"))
+          : h("select");
         break;
-      case "door": this.hint = t("hint.door"); break;
-      case "window": this.hint = t("hint.window"); break;
-      case "passage": this.hint = t("hint.passage"); break;
-      case "symbol": this.hint = t("hint.symbol", { label: getSymbol(this.symbolType) ? t("symbol." + this.symbolType) : this.symbolType }); break;
-      case "stair": this.hint = t("hint.stair", { label: t("stair." + this.stairKind) }); break;
-      case "vide": this.hint = t("hint.vide"); break;
+      case "door": this.hint = h("door"); break;
+      case "window": this.hint = h("window"); break;
+      case "passage": this.hint = h("passage"); break;
+      case "symbol": this.hint = h("symbol", { label: getSymbol(this.symbolType) ? t("symbol." + this.symbolType) : this.symbolType }); break;
+      case "stair": this.hint = h("stair", { label: t("stair." + this.stairKind) }); break;
+      case "vide": this.hint = h("vide"); break;
       case "cabinet": {
         const preset = cabinetPreset(this.cabinetPresetId);
-        this.hint = t("hint.cabinet", {
+        this.hint = h("cabinet", {
           label: preset ? t("cabinet." + preset.id) : t("panel.cabinetCustom"),
         });
         break;
       }
       case "roomName":
         this.hint = this.roomNameText.trim()
-          ? t("hint.roomName", { label: this.roomNameText.trim() })
-          : t("hint.roomNameEmpty");
+          ? h("roomName", { label: this.roomNameText.trim() })
+          : h("roomNameEmpty");
         break;
-      case "zoom": this.hint = t("hint.zoom"); break;
+      case "zoom": this.hint = h("zoom"); break;
     }
   }
 

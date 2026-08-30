@@ -4,12 +4,13 @@ import { Store } from "./model/store";
 import { resolveFloor, Resolved } from "./core/resolve";
 import { detectRooms, Room } from "./core/rooms";
 import { Viewport } from "./render/viewport";
-import { drawScene } from "./render/draw";
+import { drawScene, COLORS } from "./render/draw";
 import { Tools } from "./input/tools";
 import { Panel } from "./ui/panel";
 import { tryLoadAutosave, scheduleAutosave } from "./io/json";
 import { seedDoc } from "./seed";
 import { areaModeOf, PlanDoc } from "./model/doc";
+import { v } from "./geometry/vec";
 import { language, on as onI18n } from "./i18n";
 
 /**
@@ -45,7 +46,12 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
   const canvasWrap = document.createElement("div");
   canvasWrap.className = "canvas-wrap";
   const canvas = document.createElement("canvas");
-  canvasWrap.append(canvas);
+  // The magnified inset a touch gesture gets, so the point being placed is not
+  // the one under the fingertip. Hidden — and never rendered — for a mouse.
+  const loupe = document.createElement("canvas");
+  loupe.className = "loupe";
+  loupe.hidden = true;
+  canvasWrap.append(canvas, loupe);
   app.append(side, canvasWrap);
 
   const store = new Store();
@@ -100,6 +106,60 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
       ghost,
       preview: (c, viewport) => tools.drawPreview(c, viewport),
     }, store.doc.gridMm, areaModeOf(store.doc));
+    renderLoupe(rect, dpr, resolved, rooms, ghost);
+  }
+
+  /** Side of the square magnifier, in CSS px. */
+  const LOUPE_PX = 92;
+  /** How much closer the inset sits than the plan itself. */
+  const LOUPE_ZOOM = 4;
+  /** Gap between the fingertip and the inset's near edge. */
+  const LOUPE_LIFT = 84;
+
+  /**
+   * The magnified inset. A second pass of the same renderer through a viewport
+   * centred on the touch point — not a copy of pixels from the main canvas,
+   * which at four times the size would be four times as blurry, and would show
+   * the plan at the zoom the finger is already covering.
+   */
+  function renderLoupe(
+    rect: DOMRect, dpr: number, resolved: Resolved, rooms: Room[], ghost: Resolved | null,
+  ): void {
+    const at = tools.loupeAt();
+    if (!at) { loupe.hidden = true; return; }
+    loupe.hidden = false;
+    if (loupe.width !== Math.round(LOUPE_PX * dpr)) {
+      loupe.width = loupe.height = Math.round(LOUPE_PX * dpr);
+      loupe.style.width = loupe.style.height = LOUPE_PX + "px";
+    }
+    // Above the finger where there is room, below it near the top edge.
+    const below = at.y - LOUPE_LIFT - LOUPE_PX / 2 < 0;
+    const cx = Math.max(LOUPE_PX / 2, Math.min(rect.width - LOUPE_PX / 2, at.x));
+    const cy = at.y + (below ? LOUPE_LIFT : -LOUPE_LIFT);
+    loupe.style.left = Math.round(cx - LOUPE_PX / 2) + "px";
+    loupe.style.top = Math.round(cy - LOUPE_PX / 2) + "px";
+
+    const world = vp.toWorld(at);
+    const lens = new Viewport();
+    lens.dpr = dpr;
+    lens.pxPerMm = vp.pxPerMm * LOUPE_ZOOM;
+    lens.origin = v(world.x - LOUPE_PX / 2 / lens.pxPerMm, world.y - LOUPE_PX / 2 / lens.pxPerMm);
+
+    const lctx = loupe.getContext("2d")!;
+    lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawScene(lctx, lens, LOUPE_PX, LOUPE_PX, store.floor, resolved, rooms, store.sel, {
+      hoverSnap: tools.getSnap(),
+      ghost,
+      preview: (c, viewport) => tools.drawPreview(c, viewport),
+      showGrid: false,
+    }, store.doc.gridMm, areaModeOf(store.doc));
+    // Crosshair at the exact point, drawn last so nothing covers it.
+    lctx.strokeStyle = COLORS.snap;
+    lctx.lineWidth = 1;
+    lctx.beginPath();
+    lctx.moveTo(LOUPE_PX / 2, LOUPE_PX / 2 - 12); lctx.lineTo(LOUPE_PX / 2, LOUPE_PX / 2 + 12);
+    lctx.moveTo(LOUPE_PX / 2 - 12, LOUPE_PX / 2); lctx.lineTo(LOUPE_PX / 2 + 12, LOUPE_PX / 2);
+    lctx.stroke();
   }
 
   store.onChange(() => { scheduleAutosave(store.doc); requestRender(); });
@@ -114,6 +174,14 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
   // same zoom-all F reaches, so the opening view and the one the reader can get
   // back to are the same view, and both frame what planBounds() reports rather
   // than the node positions alone.
+  //
+  // In the compact layout the chrome floats over a full-bleed canvas, so every
+  // fit has to aim at the uncovered part of it. The panel is what knows how
+  // much that is; Tools applies it to all of them at once.
+  tools.viewInsets = () => panel.canvasInsets();
+  // A shell change re-frames: what was centred beside a sidebar is centred
+  // under a sheet.
+  panel.onLayoutChange = () => { tools.fitAll(); };
   tools.fitAll();
 
   requestRender();

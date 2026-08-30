@@ -1,9 +1,23 @@
 * { box-sizing: border-box; margin: 0; }
 html, body, #app { height: 100%; }
 body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec; overflow: hidden; color-scheme: light; }
-.app { display: flex; height: 100%; }
+.app { display: flex; height: 100%; position: relative; }
 .canvas-wrap { flex: 1; position: relative; }
-.canvas-wrap canvas { position: absolute; inset: 0; display: block; cursor: crosshair; }
+/* touch-action:none is what makes two-finger pan/zoom ours rather than the
+   browser's: without it the page scrolls and pinch-zooms the whole document,
+   and one-finger drawing never gets a pointermove at all. */
+.canvas-wrap canvas { position: absolute; inset: 0; display: block; cursor: crosshair;
+  touch-action: none; -webkit-user-select: none; user-select: none; }
+
+/* The magnified inset for touch. Sized and placed by main.ts, which is what
+   knows where the finger is. The [hidden] rule is load-bearing: the display
+   above outranks the browser's own [hidden] styling, so without it the loupe
+   stays on screen as a stretched blue ring over the plan. */
+.canvas-wrap canvas.loupe {
+  inset: auto; border-radius: 50%; border: 2px solid #2d7de0;
+  box-shadow: 0 5px 16px rgba(43,46,51,.22); pointer-events: none; z-index: 3;
+}
+.canvas-wrap canvas.loupe[hidden] { display: none; }
 
 :root {
   --dur-tap: 90ms;
@@ -24,7 +38,11 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 
 /* ---------- rail ---------- */
 
-.rail { width: 52px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0 10px; background: #faf9f5; border-right: 1px solid #eceadf; }
+/* Scrolls: ten tools, three modes and undo/redo need more height than a short
+   window has, and a button that cannot be reached is a tool that does not
+   exist. Below 500px tall the compact shell takes over entirely. */
+.rail { width: 52px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0 10px; background: #faf9f5; border-right: 1px solid #eceadf; overflow-y: auto; scrollbar-width: none; }
+.rail::-webkit-scrollbar { display: none; }
 .rail-btn {
   width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
   border-radius: 8px; color: #6b675c; border: 1px solid transparent; background: none;
@@ -41,6 +59,17 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 .rail-btn:focus-visible { outline: 2px solid #2d7de0; outline-offset: 2px; }
 .rail-sep { width: 26px; height: 1px; background: #e2ded2; margin: 8px 0; border: none; }
 .rail-spacer { flex-grow: 1; }
+/* The rail's three groups exist so the compact layout can send them to three
+   different places. Here they must not be boxes at all, or the rail's own flex
+   spacing would apply to the groups instead of to the buttons. */
+.rail-group { display: contents; }
+/* The caption under an icon. A pointing device has the title attribute; a
+   finger has nothing, so touch layouts turn this on. */
+/* 9px, and no hyphenation: the longest caption ("Doorgang", "Symbolen") has to
+   fit a 46px tool on one line, and the page sets hyphens:auto for the Dutch
+   compounds in the palette, which would otherwise break these down the middle. */
+.rail-name { display: none; font: 500 9px/1.1 system-ui, sans-serif; font-style: normal;
+  text-align: center; hyphens: none; -webkit-hyphens: none; letter-spacing: -0.01em; }
 
 @keyframes rail-pulse {
   from { box-shadow: 0 0 0 0 rgba(45,125,224,.35); }
@@ -321,3 +350,236 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
    this one, so the fallback looks like the rest of the site. */
 .noscript { position: fixed; inset: 0; overflow: auto; background: #f4f2ec; z-index: 10; padding: 3rem 0; }
 .noscript .wrap { max-width: 44rem; margin: 0 auto; padding: 0 1.25rem; }
+
+/* ---------- touch sizing ---------- */
+/* Independent of the layout on purpose: a narrow desktop window is compact but
+   still has a mouse, and a tablet is wide but still has fingers. Anything a
+   finger has to hit gets its 44 px here, whichever shell it sits in. */
+
+@media (pointer: coarse) {
+  .rail { width: 68px; }
+  .rail-btn { width: 52px; height: 52px; border-radius: 10px; }
+  .rail-btn.is-mode { height: 50px; }
+  .rail-name { display: block; }
+  .storey-add { width: 36px; height: 36px; }
+  .sec-close { width: 34px; height: 34px; margin: -8px -8px -8px 0;
+    display: flex; align-items: center; justify-content: center; }
+  /* 17 px, not 13 px: iOS Safari zooms the page when a focused field is under
+     16 px, which fights the canvas viewport and the visitor cannot undo it. */
+  .prop-row input[type="number"], .prop-row input[type="text"] {
+    min-height: 44px; font-size: 17px; width: 104px;
+  }
+  .prop-row select { min-height: 44px; font-size: 15px; }
+  /* Drag-scrub is a horizontal drag, which is also how a sheet scrolls sideways
+     and how a browser goes back. The field keeps the gesture for a stylus, but
+     stops advertising itself as the way in. */
+  .prop-row input[type="number"] { cursor: default; }
+  .ink { width: 30px; height: 30px; }
+  .pal-search-box { min-height: 44px; }
+  .pal-search-box input { font-size: 16px; }
+  .pal-cat { padding: 14px 2px 10px; }
+  .sym-tile { padding: 6px 3px 7px; }
+  /* Three clamped lines rather than two: "Wandcontactdoos 2-voudig met
+     randaarde" is not readable in two at any phone width. */
+  .sym-tile span { font-size: 10px; max-width: none; min-height: 3.45em;
+    -webkit-line-clamp: 3; line-clamp: 3; }
+  .menu-item { padding: 11px 14px; }
+  .tool-btn { min-height: 44px; }
+}
+
+/* ---------- compact shell ---------- */
+/* Below the breakpoint in src/ui/layout.ts the sidebar leaves too little canvas
+   to draw on, so the chrome comes off the side and sits over the plan: a top
+   bar, floating mode chips, a bottom sheet and a labelled tool bar. Panel builds
+   the same elements for both shells and only re-parents them. */
+
+.side.is-compact {
+  position: absolute; inset: 0; width: auto; flex: none; z-index: 2;
+  display: block; background: none; border-right: none; overflow: visible;
+  pointer-events: none;
+}
+.side.is-compact > * { pointer-events: auto; }
+/* Icon over caption. The base rail button is a row, which on a 46 px tool would
+   put the name beside the icon and hyphenate "Doorgang" down the middle. */
+.side.is-compact .rail-btn { flex-direction: column; gap: 3px; padding: 0 1px; }
+/* The compact shell sizes its own controls rather than leaning on the coarse
+   block below: it is the layout a phone gets, and a stylesheet that only fits
+   when a media query happens to match is one that silently does not. */
+.side.is-compact .prop-row input[type="number"],
+.side.is-compact .prop-row input[type="text"] { min-height: 44px; font-size: 17px; width: 104px; }
+.side.is-compact .prop-row select { min-height: 44px; font-size: 15px; }
+.side.is-compact .prop-row input[type="number"] { cursor: default; }
+/* A 13px tick box is not a touch target, and its state has to read at a glance.
+   Same value and the same element, switch shape. `is-touch` covers the tablet
+   too, where the layout is wide but the pointer is still a finger. */
+.side.is-touch .prop-row input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none; position: relative; flex: none;
+  width: 48px; height: 28px; border-radius: 14px; background: #d8d4c8;
+  border: none; cursor: pointer; margin: 0;
+  transition: background var(--dur-quick) var(--ease-std);
+}
+.side.is-touch .prop-row input[type="checkbox"]::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 24px; height: 24px;
+  border-radius: 12px; background: #fff; box-shadow: 0 1px 2px rgba(43,46,51,.25);
+  transition: left var(--dur-quick) var(--ease-std);
+}
+.side.is-touch .prop-row input[type="checkbox"]:checked { background: #2d7de0; }
+.side.is-touch .prop-row input[type="checkbox"]:checked::after { left: 22px; }
+.side.is-touch .prop-row input[type="checkbox"]:focus-visible { outline: 2px solid #2d7de0; outline-offset: 2px; }
+
+/* Pinned actions sit above the hint, out of the scrolling list. */
+.wg-actions { padding: 8px 12px 0; }
+.wg-actions .btn-danger { margin-top: 0; min-height: 48px; }
+/* No keyboard, no key caps. The shortcut a cap names cannot be pressed. */
+.side.is-touch .keycap { display: none; }
+.side.is-compact .ink { width: 30px; height: 30px; }
+.side.is-compact .pal-search-box { min-height: 44px; }
+.side.is-compact .pal-search-box input { font-size: 16px; }
+.side.is-compact .pal-cat { padding: 14px 2px 10px; }
+.side.is-compact .pal-grid { grid-template-columns: repeat(4, 1fr); }
+.side.is-compact .sym-tile span { font-size: 10px; max-width: none; min-height: 3.45em;
+  -webkit-line-clamp: 3; line-clamp: 3; }
+.side.is-compact .sec-close { width: 34px; height: 34px; margin: -8px -8px -8px 0;
+  display: flex; align-items: center; justify-content: center; }
+
+.wg-top {
+  position: absolute; top: 0; left: 0; right: 0; min-height: 52px;
+  display: flex; align-items: center; gap: 6px;
+  background: #fff; border-bottom: 1px solid #eceadf;
+  padding: env(safe-area-inset-top) calc(8px + env(safe-area-inset-right)) 0 calc(8px + env(safe-area-inset-left));
+}
+.wg-top > .rail-btn, .wg-top .rail-btn { flex: none; width: 44px; height: 44px; border-radius: 10px; }
+.wg-top .rail-group { display: flex; gap: 2px; flex: none; }
+/* The bar is short and these three are the least ambiguous icons in the set. */
+.wg-top .rail-name { display: none; }
+/* The storey picker is a pill here, not a bordered row: one control among
+   several on a bar rather than a section of a pane. */
+.side.is-compact .storey {
+  flex: 1 1 auto; min-width: 0; height: 40px; padding: 0 6px 0 10px;
+  border: 1px solid #e2ded2; border-radius: 8px; background: #faf9f5;
+}
+.side.is-compact .storey-select { font-size: 14px; }
+
+.wg-modes {
+  position: absolute; display: flex; gap: 8px;
+  top: calc(env(safe-area-inset-top) + 60px);
+  right: calc(12px + env(safe-area-inset-right));
+}
+.wg-modes .rail-group { display: flex; gap: 8px; }
+.wg-modes .rail-btn {
+  width: 46px; height: 50px; border-radius: 11px;
+  background: #fff; border: 1px solid #e2ded2; box-shadow: 0 2px 8px rgba(43,46,51,.12);
+}
+.wg-modes .rail-name { display: block; }
+
+.wg-sheet {
+  position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column;
+  background: #fff; border-top: 1px solid #e2ded2; border-radius: 16px 16px 0 0;
+  box-shadow: 0 -8px 24px rgba(43,46,51,.10);
+  transition: height var(--dur-base) var(--ease-out);
+}
+.wg-sheet.is-dragging { transition: none; }
+.wg-grab { flex: none; display: flex; justify-content: center; padding: 9px 0 7px;
+  cursor: ns-resize; touch-action: none; }
+.wg-grab i { display: block; width: 38px; height: 4px; border-radius: 2px; background: #d8d4c8; }
+.wg-grab:focus-visible { outline: 2px solid #2d7de0; outline-offset: -2px; border-radius: 8px; }
+.wg-sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+.wg-sheet-foot { flex: none; }
+/* One scroller: the sheet body is it, so the pane inside stops being one. */
+.side.is-compact .pane-scroll { flex: none; min-height: 0; overflow: visible; }
+.side.is-compact .plan-sec { margin-top: 0; }
+.side.is-compact .status { margin-top: 0; border-top: 1px solid #eceadf; }
+.side.is-compact .side-foot { padding-bottom: 12px; }
+
+/* Klaar closes a wall chain. On a keyboard that is Escape or the right mouse
+   button, and on a phone it has no other spelling at all. */
+.wg-chain { display: flex; align-items: center; gap: 8px; padding: 4px 14px 8px; }
+.wg-done {
+  flex: none; height: 34px; padding: 0 14px; border: 1px solid #3d4148; border-radius: 8px;
+  background: #3d4148; color: #fff; font: 600 12px system-ui, sans-serif; cursor: pointer;
+}
+.wg-done:active { transform: scale(.97); }
+
+/* ---------- millimetre keypad ---------- */
+
+.wg-keypad { padding: 0 14px 12px; display: flex; flex-direction: column; gap: 8px; }
+.wg-typed {
+  display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 12px;
+  border: 1px solid #2d7de0; border-radius: 8px; background: #fff;
+  box-shadow: 0 0 0 2px rgba(45,125,224,.13);
+}
+.wg-typed > span { color: #6b675c; }
+/* No unit suffix here: the row's own label already carries the "(mm)". */
+.wg-typed-value {
+  margin-left: auto; font: 600 19px/1 system-ui, sans-serif;
+  font-variant-numeric: tabular-nums; color: #2d7de0;
+}
+.keypad { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.key {
+  height: 46px; display: flex; align-items: center; justify-content: center; gap: 5px;
+  border: 1px solid #d8d4c8; border-radius: 9px; background: #faf9f5; color: #2b2e33;
+  font: 400 21px/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; cursor: pointer;
+  transition: background var(--dur-tap) var(--ease-std);
+}
+.key:active { background: #ece9e0; }
+.key.key-alt { background: #fff; color: #6b675c; font-size: 15px; }
+.key.key-go {
+  flex-direction: column; height: auto;
+  background: #3d4148; border-color: #3d4148; color: #fff;
+  font: 600 13px system-ui, sans-serif;
+}
+.key:focus-visible { outline: 2px solid #2d7de0; outline-offset: 2px; }
+
+/* ---------- tool bar ---------- */
+/* Eight tools across a phone: 46 px each is the widest that fits them all
+   without a scroll, and still clears the 44 px floor. */
+
+.wg-toolbar {
+  border-top: 1px solid #eceadf; background: #fdfcfa;
+  box-shadow: 0 -8px 12px -8px rgba(43,46,51,.13);
+  padding: 6px calc(4px + env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) calc(4px + env(safe-area-inset-left));
+}
+/* Eleven tools do not fit across a phone, so the bar scrolls. renderRail keeps
+   the armed one in view; the mask fades the cut edges so it reads as scrollable
+   rather than as a button chopped in half. */
+.wg-toolbar .rail-group {
+  display: flex; gap: 2px; justify-content: flex-start;
+  overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+}
+.wg-toolbar .rail-group::-webkit-scrollbar { display: none; }
+.wg-toolbar .rail-btn { width: 46px; height: 56px; border-radius: 10px; flex: none; }
+.wg-toolbar .rail-name { display: block; }
+
+/* ---------- landscape on a phone ---------- */
+/* A plan is wide, so this is the posture a phone draws in. The sheet becomes a
+   right-hand panel and the tool bar a left rail — the wide layout's shape,
+   without the height to stack a sheet under a top bar. */
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .wg-top {
+    left: auto; right: 0; width: 316px; border-left: 1px solid #e2ded2;
+    padding-left: 10px; padding-right: calc(6px + env(safe-area-inset-right));
+  }
+  .wg-sheet {
+    left: auto; width: 316px; height: auto !important;
+    top: calc(env(safe-area-inset-top) + 52px);
+    border-radius: 0; border-top: none; border-left: 1px solid #e2ded2; box-shadow: none;
+  }
+  .wg-grab { display: none; }
+  .wg-sheet-foot { display: contents; }
+  .wg-toolbar {
+    position: fixed; left: 0; top: 0; bottom: 0; width: 72px; overflow-y: auto;
+    border-top: none; border-right: 1px solid #e2ded2; box-shadow: none;
+    padding: calc(6px + env(safe-area-inset-top)) 0 calc(6px + env(safe-area-inset-bottom)) env(safe-area-inset-left);
+  }
+  .wg-toolbar .rail-group { flex-direction: column; align-items: center; gap: 3px; justify-content: flex-start; }
+  .wg-toolbar .rail-btn { width: 62px; height: 42px; }
+  /* Beside the rail rather than against the right edge, which is where the
+     panel now is. */
+  .wg-modes { top: calc(env(safe-area-inset-top) + 12px); right: auto;
+    left: calc(84px + env(safe-area-inset-left)); }
+  .wg-keypad { padding-bottom: 8px; }
+}

@@ -29,7 +29,7 @@ export type IconName =
   | "cabinet" | "roomName" | "zoom"
   | "gridSnap" | "angleSnap" | "dimensions"
   | "undo" | "redo" | "dots" | "chevron" | "plus" | "minus" | "close"
-  | "trash" | "search" | "floors"
+  | "trash" | "search" | "floors" | "backspace" | "confirm"
   | "docNew" | "docDemo" | "docOpen" | "docSave" | "docPng" | "docDxf" | "docSvg" | "docCopy" | "docPaste";
 
 const ICONS: Record<IconName, Shape[]> = {
@@ -86,6 +86,10 @@ const ICONS: Record<IconName, Shape[]> = {
   close: [P("M6 6 L14 14 M14 6 L6 14")],
   trash: [P("M4.6 6.2 H15.4 M8.2 6.2 V4.6 H11.8 V6.2 M6.2 6.2 V16 H13.8 V6.2 M8.6 8.8 V13.6 M11.4 8.8 V13.6")],
   search: [C(9, 9, 5), P("M12.8 12.8 L16.5 16.5")],
+  // Keypad furniture. The millimetre pad has no other way to spell these: the
+  // physical keys they stand in for are the ones a touch device does not have.
+  backspace: [P("M7.5 4.5 H16.5 V15.5 H7.5 L3 10 Z M10.6 7.9 L14.1 11.4 M14.1 7.9 L10.6 11.4")],
+  confirm: [P("M4.6 10.4 L8.4 14.4 L15.4 6.2")],
   floors: [P("M10 3.6 L17 7.2 L10 10.8 L3 7.2 Z M3 11.4 L10 15 L17 11.4")],
   docNew: [P("M5.2 3.4 H11.6 L14.8 6.6 V16.6 H5.2 Z M11.6 3.4 V6.6 H14.8")],
   docDemo: [P("M3.4 4.6 H16.6 V15.4 H3.4 Z M9.6 4.6 V15.4 M9.6 10 H16.6")],

@@ -29,6 +29,9 @@ import { renderZoomTool } from "./zoom";
 import { renderOpeningTool } from "./openings";
 import { renderVideTool, renderVideProps } from "./vide";
 import { scrubbable } from "./scrub";
+import { watchLayout, isTouchPrimary, type LayoutMode } from "./layout";
+import { Sheet } from "./sheet";
+import { buildKeypad } from "./keypad";
 
 export class Panel {
   private rail: HTMLElement;
@@ -36,6 +39,27 @@ export class Panel {
   private status: HTMLElement;
   private foot: HTMLElement;
   private palette: Palette;
+  /**
+   * The rail's three groups, as their own containers so the compact shell can
+   * send them to three different places: tools to the bottom bar, modes to a
+   * floating row, undo/redo to the top bar. In the wide shell they are
+   * `display: contents`, so the rail's flex children stay the buttons
+   * themselves and the sidebar looks exactly as it did.
+   */
+  private toolsEl: HTMLElement;
+  private modesEl: HTMLElement;
+  private historyEl: HTMLElement;
+  private head: HTMLElement;
+  private docBtn: HTMLButtonElement;
+  private root: HTMLElement;
+  private mode: LayoutMode;
+  /** Built on the first compact mount and kept, so its detent survives a mode flip. */
+  private sheet: Sheet | null = null;
+  private keypadEl: HTMLElement | null = null;
+  private chainBar: HTMLElement | null = null;
+  private actionsEl: HTMLElement | null = null;
+  /** Told when the shell changes, so the host can re-frame the plan. */
+  onLayoutChange: (() => void) | null = null;
   /** Persistent pane children. The palette is never detached: removing it even
    *  for one frame drops focus out of its search box. */
   private paneScroll: HTMLElement;
@@ -54,7 +78,8 @@ export class Panel {
   private scrubbing = false;
 
   constructor(root: HTMLElement, private store: Store, private tools: Tools) {
-    const head = el("div", "side-head");
+    this.root = root;
+    this.head = el("div", "side-head");
     const h1 = Object.assign(el("h1"), { textContent: t("app.title") });
     const docBtn = el("button", "rail-btn") as HTMLButtonElement;
     docBtn.type = "button";
@@ -62,17 +87,17 @@ export class Panel {
     docBtn.setAttribute("aria-label", t("action.document"));
     docBtn.append(icon("dots"));
     docBtn.onclick = () => openMenu(docBtn, this.documentMenuEntries());
-    head.append(h1, docBtn);
+    this.head.append(h1, docBtn);
+    this.docBtn = docBtn;
 
     this.rail = el("div", "rail");
+    this.toolsEl = el("div", "rail-group");
+    this.modesEl = el("div", "rail-group");
+    this.historyEl = el("div", "rail-group");
     this.pane = el("div", "pane");
-    const sideBody = el("div", "side-body");
-    sideBody.append(this.rail, this.pane);
 
     this.status = el("div", "status");
     this.foot = el("div", "side-foot");
-
-    root.append(head, sideBody, this.status, this.foot);
 
     this.palette = new Palette(tools, () => this.refreshToolbar());
 
@@ -88,12 +113,95 @@ export class Panel {
     this.paneScroll = el("div", "pane-scroll");
     this.paneScroll.append(this.paneBody, this.palette.el);
     this.planEl = this.buildPlanSection();
-    this.pane.append(this.storeyEl, this.paneScroll, this.planEl);
+
+    this.mode = watchLayout(next => {
+      if (next === this.mode) return;
+      this.mode = next;
+      this.mountShell();
+      this.refreshToolbar();
+      // The canvas is a flex sibling in one shell and full-bleed under a lid in
+      // the other, so what was framed for one is framed wrong for the other.
+      this.onLayoutChange?.();
+    });
+    this.mountShell();
 
     this.renderFoot();
     this.refreshToolbar();
     store.onChange(() => this.refreshToolbar());
     onI18n("languageChanged", () => { this.palette.refresh(); this.renderFoot(); this.refreshToolbar(); });
+  }
+
+  /**
+   * Put the parts where this layout wants them.
+   *
+   * Both shells use the same elements, so switching is a re-parent rather than
+   * a rebuild: the palette keeps its open categories and its search text, and
+   * the sheet keeps the detent the user left it at.
+   */
+  private mountShell(): void {
+    const compact = this.mode === "compact";
+    const touch = compact || isTouchPrimary();
+    this.root.classList.toggle("is-compact", compact);
+    // Separate from the layout: a tablet is wide but still driven by fingers,
+    // and a narrow desktop window is compact but still has a mouse.
+    this.root.classList.toggle("is-touch", touch);
+    this.tools.touchUi = touch;
+
+    if (!compact) {
+      this.rail.replaceChildren(this.toolsEl, el("hr", "rail-sep"), this.modesEl,
+        el("div", "rail-spacer"), this.historyEl);
+      const sideBody = el("div", "side-body");
+      sideBody.append(this.rail, this.pane);
+      this.pane.replaceChildren(this.storeyEl, this.paneScroll, this.planEl);
+      this.root.replaceChildren(this.head, sideBody, this.status, this.foot);
+      return;
+    }
+
+    // Compact: the chrome sits over a full-bleed canvas. The top bar carries
+    // the storey and the history, the modes float, and everything that was in
+    // the pane goes into the sheet above a labelled tool bar.
+    const sheet = this.sheet ?? (this.sheet = new Sheet(t("panel.sheetHandle")));
+    const top = el("div", "wg-top");
+    top.append(this.docBtn, this.storeyEl, this.historyEl);
+    const modes = el("div", "wg-modes");
+    modes.append(this.modesEl);
+    const toolbar = el("div", "wg-toolbar");
+    toolbar.append(this.toolsEl);
+    // The hint rides in the pinned foot rather than over the canvas: the sheet
+    // changes height with its detent, so nothing floating above it has a
+    // position CSS can know.
+    sheet.foot.replaceChildren(this.status, toolbar);
+    // Both are re-added by renderTyping, which runs at the end of every refresh.
+    this.keypadEl = null;
+    this.chainBar = null;
+    sheet.body.replaceChildren(this.paneScroll, this.planEl, this.foot);
+    this.root.replaceChildren(top, modes, sheet.el);
+  }
+
+  /**
+   * How much of the canvas the chrome covers, in CSS px.
+   *
+   * Zero in the wide layout, where the sidebar is a flex sibling of the canvas
+   * rather than a lid on it. In the compact layout the canvas is full-bleed and
+   * the chrome floats, so anything framing the plan has to know what is hidden
+   * or it will centre the drawing under the sheet.
+   *
+   * The two compact arrangements are told apart by the one thing that actually
+   * distinguishes them: a bottom sheet spans the full width, a side panel does
+   * not.
+   */
+  canvasInsets(): { top: number; right: number; bottom: number; left: number } {
+    const zero = { top: 0, right: 0, bottom: 0, left: 0 };
+    if (this.mode !== "compact" || !this.sheet) return zero;
+    const host = this.root.getBoundingClientRect();
+    const sheet = this.sheet.el.getBoundingClientRect();
+    if (host.width === 0 || sheet.width === 0) return zero;
+    if (sheet.width >= host.width - 1) {
+      const top = this.root.querySelector(".wg-top")?.getBoundingClientRect();
+      return { ...zero, top: top ? top.height : 0, bottom: sheet.height };
+    }
+    const bar = this.root.querySelector(".wg-toolbar")?.getBoundingClientRect();
+    return { ...zero, left: bar ? bar.width : 0, right: sheet.width };
   }
 
   /** Persistent disclaimer link. Rebuilt only when the language changes. */
@@ -115,10 +223,16 @@ export class Panel {
   }
 
   private renderRail(): void {
-    const rail = this.rail;
-    rail.replaceChildren();
+    /**
+     * Every button carries its short name as well as its icon. Without a mouse
+     * there is no `title` to hover, so touch layouts show the caption and the
+     * wide desktop rail hides it again in CSS.
+     */
+    const caption = (b: HTMLElement, short: string): void => {
+      b.append(Object.assign(el("em", "rail-name"), { textContent: short }));
+    };
 
-    const toolBtn = (name: IconName, tool: ToolName, key: string, label: string): HTMLButtonElement => {
+    const toolBtn = (name: IconName, tool: ToolName, key: string, label: string, short: string): HTMLButtonElement => {
       const b = el("button", "rail-btn") as HTMLButtonElement;
       b.type = "button";
       const active = this.tools.tool === tool;
@@ -127,33 +241,36 @@ export class Panel {
       b.setAttribute("aria-pressed", String(active));
       if (active) b.classList.add("is-active");
       b.append(icon(name));
+      caption(b, short);
+      b.onclick = () => this.tools.setTool(tool);
       return b;
     };
 
-    const select = toolBtn("select", "select", "V", t("tool.select"));
-    select.onclick = () => this.tools.setTool("select");
-    const wall = toolBtn("wall", "wall", "W", t("tool.wall"));
-    wall.onclick = () => this.tools.setTool("wall");
-    const door = toolBtn("door", "door", "D", t("tool.door"));
-    door.onclick = () => this.tools.setTool("door");
-    const win = toolBtn("window", "window", "N", t("tool.window"));
-    win.onclick = () => this.tools.setTool("window");
-    const passage = toolBtn("passage", "passage", "P", t("tool.passage"));
-    passage.onclick = () => this.tools.setTool("passage");
-    const stair = toolBtn("stair", "stair", "T", t("tool.stair"));
-    stair.onclick = () => this.tools.setTool("stair");
-    const vide = toolBtn("vide", "vide", "H", t("tool.vide"));
-    vide.onclick = () => this.tools.setTool("vide");
-    const cabinet = toolBtn("cabinet", "cabinet", "C", t("tool.cabinet"));
-    cabinet.onclick = () => this.tools.setTool("cabinet");
-    const roomName = toolBtn("roomName", "roomName", "K", t("tool.roomName"));
-    roomName.onclick = () => this.tools.setTool("roomName");
-    const zoom = toolBtn("zoom", "zoom", "Z", t("tool.zoom"));
-    zoom.onclick = () => this.tools.setTool("zoom");
-    rail.append(select, wall, door, win, passage, stair, vide, cabinet, roomName, zoom,
-      el("hr", "rail-sep"));
+    this.toolsEl.replaceChildren(
+      toolBtn("select", "select", "V", t("tool.select"), t("tool.shortSelect")),
+      toolBtn("wall", "wall", "W", t("tool.wall"), t("tool.shortWall")),
+      toolBtn("door", "door", "D", t("tool.door"), t("tool.shortDoor")),
+      toolBtn("window", "window", "N", t("tool.window"), t("tool.shortWindow")),
+      toolBtn("passage", "passage", "P", t("tool.passage"), t("tool.shortPassage")),
+      toolBtn("stair", "stair", "T", t("tool.stair"), t("tool.shortStair")),
+      toolBtn("vide", "vide", "H", t("tool.vide"), t("tool.shortVide")),
+      toolBtn("cabinet", "cabinet", "C", t("tool.cabinet"), t("tool.shortCabinet")),
+      toolBtn("roomName", "roomName", "K", t("tool.roomName"), t("tool.shortRoomName")),
+      toolBtn("zoom", "zoom", "Z", t("tool.zoom"), t("tool.shortZoom")),
+    );
+    // The symbol palette is a tool like the rest on a phone, where the pane it
+    // lives in is folded away; the wide rail leaves it to the palette itself.
+    if (this.mode === "compact") {
+      this.toolsEl.append(
+        toolBtn("symbols", "symbol", "S", t("panel.symbol", { type: t("symbol." + this.tools.symbolType) }), t("tool.shortSymbol")),
+      );
+      // Eleven tools do not fit across a phone, so the bar scrolls and keeps
+      // the armed one in view — otherwise arming a tool by keyboard, or by
+      // rotating the device, would leave it off screen.
+      this.toolsEl.querySelector(".is-active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
 
-    const modeBtn = (name: IconName, modeKey: string, on: boolean, label: string, key: string): HTMLButtonElement => {
+    const modeBtn = (name: IconName, modeKey: string, on: boolean, label: string, key: string, short: string): HTMLButtonElement => {
       const b = el("button", "rail-btn is-mode") as HTMLButtonElement;
       b.type = "button";
       b.dataset.mode = modeKey;
@@ -162,17 +279,17 @@ export class Panel {
       b.setAttribute("aria-pressed", String(on));
       if (on) b.classList.add("is-on");
       b.append(icon(name));
+      caption(b, short);
       return b;
     };
 
-    const grid = modeBtn("gridSnap", "grid", this.tools.snapGrid, t("tool.gridSnap"), "G");
+    const grid = modeBtn("gridSnap", "grid", this.tools.snapGrid, t("tool.gridSnap"), "G", t("tool.shortGridSnap"));
     grid.onclick = () => this.toggleMode("grid", () => { this.tools.snapGrid = !this.tools.snapGrid; }, true);
-    const angle = modeBtn("angleSnap", "angle", this.tools.ortho, t("tool.angleSnap"), "O");
+    const angle = modeBtn("angleSnap", "angle", this.tools.ortho, t("tool.angleSnap"), "O", t("tool.shortAngleSnap"));
     angle.onclick = () => this.toggleMode("angle", () => { this.tools.ortho = !this.tools.ortho; }, false);
-    const dims = modeBtn("dimensions", "dims", this.tools.showDims, t("tool.measurements"), "L");
+    const dims = modeBtn("dimensions", "dims", this.tools.showDims, t("tool.measurements"), "L", t("tool.shortMeasurements"));
     dims.onclick = () => this.toggleMode("dims", () => { this.tools.showDims = !this.tools.showDims; }, true);
-
-    rail.append(grid, angle, dims, el("div", "rail-spacer"));
+    this.modesEl.replaceChildren(grid, angle, dims);
 
     const undo = el("button", "rail-btn") as HTMLButtonElement;
     undo.type = "button";
@@ -190,7 +307,7 @@ export class Panel {
     redo.append(icon("redo"));
     redo.onclick = () => this.store.redo();
 
-    rail.append(undo, redo);
+    this.historyEl.replaceChildren(undo, redo);
   }
 
   /**
@@ -205,7 +322,7 @@ export class Panel {
     // next placement. Mirrors the old checkbox rows' behaviour.
     if (redraw) this.store.select(this.store.sel);
     this.refreshToolbar();
-    const fresh = this.rail.querySelector<HTMLButtonElement>(`[data-mode="${modeKey}"]`);
+    const fresh = this.modesEl.querySelector<HTMLButtonElement>(`[data-mode="${modeKey}"]`);
     if (!fresh) return;
     fresh.classList.add("is-pulse");
     fresh.addEventListener("animationend", () => fresh.classList.remove("is-pulse"), { once: true });
@@ -322,11 +439,14 @@ export class Panel {
 
     if (paneSig !== this.lastPaneSig) {
       this.lastPaneSig = paneSig;
+      // replaceWith rather than a parent's replaceChild: the storey row sits in
+      // the pane in the wide layout and in the top bar in the compact one, and
+      // the plan section moves with the sheet.
       const storey = this.buildStoreyRow();
-      this.pane.replaceChild(storey, this.storeyEl);
+      this.storeyEl.replaceWith(storey);
       this.storeyEl = storey;
       const plan = this.buildPlanSection();
-      this.pane.replaceChild(plan, this.planEl);
+      this.planEl.replaceWith(plan);
       this.planEl = plan;
     }
 
@@ -339,6 +459,70 @@ export class Panel {
     }
     this.palette.syncActive();
     this.palette.syncInk();
+    if (this.mode === "compact") { this.pinDangerRow(); this.renderTyping(); }
+  }
+
+  /**
+   * The delete button leaves the scrolling property list and pins above the
+   * tool bar. A window with sashes runs past a dozen rows, which on a phone put
+   * Verwijderen a scroll away from the thing it deletes — and directly under a
+   * thumb that was reaching for the tool bar.
+   */
+  private pinDangerRow(): void {
+    const sheet = this.sheet;
+    if (!sheet) return;
+    const slot = this.actionsEl ?? (this.actionsEl = el("div", "wg-actions"));
+    const btn = this.props.querySelector<HTMLElement>(".btn-danger");
+    if (!btn) { slot.remove(); return; }
+    slot.replaceChildren(btn);
+    if (slot.parentElement !== sheet.foot) sheet.foot.prepend(slot);
+  }
+
+  /**
+   * The millimetre keypad and the chain's Klaar button, which exist only in the
+   * compact layout: both stand in for keys a phone does not have. The keypad
+   * goes above the property list so it is the first thing in reach, and the
+   * sheet is raised far enough to show it.
+   */
+  private renderTyping(): void {
+    const sheet = this.sheet;
+    if (!sheet) return;
+
+    if (this.tools.chaining && !this.chainBar) {
+      const bar = el("div", "wg-chain");
+      const label = el("span", "sec-label");
+      label.textContent = t("panel.wall");
+      const done = el("button", "wg-done") as HTMLButtonElement;
+      done.type = "button";
+      done.textContent = t("panel.chainDone");
+      done.title = t("panel.chainDoneTitle");
+      done.onclick = () => this.tools.endChain();
+      bar.append(label, el("div", "sec-rule"), done);
+      sheet.body.prepend(bar);
+      this.chainBar = bar;
+    } else if (!this.tools.chaining && this.chainBar) {
+      this.chainBar.remove();
+      this.chainBar = null;
+    }
+
+    if (this.tools.typingLength && !this.keypadEl) {
+      const wrap = el("div", "wg-keypad");
+      const read = el("div", "wg-typed");
+      read.append(
+        Object.assign(el("span"), { textContent: t("panel.length") }),
+        Object.assign(el("b", "wg-typed-value"), { textContent: this.tools.lengthBuffer || "0" }),
+      );
+      wrap.append(read, buildKeypad(this.tools, () => this.refreshToolbar()));
+      if (this.chainBar) this.chainBar.after(wrap); else sheet.body.prepend(wrap);
+      this.keypadEl = wrap;
+      sheet.atLeast("half");
+    } else if (!this.tools.typingLength && this.keypadEl) {
+      this.keypadEl.remove();
+      this.keypadEl = null;
+    } else if (this.keypadEl) {
+      const value = this.keypadEl.querySelector(".wg-typed-value");
+      if (value) value.textContent = this.tools.lengthBuffer || "0";
+    }
   }
 
   /**
@@ -717,9 +901,12 @@ export class Panel {
       row.append(chips);
       p.append(row);
     };
-    const btnRow = (label: string, fn: () => void): void => {
+    /** `title` carries a keyboard shortcut, which is where one belongs: the
+     *  label has to read the same with or without a keyboard. */
+    const btnRow = (label: string, fn: () => void, title?: string): void => {
       const b = el("button", "tool-btn small wide") as HTMLButtonElement;
       b.textContent = label; b.onclick = fn;
+      if (title) b.title = title;
       p.append(b);
     };
     /**
@@ -989,7 +1176,7 @@ export class Panel {
       btnRow(t("panel.mirror"), () => this.store.mutate(d => {
         const s2 = this.store.floorOf(d).symbols.find(x => x.id === sel.id);
         if (s2) s2.mirrored = !s2.mirrored;
-      }));
+      }), t("panel.mirrorTitle"));
       dangerRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());
       return;
     }
