@@ -5,7 +5,7 @@ import {
   emptyDoc, newId, floorElevation, DOOR_HEIGHT_DEFAULT, WINDOW_HEIGHT_DEFAULT, wallHeight,
   type Floor, type Wall, type Opening, type Id, type SymbolInstance,
 } from "../src/model/doc";
-import { wallLength } from "../src/model/ops";
+import { wallLength, nodeAt } from "../src/model/ops";
 import { toIfc } from "../src/io/ifc";
 import { detectRooms } from "../src/core/rooms";
 import { SLAB_DEFAULT_MM } from "../src/core/solids";
@@ -14,7 +14,7 @@ import { v } from "../src/geometry/vec";
 import { bulgeFromSagitta } from "../src/geometry/arc";
 import type { Vide } from "../src/model/vide";
 import type { Stair } from "../src/model/stair";
-import type { Cabinet } from "../src/model/cabinet";
+import type { Furnishing } from "../src/model/furnishing";
 import { SYMBOLS } from "../src/render/symbols";
 
 let failures = 0;
@@ -31,7 +31,7 @@ doc.floors[0]!.name = "Begane grond";
 doc.floors[0]!.height = 2600;
 const upper: Floor = {
   id: newId("f"), name: "Verdieping", nodes: [], walls: [], symbols: [],
-  stairs: [], vides: [], cabinets: [], roomNames: [], height: 2500,
+  stairs: [], vides: [], furnishings: [], roomNames: [], height: 2500,
 };
 doc.floors.push(upper);
 
@@ -190,7 +190,7 @@ check("one IFCBUILDINGSTOREY per floor", countOf("IFCBUILDINGSTOREY") === doc.fl
 
   const upper: Floor = {
     id: newId("f"), name: "Verdieping", nodes: [], walls: [], symbols: [],
-    stairs: [], vides: [], cabinets: [], roomNames: [],
+    stairs: [], vides: [], furnishings: [], roomNames: [],
   };
   addRect(upper, 100);
   rich.floors.push(upper);
@@ -465,7 +465,7 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
   addSquare(doc2.floors[0]!, 0);
   const upper: Floor = {
     id: newId("f"), name: "Verdieping", nodes: [], walls: [], symbols: [],
-    stairs: [], vides: [], cabinets: [], roomNames: [],
+    stairs: [], vides: [], furnishings: [], roomNames: [],
   };
   addSquare(upper, 0);
   doc2.floors.push(upper);
@@ -585,7 +585,7 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
   check("an empty document has no slab", !bare.includes("=IFCSLAB("));
 }
 
-// ── BIM 7: stairs, cabinets and symbols ─────────────────────────────────────
+// ── BIM 7: stairs, furnishings and symbols ──────────────────────────────────
 //
 // A closed room (addSquare() from the BIM 6 block above; still in scope --
 // this file's blocks share top-level declarations) so floorSolids() returns
@@ -651,19 +651,27 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
   };
   floor7.stairs = [stair];
 
-  const baseCabinet: Cabinet = {
-    id: newId("cab"), kind: "base", x: 500, y: 500, rotation: 0,
+  const baseCabinet: Furnishing = {
+    id: newId("cab"), form: "cabinet", kind: "base", x: 500, y: 500, rotation: 0,
     width: 600, depth: 600, front: "door",
   };
-  const wallCabinet: Cabinet = {
-    id: newId("cab"), kind: "wall", x: 500, y: 5500, rotation: 0,
+  const wallCabinet: Furnishing = {
+    id: newId("cab"), form: "cabinet", kind: "wall", x: 500, y: 5500, rotation: 0,
     width: 600, depth: 350, front: "door", label: "Bovenkast",
   };
-  floor7.cabinets = [baseCabinet, wallCabinet];
+  floor7.furnishings = [baseCabinet, wallCabinet];
+
 
   const socket: SymbolInstance = { id: newId("sym"), type: "socket-single", x: 100, y: 100, rotation: 0 };
-  const toilet: SymbolInstance = { id: newId("sym"), type: "toilet", x: 200, y: 200, rotation: 0 };
-  floor7.symbols = [socket, toilet];
+  const radiator: SymbolInstance = { id: newId("sym"), type: "radiator", x: 200, y: 200, rotation: 0 };
+  floor7.symbols = [socket, radiator];
+
+  // A sanitary fixture is a furnishing rather than a symbol, so its IFC class
+  // comes from the trade (FURNISHING_CLASSES) rather than the registry.
+  const basin: Furnishing = {
+    id: newId("fit"), form: "basin", x: 900, y: 500, rotation: 0, width: 600, depth: 450,
+  };
+  floor7.furnishings.push(basin);
 
   const text7 = toIfc(doc7);
   const ents7 = text7.split("\n").filter(l => l.startsWith("#"));
@@ -714,8 +722,8 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
   check("the base cabinet's own IFCFURNITURE is found", baseLine !== undefined);
   check("the wall cabinet's own IFCFURNITURE is found", wallLine !== undefined);
   check("the wall cabinet's Name is its label", !!wallLine && wallLine.includes("'Bovenkast'"), wallLine);
-  check("the base cabinet's Name falls back to its kind (no label)",
-    !!baseLine && baseLine.includes("'base'"), baseLine);
+  check("the base cabinet's Name falls back to its form (no label)",
+    !!baseLine && baseLine.includes("'cabinet'"), baseLine);
   check("the base cabinet's extrusion sits at z0 = 0",
     baseLine !== undefined && extrusionZ07(ents7, baseLine) === 0, String(baseLine && extrusionZ07(ents7, baseLine)));
   check("the wall cabinet's extrusion sits at z0 = 1400",
@@ -724,15 +732,18 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
 
   // ── symbols: class from the registry mapping ─────────────────────────────
   const socketLine = ents7.find(l => l.includes(`'${ifcGuid(seed7, socket.id)}'`));
-  const toiletLine = ents7.find(l => l.includes(`'${ifcGuid(seed7, toilet.id)}'`));
+  const radiatorLine = ents7.find(l => l.includes(`'${ifcGuid(seed7, radiator.id)}'`));
+  const basinLine = ents7.find(l => l.includes(`'${ifcGuid(seed7, basin.id)}'`));
   check("the electrical socket symbol maps to IFCOUTLET (the electrical category default)",
     !!socketLine && socketLine.includes("=IFCOUTLET("), socketLine);
-  check("the sanitary symbol maps to IFCSANITARYTERMINAL",
-    !!toiletLine && toiletLine.includes("=IFCSANITARYTERMINAL("), toiletLine);
+  check("the heating symbol maps to IFCSPACEHEATER (the heating category default)",
+    !!radiatorLine && radiatorLine.includes("=IFCSPACEHEATER("), radiatorLine);
+  check("a sanitary furnishing maps to IFCSANITARYTERMINAL",
+    !!basinLine && basinLine.includes("=IFCSANITARYTERMINAL("), basinLine);
   check("both mapped symbols carry .NOTDEFINED. as their trailing PredefinedType",
     !!socketLine && socketLine.trimEnd().endsWith(".NOTDEFINED.);")
-      && !!toiletLine && toiletLine.trimEnd().endsWith(".NOTDEFINED.);"),
-    `${socketLine} | ${toiletLine}`);
+      && !!radiatorLine && radiatorLine.trimEnd().endsWith(".NOTDEFINED.);"),
+    `${socketLine} | ${radiatorLine}`);
 
   // ── whole-file integrity over this plan ───────────────────────────────────
   {
@@ -1014,7 +1025,7 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
   const socketNW: SymbolInstance = { id: newId("sym"), type: "socket-single", x: 500, y: 500, rotation: 0 };
   const upperNW: Floor = {
     id: newId("f"), name: "Zolder", nodes: [], walls: [], symbols: [socketNW],
-    stairs: [stairNW], vides: [], cabinets: [], roomNames: [],
+    stairs: [stairNW], vides: [], furnishings: [], roomNames: [],
   };
   docNW.floors.push(upperNW);
 
@@ -1067,6 +1078,49 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
     !openText.includes("=IFCPROPERTYSET("));
   check("an open, unenclosed chain still emits Qto_WallBaseQuantities (unconditional)",
     (openText.match(/=IFCELEMENTQUANTITY\(/g) ?? []).length === 2);
+}
+
+// --- wall material ---
+//
+// A glazed wall stays an IFCWALL and states what it is through an associated
+// IFCMATERIAL; see IFC_MATERIAL_NAME in io/ifc.ts for why it is not an
+// IFCCURTAINWALL.
+{
+  const matDoc = emptyDoc();
+  const f = matDoc.floors[0]!;
+  const n0 = nodeAt(f, v(0, 0)).id, n1 = nodeAt(f, v(4000, 0)).id, n2 = nodeAt(f, v(4000, 3000)).id;
+  f.walls.push(
+    { id: newId("w"), a: n0, b: n1, thickness: 100, bulge: 0, openings: [], material: "glass" },
+    { id: newId("w"), a: n1, b: n2, thickness: 100, bulge: 0, openings: [], material: "glass" },
+  );
+  const out = toIfc(matDoc);
+  check("a glazed wall names its material", out.includes("IFCMATERIAL('Glass'"), "");
+  check("and is associated with it", out.includes("=IFCRELASSOCIATESMATERIAL("));
+  // One IFCMATERIAL per name and one relation per material per storey: IFC
+  // associates a material with a SET of elements, not with one at a time.
+  check("two glazed walls share one material entity",
+    (out.match(/=IFCMATERIAL\(/g) ?? []).length === 1,
+    String((out.match(/=IFCMATERIAL\(/g) ?? []).length));
+  check("and one association between them",
+    (out.match(/=IFCRELASSOCIATESMATERIAL\(/g) ?? []).length === 1);
+  check("a glazed wall is still an IFCWALL", out.includes("=IFCWALL("));
+
+  // "timber" is written with IFC's own word for it, so a reader matching on the
+  // name finds what it expects.
+  const timberDoc = emptyDoc();
+  const tf = timberDoc.floors[0]!;
+  const t0 = nodeAt(tf, v(0, 0)).id, t1 = nodeAt(tf, v(4000, 0)).id;
+  tf.walls.push({ id: newId("w"), a: t0, b: t1, thickness: 100, bulge: 0, openings: [], material: "timber" });
+  check("timber is exported under IFC's name for it", toIfc(timberDoc).includes("IFCMATERIAL('Wood'"));
+
+  // Absent means not stated, so nothing is associated rather than a guess.
+  const plainDoc = emptyDoc();
+  const pf = plainDoc.floors[0]!;
+  const p0 = nodeAt(pf, v(0, 0)).id, p1 = nodeAt(pf, v(4000, 0)).id;
+  pf.walls.push({ id: newId("w"), a: p0, b: p1, thickness: 100, bulge: 0, openings: [] });
+  const plain = toIfc(plainDoc);
+  check("a wall stating no material is associated with none",
+    !plain.includes("=IFCMATERIAL(") && !plain.includes("=IFCRELASSOCIATESMATERIAL("));
 }
 
 console.log(failures === 0 ? "ALL IFC TESTS PASSED" : `${failures} FAILURES`);

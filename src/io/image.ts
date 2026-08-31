@@ -16,6 +16,7 @@ import { detectRooms } from "../core/rooms";
 import { Viewport } from "../render/viewport";
 import { drawScene, COLORS } from "../render/draw";
 import { v } from "../geometry/vec";
+import { riserMarks } from "../core/continuation";
 import { saveViaHost, downloadBlob } from "./save";
 
 const FILENAME = "floorplan.png";
@@ -85,7 +86,9 @@ function renderPlan(doc: PlanDoc, floorIndex = 0): HTMLCanvasElement | null {
   // extras carries no `showUnderlay` -- the trace-over image is a drawing
   // aid, not part of the drawing, so a PNG excludes it unconditionally rather
   // than following whatever Tools.showUnderlay happens to be set to.
-  drawScene(ctx, vp, lw, lh, floor, resolved, detectRooms(floor), null, { showGrid: false }, doc.gridMm, areaModeOf(doc), dimModeOf(doc));
+  drawScene(ctx, vp, lw, lh, floor, resolved, detectRooms(floor), null,
+    { showGrid: false, riserMarks: riserMarks(doc, floorIndex) },
+    doc.gridMm, areaModeOf(doc), dimModeOf(doc));
   drawScaleBar(ctx, pxPerMm, lw, lh);
   return cv;
 }

@@ -1,6 +1,11 @@
 // Generated documentation pages. Symbol and opening illustrations use the same
 // drawing functions as the editor and exporters.
-import { SYMBOLS, CATEGORIES, type SymbolDef, type SymbolCategory } from "../../src/render/symbols";
+import { SYMBOLS, CATEGORIES, type SymbolCategory } from "../../src/render/symbols";
+import {
+  FURNISHING_GROUPS, FURNISHING_PRESETS, furnishingWallMounted, writeSpec,
+  type Furnishing, type FurnishingPreset,
+} from "../../src/model/furnishing";
+import { furnishingMark } from "../../src/render/furnishing";
 import { recordSymbol, type Prim } from "../../src/io/record";
 import { primSvg } from "../../src/io/svg";
 import { resolveFloor } from "../../src/core/resolve";
@@ -57,7 +62,16 @@ function frame(b: Box, pad: number, maxH: number, maxW: number): string {
 }
 
 /** Render one untransformed symbol with its declared footprint. */
-function symbolSvg(def: SymbolDef, label: string): string {
+/** What symbolSvg needs: a footprint and a drawing. A SymbolDef has both, and
+ *  so does a furnishing preset once it is drawn at its own size. */
+interface Drawable {
+  width: number;
+  depth: number;
+  wallMounted: boolean;
+  draw(ctx: CanvasRenderingContext2D): void;
+}
+
+function symbolSvg(def: Drawable, label: string): string {
   const prims = recordSymbol(def, 0, 0, 0, false);
   // Include the declared footprint because some marks do not fill their bounds.
   let b = boundsOf(prims);
@@ -67,6 +81,22 @@ function symbolSvg(def: SymbolDef, label: string): string {
   return `<svg ${frame(b, W_SYMBOL, 72, 150)} fill="none" stroke="currentColor"` +
     ` stroke-width="${W_SYMBOL}" stroke-linecap="round" stroke-linejoin="round"` +
     ` role="img" aria-label="${esc(label)}">${prims.map(p => primSvg(p)).join("")}</svg>`;
+}
+
+/** A named fit-out piece, drawn at the size it is placed at. */
+function drawablePreset(preset: FurnishingPreset): Drawable {
+  const { id: _id, group: _group, ...spec } = preset;
+  const piece: Furnishing = {
+    id: "", form: spec.form, x: 0, y: 0, rotation: 0,
+    width: spec.width, depth: spec.depth,
+  };
+  writeSpec(piece, spec);
+  return {
+    width: piece.width,
+    depth: piece.depth,
+    wallMounted: furnishingWallMounted(piece.form),
+    draw: ctx => furnishingMark(ctx, piece),
+  };
 }
 
 /** Render an opening through the production resolution and marking pipeline. */
@@ -123,6 +153,31 @@ function symbolsBody(lang: Lang): string {
     }
     out.push(`</ul>`);
   }
+  // The fit-out is not in the symbol registry: every piece here is built to a
+  // size and stored with it, so what the catalogue shows is the named piece at
+  // the size it is placed at. See model/furnishing.ts.
+  out.push(`<h2 id="inrichting">${lang === "nl" ? "Inrichting" : "Fit-out"}</h2>`);
+  out.push(lang === "nl"
+    ? `<p>Deze zijn geen symbolen maar objecten met een maat: breedte, diepte en hoogte staan in het ` +
+      `document en de tekening volgt daaruit. De maat hieronder is waarmee het element geplaatst wordt.</p>`
+    : `<p>These are not symbols but objects with a size: width, depth and height live in the document ` +
+      `and the drawing follows from them. The size below is the one the piece is placed at.</p>`);
+  for (const g of FURNISHING_GROUPS) {
+    const presets = FURNISHING_PRESETS.filter(x => x.group === g);
+    out.push(`<h3 id="${g}">${esc(t("furnishingGroup." + g))} <small>(${presets.length})</small></h3>`);
+    out.push(`<ul class="grid">`);
+    for (const preset of presets) {
+      const name = t("furnishing." + preset.id);
+      out.push(
+        `<li class="tile"><figure>${symbolSvg(drawablePreset(preset), name)}</figure>` +
+        `<b>${esc(name)}</b>` +
+        `<small><code>${esc(preset.form)}</code><br>${preset.width}×${preset.depth} mm ${dims}<br>` +
+        `${furnishingWallMounted(preset.form) ? wall : free}</small></li>`,
+      );
+    }
+    out.push(`</ul>`);
+  }
+
   const note = lang === "nl"
     ? `<p>De <code>type</code>-waarde onder elk symbool is wat er in het documentbestand komt te staan — ` +
       `het <a href="/formaat/">documentformaat</a> beschrijft programmatische invoer.</p>`
@@ -209,6 +264,17 @@ rechthoeken naast elkaar delen één muur in plaats van er twee op elkaar te leg
 de dikte die hij had.</li>
 </ul>
 
+<p>Naast de dikte staat in het paneel wat de muur is en waarin hij wordt getekend. Het materiaal is
+metselwerk, beton, hout, staal of glas; niet opgegeven is een aparte staat en geen aanname. Alleen glas
+verandert de tekening: een glazen wand krijgt geen arcering maar zijn twee vlakken, met de beglazing
+ertussen. Kleur is ook hier betekenis en geen opmaak — zwart is bestaand, rood te bouwen, geel te
+slopen — en vult het muurvlak, zoals op een verbouwtekening. Beide keuzes blijven staan voor de
+volgende muur, net als de dikte.</p>
+<p>Een glazen wand kan een stijlafstand dragen. Die geldt als maximale ruitbreedte: elk glasvlak tussen
+de sparingen wordt in gelijke vakken verdeeld die niet breder zijn dan de opgegeven maat. Een deur in de
+wand verschuift daarmee de stijlen van zijn eigen vlak in plaats van er een in de doorgang te laten
+vallen; de deurstijlen zijn dan de stijlen, zoals in een echte pui.</p>
+
 <h2 id="selecteren">Selecteren, verplaatsen, krommen</h2>
 <p><kbd>V</kbd> activeert het selectiegereedschap voor knopen, muren en symbolen. Een geselecteerde muur
 krijgt een ruitvormige greep op het midden; verslepen buigt de muur tot een cirkelboog. De pijlhoogte in millimeters
@@ -262,22 +328,26 @@ van beneden doorheen komt, getekend op de plattegrond van de verdieping erboven.
 omtrek met een diagonaal uit elke hoek; de vloerkleur eronder wordt weggenomen, want een vide is geen
 vloer.</p>
 
-<h2 id="kasten">Kasten</h2>
-<p><kbd>C</kbd> opent het kastgereedschap. Een kast is geen symbool en om dezelfde reden als een trap:
-hetzelfde kastje is 400, 600 of 800 mm breed, dus breedte, diepte en hoogte staan in het document en de
-kast, het front, de draairichting en de overstek van het blad volgen daaruit bij het tekenen.</p>
-<p>Het is kastwerk, niet keukenmeubilair: hetzelfde object is een onderkast, een garderobekast, een
-badkamermeubel en een kantoorkast. Het paneel biedt benoemde uitvoeringen — onder meer onderkast,
-ladenkast, spoelkast, hoekkast, bovenkast, hoge kast en apparatenkast — over drie hoogteklassen. Die klasse bepaalt
-hoe de kast het snijvlak van de plattegrond raakt: onderkasten worden van boven gezien en hoge kasten
-worden doorgesneden, beide doorgetrokken; <b>bovenkasten hangen er volledig boven en staan daarom
-gestreept</b>, zoals al het werk boven het snijvlak.</p>
-<p>De maten zijn de gangbare modulematen: 150, 200, 300, 400, 450, 500, 600, 800, 900, 1000 en 1200 mm,
-naast een intypbare maat voor een vulpaneel op maat. Een kast klikt vlak tegen de muur én tegen de kast
-ernaast, zodat een keukenopstelling als aaneengesloten rij ontstaat in plaats van stuk voor stuk op het
-oog uitgelijnd. <kbd>R</kbd> draait een kwartslag om het midden van de kast, <kbd>M</kbd> spiegelt de
-draairichting van het front.</p>
-<p><kbd>Shift</kbd>+klik kiest meer kasten tegelijk; slepen verplaatst dan alles wat geselecteerd is, en
+<h2 id="inrichting">Inrichting</h2>
+<p><kbd>C</kbd> opent het inrichtingsgereedschap: kasten, keukenapparatuur, sanitair en meubels. Geen
+daarvan is een symbool, en om dezelfde reden als een trap: hetzelfde kastje is 400, 600 of 800 mm breed,
+een bad is 1700 of 1800 lang en een tafel is zo groot als de kamer toelaat. Breedte, diepte en hoogte
+staan dus in het document, en de kast, het front, de draairichting, de spoelbak en de overstek van het
+blad volgen daaruit bij het tekenen.</p>
+<p>Het paneel groepeert de benoemde uitvoeringen per ruimte: keuken, sanitair, kasten en stellingen, en
+meubels. Onder de kiezer staan de velden die bij die vorm horen — een kast heeft een hoogteklasse, een
+front en een draairichting, een toestel heeft een merkteken, een douche heeft wel of geen bak, een bed
+alleen een maat. De hoogteklasse van een kast bepaalt hoe die het snijvlak van de plattegrond raakt:
+onderkasten worden van boven gezien en hoge kasten worden doorgesneden, beide doorgetrokken;
+<b>bovenkasten en afzuigkappen hangen er volledig boven en staan daarom gestreept</b>, zoals al het werk
+boven het snijvlak.</p>
+<p>Voor kastwerk zijn de maten de gangbare modulematen: 150, 200, 300, 400, 450, 500, 600, 800, 900, 1000
+en 1200 mm, naast een intypbare maat voor een vulpaneel op maat; andere vormen hebben hun eigen reeks.
+Wat tegen een muur staat klikt vlak tegen die muur én tegen het element ernaast, zodat een
+keukenopstelling als aaneengesloten rij ontstaat in plaats van stuk voor stuk op het oog uitgelijnd. Wat
+vrij staat — een bed, een bank, een tafel — landt waar de cursor staat. <kbd>R</kbd> draait een kwartslag
+om het midden, <kbd>M</kbd> spiegelt.</p>
+<p><kbd>Shift</kbd>+klik kiest meer elementen tegelijk; slepen verplaatst dan alles wat geselecteerd is, en
 draaien, spiegelen en verwijderen gelden voor de hele selectie. Een groep neemt geen snap: wat eenmaal is
 opgesteld blijft opgesteld. <kbd>Alt</kbd>+slepen kopieert in plaats van te verplaatsen — de kopie hangt
 aan de cursor en houdt maat, kleur en draairichting van het origineel.</p>
@@ -320,7 +390,7 @@ oppervlakte, in PNG, SVG en DXF mee.</p>
 <ul>
 <li><b>PNG</b> — de plattegrond als afbeelding, op de tekening bijgesneden, zonder raster, met schaalbalk.</li>
 <li><b>SVG</b> — vectorwerk op ware schaal: 1 mm in het document is 1 mm op papier bij 100% afdrukken.</li>
-<li><b>DXF</b> — muren, draaicirkels, symbolen, trappen, vides, kasten, ruimtenamen en oppervlaktes op aparte lagen, in millimeters, voor CAD. Bovenkasten staan op een eigen laag, omdat zij boven het snijvlak hangen.</li>
+<li><b>DXF</b> — muren, draaicirkels, symbolen, trappen, vides, de inrichting per vakgebied, ruimtenamen en oppervlaktes op aparte lagen, in millimeters, voor CAD. Werk boven het snijvlak staat op een eigen laag.</li>
 <li><b>JSON</b> — het document zelf; zie <a href="/formaat/">documentformaat</a>.</li>
 </ul>
 <p>De plattegrond wordt automatisch in de lokale browseropslag bewaard. Hiervoor is geen account of
@@ -334,7 +404,7 @@ applicatieserver vereist. De plattegrond blijft na het sluiten van het tabblad b
 <tr><td><kbd>S</kbd></td><td>symbool plaatsen</td></tr>
 <tr><td><kbd>T</kbd></td><td>trap plaatsen</td></tr>
 <tr><td><kbd>H</kbd></td><td>vide plaatsen</td></tr>
-<tr><td><kbd>C</kbd></td><td>kast plaatsen</td></tr>
+<tr><td><kbd>C</kbd></td><td>inrichting plaatsen</td></tr>
 <tr><td><kbd>Z</kbd></td><td>ruimtes: kader slepen, ruimte aanklikken, ruimte benoemen</td></tr>
 <tr><td><kbd>F</kbd></td><td>alles in beeld</td></tr>
 <tr><td><kbd>Shift</kbd>+<kbd>F</kbd></td><td>selectie in beeld</td></tr>
@@ -343,7 +413,7 @@ applicatieserver vereist. De plattegrond blijft na het sluiten van het tabblad b
 <tr><td><kbd>G</kbd></td><td>rastersnapping aan/uit</td></tr>
 <tr><td><kbd>L</kbd></td><td>maatlijnen aan/uit</td></tr>
 <tr><td><kbd>R</kbd> <kbd>M</kbd></td><td>roteren om het midden, spiegelen</td></tr>
-<tr><td><kbd>Shift</kbd>+klik</td><td>meer kasten selecteren</td></tr>
+<tr><td><kbd>Shift</kbd>+klik</td><td>meer elementen selecteren</td></tr>
 <tr><td><kbd>Alt</kbd>+slepen</td><td>kopie slepen in plaats van het origineel</td></tr>
 <tr><td><kbd>Del</kbd></td><td>selectie verwijderen</td></tr>
 <tr><td><kbd>Enter</kbd></td><td>muurketen sluiten (zonder getypte lengte)</td></tr>
@@ -378,6 +448,17 @@ crosses a wall near the cursor, the end lands on that crossing and splits that w
 <li>A stretch a collinear wall already carries is not drawn again: two rectangles side by side share one
 wall rather than stacking two. That wall keeps the thickness it had.</li>
 </ul>
+
+<p>Beside the thickness, the panel states what the wall is and what it is drawn in. The material is
+masonry, concrete, timber, steel or glass; not stated is a state of its own rather than an assumption.
+Only glass changes the drawing: a glazed wall is drawn as its two faces with the glazing between them
+rather than as poché. Colour is meaning here too, not formatting — black is existing, red to be built,
+yellow to be removed — and it fills the wall body, as a verbouwtekening does. Both choices stay armed
+for the next wall, the way the thickness does.</p>
+<p>A glazed wall can carry a mullion spacing. It reads as a maximum pane width: each run of glass
+between openings is divided into equal bays no wider than the stated figure. A door in the wall
+therefore pushes the mullions of its own run aside instead of one landing in the doorway, and the door
+jambs read as the mullions they are in a real pui.</p>
 
 <h2 id="select">Selecting, moving, curving</h2>
 <p><kbd>V</kbd> activates selection and dragging for nodes, walls and symbols. A selected wall displays
@@ -430,20 +511,25 @@ that storey draws it. A stairwell opening is the same object: the hole a flight 
 through, drawn on the plan of the floor above. The mark is the outline with a diagonal from each
 corner, and it cuts the floor tint underneath, because a vide is not floor.</p>
 
-<h2 id="cabinets">Cabinets</h2>
-<p><kbd>C</kbd> opens the cabinet tool. A cabinet is not a symbol, for the reason a stair is not: the
-same unit is built 400, 600 or 800 mm wide, so width, depth and height live in the document and the
-carcass, the front, the hinge mark and the worktop overhang are derived from them at render time.</p>
-<p>It is cabinetry rather than kitchen furniture — the same object is a base unit, a wardrobe, a
-bathroom vanity and an office cupboard. The panel offers named units — among them base, drawer, sink,
-corner, wall, tall and appliance housing — across three height classes. That class decides how the unit meets
-the plan's section plane: base units are seen from above and tall units are cut through, both drawn
-solid; <b>wall units hang entirely above it and are therefore drawn dashed</b>, as overhead work is.</p>
-<p>The sizes offered are the standard module widths: 150, 200, 300, 400, 450, 500, 600, 800, 900, 1000
-and 1200 mm, beside a typed width for a filler cut to size. A cabinet snaps flush to a wall and to the
-unit beside it, so a kitchen comes out as a continuous run rather than a line of units aligned by eye.
-<kbd>R</kbd> turns a quarter about the middle of the unit, <kbd>M</kbd> flips the hinge side.</p>
-<p><kbd>Shift</kbd>-click picks out more than one unit; dragging then moves everything selected, and
+<h2 id="fitout">Fit-out</h2>
+<p><kbd>C</kbd> opens the fit-out tool: cabinetry, kitchen appliances, sanitary fixtures and furniture.
+None of them is a symbol, for the reason a stair is not: the same unit is built 400, 600 or 800 mm wide,
+a bath is 1700 or 1800 long, and a table is whatever the room takes. Width, depth and height live in the
+document, and the carcass, the front, the hinge mark, the bowl and the worktop overhang are derived from
+them at render time.</p>
+<p>The panel groups the named pieces by room — kitchen, sanitary, cabinets and racking, furniture. Under
+the picker are the fields that form actually reads: a cabinet has a height class, a front and a hinge
+side; an appliance has its mark; a shower has a tray or none; a bed has only a size. A cabinet's height
+class decides how it meets the plan's section plane: base units are seen from above and tall units are
+cut through, both drawn solid; <b>wall units and extractor hoods hang entirely above it and are
+therefore drawn dashed</b>, as overhead work is.</p>
+<p>For cabinetry the sizes offered are the standard module widths: 150, 200, 300, 400, 450, 500, 600,
+800, 900, 1000 and 1200 mm, beside a typed width for a filler cut to size; other forms carry their own
+ladder. A piece that stands against a wall snaps flush to it and to the piece beside it, so a kitchen
+comes out as a continuous run rather than a line of units aligned by eye. A free-standing piece — a bed,
+a sofa, a table — lands where the cursor is. <kbd>R</kbd> turns a quarter about the middle,
+<kbd>M</kbd> mirrors.</p>
+<p><kbd>Shift</kbd>-click picks out more than one piece; dragging then moves everything selected, and
 turning, mirroring and deleting apply to the whole selection. A group takes no snap, so a run that has
 been arranged stays arranged. <kbd>Alt</kbd>-drag copies instead of moving — the copy follows the cursor
 with the original's size, colour and hinge side.</p>
@@ -484,7 +570,7 @@ below the area, in PNG, SVG and DXF.</p>
 <ul>
 <li><b>PNG</b> — the plan as an image, cropped to the drawing, no grid, with a scale bar.</li>
 <li><b>SVG</b> — vector artwork at true scale: 1 mm in the document is 1 mm on paper printed at 100%.</li>
-<li><b>DXF</b> — walls, swings, symbols, stairs, voids, cabinets, room names and areas on separate layers, in millimetres, for CAD. Wall units get a layer of their own, since they hang above the section plane.</li>
+<li><b>DXF</b> — walls, swings, symbols, stairs, voids, the fit-out split by trade, room names and areas on separate layers, in millimetres, for CAD. Overhead work gets a layer of its own, since it hangs above the section plane.</li>
 <li><b>JSON</b> — the document itself; see <a href="/en/format/">document format</a>.</li>
 </ul>
 <p>The plan is saved automatically in local browser storage. This requires no account or application
@@ -498,7 +584,7 @@ server. The plan remains available after the tab is closed.</p>
 <tr><td><kbd>S</kbd></td><td>place a symbol</td></tr>
 <tr><td><kbd>T</kbd></td><td>place a stair</td></tr>
 <tr><td><kbd>H</kbd></td><td>place a vide</td></tr>
-<tr><td><kbd>C</kbd></td><td>place a cabinet</td></tr>
+<tr><td><kbd>C</kbd></td><td>place fit-out</td></tr>
 <tr><td><kbd>Z</kbd></td><td>rooms: drag a box, click a room, name a room</td></tr>
 <tr><td><kbd>F</kbd></td><td>fit everything in view</td></tr>
 <tr><td><kbd>Shift</kbd>+<kbd>F</kbd></td><td>fit the selection</td></tr>
@@ -507,7 +593,7 @@ server. The plan remains available after the tab is closed.</p>
 <tr><td><kbd>G</kbd></td><td>grid snap on/off</td></tr>
 <tr><td><kbd>L</kbd></td><td>dimension lines on/off</td></tr>
 <tr><td><kbd>R</kbd> <kbd>M</kbd></td><td>rotate about the middle, mirror</td></tr>
-<tr><td><kbd>Shift</kbd>+click</td><td>select more cabinets</td></tr>
+<tr><td><kbd>Shift</kbd>+click</td><td>select more pieces</td></tr>
 <tr><td><kbd>Alt</kbd>+drag</td><td>drag a copy instead of the original</td></tr>
 <tr><td><kbd>Del</kbd></td><td>delete the selection</td></tr>
 <tr><td><kbd>Enter</kbd></td><td>close the wall chain (with no length typed)</td></tr>

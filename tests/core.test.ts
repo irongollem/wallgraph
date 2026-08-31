@@ -4,7 +4,7 @@ import { Store } from "../src/model/store";
 import { sashesOf, sashSpecsOf, doorKindOf, windowKindOf, DOOR_KINDS, WINDOW_KINDS, type Opening } from "../src/model/doc";
 import { detectRooms, rectSize, roomSize } from "../src/core/rooms";
 import {
-  insertWall, insertRun, nodeAt, wallLength, wallOnRay, cloneOnFloor,
+  insertWall, insertRun, nodeAt, wallLength, wallOnRay, cloneOnFloor, splitWall,
 } from "../src/model/ops";
 import { shapeRun } from "../src/model/shape";
 import { dimensionChains } from "../src/core/dimensions";
@@ -15,7 +15,8 @@ import { v, dist, pointInPolygon } from "../src/geometry/vec";
 import { gridSteps, MIN_GRID_PX } from "../src/render/grid";
 import { scaleBarMm } from "../src/io/image";
 import { planBounds } from "../src/core/bounds";
-import { symbolInk, COLORS, INKS } from "../src/render/draw";
+import { symbolInk, wallPen, junctionPen, COLORS, INKS } from "../src/render/draw";
+import { MULLION_DEFAULT_MM, type WallMaterial } from "../src/model/doc";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ""): void {
@@ -184,14 +185,14 @@ function rectFloor(wallTh = 100) {
 
   // A symbol inside the shell must not inflate the frame — a too-generous
   // reach per symbol silently pads the exported image with empty paper.
-  f.symbols.push({ id: newId("s"), type: "bath", x: 2000, y: 1500, rotation: 0 });
+  f.symbols.push({ id: newId("s"), type: "radiator", x: 2000, y: 1500, rotation: 0 });
   const bIn = planBounds(f, res)!;
   check("interior symbol does not grow the frame",
     bIn.min.x === b.min.x && bIn.min.y === b.min.y && bIn.max.x === b.max.x && bIn.max.y === b.max.y,
     JSON.stringify(bIn));
 
   // One outside it has to pull the frame out with it.
-  f.symbols.push({ id: newId("s"), type: "bath", x: 5000, y: 1500, rotation: 0 });
+  f.symbols.push({ id: newId("s"), type: "radiator", x: 5000, y: 1500, rotation: 0 });
   const b2 = planBounds(f, res)!;
   check("bounds cover symbols outside the walls", b2.max.x > 5000, String(b2.max.x));
 
@@ -302,11 +303,12 @@ function rectFloor(wallTh = 100) {
 // --- alt-drag copies ---
 {
   const f = emptyDoc().floors[0]!;
-  f.symbols.push({ id: "s1", type: "desk", x: 1000, y: 2000, rotation: Math.PI / 2, color: "#d0342c" });
-  f.cabinets = [
-    { id: "k1", kind: "base", x: 0, y: 0, rotation: 0.4, width: 600, depth: 600,
+  f.symbols.push({ id: "s1", type: "socket-single", x: 1000, y: 2000, rotation: Math.PI / 2, color: "#d0342c" });
+  f.furnishings = [
+    { id: "k1", form: "cabinet", kind: "base", x: 0, y: 0, rotation: 0.4, width: 600, depth: 600,
       front: "door", mirrored: true, label: "spoelkast" },
-    { id: "k2", kind: "base", x: 600, y: 0, rotation: 0.4, width: 600, depth: 600, front: "drawers" },
+    { id: "k2", form: "cabinet", kind: "base", x: 600, y: 0, rotation: 0.4, width: 600, depth: 600,
+      front: "drawers" },
   ];
 
   const one = cloneOnFloor(f, "symbol", ["s1"]);
@@ -314,14 +316,14 @@ function rectFloor(wallTh = 100) {
   check("a copy is made", f.symbols.length === 2 && copy !== undefined);
   check("the copy keeps everything but its identity",
     copy?.x === 1000 && copy?.y === 2000 && copy?.rotation === Math.PI / 2
-    && copy?.color === "#d0342c" && copy?.type === "desk");
+    && copy?.color === "#d0342c" && copy?.type === "socket-single");
   check("and the original is untouched", f.symbols[0]!.id === "s1");
   check("ids do not collide", new Set(f.symbols.map(x => x.id)).size === 2);
 
-  const pair = cloneOnFloor(f, "cabinet", ["k1", "k2"]);
-  check("several copy together", pair.size === 2 && (f.cabinets ?? []).length === 4);
-  const k1 = (f.cabinets ?? []).find(c => c.id === pair.get("k1"));
-  check("a cabinet copy keeps its handedness and label",
+  const pair = cloneOnFloor(f, "furnishing", ["k1", "k2"]);
+  check("several copy together", pair.size === 2 && (f.furnishings ?? []).length === 4);
+  const k1 = (f.furnishings ?? []).find(c => c.id === pair.get("k1"));
+  check("a furnishing copy keeps its handedness and label",
     k1?.mirrored === true && k1?.label === "spoelkast" && k1?.rotation === 0.4);
 
   check("what is not asked for is not copied",
@@ -332,22 +334,22 @@ function rectFloor(wallTh = 100) {
 {
   const st = new Store();
   st.replace(emptyDoc());
-  const cab = (id: string) => ({ kind: "cabinet" as const, id });
+  const cab = (id: string) => ({ kind: "furnishing" as const, id });
 
   st.select(cab("k1"));
-  check("one selected is one", st.selectedOf("cabinet").join() === "k1");
+  check("one selected is one", st.selectedOf("furnishing").join() === "k1");
   st.selectAlso(cab("k2"));
   check("shift adds to the selection, last first",
-    st.selectedOf("cabinet").join() === "k2,k1", st.selectedOf("cabinet").join());
+    st.selectedOf("furnishing").join() === "k2,k1", st.selectedOf("furnishing").join());
   check("both count as selected",
-    st.isSelected("cabinet", "k1") && st.isSelected("cabinet", "k2"));
+    st.isSelected("furnishing", "k1") && st.isSelected("furnishing", "k2"));
   check("the pane edits the one clicked last", st.sel?.id === "k2");
 
   st.selectAlso(cab("k1"));
-  check("shift-clicking a member takes it out", st.selectedOf("cabinet").join() === "k2");
+  check("shift-clicking a member takes it out", st.selectedOf("furnishing").join() === "k2");
   st.selectAlso(cab("k2"));
   check("and taking the last one out clears the selection",
-    st.sel === null && st.selectedOf("cabinet").length === 0);
+    st.sel === null && st.selectedOf("furnishing").length === 0);
 
   st.select(cab("k1"));
   st.selectAlso(cab("k2"));
@@ -360,13 +362,13 @@ function rectFloor(wallTh = 100) {
   st.selectAlso(cab("k2"));
   st.selectAlso({ kind: "wall", id: "w1" });
   check("another kind starts a new selection",
-    st.sel?.kind === "wall" && st.selMore.length === 0 && st.selectedOf("cabinet").length === 0);
+    st.sel?.kind === "wall" && st.selMore.length === 0 && st.selectedOf("furnishing").length === 0);
 
   st.select(cab("k1"));
   st.selectAlso(cab("k2"));
   st.select(null);
   check("clearing the selection clears all of it",
-    st.selMore.length === 0 && !st.isSelected("cabinet", "k2"));
+    st.selMore.length === 0 && !st.isSelected("furnishing", "k2"));
 }
 
 // --- multi-floor store ---
@@ -958,6 +960,143 @@ function rectFloor(wallTh = 100) {
   insertWall(f, ids[2]!, ids[0]!, 100);
   check("closing it makes a room", detectRooms(f).length === 1);
   check("closing it makes exactly one more wall", f.walls.length === 3, String(f.walls.length));
+}
+
+// --- wall material and pen ---
+{
+  const pen = (w: Partial<Wall>): ReturnType<typeof wallPen> =>
+    wallPen(w as Pick<Wall, "color" | "material">);
+
+  check("an uncoloured wall draws in the plan's masonry",
+    pen({}).fill === COLORS.wallFill && pen({}).stroke === COLORS.wallStroke);
+  check("and its openings keep their own lighter ink", pen({}).mark === COLORS.opening);
+  check("a stated material that is not glass still draws as masonry",
+    pen({ material: "concrete" }).fill === COLORS.wallFill);
+
+  // The colour takes the FILL, not just the outline: on a verbouwtekening the
+  // wall itself is red, which is the whole point of drawing it in red.
+  check("a colour takes the poche", pen({ color: "#d0342c" }).fill === "#d0342c");
+  check("and darkens the outline rather than reusing the fill",
+    pen({ color: "#d0342c" }).stroke !== "#d0342c"
+    && /^#[0-9a-f]{6}$/.test(pen({ color: "#d0342c" }).stroke),
+    pen({ color: "#d0342c" }).stroke);
+  check("an opening on a coloured wall states the same work",
+    pen({ color: "#d0342c" }).mark === "#d0342c");
+
+  // Same validation symbolInk does, for the same reason: canvas ignores an
+  // invalid fillStyle instead of throwing.
+  for (const bad of ["red", "#abc", "#12345g", "", "javascript:x"]) {
+    check(`rejects wall colour ${JSON.stringify(bad)}`,
+      pen({ color: bad }).fill === COLORS.wallFill);
+  }
+  check("every preset ink is accepted as a wall pen",
+    INKS.every(i => i.hex === null || pen({ color: i.hex }).fill === i.hex));
+
+  // Glass has no poche at all, so the ink moves to the faces.
+  const glass = pen({ material: "glass" });
+  check("a glazed wall is not poche", glass.fill === COLORS.glassFill && glass.glazed);
+  check("its faces draw in the glazing line", glass.stroke === COLORS.glassStroke);
+  const redGlass = pen({ material: "glass", color: "#d0342c" });
+  check("a coloured glazed wall keeps a wash, not a solid fill",
+    redGlass.fill !== "#d0342c" && redGlass.fill !== COLORS.glassFill, redGlass.fill);
+  check("and puts the pen on its faces", redGlass.stroke === "#d0342c");
+}
+
+// --- stijlen: divided per run of glass, so a door pushes them aside ---
+{
+  const glazedFloor = (mullionMm?: number, opening?: Opening) => {
+    const f = emptyDoc().floors[0]!;
+    const a = nodeAt(f, v(0, 0)).id, b = nodeAt(f, v(6000, 0)).id;
+    const w: Wall = {
+      id: newId("w"), a, b, thickness: 100, bulge: 0,
+      openings: opening ? [opening] : [],
+      material: "glass" as WallMaterial,
+      ...(mullionMm !== undefined ? { mullionMm } : {}),
+    };
+    f.walls.push(w);
+    return f;
+  };
+  const xs = (f: ReturnType<typeof glazedFloor>): number[] =>
+    [...resolveFloor(f).walls.values()][0]!.mullions.map(m => Math.round(m.a.x)).sort((p, q) => p - q);
+
+  check("glazing with no spacing carries no stijlen", xs(glazedFloor()).length === 0);
+  // 6000 at 1200 divides exactly: five stijlen, not four bays plus a sliver.
+  check("a 6000 run at 1200 divides into five bays on four stijlen",
+    xs(glazedFloor(1200)).join(",") === "1200,2400,3600,4800", xs(glazedFloor(1200)).join(","));
+  // The spacing is a MAXIMUM, so an indivisible run is split evenly under it.
+  const even = xs(glazedFloor(2500));
+  check("an indivisible run divides evenly under the spacing",
+    even.join(",") === "2000,4000", even.join(","));
+  check("a run shorter than the spacing takes none", xs(glazedFloor(9000)).length === 0);
+
+  // A door at 3000 +/- 450 leaves 0..2550 and 3450..6000. Each divides on its
+  // own, so nothing lands in the doorway.
+  const door: Opening = { id: newId("o"), kind: "door", t: 3000, width: 900, sashes: [] };
+  const withDoor = xs(glazedFloor(1200, door));
+  check("no stijl lands inside the doorway",
+    withDoor.every(x => x < 2550 || x > 3450), withDoor.join(","));
+  check("the glass either side of the door is still divided",
+    withDoor.some(x => x < 2550) && withDoor.some(x => x > 3450), withDoor.join(","));
+
+  // A solid wall ignores a spacing rather than drawing mullions through masonry.
+  const solid = glazedFloor(1200);
+  delete solid.walls[0]!.material;
+  check("a solid wall draws no stijlen even carrying a spacing",
+    [...resolveFloor(solid).walls.values()][0]!.mullions.length === 0);
+}
+
+// --- a junction wedge belongs to no wall, so it draws what its walls agree on ---
+{
+  // A T: two collinear walls plus a branch, which is what makes a wedge at all.
+  const tee = (material?: WallMaterial) => {
+    const f = emptyDoc().floors[0]!;
+    const l = nodeAt(f, v(0, 0)).id, m = nodeAt(f, v(3000, 0)).id;
+    const r = nodeAt(f, v(6000, 0)).id, d = nodeAt(f, v(3000, 3000)).id;
+    for (const [a, b] of [[l, m], [m, r], [m, d]] as Array<[string, string]>) {
+      f.walls.push({
+        id: newId("w"), a, b, thickness: 300, bulge: 0, openings: [],
+        ...(material ? { material } : {}),
+      });
+    }
+    return f;
+  };
+  const all = resolveFloor(tee("glass"));
+  check("a wedge is emitted for the T", all.junctions.length === 1, String(all.junctions.length));
+  check("a wedge names the walls that meet there",
+    all.junctions[0]!.walls.length === 3, String(all.junctions[0]!.walls.length));
+  check("a wedge between glazed walls is glazed",
+    junctionPen(all.junctions[0]!, all.walls).glazed);
+
+  // Glass meeting masonry: the masonry is what actually runs through.
+  const mixedFloor = tee("glass");
+  delete mixedFloor.walls[2]!.material;
+  const mixedRes = resolveFloor(mixedFloor);
+  check("a wedge its walls disagree on falls back to masonry",
+    junctionPen(mixedRes.junctions[0]!, mixedRes.walls).fill === COLORS.wallFill);
+}
+
+// --- splitting a wall keeps everything the wall states about itself ---
+{
+  const f = emptyDoc().floors[0]!;
+  const a = nodeAt(f, v(0, 0)).id, b = nodeAt(f, v(4000, 0)).id;
+  const w: Wall = {
+    id: newId("w"), a, b, thickness: 150, bulge: 0, openings: [],
+    material: "glass", mullionMm: MULLION_DEFAULT_MM, color: "#d0342c",
+    loadBearing: true, height: 2600, fireRating: { kind: "wbdbo", minutes: 60 },
+  };
+  f.walls.push(w);
+  splitWall(f, w, 2000);
+  const far = f.walls.find(x => x.id !== w.id)!;
+  check("a split keeps both halves glazed", far.material === "glass");
+  check("and keeps the stijl spacing", far.mullionMm === MULLION_DEFAULT_MM);
+  check("and keeps the pen", far.color === "#d0342c");
+  check("and keeps the fire rating", far.fireRating?.minutes === 60);
+  check("and keeps load-bearing and the wall's own height",
+    far.loadBearing === true && far.height === 2600);
+  // Separate walls from here on: the panel edits `minutes` in place.
+  far.fireRating!.minutes = 30;
+  check("the two halves' ratings are not the same object", w.fireRating?.minutes === 60,
+    String(w.fireRating?.minutes));
 }
 
 console.log(failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURES`);

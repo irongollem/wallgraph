@@ -16,7 +16,7 @@
 // floorSolids() already returns as SlabSolid. This is BIM 7, which reaches
 // the remaining document objects: one IFCSTAIR (aggregating one
 // IFCSTAIRFLIGHT, which carries the run's numbers) per stair, one
-// IFCFURNITURE per cabinet, and one element per symbol instance, its IFC
+// one element per furnishing classed by its trade, and one per symbol, its IFC
 // class taken from the symbol registry's category. All three get simple box
 // geometry — extruded footprints, not modelled construction — because the
 // point of this export is where things are and what they are, not how they
@@ -56,7 +56,7 @@
 // cannot collide with that element's own id.
 import {
   PlanDoc, Floor, Wall, projectOf, floorElevation, floorHeight, areaModeOf, dimModeOf, DimMode, Sash, sashSpecsOf,
-  openingHeight, videsOf, stairsOf, cabinetsOf, SymbolInstance, wallHeight, fireLabel,
+  openingHeight, videsOf, stairsOf, furnishingsOf, SymbolInstance, wallHeight, fireLabel, WallMaterial,
 } from "../model/doc";
 import { ifcGuid } from "../model/guid";
 import { wallLength } from "../model/ops";
@@ -64,8 +64,8 @@ import { floorSolids } from "../core/solids";
 import { detectRooms, roomSize, sizeLabel, Room } from "../core/rooms";
 import { resolveStair, stairBox } from "../core/stair";
 import { StairKind, stairParams } from "../model/stair";
-import { cabinetHeight } from "../model/cabinet";
-import { cabinetBox } from "../core/cabinet";
+import { furnishingHeight, furnishingClass, furnishingKind, type Furnishing, type FurnishingClass } from "../model/furnishing";
+import { furnishingBox } from "../core/furnishing";
 import { getSymbol, SymbolDef, SymbolCategory } from "../render/symbols";
 import { Placed, LocalBox, worldPoint, symbolFootprintCorners } from "../core/placed";
 import { Vec, v, add, sub, scale, norm, perp, len, mid, pointInPolygon } from "../geometry/vec";
@@ -301,18 +301,27 @@ const cls = (entity: string, hasPredefinedType = true): SymbolIfcClass => ({ ent
  * `ventilation` is the one category the brief for this export left
  * unstated: its own items — exhaust/supply points, the MV unit, the WTW
  * recovery unit — are air terminals in IFC4's HVAC vocabulary, so
- * IFCAIRTERMINAL is the default for the same reason IFCSANITARYTERMINAL is
- * sanitary's.
+ * IFCAIRTERMINAL is the default for the same reason IFCSPACEHEATER is
+ * heating's.
  */
 const CATEGORY_DEFAULTS: Record<SymbolCategory, SymbolIfcClass> = {
   electrical: cls("IFCOUTLET"),
   water: cls("IFCFLOWTERMINAL", false),
-  sanitary: cls("IFCSANITARYTERMINAL"),
   heating: cls("IFCSPACEHEATER"),
   ventilation: cls("IFCAIRTERMINAL"),
   safety: cls("IFCALARM"),
-  kitchen: cls("IFCFURNITURE"),
+};
+
+/**
+ * One IFC class per furnishing trade. Cabinetry and loose furniture are
+ * IFCFURNITURE; a fixture is the sanitary terminal IFC already has a name for;
+ * a fornuis or a koelkast is an appliance. See furnishingClass().
+ */
+const FURNISHING_CLASSES: Record<FurnishingClass, SymbolIfcClass> = {
+  cabinetry: cls("IFCFURNITURE"),
   furniture: cls("IFCFURNITURE"),
+  sanitary: cls("IFCSANITARYTERMINAL"),
+  appliance: cls("IFCELECTRICAPPLIANCE"),
 };
 
 /**
@@ -354,7 +363,7 @@ function symbolIfcClass(def: SymbolDef): SymbolIfcClass {
  * boxCorners() from core/placed.ts: that function pairs corners for a
  * bounding-box scan ((x0,y0),(x0,y1),(x1,y0),(x1,y1)), which self-intersects
  * if walked as a polygon boundary. Shared by every box-shaped document
- * object this export gives simple geometry to — a stair, a cabinet, a
+ * object this export gives simple geometry to — a stair, a furnishing, a
  * symbol's footprint.
  */
 function boxQuad(p: Placed, b: LocalBox): Vec[] {
@@ -415,6 +424,22 @@ function wallIsExternal(floor: Floor, wall: Wall, roomPolys: readonly Vec[][]): 
 }
 
 // ── the spine ────────────────────────────────────────────────────────────────
+
+/**
+ * A wall material under the name IFC uses for it. "Wood" rather than "timber"
+ * because that is the word in IFC's own material vocabulary, and a reader
+ * matching on the name has to find what it expects.
+ *
+ * A glazed wall stays an IFCWALL rather than becoming an IFCCURTAINWALL. A
+ * curtain wall in IFC is an assembly of mullions and panels, which the document
+ * does not model -- it stores one plane with a spacing (see Wall.mullionMm), and
+ * exporting that as an assembly would state a build-up nobody drew. The material
+ * is the honest statement, and it keeps voids, fillers and containment uniform
+ * across every wall.
+ */
+const IFC_MATERIAL_NAME: Record<WallMaterial, string> = {
+  masonry: "Masonry", concrete: "Concrete", timber: "Wood", steel: "Steel", glass: "Glass",
+};
 
 /**
  * The plan as an IFC4 spatial spine: project, site, building, one storey per
@@ -521,11 +546,18 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
    *  real door or window's actual thickness (out of scope for this export). */
   const FILLER_DEPTH_MM = 50;
 
-  /** Where a wall cabinet's carcass starts, mm above the floor — the ordinary
-   *  underside of a bovenkast hung over a worktop. Cabinets carry no stored
-   *  mounting height (see model/cabinet.ts); out of scope to make this one
-   *  authored rather than a constant. */
+  /** Where overhead fit-out starts, mm above the floor — the ordinary
+   *  underside of a bovenkast hung over a worktop, and the height an
+   *  afzuigkap goes to. A furnishing carries no stored mounting height (see
+   *  model/furnishing.ts); out of scope to make this one authored rather than
+   *  a constant. */
   const WALL_CABINET_Z0_MM = 1400;
+
+  /** Where a furnishing's box starts: on the floor, unless it hangs. */
+  const furnishingZ0 = (fn: Furnishing): number =>
+    (fn.form === "cabinet" && furnishingKind(fn) === "wall")
+    || (fn.form === "appliance" && fn.mark === "hood")
+      ? WALL_CABINET_Z0_MM : 0;
 
   /** Nominal box height for a symbol's placeholder extrusion, mm. States
    *  where a symbol sits, not a manufacturer's actual product height. */
@@ -596,6 +628,20 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
       [str(ifcGuid(seed, `${guidKey}:rel`)), ref(ownerHistory), UNSET, UNSET, list(ref(elementId)), ref(pset)]);
   }
 
+  /**
+   * One IFCMATERIAL per name for the whole file. IfcMaterial is not a rooted
+   * entity -- it carries no GlobalId of its own -- so sharing one between every
+   * wall built of it is the canonical form rather than a saving.
+   */
+  const materials = new Map<string, number>();
+  const materialEntity = (name: string): number => {
+    const found = materials.get(name);
+    if (found !== undefined) return found;
+    const id = w.entity("IFCMATERIAL", [str(name), UNSET, UNSET]);
+    materials.set(name, id);
+    return id;
+  };
+
   /** Attaches one IFCELEMENTQUANTITY to `elementId`, the same GlobalId and
    *  rel pairing as attachPropertySet() above but for quantities. */
   function attachQuantitySet(elementId: number, guidKey: string, qtoName: string, quantities: IfcArg[]): void {
@@ -663,7 +709,7 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
     const floor = doc.floors[i]!;
     // floorSolids() returns null when this storey has no walls at all (see
     // core/solids.ts) — but a wall-less storey can still hold stairs,
-    // cabinets, symbols and detected rooms (a storey with only freestanding
+    // furnishings, symbols and detected rooms (a storey with only freestanding
     // furniture, say), so only the wall/slab geometry below is gated on `fs`;
     // everything else in the loop runs regardless.
     const fs = floorSolids(doc, i);
@@ -681,6 +727,9 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
     // shares one relative placement rather than each carrying its own offset.
     const levelPlacement = w.entity("IFCLOCALPLACEMENT", [ref(storeyPlacements[i]!), ref(worldPlacement)]);
     const contained: number[] = []; // walls + door/window fillers; NOT openings
+    // Walls of this storey by their stated material, for the associations
+    // emitted once the loop has built every wall entity.
+    const byMaterial = new Map<WallMaterial, number[]>();
 
     for (const ws of wallSolids) {
       const wall = floor.walls.find(x => x.id === ws.wallId)!;
@@ -697,6 +746,15 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
       if (wall.loadBearing !== undefined) wallProps.push(ref(propValue("LoadBearing", boolValue(wall.loadBearing))));
       if (wall.fireRating !== undefined) wallProps.push(ref(propValue("FireRating", labelValue(fireLabel(wall.fireRating)))));
       attachPropertySet(wallEntity, `${wall.id}:pset`, "Pset_WallCommon", wallProps);
+
+      // ── material ─────────────────────────────────────────────────────────
+      // Absent means not stated, so nothing is associated rather than a guess
+      // at masonry -- the same reading Pset_WallCommon gives loadBearing above.
+      if (wall.material !== undefined) {
+        const list0 = byMaterial.get(wall.material) ?? [];
+        list0.push(wallEntity);
+        byMaterial.set(wall.material, list0);
+      }
 
       // ── Qto_WallBaseQuantities ───────────────────────────────────────────
       // Gross: opening voids are NOT subtracted from the volume, matching the
@@ -753,6 +811,18 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
           attachPropertySet(fillEntity, `${opening.id}:fillpset`, fillPsetName, fillProps);
         }
       }
+    }
+
+    // ── materials ───────────────────────────────────────────────────────────
+    //
+    // IFC associates a material with a SET of elements, so this is one relation
+    // per material per storey rather than one per wall -- the latter would write
+    // the same statement once for every wall. The GlobalId is keyed on the
+    // storey and the material name, both stable, so a re-export keeps it.
+    for (const [material, elements] of byMaterial) {
+      w.entity("IFCRELASSOCIATESMATERIAL",
+        [str(ifcGuid(seed, `${floor.id}:material:${material}`)), ref(ownerHistory), UNSET, UNSET,
+          list(...elements.map(e => ref(e))), ref(materialEntity(IFC_MATERIAL_NAME[material]))]);
     }
 
     // ── slab and vide voids ─────────────────────────────────────────────────
@@ -816,20 +886,21 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
           ref(stairEntity), list(ref(flightEntity))]);
     }
 
-    // ── cabinets: one IFCFURNITURE each ──────────────────────────────────────
+    // ── furnishings: one element each, class from the trade ─────────────────
     //
-    // Box geometry over the unit's own vertical range: a base or tall unit
-    // stands on the floor, a wall unit hangs at WALL_CABINET_Z0_MM. No
-    // carcass, front, worktop or hinge is modelled — this states where the
-    // unit is and how tall it stands, the way core/cabinet.ts's own
-    // cabinetBox() does for the plan drawing.
-    for (const c of cabinetsOf(floor)) {
-      const z0 = c.kind === "wall" ? WALL_CABINET_Z0_MM : 0;
-      const shape = bodyShape([extrudedSolid(boxQuad(c, cabinetBox(c)), z0, z0 + cabinetHeight(c))]);
-      const cabinetEntity = w.entity("IFCFURNITURE",
-        [str(ifcGuid(seed, c.id)), ref(ownerHistory), str(c.label ?? c.kind), UNSET, UNSET,
-          ref(levelPlacement), shape, UNSET, enumv("NOTDEFINED")]);
-      contained.push(cabinetEntity);
+    // Box geometry over the piece's own vertical range: most stand on the
+    // floor, a wall cabinet hangs at WALL_CABINET_Z0_MM. No carcass, front,
+    // worktop, hinge or bowl is modelled — this states where the piece is and
+    // how tall it stands, the way core/furnishing.ts's own furnishingBox()
+    // does for the plan drawing.
+    for (const fn of furnishingsOf(floor)) {
+      const z0 = furnishingZ0(fn);
+      const shape = bodyShape([extrudedSolid(boxQuad(fn, furnishingBox(fn)), z0, z0 + furnishingHeight(fn))]);
+      const ifcClass = FURNISHING_CLASSES[furnishingClass(fn.form)];
+      const args: IfcArg[] = [str(ifcGuid(seed, fn.id)), ref(ownerHistory), str(fn.label ?? fn.form),
+        UNSET, UNSET, ref(levelPlacement), shape, UNSET];
+      if (ifcClass.hasPredefinedType) args.push(enumv("NOTDEFINED"));
+      contained.push(w.entity(ifcClass.entity, args));
     }
 
     // ── symbols: one element per instance, class from the registry category ─

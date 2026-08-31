@@ -32,6 +32,32 @@ check("an empty document produces nothing", toDxf(emptyDoc(), 0) === null);
   check("standard symbol code text reaches DXF", symbolsOnly.includes("\r\nRM\r\n"));
 }
 
+// A glazed wall is not masonry, and DXF colour is per-layer rather than
+// per-entity, so the distinction can only survive as the layer it lands on.
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.nodes.push({ id: "gn0", x: 0, y: 0 }, { id: "gn1", x: 6000, y: 0 });
+  f.walls.push({
+    id: "gw", a: "gn0", b: "gn1", thickness: 100, bulge: 0, openings: [],
+    material: "glass", mullionMm: 1200,
+  });
+  const out = toDxf(doc, 0) ?? "";
+  check("GLAZING is declared as a layer", out.includes("\r\nGLAZING\r\n"));
+  // Four stijlen across a 6000 run at 1200, plus the wall body itself.
+  const onGlazing = out.split("\r\n").filter(l => l === "GLAZING").length;
+  check("the glazed body and its stijlen land on GLAZING", onGlazing >= 5, String(onGlazing));
+
+  const solid = emptyDoc();
+  solid.floors[0]!.nodes.push({ id: "sn0", x: 0, y: 0 }, { id: "sn1", x: 6000, y: 0 });
+  solid.floors[0]!.walls.push({
+    id: "sw", a: "sn0", b: "sn1", thickness: 100, bulge: 0, openings: [],
+  });
+  const solidOut = toDxf(solid, 0) ?? "";
+  check("a solid wall puts nothing on GLAZING",
+    solidOut.split("\r\n").filter(l => l === "GLAZING").length === 1);  // the layer table only
+}
+
 const lines = (dxf ?? "").split("\r\n").filter(l => l !== "");
 
 // The whole format is (group code, value) pairs; a stray line shifts everything

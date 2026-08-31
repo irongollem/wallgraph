@@ -1,14 +1,14 @@
 // Rubber-band selection: pure geometry, no DOM/Tools coupling, so it is
 // unit-testable on a bare Floor. Tools.ts converts the dragged screen rect to
 // world mm and hands it here; the result feeds store.selectMany().
-import { Floor, Id, stairsOf, videsOf, cabinetsOf, routesOf } from "../model/doc";
+import { Floor, Id, stairsOf, videsOf, furnishingsOf, routesOf } from "../model/doc";
 import type { SelKind } from "../model/store";
 import { Vec } from "../geometry/vec";
 import { getSymbol } from "../render/symbols";
 import { resolveFloor } from "../core/resolve";
 import { stairCorners, resolveStair } from "../core/stair";
 import { videCorners } from "../core/vide";
-import { cabinetCorners } from "../core/cabinet";
+import { furnishingCorners } from "../core/furnishing";
 import { resolveRoutePoints } from "../core/route";
 import { symbolFootprintCorners } from "../core/placed";
 
@@ -21,7 +21,7 @@ export interface MarqueeRect { min: Vec; max: Vec }
  * -- a marquee never picks nodes, same as a shift-click never does.
  */
 const KIND_PRIORITY: readonly SelKind[] =
-  ["symbol", "cabinet", "stair", "vide", "route", "opening", "wall"];
+  ["symbol", "furnishing", "stair", "vide", "route", "opening", "wall"];
 
 function inRect(r: MarqueeRect, p: Vec): boolean {
   return p.x >= r.min.x && p.x <= r.max.x && p.y >= r.min.y && p.y <= r.max.y;
@@ -49,7 +49,7 @@ function candidatesByKind(floor: Floor, rect: MarqueeRect): Map<SelKind, Id[]> {
   };
 
   for (const s of floor.symbols) if (allIn(rect, symbolFootprint(s))) add("symbol", s.id);
-  for (const cb of cabinetsOf(floor)) if (allIn(rect, cabinetCorners(cb))) add("cabinet", cb.id);
+  for (const fn of furnishingsOf(floor)) if (allIn(rect, furnishingCorners(fn))) add("furnishing", fn.id);
   for (const st of stairsOf(floor)) if (allIn(rect, stairCorners(resolveStair(floor, st)))) add("stair", st.id);
   for (const vd of videsOf(floor)) if (allIn(rect, videCorners(vd))) add("vide", vd.id);
   for (const rt of routesOf(floor)) if (allIn(rect, resolveRoutePoints(floor, rt))) add("route", rt.id);

@@ -13,25 +13,26 @@
 // The drawing itself is assembled as a scene (io/scene.ts) rather than as
 // markup, because io/pdf.ts renders the same scene onto the permit sheet.
 // This module is the SVG renderer for it plus the scene the plan makes.
-import { PlanDoc, Floor, areaModeOf, dimModeOf, stairsOf, videsOf, cabinetsOf, roomNamesOf } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf, dimModeOf, stairsOf, videsOf, furnishingsOf, roomNamesOf } from "../model/doc";
 import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
-import { COLORS, routeInk, routeMapLabel, symbolInk } from "../render/draw";
+import { COLORS, routeInk, routeMapLabel, symbolInk, wallPen, junctionPen, type WallPen } from "../render/draw";
 import { ROUTE_DATA_DASH, ROUTE_AFVOER_DASH, ROUTE_AFVOER_EXTRA_MM, ROUTE_VENT_EXTRA_MM, LINE_WIDTH_MM } from "../render/route";
 import { stairBox } from "../core/stair";
 import { recordSymbol, Prim } from "./record";
 import { Group, Item, Look, ROOT, arcSteps, group, onCircle, poly, resolve, text } from "./scene";
-import { openingMarks } from "./marks";
+import { openingMarks, mullionMarks } from "./marks";
 import { stairPrims, stairRegionPrims } from "./stair";
 import { videPrims } from "./vide";
-import { cabinetPrims } from "./cabinet";
-import { cabinetOverhead } from "../model/cabinet";
+import { furnishingPrims } from "./furnishing";
+import { furnishingOverhead } from "../model/furnishing";
 import { videBox } from "../core/vide";
 import { resolveStair } from "../core/stair";
 import { resolveRoutes } from "../core/route";
-import { routePrims } from "./route";
+import { riserPrims, routePrims } from "./route";
+import { riserMarks, type ResolvedRiserMark } from "../core/continuation";
 import { DISCIPLINES, routeKind, routeWater, routeVent } from "../model/route";
 import { planBounds } from "../core/bounds";
 import { saveViaHost, downloadBlob } from "./save";
@@ -205,31 +206,68 @@ export function planScene(doc: PlanDoc, floor: Floor, resolved: ReturnType<typeo
   }
 
   // Walls: filled outlines, so an opening is a real gap in the masonry.
-  const walls: Item[] = [];
-  for (const rw of resolved.walls.values())
-    for (const piece of rw.pieces) walls.push(poly(piece.poly, true));
+  //
+  // Bucketed by pen rather than emitted as one group, because a wall states its
+  // material and its status: glazing carries a wash instead of poché, and a wall
+  // drawn in the "to be built" pen carries that pen as its fill. One group per
+  // distinct pen keeps the common all-default plan to a single group, the way
+  // this read before walls could differ.
+  interface Bucket { pen: WallPen; pieces: Item[]; wedges: Item[] }
+  const buckets = new Map<string, Bucket>();
+  const bucketFor = (pen: WallPen): Bucket => {
+    const key = `${pen.fill}|${pen.stroke}`;
+    let b = buckets.get(key);
+    if (!b) { b = { pen, pieces: [], wedges: [] }; buckets.set(key, b); }
+    return b;
+  };
+  const mullions: Item[] = [];
+  for (const rw of resolved.walls.values()) {
+    const pen = wallPen(rw.wall);
+    const b = bucketFor(pen);
+    for (const piece of rw.pieces) b.pieces.push(poly(piece.poly, true));
+    const stijlen = mullionMarks(rw);
+    if (stijlen.length > 0) mullions.push(group(stijlen, { ink: pen.mark }));
+  }
   // Junction fill closes the wedge a T-junction leaves; no stroke, its edges are
   // interior to the masonry.
-  if (resolved.junctions.length > 0)
-    walls.push(group(resolved.junctions.map(j => poly(j.poly, true)), { ink: "none" }));
+  for (const j of resolved.junctions) bucketFor(junctionPen(j, resolved.walls)).wedges.push(poly(j.poly, true));
+  const walls: Item[] = [];
+  for (const b of buckets.values()) {
+    const items: Item[] = [...b.pieces];
+    if (b.wedges.length > 0) items.push(group(b.wedges, { ink: "none" }));
+    walls.push(group(items, { fill: b.pen.fill, ink: b.pen.stroke }));
+  }
   out.push(group(walls, { fill: COLORS.wallFill, ink: COLORS.wallStroke, width: W_WALL }, "walls"));
 
+  // Stijlen over the glazing they divide, in their own group: they are lines,
+  // and the wall groups above carry a fill that would flood an open path.
+  if (mullions.length > 0)
+    out.push(group(mullions,
+      { fill: "none", ink: COLORS.glassStroke, width: W_OPENING, cap: "round" }, "glazing"));
+
+  // Openings take their wall's pen, so a door in a wall marked as new work is
+  // drawn as new work too rather than in the default ink.
   const marks: Item[] = [];
-  for (const rw of resolved.walls.values()) marks.push(...openingMarks(rw));
+  for (const rw of resolved.walls.values()) {
+    const m = openingMarks(rw);
+    if (m.length === 0) continue;
+    const ink = wallPen(rw.wall).mark;
+    marks.push(ink === COLORS.opening ? group(m) : group(m, { ink }));
+  }
   out.push(group(marks,
     { fill: "none", ink: COLORS.opening, width: W_OPENING, cap: "round" }, "openings"));
 
   // Cabinetry between the masonry and the symbols, as on the canvas. A wall
   // unit is dashed here rather than in its recorded geometry: the recorder
-  // discards dash patterns, so the group carries it (see io/cabinet.ts).
-  const cabinets = cabinetsOf(floor);
-  if (cabinets.length > 0) {
-    const items = cabinets.map(c => group(cabinetPrims(c), {
+  // discards dash patterns, so the group carries it (see io/furnishing.ts).
+  const furnishings = furnishingsOf(floor);
+  if (furnishings.length > 0) {
+    const items = furnishings.map(c => group(furnishingPrims(c), {
       ink: symbolInk(c),
-      ...(cabinetOverhead(c) ? { dash: [90, 60] } : {}),
+      ...(furnishingOverhead(c) ? { dash: [90, 60] } : {}),
     }));
     out.push(group(items,
-      { fill: "none", width: W_SYMBOL, cap: "round", join: "round" }, "cabinets"));
+      { fill: "none", width: W_SYMBOL, cap: "round", join: "round" }, "furnishings"));
   }
 
   const symbols: Item[] = [];
@@ -295,7 +333,7 @@ const W_ROUTE = LINE_WIDTH_MM;
  * permit sheet carries no services -- see the module comment on io/permit.ts.
  * Called only from toSvg below, so the permit path never reaches it.
  */
-export function routeScene(floor: Floor): Group[] {
+export function routeScene(floor: Floor, marks: readonly ResolvedRiserMark[] = []): Group[] {
   const out: Group[] = [];
   const resolved = resolveRoutes(floor);
   for (const discipline of DISCIPLINES) {
@@ -306,8 +344,8 @@ export function routeScene(floor: Floor): Group[] {
     if (discipline === "electrical") {
       // A data run (utp/coax) is dashed here rather than in its recorded
       // geometry: the recorder discards dash patterns, so the group carries
-      // it -- the same reasoning a wall cabinet's dash is carried by its own
-      // group (see the cabinets group in planScene, and io/cabinet.ts).
+      // it -- the same reasoning a wall unit's dash is carried by its own
+      // group (see the furnishings group in planScene, and io/furnishing.ts).
       // A power run is the plain, undashed sub-group.
       const data = all.filter(r => routeKind(r.route) !== "power");
       items.push(...prims(all.filter(r => routeKind(r.route) === "power")));
@@ -340,6 +378,7 @@ export function routeScene(floor: Floor): Group[] {
     } else {
       items.push(...prims(all));
     }
+    items.push(...marks.filter(mark => mark.discipline === discipline).flatMap(riserPrims));
     for (let index = 0; index < all.length; index++) {
       const rr = all[index]!;
       const longest = [...rr.segments].sort((a, b) =>
@@ -388,7 +427,9 @@ export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
     ` viewBox="${n(minX)} ${n(minY)} ${n(w)} ${n(h)}">`,
   );
   parts.push(`<rect x="${n(minX)}" y="${n(minY)}" width="${n(w)}" height="${n(h)}" fill="${COLORS.bg}"/>`);
-  parts.push(...sceneSvg([...planScene(doc, floor, resolved), ...routeScene(floor)]));
+  parts.push(...sceneSvg([
+    ...planScene(doc, floor, resolved), ...routeScene(floor, riserMarks(doc, floorIndex)),
+  ]));
   parts.push(`</svg>`);
   return parts.join("\n") + "\n";
 }

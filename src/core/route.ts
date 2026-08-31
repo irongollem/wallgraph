@@ -2,7 +2,7 @@
 // waypoints (model/route.ts): where an anchored point currently sits, how
 // long the run is, and where several routes bundle through the same corridor
 // are all recomputed on every call, exactly like a room's boundary.
-import { Floor, routesOf } from "../model/doc";
+import { Floor, furnishingsOf, routesOf } from "../model/doc";
 import {
   Route, RouteKind, routeKind, routeVeins, RouteWater, routeWater, routeDiameter, ROUTE_WATERS,
   routeInstallation,
@@ -13,8 +13,9 @@ import { wallLength } from "../model/ops";
 
 /**
  * A route's waypoints resolved to world mm: an anchored point reads the
- * symbol's CURRENT x/y, a dangling anchor (the symbol is gone) or a free
- * point reads its own stored x/y. Purely derived -- nothing is written back,
+ * CURRENT x/y of the symbol or furnishing it follows -- a run ends at a
+ * fornuis or a wastafel as readily as at a socket -- and a dangling anchor
+ * (the thing is gone) or a free point reads its own stored x/y. Purely derived -- nothing is written back,
  * so a route and the symbols it follows can each be edited without either
  * mutation racing to keep the other in sync. See model/route.ts.
  */
@@ -23,6 +24,8 @@ export function resolveRoutePoints(floor: Floor, route: Route): Vec[] {
     if (p.anchor) {
       const sym = floor.symbols.find(s => s.id === p.anchor);
       if (sym) return v(sym.x, sym.y);
+      const fn = furnishingsOf(floor).find(x => x.id === p.anchor);
+      if (fn) return v(fn.x, fn.y);
     }
     if (p.wallId && p.wallT !== undefined) {
       const wall = floor.walls.find(w => w.id === p.wallId);

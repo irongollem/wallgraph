@@ -2,10 +2,10 @@
 // command-object migration path exists if they ever aren't) + change notification.
 import { PlanDoc, emptyDoc, Floor, Id, newId } from "./doc";
 
-export type SelKind = "wall" | "node" | "opening" | "symbol" | "stair" | "vide" | "cabinet" | "route";
+export type SelKind = "wall" | "node" | "opening" | "symbol" | "stair" | "vide" | "furnishing" | "route";
 /**
  * One picked object. `sel` plus `selMore` below is the WHOLE selection, and it
- * is always same-kind: a mixed bag of a wall and a cabinet has no field in
+ * is always same-kind: a mixed bag of a wall and a table has no field in
  * common to show in the property pane, and every group gesture (drag,
  * alt-copy, delete, bulk edit) means one thing for every member only because
  * they are all the same kind. `node` is deliberately never grouped -- a node
@@ -20,7 +20,7 @@ export interface Selection { kind: SelKind; id: Id; wallId?: Id } // opening car
  * Selection above.
  */
 export const MULTI_SELECT_KINDS: ReadonlySet<SelKind> =
-  new Set(["wall", "opening", "symbol", "stair", "vide", "cabinet", "route"]);
+  new Set(["wall", "opening", "symbol", "stair", "vide", "furnishing", "route"]);
 
 type Listener = () => void;
 
@@ -101,7 +101,7 @@ export class Store {
       d.floors.splice(this.activeFloor + 1, 0,
         {
           id: newId("f"), name,
-          nodes: [], walls: [], symbols: [], stairs: [], vides: [], cabinets: [], routes: [], roomNames: [],
+          nodes: [], walls: [], symbols: [], stairs: [], vides: [], furnishings: [], routes: [], roomNames: [],
         });
     });
     this.activeFloor = Math.min(this.activeFloor + 1, this.doc.floors.length - 1);
@@ -137,7 +137,7 @@ export class Store {
       }
       for (const st of copy.stairs ?? []) st.id = newId("t");
       for (const vd of copy.vides ?? []) vd.id = newId("v");
-      for (const cb of copy.cabinets ?? []) cb.id = newId("k");
+      for (const fn of copy.furnishings ?? []) fn.id = newId("i");
       for (const rt of copy.routes ?? []) {
         rt.id = newId("rt");
         const pointMap = new Map<Id, Id>();
@@ -185,7 +185,14 @@ export class Store {
   deleteFloor(): void {
     if (this.doc.floors.length <= 1) return;
     const removing = this.activeFloor;
-    this.mutate(d => { d.floors.splice(removing, 1); });
+    this.mutate(d => {
+      const floorId = d.floors[removing]?.id;
+      d.floors.splice(removing, 1);
+      if (floorId && d.continuations) {
+        for (const link of d.continuations) link.ports = link.ports.filter(p => p.floorId !== floorId);
+        d.continuations = d.continuations.filter(link => link.ports.length >= 2);
+      }
+    });
     this.activeFloor = Math.max(0, Math.min(removing, this.doc.floors.length - 1));
     this.sel = null;
     this.notify();

@@ -2,12 +2,13 @@
 //
 // A route is a thin polyline over the plan rather than a footprint object, so
 // it follows the wall/opening convention (a colour change on selection) more
-// than the symbol/vide/stair/cabinet one (a dashed frame around a box) --
+// than the symbol/vide/stair/furnishing one (a dashed frame around a box) --
 // there is no box, and a route can run the whole diagonal of a plan, where a
 // frame around its bounds would highlight everything between its ends.
 import { ResolvedRoute, ResolvedRouteSegment } from "../core/route";
 import { RoutePoint, routeKind, routeWater, routeVent } from "../model/route";
 import { Vec } from "../geometry/vec";
+import type { ResolvedRiserMark } from "../core/continuation";
 import { arcInfo } from "../geometry/arc";
 import { dot, circle } from "./symbols/defs";
 
@@ -21,7 +22,7 @@ const CIRCLE_R_MM = 45;
 
 /**
  * Dash pattern for an electrical data run (utp/coax), mm -- same figures as a
- * wall cabinet's overhead dash (render/cabinet.ts's OVERHEAD_DASH), so the
+ * wall cabinet's overhead dash (render/furnishing's OVERHEAD_DASH), so the
  * convention reads the same wherever it appears. A power run stays solid.
  */
 export const ROUTE_DATA_DASH: readonly [number, number] = [90, 60];
@@ -82,7 +83,7 @@ function strokePath(ctx: CanvasRenderingContext2D, segments: ResolvedRouteSegmen
  */
 export function drawRoute(
   ctx: CanvasRenderingContext2D, resolved: ResolvedRoute, points: RoutePoint[], waypoints: Vec[],
-  paint: RoutePaint,
+  paint: RoutePaint, linkedPoints: ReadonlySet<string> = new Set(),
 ): void {
   ctx.save();
   ctx.lineCap = "round";
@@ -124,6 +125,7 @@ export function drawRoute(
     const p = waypoints[i]!;
     const point = points[i]!;
     const n = degree.get(point.id) ?? 0;
+    if (linkedPoints.has(point.id)) continue;
     if (n >= 3) {
       dot(ctx, p.x, p.y, DOT_R_MM + 12);
     } else if (n === 1 && point.anchor) {
@@ -148,6 +150,47 @@ export function drawRoute(
       // anchored to a device or marked as a source/cap.
       ctx.beginPath(); circle(ctx, p.x, p.y, CIRCLE_R_MM); ctx.stroke();
     }
+  }
+  ctx.restore();
+}
+
+/** Coincident vertical services remain distinct graph members but share one
+ * plan mark with a count, so the mark stays readable and pickable. */
+export function drawRiserMarks(
+  ctx: CanvasRenderingContext2D, marks: readonly ResolvedRiserMark[], selectedIds: ReadonlySet<string>,
+  inkFor: (mark: ResolvedRiserMark) => string,
+): void {
+  ctx.save();
+  ctx.lineWidth = LINE_WIDTH_MM;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "90px system-ui, sans-serif";
+  for (const mark of marks) {
+    const selected = mark.members.some(member => selectedIds.has(member.routeId));
+    const ink = selected ? "#2d7de0" : inkFor(mark);
+    ctx.strokeStyle = ink;
+    ctx.fillStyle = ink;
+    const r = 78, arrow = 38;
+    ctx.beginPath(); circle(ctx, mark.at.x, mark.at.y, r); ctx.stroke();
+    const head = (sign: -1 | 1): void => {
+      const y = mark.at.y + sign * 48;
+      ctx.beginPath();
+      ctx.moveTo(mark.at.x, y + sign * arrow);
+      ctx.lineTo(mark.at.x - arrow, y - sign * 8);
+      ctx.lineTo(mark.at.x + arrow, y - sign * 8);
+      ctx.closePath(); ctx.fill();
+    };
+    if (mark.direction !== "down") head(-1);
+    if (mark.direction !== "up") head(1);
+    if (mark.members.length > 1) {
+      ctx.save();
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath(); circle(ctx, mark.at.x, mark.at.y, 34); ctx.fill();
+      ctx.fillStyle = ink;
+      ctx.fillText(String(mark.members.length), mark.at.x, mark.at.y + 4);
+      ctx.restore();
+    }
+    if (mark.tag) ctx.fillText(mark.tag, mark.at.x, mark.at.y + r + 75);
   }
   ctx.restore();
 }

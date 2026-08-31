@@ -8,6 +8,7 @@ import { Tools } from "../input/tools";
 import {
   WALL_SHAPES, POLYGON_MIN_SIDES, POLYGON_MAX_SIDES, type WallShape,
 } from "../model/shape";
+import { WALL_MATERIALS, MULLION_DEFAULT_MM, type WallMaterial } from "../model/doc";
 import { icon, type IconName } from "./icons";
 import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
@@ -40,6 +41,25 @@ export function renderWallTool(
   };
   rows.numRow(t("panel.thickness"), tools.lastThickness, setThickness, 10);
   rows.chipRow(t("panel.thickness"), THICKNESSES, tools.lastThickness, setThickness);
+
+  // What the next wall is built of and drawn in. Armed rather than set
+  // afterwards for the reason the thickness above is: a glazed partition is a
+  // run of walls, and so is everything marked as new work on a verbouwtekening.
+  rows.selRow(t("panel.newWallMaterial"), tools.wallMaterial ?? "",
+    [["", t("panel.materialUnknown")],
+      ...WALL_MATERIALS.map(m => [m, t("panel.material_" + m)] as [string, string])],
+    value => tools.setWallPen({ wallMaterial: value ? value as WallMaterial : null }));
+  if (tools.wallMaterial === "glass") {
+    rows.checkRow(t("panel.mullionsOn"), tools.wallMullionMm !== null,
+      on => tools.setWallPen({ wallMullionMm: on ? MULLION_DEFAULT_MM : null }));
+    if (tools.wallMullionMm !== null) {
+      rows.numRow(t("panel.mullions"), tools.wallMullionMm,
+        n => tools.setWallPen({ wallMullionMm: Math.max(100, Math.round(n)) }), 100);
+      rows.noteRow(t("panel.mullionsHelp"));
+    }
+  }
+  rows.colorRow(t("panel.newWallColor"), tools.wallColor,
+    hex => tools.setWallPen({ wallColor: hex }));
 
   // Shift squares off a rectangle while it is being drawn, which a touch screen
   // has no way to say; the toggle is how it is said there, and it stays armed.

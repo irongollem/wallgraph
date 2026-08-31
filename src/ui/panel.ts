@@ -20,19 +20,23 @@ import {
   emptyDoc, areaModeOf, dimModeOf, floorHeight, wallHeight, openingSill, openingHeight, projectOf,
   sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS,
   doorKindOf, DOOR_KINDS, widthsFor, DOOR_WIDTHS_DOUBLE, FIRE_KINDS, FIRE_MINUTES,
-  FIRE_MINUTES_DEFAULT, routesOf,
+  FIRE_MINUTES_DEFAULT, routesOf, furnishingsOf, WALL_MATERIALS, wallGlazed, MULLION_DEFAULT_MM,
   type AreaMode, type DimMode, type Sash, type HingeEdge, type Opening, type Wall, type Floor, type FireKind,
-  type ProjectMeta, type Id,
+  type ProjectMeta, type Id, type WallMaterial,
 } from "../model/doc";
-import { DISCIPLINES } from "../model/route";
+import type { Discipline } from "../model/route";
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
 import { COLORS, INKS } from "../render/draw";
 import { icon, type IconName } from "./icons";
 import { docHref, DOC_IDS } from "../links";
 import { openMenu, type MenuEntry } from "./menu";
 import { Palette } from "./palette";
+import {
+  categoriesIn, getSymbol, SECTION_OF, type SymbolCategory, type SymbolSection,
+} from "../render/symbols";
+import { LAYER_KEYS, LAYER_OF_CATEGORY, type LayerKey } from "../render/layers";
 import { renderStairTool, renderStairProps, renderStairBulk, type PaneRows } from "./stairs";
-import { renderCabinetTool, renderCabinetProps } from "./cabinets";
+import { renderFurnishingTool, renderFurnishingProps } from "./furnishing";
 import { renderZoomTool, type RoomEdit } from "./zoom";
 import { renderOpeningTool } from "./openings";
 import { renderWallTool } from "./walls";
@@ -50,12 +54,49 @@ import { buildKeypad } from "./keypad";
  */
 const MIXED_SENTINEL = "__mixed__";
 
+/**
+ * The layers this storey has something on, in LAYER_KEYS order. A toggle for
+ * an empty layer states nothing and hides nothing.
+ */
+function layersPresent(floor: Floor): LayerKey[] {
+  const on = new Set<LayerKey>();
+  for (const r of routesOf(floor)) on.add(r.discipline);
+  for (const sym of floor.symbols) {
+    const cat = getSymbol(sym.type)?.category;
+    if (cat) on.add(LAYER_OF_CATEGORY[cat]);
+  }
+  if (furnishingsOf(floor).length > 0) on.add("furnishing");
+  return LAYER_KEYS.filter(k => on.has(k));
+}
+
+/** Which pane's palette a symbol type belongs to, or null for an unknown id. */
+function sectionOfSymbol(type: string): SymbolSection | null {
+  const def = getSymbol(type);
+  return def ? SECTION_OF[def.category] : null;
+}
+
+/**
+ * The symbol category a run of each discipline terminates at, so arming a
+ * discipline opens the terminals that go with it. Gas has no marks of its own;
+ * a gas run ends at a toestel, which the heating group carries.
+ */
+const DISCIPLINE_CATEGORY: Record<Discipline, SymbolCategory> = {
+  electrical: "electrical",
+  water: "water",
+  vent: "ventilation",
+  gas: "heating",
+};
+
 export class Panel {
   private rail: HTMLElement;
   private pane: HTMLElement;
   private status: HTMLElement;
   private foot: HTMLElement;
-  private palette: Palette;
+  /** One palette per authoring section; see ui/palette.ts. Both stay mounted —
+   *  removing one even for a frame drops focus out of its search box — and the
+   *  armed tool decides which is shown. */
+  private servicePalette: Palette;
+  private fitoutPalette: Palette;
   /**
    * The rail's three groups, as their own containers so the compact shell can
    * send them to three different places: tools to the bottom bar, modes to a
@@ -137,7 +178,8 @@ export class Panel {
     this.status = el("div", "status");
     this.foot = el("div", "side-foot");
 
-    this.palette = new Palette(tools, () => this.refreshToolbar());
+    this.servicePalette = new Palette(tools, categoriesIn("services"), () => this.refreshToolbar());
+    this.fitoutPalette = new Palette(tools, categoriesIn("fitout"), () => this.refreshToolbar());
 
     // Fixed pane structure: storey, properties (hidden when nothing is
     // selected), the always-present palette, and the pinned Plan section.
@@ -149,7 +191,7 @@ export class Panel {
     // Selection properties and the symbol palette share ONE scroller: they read
     // as a single list, so neither gets an inner scrollbar of its own.
     this.paneScroll = el("div", "pane-scroll");
-    this.paneScroll.append(this.paneBody, this.palette.el);
+    this.paneScroll.append(this.paneBody, this.servicePalette.el, this.fitoutPalette.el);
     this.planEl = this.buildPlanSection();
     this.underlayEl = this.buildUnderlaySection();
     this.permitEl = this.buildPermitSection();
@@ -168,7 +210,12 @@ export class Panel {
     this.renderFoot();
     this.refreshToolbar();
     store.onChange(() => this.refreshToolbar());
-    onI18n("languageChanged", () => { this.palette.refresh(); this.renderFoot(); this.refreshToolbar(); });
+    onI18n("languageChanged", () => {
+      this.servicePalette.refresh();
+      this.fitoutPalette.refresh();
+      this.renderFoot();
+      this.refreshToolbar();
+    });
     // Paste-an-image is the underlay section's second import path, alongside
     // the file picker. Scoped to while that section is open, and skipped over
     // a text field, so an ordinary Ctrl+V into the permit's project-name field
@@ -346,19 +393,17 @@ export class Panel {
       toolBtn("passage", "passage", "P", t("tool.passage"), t("tool.shortPassage")),
       toolBtn("stair", "stair", "T", t("tool.stair"), t("tool.shortStair")),
       toolBtn("vide", "vide", "H", t("tool.vide"), t("tool.shortVide")),
-      toolBtn("cabinet", "cabinet", "C", t("tool.cabinet"), t("tool.shortCabinet")),
+      toolBtn("cabinet", "furnishing", "C", t("tool.furnishing"), t("tool.shortFurnishing")),
       toolBtn("route", "route", "U", t("tool.route"), t("tool.shortRoute")),
       toolBtn("zoom", "zoom", "Z", t("tool.zoom"), t("tool.shortZoom")),
     );
-    // The symbol palette is a tool like the rest on a phone, where the pane it
-    // lives in is folded away; the wide rail leaves it to the palette itself.
+    // Symbols have no rail button of their own: every mark is placed from the
+    // pane of the section it belongs to — services from Installaties, safety
+    // from Inrichten — so those two buttons already reach all of them.
     if (this.mode === "compact") {
-      this.toolsEl.append(
-        toolBtn("symbols", "symbol", "S", t("panel.symbol", { type: t("symbol." + this.tools.symbolType) }), t("tool.shortSymbol")),
-      );
-      // Eleven tools do not fit across a phone, so the bar scrolls and keeps
-      // the armed one in view — otherwise arming a tool by keyboard, or by
-      // rotating the device, would leave it off screen.
+      // Ten tools do not fit across a phone, so the bar scrolls and keeps the
+      // armed one in view — otherwise arming a tool by keyboard, or by rotating
+      // the device, would leave it off screen.
       this.toolsEl.querySelector(".is-active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
 
@@ -543,8 +588,14 @@ export class Panel {
     // pane has a third state: nothing selected, but something to configure.
     const stairMode = this.tools.tool === "stair";
     const videMode = this.tools.tool === "vide";
-    const routeMode = this.tools.tool === "route";
-    const paneTool = this.tools.tool === "cabinet"
+    // A section stays open while its own marks are being placed: arming a
+    // socket from the Installaties pane must not throw away the run's
+    // properties, and the same for a blusser and the fit-out picker.
+    const armedSection = this.tools.tool === "symbol" ? sectionOfSymbol(this.tools.symbolType) : null;
+    const servicesMode = this.tools.tool === "route" || armedSection === "services";
+    const fitoutMode = this.tools.tool === "furnishing" || armedSection === "fitout";
+    const routeMode = servicesMode;
+    const paneTool = fitoutMode
       || this.tools.tool === "zoom" || this.tools.tool === "door"
       || this.tools.tool === "window" || this.tools.tool === "passage"
       || this.tools.tool === "wall";
@@ -552,6 +603,7 @@ export class Panel {
       + (videMode ? "vide-tool|" : "")
       + (routeMode ? `route-tool:${this.tools.routeDiscipline}|` : "")
       + (paneTool ? "pane-tool:" + this.tools.tool + "|" : "")
+      + (this.tools.tool === "symbol" ? "symbol:" + this.tools.symbolType + "|" : "")
       + (this.tools.tool === "wall"
         ? `wall:${this.tools.wallShape}:${this.tools.polygonSides}:${this.tools.squareLock}:${this.tools.canCloseChain}|`
         : "")
@@ -602,8 +654,17 @@ export class Panel {
       this.paneBody.className = "pane-body" + (swap ? " pane-swap" : "");
       this.renderProps(this.props);
     }
-    this.palette.syncActive();
-    this.palette.syncInk();
+    for (const pal of [this.servicePalette, this.fitoutPalette]) {
+      pal.syncActive();
+      pal.syncInk();
+    }
+    // A palette shows only where its own marks can be placed, so the pane
+    // carries one drawing at a time rather than the whole library.
+    this.servicePalette.el.hidden = !servicesMode;
+    this.fitoutPalette.el.hidden = !fitoutMode;
+    if (this.tools.tool === "route") {
+      this.servicePalette.openCategory(DISCIPLINE_CATEGORY[this.tools.routeDiscipline]);
+    }
     if (this.mode === "compact") { this.pinDangerRow(); this.renderTyping(); }
   }
 
@@ -672,8 +733,13 @@ export class Panel {
     // button beside the selection count header instead (see secHead's `mode`
     // option), but that header can scroll out of view under a peeking sheet
     // -- so it is pinned here too, same precedent as chainBar above.
+    //
+    // From the FIRST object, not the second: a hold on an object with nothing
+    // selected enters the mode at n=1, and gating on a group left that state
+    // with no affordance at all -- the mode was on, taps toggled instead of
+    // replacing, and the only thing that said so was the hint line.
     const n = this.store.selMore.length + 1;
-    const modeSig = this.tools.selectMode && this.store.selMore.length > 0 ? String(n) : "";
+    const modeSig = this.tools.selectMode && this.store.sel ? String(n) : "";
     if (modeSig !== this.modeBarSig) {
       this.modeBarSig = modeSig;
       this.modeBar?.remove();
@@ -1246,14 +1312,17 @@ export class Panel {
       m => this.store.mutate(d => { d.dimMode = m as DimMode; }));
     if (dimModeOf(this.store.doc) !== "centerline") noteRow(t("panel.dimNote"));
 
-    // Per-discipline visibility, only once there is something to hide: an
-    // empty floor showing three toggles for a layer it does not have would
-    // be furniture nobody can use yet.
-    if (routesOf(this.store.floor).length > 0) {
-      for (const disc of DISCIPLINES) {
-        const key = "showRoutes" + disc[0]!.toUpperCase() + disc.slice(1);
-        checkRow(t("panel." + key), this.tools.showRoutes[disc], on => {
-          this.tools.showRoutes[disc] = on;
+    // Per-layer visibility, and only for the layers this storey actually
+    // carries: an empty floor showing seven toggles for drawings it does not
+    // have would be furniture nobody can use yet. The armed tool already fades
+    // what it cannot touch (Tools.dimLayers); these switch a layer off outright,
+    // which is what a sheet per trade needs.
+    const present = layersPresent(this.store.floor);
+    if (present.length > 0) {
+      noteRow(t("panel.layers"));
+      for (const key of present) {
+        checkRow(t("panel.layer" + key[0]!.toUpperCase() + key.slice(1)), this.tools.layers[key], on => {
+          this.tools.layers[key] = on;
           this.tools.refresh();
         });
       }
@@ -1464,6 +1533,38 @@ export class Panel {
       rows.chipRow(t("panel.fireMinutes"), FIRE_MINUTES, withRating.fireRating!.minutes,
         n => mutAll(w => { if (w.fireRating) w.fireRating.minutes = n; }));
     }
+    const matMixed = isMixed(walls, w => w.material ?? "");
+    rows.selRow(t("panel.material"), first.material ?? "",
+      [["", t("panel.materialUnknown")],
+        ...WALL_MATERIALS.map(m => [m, t("panel.material_" + m)] as [string, string])],
+      value => mutAll(w => {
+        if (value) w.material = value as WallMaterial; else delete w.material;
+        if (!wallGlazed(w)) delete w.mullionMm;
+      }), { mixed: matMixed });
+    // Offered once the selection is glazed throughout: a spacing typed against a
+    // mixed run would land on the walls it means nothing for as well.
+    if (!matMixed && wallGlazed(first)) {
+      const onMixed = isMixed(walls, w => w.mullionMm !== undefined);
+      rows.checkRow(t("panel.mullionsOn"), first.mullionMm !== undefined, on => mutAll(w => {
+        if (on) w.mullionMm = MULLION_DEFAULT_MM; else delete w.mullionMm;
+      }), { mixed: onMixed });
+      if (!onMixed && first.mullionMm !== undefined) {
+        rows.numRow(t("panel.mullions"), first.mullionMm, n => mutAll(w => {
+          w.mullionMm = Math.max(100, Math.round(n));
+        }), 100, { mixed: isMixed(walls, w => w.mullionMm) });
+        rows.noteRow(t("panel.mullionsHelp"));
+      }
+    }
+    const colorMixed = isMixed(walls, w => w.color ?? "");
+    rows.colorRow(t("panel.color"), first.color ?? null, hex => {
+      this.tools.wallColor = hex;
+      this.store.mutate(d => {
+        for (const w of this.store.floorOf(d).walls) {
+          if (!group.includes(w.id)) continue;
+          if (hex) w.color = hex; else delete w.color;
+        }
+      }, "wallcolor:" + group.join(","));
+    }, { mixed: colorMixed });
     rows.dangerRow(t("panel.deleteWall"), () => this.tools.deleteSelected());
   }
 
@@ -1548,14 +1649,14 @@ export class Panel {
       const lbl = el("span", "sec-label" + (opts.sel ? " is-sel" : ""));
       lbl.textContent = label;
       wrap.append(lbl, el("div", "sec-rule"));
-      // The "Done" affordance: only while the select tool's long-press mode
-      // is actually live AND there is a group to land the visitor in (a lone
-      // selection never enters the mode in the first place, but the flag
-      // could in principle outlive it -- see Tools.exitSelectMode). Beside
-      // the close button in the wide layout; the compact layout's pinned
-      // pill (renderTyping()) is the same affordance for when this header is
-      // scrolled out of view under the sheet.
-      if (opts.mode && this.tools.selectMode && this.store.selMore.length > 0 && this.mode !== "compact") {
+      // The "Done" affordance, beside the close button in the wide layout;
+      // the compact layout's pinned pill (renderTyping()) is the same
+      // affordance for when this header is scrolled out of view under the
+      // sheet. Only the bulk panes pass `mode`, so this header exists from
+      // the second object on -- at one the canvas badge
+      // (Tools.selectModeBadge) is what says the mode is live, and Escape or
+      // the close button leaves it.
+      if (opts.mode && this.tools.selectMode && this.mode !== "compact") {
         const done = el("button", "sec-done") as HTMLButtonElement;
         done.type = "button";
         const n = this.store.selMore.length + 1;
@@ -1604,16 +1705,17 @@ export class Panel {
       dangerRow, checkRow, chipRow,
     };
 
-    // The cabinet tool keeps its picker and its fields in the property area,
-    // the way the stair tool does: placing a unit selects it, so the next one
-    // has to be reachable without deselecting first.
-    if (this.tools.tool === "cabinet") {
-      if (sel?.kind === "cabinet") renderCabinetProps(this.store, this.tools, rows, sel.id);
-      renderCabinetTool(p, this.store, this.tools, rows, () => this.refreshToolbar());
+    // The fit-out tool keeps its picker and its fields in the property area,
+    // the way the stair tool does: placing a piece selects it, so the next one
+    // has to be reachable without deselecting first. The safety palette below
+    // is part of the same section, so arming a mark from it keeps the picker.
+    if (this.tools.tool === "furnishing") {
+      if (sel?.kind === "furnishing") renderFurnishingProps(this.store, this.tools, rows, sel.id);
+      renderFurnishingTool(p, this.store, this.tools, rows, () => this.refreshToolbar());
       return;
     }
-    if (sel?.kind === "cabinet") {
-      renderCabinetProps(this.store, this.tools, rows, sel.id);
+    if (sel?.kind === "furnishing") {
+      renderFurnishingProps(this.store, this.tools, rows, sel.id);
       return;
     }
     if (this.tools.tool === "zoom") {
@@ -1656,7 +1758,7 @@ export class Panel {
 
     // The route tool, like the stair and vide tools, keeps its fields in the
     // property area.
-    if (this.tools.tool === "route") {
+    if (this.tools.tool === "route" || sectionOfSymbol(this.tools.symbolType) === "services") {
       if (sel?.kind === "route") {
         const group = this.store.selectedOf("route");
         if (group.length > 1) renderRouteBulk(this.store, this.tools, rows, group);
@@ -1770,6 +1872,47 @@ export class Panel {
             if (wall?.fireRating) wall.fireRating.minutes = Math.max(0, Math.round(n));
           }), 15);
       }
+      // Tri-state like loadBearing above: "" is not stated, which draws as
+      // masonry without claiming the wall is masonry.
+      selRow(t("panel.material"), w.material ?? "",
+        [["", t("panel.materialUnknown")],
+          ...WALL_MATERIALS.map(m => [m, t("panel.material_" + m)] as [string, string])],
+        value => this.store.mutate(d => {
+          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+          if (!wall) return;
+          if (value) wall.material = value as WallMaterial; else delete wall.material;
+          // A spacing on a wall that is no longer glazed is a number nothing
+          // reads; it goes with the glazing rather than waiting for it to return.
+          if (!wallGlazed(wall)) delete wall.mullionMm;
+        }));
+      if (wallGlazed(w)) {
+        // Set/unset, like the wall's own height: absent means no stijlen, which
+        // is a frameless pane and not a spacing that happens to be zero.
+        checkRow(t("panel.mullionsOn"), w.mullionMm !== undefined, on => this.store.mutate(d => {
+          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+          if (!wall) return;
+          if (on) wall.mullionMm = MULLION_DEFAULT_MM; else delete wall.mullionMm;
+        }));
+        if (w.mullionMm !== undefined) {
+          numRow(t("panel.mullions"), w.mullionMm, n => this.store.mutate(d => {
+            const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+            if (wall) wall.mullionMm = Math.max(100, Math.round(n));
+          }), 100);
+          noteRow(t("panel.mullionsHelp"));
+        }
+      }
+      // Recolouring one wall arms the pen, the way editing its thickness sets
+      // the thickness of the next one: a wall marked as new work is nearly
+      // always the first of a run of them.
+      colorRow(t("panel.color"), w.color ?? null, hex => {
+        this.tools.wallColor = hex;
+        this.store.mutate(d => {
+          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+          if (!wall) return;
+          if (hex) wall.color = hex; else delete wall.color;
+        }, "wallcolor:" + sel.id);  // one undo step for a drag through the OS picker
+      });
+      noteRow(t("panel.wallColorHelp"));
       const a = f.nodes.find(x => x.id === w.a)!, b = f.nodes.find(x => x.id === w.b)!;
       numRow(t("panel.sagitta"), sagittaFromBulge(v(a.x, a.y), v(b.x, b.y), w.bulge), n => {
         this.store.mutate(d => {

@@ -48,7 +48,8 @@ export function worldPoint(p: Placed, local: Vec): Vec {
  * Where the anchor has to move to for the object to turn to `rotation` about
  * the middle of its box instead of about the anchor itself.
  *
- * A stair and a cabinet are anchored to the edge that meets the wall, so
+ * A stair and a wall-mounted furnishing are anchored to the edge that meets
+ * the wall, so
  * turning one about its anchor swings the whole object across the plan: a
  * quarter turn moves it as well as pointing it elsewhere. Turning about the
  * middle leaves it where it was put. Whole millimetres, per the document's

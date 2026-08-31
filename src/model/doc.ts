@@ -2,8 +2,9 @@
 // integer millimetres. Everything visible is derived from this at render time.
 import type { Stair } from "./stair";
 import type { Vide } from "./vide";
-import type { Cabinet } from "./cabinet";
+import type { Furnishing } from "./furnishing";
 import type { Route } from "./route";
+import type { RouteContinuation } from "./continuation";
 import type { RoomName } from "./room";
 import { newDocGuid } from "./guid";
 
@@ -94,6 +95,21 @@ export interface Opening {
   height?: number;
 }
 
+/**
+ * What a wall's body is built of.
+ *
+ * Only `glass` changes the drawing. A glazed wall is not poché: it is drawn as
+ * its two faces with the glazing between them, because that is what separates a
+ * glazen wand from a stud wall on a plan. The other four draw as masonry and
+ * exist so the wall can state its material to IFC, where a name is the whole
+ * answer. This is a single material, not a build-up — see the known
+ * limitations in CLAUDE.md.
+ */
+export type WallMaterial = "masonry" | "concrete" | "timber" | "steel" | "glass";
+
+export const WALL_MATERIALS: readonly WallMaterial[] =
+  ["masonry", "concrete", "timber", "steel", "glass"];
+
 export interface Wall {
   id: Id;
   a: Id;
@@ -111,7 +127,51 @@ export interface Wall {
   loadBearing?: boolean;
   /** Same FireRating an opening carries — a fire compartment wall has one. */
   fireRating?: FireRating;
+  /**
+   * What the body is built of. Absent means not stated, which is a different
+   * fact from "masonry" for the same reason `loadBearing` is tri-state, and
+   * draws the same as masonry either way.
+   */
+  material?: WallMaterial;
+  /**
+   * Mullion (stijl) centres in mm, read as a MAXIMUM pane width rather than as
+   * a fixed grid: each run of glass between openings is divided into equal bays
+   * no wider than this. A door set into the wall therefore pushes the stijlen
+   * aside instead of one landing in the doorway, and its jambs read as the
+   * mullions they are in a real pui. Absent means none.
+   *
+   * Glazed walls only — wallMullionMm() returns nothing for a solid one, so a
+   * wall switched away from glass keeps the number without drawing it.
+   */
+  mullionMm?: number;
+  /**
+   * Pen colour as "#rrggbb", the same statement SymbolInstance.color makes:
+   * black is what is there, red what is to be built, yellow what goes. Absent
+   * means the plan's default masonry ink, so a plan nobody has recoloured
+   * carries no colour at all.
+   *
+   * Read through wallPen() in render/draw.ts, never directly — canvas ignores
+   * an invalid fillStyle rather than throwing, so one bad value out of a pasted
+   * document would silently paint the wall in the previous one's colour.
+   */
+  color?: string;
 }
+
+/** True when the wall's body is glazed, and so drawn as faces rather than fill. */
+export const wallGlazed = (w: Wall): boolean => w.material === "glass";
+
+/**
+ * The mullion spacing that actually applies. Absent, zero and a solid wall all
+ * mean no stijlen, so the render and both exporters ask this rather than
+ * reading `mullionMm` and repeating the glazed check three times.
+ */
+export function wallMullionMm(w: Wall): number | undefined {
+  if (!wallGlazed(w)) return undefined;
+  return w.mullionMm !== undefined && w.mullionMm > 0 ? w.mullionMm : undefined;
+}
+
+/** Ordinary curtain-walling mullion centres, offered when glazing is picked. */
+export const MULLION_DEFAULT_MM = 1200;
 
 export interface SymbolInstance {
   id: Id;
@@ -186,10 +246,12 @@ export interface Floor {
    */
   vides?: Vide[];
   /**
-   * Placed cabinetry. Like stairs, a cabinet stores its dimensions because the
-   * same kastje is built 400, 600 or 800 wide; see model/cabinet.ts.
+   * What the storey is fitted out with: cabinetry, appliances, sanitary
+   * fixtures and furniture. Like stairs, a furnishing stores its dimensions
+   * because the same kastje is built 400, 600 or 800 wide and the same table is
+   * whatever the room takes; see model/furnishing.ts.
    */
-  cabinets?: Cabinet[];
+  furnishings?: Furnishing[];
   /**
    * Manually drawn service runs -- electrical, water, ventilation -- as
    * switchable layers over the plan. Absent means the plan predates them, or
@@ -216,8 +278,8 @@ export function stairsOf(f: Floor): Stair[] { return f.stairs ?? []; }
 /** A floor's vides. Absent means none, not an error. */
 export function videsOf(f: Floor): Vide[] { return f.vides ?? []; }
 
-/** A floor's cabinets. Absent means none, not an error. */
-export function cabinetsOf(f: Floor): Cabinet[] { return f.cabinets ?? []; }
+/** A floor's furnishings. Absent means none, not an error. */
+export function furnishingsOf(f: Floor): Furnishing[] { return f.furnishings ?? []; }
 
 /** A floor's routes. Absent means none, not an error. */
 export function routesOf(f: Floor): Route[] { return f.routes ?? []; }
@@ -303,6 +365,8 @@ export interface PlanDoc {
    * may be negative. Absent means 0. See floorElevation().
    */
   groundMm?: number;
+  /** Authored vertical links between floor-local route endpoints. */
+  continuations?: RouteContinuation[];
   /** Storeys, lowest first: floors[0] is the ground floor, the storey picker
    *  and floorElevation() both rely on that order. */
   floors: Floor[];
@@ -337,9 +401,10 @@ export const GRID_DEFAULT_MM = 100;
 export function emptyDoc(): PlanDoc {
   return {
     version: 1, unit: "mm", gridMm: GRID_DEFAULT_MM, guid: newDocGuid(),
+    continuations: [],
     floors: [{
       id: newId("f"), name: "Floor 1",
-      nodes: [], walls: [], symbols: [], stairs: [], vides: [], cabinets: [], routes: [], roomNames: [],
+      nodes: [], walls: [], symbols: [], stairs: [], vides: [], furnishings: [], routes: [], roomNames: [],
     }],
   };
 }

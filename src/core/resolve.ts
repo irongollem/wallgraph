@@ -8,7 +8,7 @@
 // adjacent wall-ends is the intersection of the two offset lines that face each
 // other. Arc offsets use the tangent-line approximation at the endpoint, which
 // is exact in the limit and visually correct at wall scale.
-import { Floor, Wall, Opening, Id } from "../model/doc";
+import { Floor, Wall, Opening, Id, wallMullionMm } from "../model/doc";
 import {
   Vec, add, sub, scale, norm, perp, dist, v, angleOf, lineIntersect,
 } from "../geometry/vec";
@@ -17,6 +17,18 @@ import { arcFlatten, arcLength, arcPointAt, arcTangentAt } from "../geometry/arc
 export interface WallEndCorners { left: Vec; right: Vec } // relative to OUTGOING tangent at that end
 
 export interface SolidPiece { poly: Vec[] } // closed polygon, flattened
+
+/**
+ * A junction wedge, carrying the walls that meet there. The polygon belongs to
+ * no single wall, so a renderer cannot read a pen off it the way it can off a
+ * wall piece: with glazed and coloured walls the wedge has to be drawn in
+ * whatever its neighbours agree on, and it can only ask that of the walls
+ * themselves. Order matches the angular sort the corners were built in.
+ */
+export interface Junction extends SolidPiece { walls: Id[] }
+
+/** One mullion (stijl), drawn face to face across the glazing. */
+export interface MullionMark { a: Vec; b: Vec }
 
 export interface OpeningGeom {
   opening: Opening;
@@ -48,6 +60,13 @@ export interface ResolvedWall {
   pieces: SolidPiece[];     // solid wall polygons (1 + number of openings, roughly)
   outline: Vec[];           // full outline ignoring openings (for hit-testing/selection)
   openings: OpeningGeom[];
+  /**
+   * Stijlen across a glazed wall, empty for every other wall. Derived here
+   * rather than in each renderer because the canvas, the SVG and the DXF must
+   * place them identically, and because the division depends on the same solid
+   * intervals `pieces` is built from — see Wall.mullionMm.
+   */
+  mullions: MullionMark[];
 }
 
 export interface Resolved {
@@ -66,7 +85,7 @@ export interface Resolved {
    * polygon through them is exactly the junction interior. Filling it is purely
    * additive: it can only cover a gap, never remove geometry.
    */
-  junctions: SolidPiece[];
+  junctions: Junction[];
 }
 
 interface End { wall: Wall; end: "a" | "b"; out: Vec; half: number }
@@ -91,7 +110,7 @@ export function resolveFloor(f: Floor): Resolved {
 
   // Resolve corners per node.
   const corners = new Map<string, WallEndCorners>(); // key: wallId + end
-  const junctions: SolidPiece[] = [];
+  const junctions: Junction[] = [];
   for (const [nid, ends] of byNode) {
     const P = nodePos.get(nid)!;
     if (ends.length === 1) {
@@ -121,7 +140,7 @@ export function resolveFloor(f: Floor): Resolved {
       ring.push(corner);
     }
     // Degree 1 has a square cap and degree 2 miters cleanly; only 3+ can gap.
-    if (n >= 3) junctions.push({ poly: ring });
+    if (n >= 3) junctions.push({ poly: ring, walls: ends.map(e => e.wall.id) });
   }
 
   // Build wall outlines.
@@ -187,10 +206,43 @@ export function resolveFloor(f: Floor): Resolved {
       wall: w, a: A, b: B, length: L,
       faces, clearLength: Math.min(faces.left, faces.right),
       pieces, outline, openings: ogs,
+      mullions: mullionsFor(w, A, B, L, half, intervals),
     });
   }
 
   return { walls, junctions };
+}
+
+/**
+ * Stijlen across one glazed wall, per run of glass between its openings.
+ *
+ * The spacing is a maximum pane width, not a grid pitch: each run is divided
+ * into `ceil(run / spacing)` equal bays, so a run shorter than the spacing gets
+ * none and a door pushes the stijlen of its own run aside rather than having
+ * one land in the doorway. `intervals` are the same solid runs the wall's
+ * pieces are built from, which is what makes that true without the openings
+ * being consulted again here.
+ */
+function mullionsFor(
+  w: Wall, A: Vec, B: Vec, L: number, half: number,
+  intervals: ReadonlyArray<{ from: number; to: number }>,
+): MullionMark[] {
+  const spacing = wallMullionMm(w);
+  if (spacing === undefined || L <= 0) return [];
+  const out: MullionMark[] = [];
+  for (const iv of intervals) {
+    const run = iv.to - iv.from;
+    // Rounded before the ceiling so a run that divides exactly — a 3600 run at
+    // 1200 — takes 3 bays rather than 4 on a floating-point hair.
+    const bays = Math.max(1, Math.ceil(Number((run / spacing).toFixed(6))));
+    for (let i = 1; i < bays; i++) {
+      const t = (iv.from + (run * i) / bays) / L;
+      const p = arcPointAt(A, B, w.bulge, t);
+      const n = perp(arcTangentAt(A, B, w.bulge, t));
+      out.push({ a: add(p, scale(n, half)), b: add(p, scale(n, -half)) });
+    }
+  }
+  return out;
 }
 
 function polylineLength(pts: Vec[]): number {

@@ -101,6 +101,7 @@ const IFC_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuv
       walls: [{
         id: "w1", a: "n1", b: "n2", thickness: 300, bulge: 0,
         height: 2700, loadBearing: true, fireRating: { kind: "wbdbo", minutes: 60 },
+        material: "glass", mullionMm: 1200, color: "#d0342c",
         openings: [{
           id: "o1", kind: "window", t: 2000, width: 1200, sashes: [],
           sillHeight: 900, height: 1400,
@@ -115,6 +116,19 @@ const IFC_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuv
   const notStated: PlanDoc = JSON.parse(JSON.stringify(full));
   delete notStated.floors[0]!.walls[0]!.loadBearing;
   check("loadBearing may be absent", validate(schema, notStated).length === 0);
+
+  const noMaterial: PlanDoc = JSON.parse(JSON.stringify(full));
+  delete noMaterial.floors[0]!.walls[0]!.material;
+  delete noMaterial.floors[0]!.walls[0]!.mullionMm;
+  check("a wall may state no material", validate(schema, noMaterial).length === 0);
+
+  const badMaterial: PlanDoc = JSON.parse(JSON.stringify(full));
+  (badMaterial.floors[0]!.walls[0]! as unknown as Record<string, unknown>).material = "brick";
+  check("a material outside the list is rejected", validate(schema, badMaterial).length > 0);
+
+  const badWallColor: PlanDoc = JSON.parse(JSON.stringify(full));
+  (badWallColor.floors[0]!.walls[0]! as unknown as Record<string, unknown>).color = "red";
+  check("a wall colour that is not #rrggbb is rejected", validate(schema, badWallColor).length > 0);
 
   const badGuid: PlanDoc = JSON.parse(JSON.stringify(full));
   badGuid.guid = "not-hex";

@@ -8,6 +8,9 @@ import { Store } from "../model/store";
 import { Tools } from "../input/tools";
 import { Floor, Id, routesOf } from "../model/doc";
 import {
+  continuationAt, continuationsOf, continueRoutePorts, type ContinueRouteInput, type RoutePort,
+} from "../model/continuation";
+import {
   Route, Discipline, DISCIPLINES, RouteKind, ROUTE_KINDS, ROUTE_VEINS_DEFAULT,
   routeKind, routeVeins, clampRouteVeins,
   RouteWater, ROUTE_WATERS, routeWater, routeDiameter, routeDiameterLadder,
@@ -17,8 +20,9 @@ import {
   RouteInstallation, ROUTE_INSTALLATIONS, routeInstallation,
 } from "../model/route";
 import {
-  routeLength, routeGroupSummaries, routeKindSummaries, routeWaterSummaries, routeGasSummaries,
+  resolveRoutePoints, routeLength, routeGroupSummaries, routeKindSummaries, routeWaterSummaries, routeGasSummaries,
 } from "../core/route";
+import { serviceNetworkLength } from "../core/continuation";
 import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
 
@@ -212,15 +216,65 @@ function materialsRows(rows: RouteRows, floor: Floor): void {
     rows.infoRow(t("panel.routeMaterialsGas", { diameter: gas.diameter }), `${Math.round(gas.lengthMm)} mm`);
 }
 
+function endpointDegree(route: Route, pointId: Id): number {
+  return route.segments.reduce((n, segment) =>
+    n + (segment.a === pointId ? 1 : 0) + (segment.b === pointId ? 1 : 0), 0);
+}
+
+function portOf(store: Store, route: Route, pointId: Id): RoutePort {
+  return { floorId: store.floor.id, routeId: route.id, pointId };
+}
+
+function continueInputs(store: Store, entries: Array<{ route: Route; pointId: Id }>, delta: -1 | 1): void {
+  const target = store.activeFloor + delta;
+  if (!store.doc.floors[target]) return;
+  const inputs: ContinueRouteInput[] = entries.flatMap(({ route, pointId }) => {
+    const index = route.points.findIndex(p => p.id === pointId);
+    const at = resolveRoutePoints(store.floor, route)[index];
+    return at ? [{ routeId: route.id, pointId, x: at.x, y: at.y }] : [];
+  });
+  let routeIds: Id[] = [];
+  store.mutate(doc => { routeIds = continueRoutePorts(doc, store.activeFloor, target, inputs).routeIds; });
+  if (routeIds.length === 0) return;
+  store.setActiveFloor(target);
+  store.selectMany("route", routeIds);
+}
+
+function jumpToPort(store: Store, port: RoutePort): void {
+  const floorIndex = store.doc.floors.findIndex(f => f.id === port.floorId);
+  if (floorIndex < 0) return;
+  store.setActiveFloor(floorIndex);
+  store.select({ kind: "route", id: port.routeId });
+}
+
 function endpointRows(rows: RouteRows, store: Store, route: Route): void {
   const degree = new Map<string, number>();
   for (const segment of route.segments) {
     degree.set(segment.a, (degree.get(segment.a) ?? 0) + 1);
     degree.set(segment.b, (degree.get(segment.b) ?? 0) + 1);
   }
-  const loose = route.points.filter(point => (degree.get(point.id) ?? 0) === 1 && !point.anchor);
+  const loose = route.points.filter(point => (degree.get(point.id) ?? 0) <= 1 && !point.anchor);
   for (let index = 0; index < loose.length; index++) {
     const point = loose[index]!;
+    const port = portOf(store, route, point.id);
+    const continuation = continuationAt(store.doc, port);
+    if (continuation) {
+      const destinations = continuation.ports.filter(p => p.floorId !== store.floor.id)
+        .map(p => store.doc.floors.find(f => f.id === p.floorId)?.name).filter((name): name is string => !!name);
+      rows.infoRow(t("panel.routeEndpoint", { n: index + 1 }),
+        t("panel.routeContinuationValue", { floors: destinations.join(", ") }));
+      rows.textRow(t("panel.routeRiserTag"), continuation.tag ?? "", value => store.mutate(doc => {
+        const link = continuationsOf(doc).find(item => item.id === continuation.id);
+        if (!link) return;
+        const tag = value.trim();
+        if (tag) link.tag = tag; else delete link.tag;
+      }));
+      for (const other of continuation.ports.filter(p => p.floorId !== store.floor.id)) {
+        const destination = store.doc.floors.find(f => f.id === other.floorId)?.name;
+        if (destination) rows.btnRow(t("panel.routeJumpTo", { floor: destination }), () => jumpToPort(store, other));
+      }
+      continue;
+    }
     rows.selRow(t("panel.routeEndpoint", { n: index + 1 }), point.terminal ?? "open", [
       ["open", t("panel.routeEndpointOpen")],
       ["source", t("panel.routeEndpointSource")],
@@ -231,7 +285,24 @@ function endpointRows(rows: RouteRows, store: Store, route: Route): void {
       if (value === "open") delete current.terminal;
       else current.terminal = value as "source" | "capped";
     }));
+    if (store.activeFloor + 1 < store.doc.floors.length)
+      rows.btnRow(t("panel.routeContinueAbove"), () => continueInputs(store, [{ route, pointId: point.id }], 1));
+    if (store.activeFloor > 0)
+      rows.btnRow(t("panel.routeContinueBelow"), () => continueInputs(store, [{ route, pointId: point.id }], -1));
   }
+}
+
+function bulkContinuationRows(rows: RouteRows, store: Store, routes: Route[]): void {
+  const entries = routes.flatMap(route => {
+    const eligible = route.points.filter(point => endpointDegree(route, point.id) <= 1 && !point.anchor
+      && !continuationAt(store.doc, portOf(store, route, point.id)));
+    return eligible.length === 1 ? [{ route, pointId: eligible[0]!.id }] : [];
+  });
+  if (entries.length !== routes.length) return;
+  if (store.activeFloor + 1 < store.doc.floors.length)
+    rows.btnRow(t("panel.routeContinueManyAbove", { n: routes.length }), () => continueInputs(store, entries, 1));
+  if (store.activeFloor > 0)
+    rows.btnRow(t("panel.routeContinueManyBelow", { n: routes.length }), () => continueInputs(store, entries, -1));
 }
 
 /** The discipline the next run will be drawn in, plus its armed properties. */
@@ -293,7 +364,7 @@ export function renderRouteProps(store: Store, tools: Tools, rows: RouteRows, id
     d => mut(r => {
       r.discipline = d as Discipline;
       // The electrical/water/vent vocabularies mean nothing outside their own
-      // discipline -- dropped on the way out, the way a cabinet preset swap
+      // discipline -- dropped on the way out, the way a furnishing preset swap
       // rewrites every field the old preset wrote.
       if (r.discipline !== "electrical") { delete r.kind; delete r.veins; delete r.group; delete r.spec; }
       if (r.discipline !== "water") delete r.water;
@@ -370,6 +441,11 @@ export function renderRouteProps(store: Store, tools: Tools, rows: RouteRows, id
     }));
   }
   rows.infoRow(t("panel.routeLength"), `${Math.round(routeLength(store.floor, route))} mm`);
+  const networkLength = serviceNetworkLength(store.doc, { floorId: store.floor.id, routeId: route.id });
+  if (networkLength.routes > 1) {
+    rows.infoRow(t("panel.routeNetworkLength"), `${Math.round(networkLength.totalLengthMm)} mm`);
+    rows.infoRow(t("panel.routeVerticalLength"), `${Math.round(networkLength.verticalLengthMm)} mm`);
+  }
   rows.noteRow(t("panel.routePoints", { n: route.points.length }));
   endpointRows(rows, store, route);
   materialsRows(rows, store.floor);
@@ -380,7 +456,7 @@ export function renderRouteProps(store: Store, tools: Tools, rows: RouteRows, id
  * Properties of every selected route at once: the same discipline-specific
  * rows renderRouteProps shows for one, driven by the PRIMARY route's
  * discipline (the pane states one run's numbers, the one clicked last, the
- * way the cabinet pane does for a group) and committed to every selected
+ * way the fit-out pane does for a group) and committed to every selected
  * member in one mutation -- re-groeping ten power runs, or re-sizing ten
  * water branches, in a single edit. A selected group is same-kind ("route")
  * but not necessarily same-discipline; writing an electrical patch field to
@@ -435,6 +511,7 @@ export function renderRouteBulk(store: Store, tools: Tools, rows: RouteRows, ids
       }
     }));
   }
+  bulkContinuationRows(rows, store, routes);
   materialsRows(rows, floor);
   rows.dangerRow(t("panel.deleteOpening"), () => tools.deleteSelected());
 }

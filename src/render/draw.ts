@@ -1,9 +1,9 @@
 // Full scene render. Immediate mode: redraw everything on change (documents at
 // this scale render in well under a frame). Layers: grid, rooms, walls,
-// opening decorations, routes, cabinets, symbols, stairs, selection, labels
+// opening decorations, routes, furnishings, symbols, stairs, selection, labels
 // (labels in screen space).
-import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, videsOf, cabinetsOf, fireLabel, Underlay } from "../model/doc";
-import { Resolved, OpeningGeom } from "../core/resolve";
+import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, videsOf, furnishingsOf, fireLabel, Underlay, Wall, Id } from "../model/doc";
+import { Resolved, OpeningGeom, Junction, ResolvedWall } from "../core/resolve";
 import { Room, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
 import { Selection } from "../model/store";
 import { Viewport } from "./viewport";
@@ -11,9 +11,10 @@ import { Vec, add, sub, scale, perp, v, angleOf, dist, fromAngle } from "../geom
 import { getSymbol } from "./symbols";
 import { drawStair, drawStairGhost } from "./stair";
 import { drawVide } from "./vide";
-import { drawCabinet } from "./cabinet";
-import { drawRoute } from "./route";
+import { drawFurnishing } from "./furnishing";
+import { drawRoute, drawRiserMarks } from "./route";
 import { resolveRoutes, resolveRoutePoints } from "../core/route";
+import type { ResolvedRiserMark } from "../core/continuation";
 import {
   routeWater, routeKind, routeVeins, routeDiameter, routeVent, routeDuctDiameter,
   routeFlow, type Route, type Discipline, type RouteWater,
@@ -22,6 +23,7 @@ import { ROOM_NAME_PX } from "../model/room";
 import { resolveStair } from "../core/stair";
 import { t } from "../i18n";
 import { gridSteps, GridSteps } from "./grid";
+import { LAYER_OF_CATEGORY, layerAlpha, type LayerFlags, type LayerKey } from "./layers";
 
 export const COLORS = {
   bg: "#f4f2ec",
@@ -33,6 +35,15 @@ export const COLORS = {
   hud: "#a7a293",
   wallFill: "#3d4148",
   wallStroke: "#26292e",
+  /**
+   * A glazed wall's body. Deliberately neither poché nor paper: a cool wash
+   * reads as glass, and it still cuts the room tint underneath, so the band is
+   * legible as a wall rather than as a gap where one was never drawn. Light
+   * enough that the two faces and the stijlen drawn over it stay the thing seen.
+   */
+  glassFill: "#dfe8ee",
+  /** The faces and stijlen of a glazed wall: the glazing line, not masonry. */
+  glassStroke: "#5b7183",
   opening: "#3d4148",
   symbol: "#4a5568",
   select: "#e05d2d",
@@ -145,6 +156,93 @@ export function symbolInk(s: { color?: string }): string {
   return s.color && HEX.test(s.color) ? s.color : COLORS.symbol;
 }
 
+/** Linear blend of two "#rrggbb" colours, `k` of the way from `a` to `b`. */
+function mix(a: string, b: string, k: number): string {
+  const ch = (hex: string, i: number): number => parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
+  const out = [0, 1, 2]
+    .map(i => Math.round(ch(a, i) + (ch(b, i) - ch(a, i)) * k))
+    .map(n => Math.max(0, Math.min(255, n)).toString(16).padStart(2, "0"));
+  return "#" + out.join("");
+}
+
+/**
+ * How one wall's body is painted: the poché and the line around it.
+ *
+ * Two things vary. A colour is a statement about the work — red is what is to
+ * be built — so it takes the FILL and not merely the outline, which is what a
+ * verbouwtekening means by drawing a wall in red. A material changes the
+ * drawing only for glass, which has no poché at all: there the ink goes on the
+ * faces and the body keeps a wash.
+ */
+export interface WallPen {
+  /** The poché, or a glazed wall's wash. */
+  fill: string;
+  /** The line around the body. */
+  stroke: string;
+  /**
+   * What is drawn OVER the body: this wall's openings and its stijlen. Separate
+   * from `stroke` because an uncoloured wall's decorations are lighter than its
+   * outline (COLORS.opening against COLORS.wallStroke) and always have been;
+   * only a wall that states a colour pulls both onto one pen.
+   */
+  mark: string;
+  glazed: boolean;
+}
+
+/** The default masonry pen, and what a junction falls back to. */
+const MASONRY_PEN: WallPen = {
+  fill: COLORS.wallFill, stroke: COLORS.wallStroke, mark: COLORS.opening, glazed: false,
+};
+
+/** Outline of a coloured poché: the same pen, darkened, as wallStroke is to wallFill. */
+const STROKE_SHADE = 0.37;
+/** A coloured glazed body: the ink at a wash, so the faces over it still read. */
+const GLASS_WASH = 0.82;
+
+/**
+ * The pen one wall draws with. Validated rather than trusted, for the reason
+ * symbolInk() documents: canvas ignores an invalid fillStyle instead of
+ * throwing, so a bad value out of a pasted document would paint this wall in
+ * whatever colour was set last.
+ */
+export function wallPen(w: Pick<Wall, "color" | "material">): WallPen {
+  const ink = w.color && HEX.test(w.color) ? w.color : null;
+  if (w.material === "glass") {
+    return {
+      fill: ink ? mix(ink, COLORS.bg, GLASS_WASH) : COLORS.glassFill,
+      stroke: ink ?? COLORS.glassStroke,
+      mark: ink ?? COLORS.glassStroke,
+      glazed: true,
+    };
+  }
+  return ink
+    ? { fill: ink, stroke: mix(ink, "#000000", STROKE_SHADE), mark: ink, glazed: false }
+    : MASONRY_PEN;
+}
+
+/** A selected wall's fill: its own pen pulled toward the selection orange, so a
+ *  red wall and a glazed one both still read as themselves while picked. */
+export const selectedFill = (pen: WallPen): string => mix(pen.fill, COLORS.select, 0.18);
+
+/**
+ * The pen a junction wedge takes. The wedge belongs to no single wall, so it
+ * can only draw in what its neighbours agree on; where they disagree — glass
+ * meeting masonry, or a new wall meeting an existing one — it draws as ordinary
+ * masonry, which is the material that actually runs through such a junction.
+ */
+export function junctionPen(j: Junction, walls: ReadonlyMap<Id, ResolvedWall>): WallPen {
+  const first = walls.get(j.walls[0] ?? "");
+  if (!first) return MASONRY_PEN;
+  const pen = wallPen(first.wall);
+  for (const id of j.walls) {
+    const rw = walls.get(id);
+    if (!rw) return MASONRY_PEN;
+    const other = wallPen(rw.wall);
+    if (other.fill !== pen.fill || other.stroke !== pen.stroke) return MASONRY_PEN;
+  }
+  return pen;
+}
+
 /**
  * The storey below, drawn faintly beneath the active one: its resolved walls,
  * to line storeys up, and the floor itself for the flight that climbs out of
@@ -165,12 +263,14 @@ export interface DrawExtras {
   hoverSnap?: Vec | null;
   ghost?: GhostFloor | null;
   /**
-   * Selected alongside `sel`, by id and of its kind — the cabinets a
+   * Selected alongside `sel`, by id and of its kind — the furnishings a
    * shift-click has added to the one the property pane edits. Every one of
    * them carries the selection frame; the drawing must not say that only the
    * last one clicked will move.
    */
   selMore?: readonly string[];
+  /** Derived cross-floor marks for the active storey. */
+  riserMarks?: readonly ResolvedRiserMark[];
   /** False for exports: no grid, and no legend describing one. */
   showGrid?: boolean;
   /**
@@ -184,18 +284,33 @@ export interface DrawExtras {
    */
   showUnderlay?: boolean;
   /**
-   * Per-discipline visibility (Tools.showRoutes). Absent, or a discipline
-   * missing from it, means visible -- an export that never sets this (PNG
-   * included; see io/image.ts) draws every route regardless of what a live
-   * editor's toggles happen to say, since it has no Tools to read them from.
+   * Per-layer visibility (Tools.layers). Absent, or a layer missing from it,
+   * means visible -- an export that never sets this (PNG included; see
+   * io/image.ts) draws every layer regardless of what a live editor's toggles
+   * happen to say, since it has no Tools to read them from.
    */
-  showRoutes?: Record<Discipline, boolean>;
+  layers?: LayerFlags;
+  /**
+   * Layers the armed tool cannot act on, drawn faded rather than hidden so the
+   * work still has its context. Absent everywhere but the live canvas.
+   */
+  dimLayers?: readonly LayerKey[];
   /**
    * Called once when a cached underlay image finishes decoding, so the host
    * can redraw with it visible. Unused, and safe to omit, wherever
    * showUnderlay is never true (every offscreen/export render).
    */
   requestRedraw?: () => void;
+  /**
+   * The select tool's multi-select mode, when it is live (Tools.selectModeBadge):
+   * `n` gathered so far, and the top inset the badge must clear. Draws a badge
+   * over the plan, because in that mode a tap adds and removes instead of
+   * replacing and nothing else on the canvas says so.
+   *
+   * Editor state, not drawing: absent on the loupe and on every export, which
+   * is what keeps it out of the PNG.
+   */
+  selectMode?: { n: number; top: number } | null;
   preview?: ((ctx: CanvasRenderingContext2D, vp: Viewport) => void) | null;
 }
 
@@ -248,7 +363,7 @@ export function drawScene(
   // alongside it -- a shift-click, a touch hold, or a marquee's catch all
   // draw the same frame, not just the one clicked or picked last. One helper
   // so every kind below routes selection highlighting through the same
-  // check, the way the cabinet path already did before this generalised it.
+  // check, the way the fit-out path already did before this generalised it.
   const isSel = (kind: Selection["kind"], id: string): boolean =>
     sel?.kind === kind && (sel.id === id || extras.selMore?.includes(id) === true);
 
@@ -317,16 +432,28 @@ export function drawScene(
   // Walls.
   for (const rw of resolved.walls.values()) {
     const wallSel = isSel("wall", rw.wall.id);
+    const pen = wallPen(rw.wall);
+    const line = wallSel ? COLORS.select : pen.stroke;
     for (const piece of rw.pieces) {
       ctx.beginPath();
       tracePoly(ctx, piece.poly);
-      ctx.fillStyle = wallSel ? "#5a4638" : COLORS.wallFill;
+      ctx.fillStyle = wallSel ? selectedFill(pen) : pen.fill;
       ctx.fill();
-      ctx.strokeStyle = wallSel ? COLORS.select : COLORS.wallStroke;
+      ctx.strokeStyle = line;
       ctx.lineWidth = (wallSel ? 2 : 1) * px;
       ctx.stroke();
     }
-    for (const og of rw.openings) drawOpening(ctx, og, px, isSel("opening", og.opening.id));
+    // Stijlen, over the glazing they divide. Empty for every solid wall.
+    if (rw.mullions.length > 0) {
+      ctx.beginPath();
+      for (const m of rw.mullions) { ctx.moveTo(m.a.x, m.a.y); ctx.lineTo(m.b.x, m.b.y); }
+      ctx.strokeStyle = wallSel ? COLORS.select : pen.mark;
+      ctx.lineWidth = px;
+      ctx.stroke();
+    }
+    // An opening states the same work its wall does, so it draws in the wall's
+    // pen: a new door in a new wall is red throughout, not red with a black door.
+    for (const og of rw.openings) drawOpening(ctx, og, px, isSel("opening", og.opening.id), pen.mark);
   }
 
   // Junction fill goes on top of the wall pieces: it closes the wedge a T-shaped
@@ -335,46 +462,79 @@ export function drawScene(
   for (const j of resolved.junctions) {
     ctx.beginPath();
     tracePoly(ctx, j.poly);
-    ctx.fillStyle = COLORS.wallFill;
+    ctx.fillStyle = junctionPen(j, resolved.walls).fill;
     ctx.fill();
   }
 
   // Routes: a services overlay. Drawn over the masonry, so a duct reads as
   // crossing a wall in plan the way it does on an installation drawing, and
-  // under the cabinets and symbols that follow so a socket or tap placed on
+  // under the fit-out and symbols that follow so a socket or tap placed on
   // top of a run stays the thing actually read there.
-  const visibleRoutes = resolveRoutes(floor).filter(rr => extras.showRoutes?.[rr.route.discipline] !== false);
+  const alphaOf = (key: LayerKey): number => layerAlpha(key, extras.layers, extras.dimLayers);
+  /** Draw `fn`'s work at the layer's alpha, or not at all when it is hidden. */
+  const onLayer = (key: LayerKey, fn: () => void): void => {
+    const alpha = alphaOf(key);
+    if (alpha === 0) return;
+    if (alpha === 1) { fn(); return; }
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    fn();
+    ctx.restore();
+  };
+
+  const visibleRoutes = resolveRoutes(floor).filter(rr => alphaOf(rr.route.discipline) > 0);
+  const linkedByRoute = new Map<string, Set<string>>();
+  for (const mark of extras.riserMarks ?? []) for (const member of mark.members) {
+    const set = linkedByRoute.get(member.routeId) ?? new Set<string>();
+    set.add(member.pointId);
+    linkedByRoute.set(member.routeId, set);
+  }
   for (let routeIndex = 0; routeIndex < visibleRoutes.length; routeIndex++) {
     const rr = visibleRoutes[routeIndex]!;
     const route = rr.route;
     const ink = routeInk(route.discipline, route.discipline === "water" ? routeWater(route) : undefined);
-    drawRoute(ctx, rr, route.points, resolveRoutePoints(floor, route), {
-      ink,
-      selected: isSel("route", route.id),
-      select: COLORS.select, wash: COLORS.selectWash,
+    onLayer(route.discipline, () => {
+      drawRoute(ctx, rr, route.points, resolveRoutePoints(floor, route), {
+        ink,
+        selected: isSel("route", route.id),
+        select: COLORS.select, wash: COLORS.selectWash,
+      }, linkedByRoute.get(route.id));
+      const longest = [...rr.segments].sort((a, b) => dist(b.a, b.b) - dist(a.a, a.b))[0];
+      if (longest) {
+        // Stagger labels along parallel lanes so three labels do not form one
+        // unclickable stack at the shared midpoint.
+        const frac = 0.32 + (routeIndex % 3) * 0.18;
+        drawLabel(ctx, vp, add(longest.a, scale(sub(longest.b, longest.a), frac)), routeMapLabel(route), ink);
+      }
     });
-    const longest = [...rr.segments].sort((a, b) => dist(b.a, b.b) - dist(a.a, a.b))[0];
-    if (longest) {
-      // Stagger labels along parallel lanes so three labels do not form one
-      // unclickable stack at the shared midpoint.
-      const frac = 0.32 + (routeIndex % 3) * 0.18;
-      drawLabel(ctx, vp, add(longest.a, scale(sub(longest.b, longest.a), frac)), routeMapLabel(route), ink);
+  }
+  const visibleMarks = (extras.riserMarks ?? []).filter(mark => alphaOf(mark.discipline) > 0);
+  const selectedRoutes = new Set(sel?.kind === "route" ? [sel.id, ...(extras.selMore ?? [])] : []);
+  for (const mark of visibleMarks) {
+    onLayer(mark.discipline, () => {
+      drawRiserMarks(ctx, [mark], selectedRoutes, m => routeInk(m.discipline));
+    });
+  }
+
+  // The fit-out, over the masonry and under the symbols. A unit stands against
+  // a wall, so the wall draws first and takes the back edge with it; a socket
+  // or a tap drawn on a unit has to stay visible over its front.
+  onLayer("furnishing", () => {
+    for (const fn of furnishingsOf(floor)) {
+      drawFurnishing(ctx, fn, {
+        px, ink: symbolInk(fn),
+        selected: isSel("furnishing", fn.id),
+        select: COLORS.select, wash: COLORS.selectWash,
+      });
     }
-  }
+  });
 
-  // Cabinetry, over the masonry and under the symbols. A unit stands against a
-  // wall, so the wall draws first and takes the back edge with it; a socket or
-  // a tap drawn on a unit has to stay visible over its front.
-  for (const c of cabinetsOf(floor)) {
-    drawCabinet(ctx, c, {
-      px, ink: symbolInk(c),
-      selected: isSel("cabinet", c.id),
-      select: COLORS.select, wash: COLORS.selectWash,
-    });
+  // Symbols, each on the layer of its own discipline.
+  for (const s of floor.symbols) {
+    const cat = getSymbol(s.type)?.category;
+    const key = cat ? LAYER_OF_CATEGORY[cat] : "furnishing";
+    onLayer(key, () => drawSymbol(ctx, s, px, isSel("symbol", s.id)));
   }
-
-  // Symbols.
-  for (const s of floor.symbols) drawSymbol(ctx, s, px, isSel("symbol", s.id));
 
   // Stairs last, over the symbols. Their own wash goes down first, so whatever
   // a flight crosses -- walls, a room tint, a symbol beneath it -- recedes
@@ -444,6 +604,7 @@ export function drawScene(
   }
 
   if (steps) drawGridLegend(ctx, canvasH, gridMm, steps, areaMode, dimMode);
+  if (extras.selectMode) drawSelectModeBadge(ctx, canvasW, extras.selectMode);
 
   // Selected node handle & wall handles drawn by tools layer via preview.
   ctx.restore();
@@ -501,13 +662,42 @@ function drawGridLegend(
   ctx.fillText(text, 10, h - 10);
 }
 
+/**
+ * The select tool's mode badge: a pill at the top of the canvas naming the
+ * mode and the count. Top-centre rather than beside the grid legend, because
+ * the legend describes the drawing and this describes what the next tap will
+ * do; centred, it is also clear of both layouts' chrome once `top` insets it.
+ *
+ * Filled in the selection colour, the same colour the gathered objects are
+ * outlined in, so the badge and what it counts read as one thing.
+ */
+function drawSelectModeBadge(
+  ctx: CanvasRenderingContext2D, w: number, mode: { n: number; top: number },
+): void {
+  const text = t("hint.selectModeBadge", { n: mode.n });
+  ctx.font = "600 12px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const padX = 12, h = 24;
+  const boxW = ctx.measureText(text).width + padX * 2;
+  const x = Math.round(w / 2 - boxW / 2), y = Math.round(mode.top + 10);
+  ctx.fillStyle = COLORS.select;
+  ctx.beginPath();
+  ctx.roundRect(x, y, boxW, h, h / 2);
+  ctx.fill();
+  ctx.fillStyle = COLORS.bg;
+  ctx.fillText(text, x + boxW / 2, y + h / 2 + 0.5);
+}
+
 function fmtMm(mm: number): string {
   return mm >= 1000 ? `${+(mm / 1000).toFixed(2)} m` : `${mm} mm`;
 }
 
-function drawOpening(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number, isSel: boolean): void {
+function drawOpening(
+  ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number, isSel: boolean, ink: string,
+): void {
   const o = og.opening;
-  const color = isSel ? COLORS.select : COLORS.opening;
+  const color = isSel ? COLORS.select : ink;
   ctx.strokeStyle = color;
   ctx.lineWidth = (isSel ? 2 : 1.2) * px;
 

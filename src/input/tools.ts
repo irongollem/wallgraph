@@ -3,9 +3,9 @@
 import { Store, MULTI_SELECT_KINDS, type Selection } from "../model/store";
 import { marqueePick, type MarqueeRect } from "./marquee";
 import {
-  Floor, Wall, Opening, PlanNode, SymbolInstance, Id, newId, stairsOf, videsOf, cabinetsOf,
+  Floor, Wall, Opening, PlanNode, SymbolInstance, Id, newId, stairsOf, videsOf, furnishingsOf,
   routesOf, roomNamesOf, floorHeight, DOOR_DEFAULT_WIDTH, WINDOW_DEFAULT_WIDTH, PASSAGE_DEFAULT_WIDTH,
-  OpeningKind, FireRating, dimModeOf,
+  OpeningKind, FireRating, dimModeOf, WallMaterial,
 } from "../model/doc";
 import type { RoomUse } from "../model/room";
 import {
@@ -14,8 +14,9 @@ import {
 } from "../model/stair";
 import { Vide, VideSize, VIDE_DEFAULT, clampVide } from "../model/vide";
 import {
-  Cabinet, CabinetSpec, cabinetDefaults, cabinetPreset, clampCabinet,
-} from "../model/cabinet";
+  Furnishing, FurnishingSpec, furnishingDefaults, furnishingPreset, furnishingClass,
+  furnishingWallMounted, clampFurnishing, writeSpec,
+} from "../model/furnishing";
 import {
   Route, RoutePoint, RouteSegment, Discipline, RouteKind, ROUTE_VEINS_DEFAULT, clampRouteVeins,
   RouteWater, routeWater, clampRouteDiameter, defaultRouteDiameter,
@@ -41,20 +42,23 @@ import { stairHit, resolveStair, stairBox, stairCorners, stairIssues, gradient }
 import { drawStairGhost } from "../render/stair";
 import { videHit, videCorners } from "../core/vide";
 import { drawVideGhost } from "../render/vide";
-import { cabinetHit, cabinetBox, cabinetCorners } from "../core/cabinet";
+import { furnishingHit, furnishingBox, furnishingCorners } from "../core/furnishing";
 import { turnAbout } from "../core/placed";
-import { drawCabinetGhost } from "../render/cabinet";
+import { drawFurnishingGhost } from "../render/furnishing";
 import { planBounds, polyBounds, Bounds } from "../core/bounds";
 import { Room, roomAnchor, orphanedRoomNames } from "../core/rooms";
 import { drawLabel, COLORS, symbolInk, routeInk } from "../render/draw";
 import { ROUTE_VENT_EXTRA_MM, LINE_WIDTH_MM } from "../render/route";
+import {
+  LAYER_KEYS, LAYER_OF_CATEGORY, allLayersOn, type LayerFlags, type LayerKey,
+} from "../render/layers";
 import { Resolved, ResolvedWall } from "../core/resolve";
 import { dimensionChains, DimChain } from "../core/dimensions";
 import { t } from "../i18n";
 
 export type ToolName =
   | "select" | "wall" | "door" | "window" | "passage" | "symbol" | "stair" | "vide"
-  | "cabinet" | "route" | "zoom";
+  | "furnishing" | "route" | "zoom";
 
 /** Finger travel that still counts as a tap rather than a drag. */
 const TAP_SLOP_PX = 10;
@@ -90,7 +94,7 @@ const MIN_ROUTE_STEP_MM = MIN_WALL_MM;
 export interface SnapResult { p: Vec; kind: "node" | "wall" | "grid" | "free"; wall?: Wall; tMm?: number; node?: PlanNode }
 
 interface DragState {
-  kind: "node" | "wall" | "symbol" | "stair" | "vide" | "cabinet"
+  kind: "node" | "wall" | "symbol" | "stair" | "vide" | "furnishing"
       | "bow" | "opening" | "pan" | "zoomBox" | "routeVertex" | "marquee";
   id?: string;
   wallId?: string;
@@ -145,6 +149,17 @@ export class Tools {
    * standing choice rather than something to set twenty times afterwards.
    */
   symbolColor: string | null = null;
+
+  /**
+   * What the next wall is built of and drawn in, armed the same way
+   * lastThickness and symbolColor are. A glazed partition is a run of walls and
+   * so is a demolition, so both are a standing choice rather than something to
+   * set again on every wall struck out. null = the plan's default masonry, and
+   * `wallMullionMm` is read only while `wallMaterial` is "glass".
+   */
+  wallColor: string | null = null;
+  wallMaterial: WallMaterial | null = null;
+  wallMullionMm: number | null = null;
 
   /**
    * The stair the tool will place next. Unlike a symbol, a stair carries its
@@ -216,7 +231,11 @@ export class Tools {
    * discipline; see io/svg.ts and io/dxf.ts). All true by default: a floor
    * with routes on it opens showing them.
    */
-  showRoutes: Record<Discipline, boolean> = { electrical: true, water: true, vent: true, gas: true };
+  /**
+   * Which layers the canvas draws. Off hides a layer outright; see
+   * dimLayers() for the softer version the armed tool applies by itself.
+   */
+  layers: LayerFlags = allLayersOn();
   /** World point the in-progress route chain last placed a point at, or null
    *  when no chain is open. */
   private routeStart: Vec | null = null;
@@ -237,14 +256,14 @@ export class Tools {
   } | null = null;
 
   /**
-   * The cabinet the tool will place next, and the named preset it came from.
-   * Like a stair, a cabinet carries its size in the document, so the tool holds
-   * a full specification rather than a type.
+   * The furnishing the tool will place next, and the named preset it came from.
+   * Like a stair, a furnishing carries its size in the document, so the tool
+   * holds a full specification rather than a type.
    */
-  cabinetSpec: CabinetSpec = cabinetDefaults("base");
-  cabinetPresetId = "onderkast";
-  cabinetRotation = 0;
-  cabinetMirrored = false;
+  furnishingSpec: FurnishingSpec = furnishingDefaults("cabinet");
+  furnishingPresetId = "onderkast";
+  furnishingRotation = 0;
+  furnishingMirrored = false;
 
   /**
    * What the next opening is placed at. Openings used to be placed at one fixed
@@ -342,8 +361,8 @@ export class Tools {
   touchUi = false;
 
   /**
-   * The iOS-style "edit mode" a long-press (mouse or touch, see
-   * selectDownHold() below) drops the select tool into: a plain tap toggles
+   * The iOS-style "edit mode" a touch/pen long-press (see selectDownHold()
+   * below) drops the select tool into: a plain tap toggles
    * an object's membership through selectAlso() instead of replacing it, and a
    * tap on empty paper is a no-op rather than a deselect -- so a many-item
    * gather is never lost to a stray tap. Editor state, never the document;
@@ -408,10 +427,12 @@ export class Tools {
       this.shiftKey = false;
       this.shiftChanged();
     });
-    // undo()/redo()/replace() can empty the selection directly (not through
-    // exitSelectMode()) -- e.g. undoing back past the object that was being
-    // bulk-edited. Notice it here so the compact layout's "Done (n)" pill
-    // does not linger over an empty selection.
+    // An empty selection ends the mode, wherever the emptying came from: a
+    // press on empty paper (selectDown's last branch, the canvas's own way
+    // out of the mode), or undo()/redo()/replace() clearing it directly --
+    // e.g. undoing back past the object that was being bulk-edited. Noticing
+    // it in one place is also what keeps the compact layout's "Done (n)" pill
+    // and the canvas badge from lingering over nothing.
     store.onChange(() => {
       if (this.selectMode && !this.store.sel) this.exitSelectMode();
     });
@@ -471,25 +492,57 @@ export class Tools {
     this.requestRender();
   }
 
-  /** Arm a named unit: an onderkast, a ladenkast, a garderobekast. */
-  setCabinetPreset(id: string): void {
-    const p = cabinetPreset(id);
-    if (!p) return;
-    this.cabinetPresetId = id;
-    const { id: _drop, ...spec } = p;
-    this.cabinetSpec = spec;
-    this.setTool("cabinet");
+  /**
+   * The layers the armed tool cannot act on, faded rather than hidden so the
+   * work keeps its context. Drawing walls with every socket, duct and radiator
+   * at full ink is reading four drawings to edit one; a services run, on the
+   * other hand, is set out against the fit-out, so that stays.
+   *
+   * The fabric itself is never dimmed -- it is what everything else is placed
+   * against, which is why it has no layer key (see render/layers.ts).
+   */
+  dimLayers(): LayerKey[] {
+    const services = LAYER_KEYS.filter(k => k !== "furnishing" && k !== "safety");
+    switch (this.tool) {
+      case "wall": case "door": case "window": case "passage": case "stair": case "vide":
+        return [...LAYER_KEYS];
+      case "furnishing":
+        return services;
+      case "route":
+        return LAYER_KEYS.filter(k => k !== this.routeDiscipline && k !== "furnishing");
+      case "symbol": {
+        const cat = getSymbol(this.symbolType)?.category;
+        if (!cat) return [];
+        const key = LAYER_OF_CATEGORY[cat];
+        // Safety equipment is placed with the fit-out, so it fades the same
+        // things the fit-out tool does.
+        if (key === "safety") return services;
+        return LAYER_KEYS.filter(k => k !== key && k !== "furnishing");
+      }
+      default:
+        return [];
+    }
   }
 
-  /** Tune the armed unit. The preset id follows what the fields now say. */
-  setCabinetSpec(spec: CabinetSpec): void {
-    this.cabinetSpec = clampCabinet(spec);
+  /** Arm a named piece: an onderkast, een bad, een tweepersoonsbed. */
+  setFurnishingPreset(id: string): void {
+    const p = furnishingPreset(id);
+    if (!p) return;
+    this.furnishingPresetId = id;
+    const { id: _dropId, group: _dropGroup, ...spec } = p;
+    this.furnishingSpec = spec;
+    this.setTool("furnishing");
+  }
+
+  /** Tune the armed piece. The preset id follows what the fields now say. */
+  setFurnishingSpec(spec: FurnishingSpec): void {
+    this.furnishingSpec = clampFurnishing(spec);
     this.onToolChange();
     this.requestRender();
   }
 
-  setCabinetRotation(radians: number): void {
-    this.cabinetRotation = stairAngle(radians);
+  setFurnishingRotation(radians: number): void {
+    this.furnishingRotation = stairAngle(radians);
     this.onToolChange();
     this.requestRender();
   }
@@ -520,6 +573,31 @@ export class Tools {
   /** Arm a pen. Redraws so the placement ghost shows the colour it will land in. */
   setSymbolColor(hex: string | null): void {
     this.symbolColor = hex;
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /**
+   * Stamp the armed pen onto walls that were just struck out.
+   *
+   * insertWall/insertRun return only the walls they CREATED — an existing wall
+   * that was split to weld the new one into it stays in `f.walls` and never
+   * appears here — so this cannot recolour work that was already on the plan.
+   */
+  private armWalls(made: Wall[]): void {
+    for (const w of made) {
+      if (this.wallColor) w.color = this.wallColor;
+      if (this.wallMaterial) w.material = this.wallMaterial;
+      if (this.wallMaterial === "glass" && this.wallMullionMm) w.mullionMm = this.wallMullionMm;
+    }
+  }
+
+  /** Arm the wall pen. Redraws so the draft wall shows what it will land as. */
+  setWallPen(patch: Partial<Pick<Tools, "wallColor" | "wallMaterial" | "wallMullionMm">>): void {
+    Object.assign(this, patch);
+    // Glazing carries the spacing; a wall that is not glass has no stijlen to
+    // space, so the armed number goes with the material rather than lingering.
+    if (this.wallMaterial !== "glass") this.wallMullionMm = null;
     this.onToolChange();
     this.requestRender();
   }
@@ -669,7 +747,7 @@ export class Tools {
     if (!this.canCloseChain) return;
     const from = this.chainStartNode!, to = this.chainFirstNode!;
     this.store.mutate(doc => {
-      insertWall(this.store.floorOf(doc), from, to, this.lastThickness);
+      this.armWalls(insertWall(this.store.floorOf(doc), from, to, this.lastThickness));
     });
     this.endChain();
   }
@@ -936,9 +1014,9 @@ export class Tools {
     const sel = this.store.sel;
     if (!sel) return null;
     const f = this.floor;
-    if (sel.kind === "cabinet") {
-      const group = this.store.selectedOf("cabinet");
-      const pts = cabinetsOf(f).filter(c => group.includes(c.id)).flatMap(cabinetCorners);
+    if (sel.kind === "furnishing") {
+      const group = this.store.selectedOf("furnishing");
+      const pts = furnishingsOf(f).filter(c => group.includes(c.id)).flatMap(furnishingCorners);
       return pts.length > 0 ? polyBounds(pts) : null;
     }
     if (sel.kind === "stair") {
@@ -1054,7 +1132,7 @@ export class Tools {
       case "symbol": this.placeSymbol(); break;
       case "stair": this.placeStair(); break;
       case "vide": this.placeVide(); break;
-      case "cabinet": this.placeCabinet(); break;
+      case "furnishing": this.placeFurnishing(); break;
       case "route": this.routeClick(); break;
       // zoom acted on contact; its release is handled as a zoomBox drag.
       case "zoom": break;
@@ -1152,10 +1230,15 @@ export class Tools {
       case "symbol": this.placeSymbol(); break;
       case "stair": this.placeStair(); break;
       case "vide": this.placeVide(); break;
-      case "cabinet": this.placeCabinet(); break;
+      case "furnishing": this.placeFurnishing(); break;
       case "route": this.routeClick(); break;
       case "zoom": this.zoomDown(s, w); return;
-      case "select": this.selectDownHold(s, w); break;
+      // No hold on the mouse path: a click that pauses before it moves -- press,
+      // read the plan, then drag -- is an ordinary drag, and arming the hold here
+      // fired mid-hesitation, abandoned the drag and toggled the object into a
+      // mode instead. Desktop builds a group with Shift+click and Shift+drag,
+      // which the touch path has no equivalent for; see selectDownHold().
+      case "select": this.selectDown(s, w); break;
     }
   }
 
@@ -1300,7 +1383,7 @@ export class Tools {
         const endSnap = this.lengthBuffer ? null : snap;
         const nEnd = endSnap ? this.anchorNode(f, endSnap, target) : nodeAt(f, target);
         if (nEnd.id === startId) return;
-        insertWall(f, startId, nEnd.id, this.lastThickness);
+        this.armWalls(insertWall(f, startId, nEnd.id, this.lastThickness));
         this.chainStart = v(nEnd.x, nEnd.y);
         this.chainStartNode = nEnd.id;
       });
@@ -1344,7 +1427,7 @@ export class Tools {
     // gesture away, since this is what a double click on one spot produces.
     if (!run) return;
     this.store.mutate(doc => {
-      insertRun(this.store.floorOf(doc), run.points, run.bulges, this.lastThickness);
+      this.armWalls(insertRun(this.store.floorOf(doc), run.points, run.bulges, this.lastThickness));
     });
     this.shapeStart = null;
     this.updateHint();
@@ -1625,7 +1708,7 @@ export class Tools {
   private routeWallHug(p: Vec, installation: RouteInstallation = this.routeInstallation): {
     p: Vec; wallId: Id; wallT: number; wallSide: 1 | -1;
   } | null {
-    if (!this.snapWall || installation === "free") return null;
+    if (!this.snapWall || (installation !== "concealed" && installation !== "surface")) return null;
     const f = this.floor;
     const nw = nearestWall(f, p, Math.max(WALL_SNAP_MIN_MM, 30 / this.vp.pxPerMm));
     if (!nw) return null;
@@ -1707,22 +1790,38 @@ export class Tools {
       };
     }
 
-    let bestSym: SymbolInstance | null = null, bestD = Infinity;
+    // What this discipline's run may end at: the symbols of its own trade, and
+    // the fit-out that is plumbed or wired -- a run ends at a fornuis, a
+    // wastafel or an afzuigkap as readily as at a socket. Alt overrides the
+    // check, for the run this list did not anticipate.
+    let bestAnchor: { id: Id; x: number; y: number } | null = null, bestD = Infinity;
+    const consider = (item: { id: Id; x: number; y: number }, compatible: boolean): void => {
+      if (!compatible && !this.altKey) return;
+      const d = dist(v(item.x, item.y), raw);
+      if (d <= tol && d < bestD) { bestAnchor = item; bestD = d; }
+    };
     for (const s of f.symbols) {
       const def = getSymbol(s.type);
-      const compatible = def && (
+      consider(s, !!def && (
         (discipline === "electrical" && def.category === "electrical")
-        || (discipline === "water" && (waterKind === "afvoer"
-          ? ["sanitary", "kitchen"].includes(def.category)
-          : ["water", "sanitary", "kitchen"].includes(def.category)))
+        || (discipline === "water" && def.category === "water")
         || (discipline === "vent" && def.category === "ventilation")
-        || (discipline === "gas" && ["heating", "kitchen"].includes(def.category))
-      );
-      if (!compatible && !this.altKey) continue;
-      const d = dist(v(s.x, s.y), raw);
-      if (d <= tol && d < bestD) { bestSym = s; bestD = d; }
+        || (discipline === "gas" && def.category === "heating")
+      ));
     }
-    if (bestSym) return { p: v(bestSym.x, bestSym.y), anchor: bestSym.id };
+    for (const fn of furnishingsOf(f)) {
+      const trade = furnishingClass(fn.form);
+      consider(fn, (discipline === "water" && trade === "sanitary")
+        // Drainage reaches the fixtures; supply reaches the appliances too.
+        || (discipline === "water" && waterKind !== "afvoer" && trade === "appliance")
+        || (discipline === "electrical" && trade === "appliance")
+        || (discipline === "vent" && fn.form === "appliance" && fn.mark === "hood")
+        || (discipline === "gas" && fn.form === "appliance"));
+    }
+    if (bestAnchor) {
+      const hit: { id: Id; x: number; y: number } = bestAnchor;
+      return { p: v(hit.x, hit.y), anchor: hit.id };
+    }
 
     for (const n of f.nodes) {
       if (dist(v(n.x, n.y), raw) <= tol) return { p: v(n.x, n.y) };
@@ -1880,7 +1979,11 @@ export class Tools {
     let best: { route: Route; resolved: ResolvedRoute; distance: number } | undefined;
     for (let i = all.length - 1; i >= 0; i--) {
       const rr = all[i]!;
-      const distance = routeDistance(rr, w);
+      // A cross-floor starter has one point and no local segment yet. Its
+      // riser mark must still be selectable so the route tool can grow it.
+      const pointDistance = resolveRoutePoints(this.floor, rr.route)
+        .reduce((d, point) => Math.min(d, dist(point, w)), Infinity);
+      const distance = Math.min(routeDistance(rr, w), pointDistance);
       if (distance <= tol && (!best || distance < best.distance)) {
         best = { route: rr.route, resolved: rr, distance };
       }
@@ -1888,39 +1991,42 @@ export class Tools {
     return best;
   }
 
-  // ---- cabinets ----
+  // ---- furnishings ----
   /**
-   * Where the cabinet lands for the current cursor.
+   * Where the piece lands for the current cursor.
    *
-   * Cabinetry stands against a wall, so it takes the wall snap a wall-mounted
-   * symbol does. On top of that it snaps end-to-end with cabinets already
-   * placed: a kitchen is a RUN of units butted together, and lining each one up
-   * by eye against the last is the work the module widths exist to avoid.
+   * Cabinetry, appliances and sanitair stand against a wall, so they take the
+   * wall snap a wall-mounted symbol does, and then snap end-to-end with pieces
+   * already placed: a kitchen is a RUN of units butted together, and lining
+   * each one up by eye against the last is the work the module widths exist to
+   * avoid. A free-standing piece -- a table, a bed -- has no wall to take and
+   * no run to join, so it simply lands where the cursor is.
    */
-  private cabinetPose(): { x: number; y: number; rotation: number; mirrored: boolean } {
+  private furnishingPose(): { x: number; y: number; rotation: number; mirrored: boolean } {
+    const g = this.gridStep;
+    const loose = {
+      x: Math.round(this.cursor.x / g) * g,
+      y: Math.round(this.cursor.y / g) * g,
+      rotation: this.furnishingRotation,
+    };
+    if (!furnishingWallMounted(this.furnishingSpec.form)) {
+      return { ...loose, mirrored: this.furnishingMirrored };
+    }
     const snap = this.wallSnap();
-    const base = snap
-      ? { x: snap.x, y: snap.y, rotation: snap.rotation }
-      : (() => {
-          const g = this.gridStep;
-          return {
-            x: Math.round(this.cursor.x / g) * g,
-            y: Math.round(this.cursor.y / g) * g,
-            rotation: this.cabinetRotation,
-          };
-        })();
-    const run = this.runSnap(base, this.cabinetSpec.width);
-    return { ...base, ...run, mirrored: this.cabinetMirrored };
+    const base = snap ? { x: snap.x, y: snap.y, rotation: snap.rotation } : loose;
+    const run = this.runSnap(base, this.furnishingSpec.width);
+    return { ...base, ...run, mirrored: this.furnishingMirrored };
   }
 
   /**
-   * Pull the cabinet's end onto the end of one already placed, when the two
-   * face the same way and the ends are close. Returns the corrected anchor, or
+   * Pull the piece's end onto the end of one already placed, when the two face
+   * the same way and the ends are close. Returns the corrected anchor, or
    * nothing when no run is within reach.
    *
    * Ends are compared in world space rather than along a wall parameter, so a
    * run also closes up across a wall join and against a unit that was placed
-   * free-standing.
+   * free-standing. Only wall-mounted pieces take part: a table butted against a
+   * bath is not a run.
    */
   private runSnap(
     pose: { x: number; y: number; rotation: number }, width: number, skipId?: string,
@@ -1931,8 +2037,8 @@ export class Tools {
       [-w / 2, w / 2].map(lx => add(v(x, y), fromAngleRot(v(lx, 0), rot)));
     const mine = endsOf(pose.x, pose.y, pose.rotation, width);
     let best: { d: number; shift: Vec } | null = null;
-    for (const c of cabinetsOf(this.floor)) {
-      if (c.id === skipId) continue;
+    for (const c of furnishingsOf(this.floor)) {
+      if (c.id === skipId || !furnishingWallMounted(c.form)) continue;
       // Only units lying the same way: a run is collinear, and pulling a
       // cabinet onto one at right angles would fight the wall snap.
       const da = Math.abs(angleDelta(c.rotation, pose.rotation));
@@ -1948,38 +2054,35 @@ export class Tools {
     return { x: Math.round(pose.x + best.shift.x), y: Math.round(pose.y + best.shift.y) };
   }
 
-  private draftCabinet(id: string): Cabinet {
-    const spec = clampCabinet(this.cabinetSpec);
-    const pose = this.cabinetPose();
-    const c: Cabinet = {
-      id, kind: spec.kind,
+  private draftFurnishing(id: string): Furnishing {
+    const spec = clampFurnishing(this.furnishingSpec);
+    const pose = this.furnishingPose();
+    const f: Furnishing = {
+      id, form: spec.form,
       x: pose.x, y: pose.y, rotation: pose.rotation,
-      width: spec.width, depth: spec.depth, height: spec.height,
-      front: spec.front, hinge: spec.hinge,
+      width: spec.width, depth: spec.depth,
     };
-    if (pose.mirrored) c.mirrored = true;
-    if (spec.front === "drawers") c.drawers = spec.drawers;
-    if (spec.corner) c.corner = true;
-    if (spec.worktop) c.worktop = true;
-    if (this.symbolColor) c.color = this.symbolColor;
-    return c;
+    writeSpec(f, spec);
+    if (pose.mirrored) f.mirrored = true;
+    if (this.symbolColor) f.color = this.symbolColor;
+    return f;
   }
 
-  private placeCabinet(): void {
-    const c = this.draftCabinet(newId("k"));
+  private placeFurnishing(): void {
+    const c = this.draftFurnishing(newId("i"));
     this.store.mutate(doc => {
       const f = this.store.floorOf(doc);
-      (f.cabinets ??= []).push(c);
+      (f.furnishings ??= []).push(c);
     });
-    this.store.select({ kind: "cabinet", id: c.id });
+    this.store.select({ kind: "furnishing", id: c.id });
   }
 
-  /** Topmost cabinet whose carcass (plus the 30 mm grab margin) covers `w`. */
-  private cabinetAt(w: Vec): Cabinet | undefined {
-    const list = cabinetsOf(this.floor);
+  /** Topmost furnishing whose footprint (plus the 30 mm grab margin) covers `w`. */
+  private furnishingAt(w: Vec): Furnishing | undefined {
+    const list = furnishingsOf(this.floor);
     for (let i = list.length - 1; i >= 0; i--) {
       const c = list[i]!;
-      if (cabinetHit(c, w, 30)) return c;
+      if (furnishingHit(c, w, 30)) return c;
     }
     return undefined;
   }
@@ -2063,7 +2166,7 @@ export class Tools {
   // ---- select tool ----
   /**
    * True when a press on a selectable object should build the selection
-   * rather than replace it -- the desktop shift-click, or a touch/mouse hold
+   * rather than replace it -- the desktop shift-click, or a touch/pen hold
    * that has already dropped the tool into selectMode (see selectDownHold()).
    * One flag, so every kind below picks through the same helper instead of
    * cabinet alone special-casing shift the way it used to.
@@ -2146,12 +2249,12 @@ export class Tools {
       }
       return;
     }
-    // Cabinetry after the symbols it holds: a socket drawn on a unit's front
+    // The fit-out after the symbols it holds: a socket drawn on a unit's front
     // has to stay clickable, and a carcass is the larger target underneath.
-    const cabPick = this.cabinetAt(w);
-    if (cabPick) {
-      if (this.pick({ kind: "cabinet", id: cabPick.id })) {
-        this.drag = { kind: "cabinet", id: cabPick.id, startWorld: w, moved: false, clone: this.altKey };
+    const fitPick = this.furnishingAt(w);
+    if (fitPick) {
+      if (this.pick({ kind: "furnishing", id: fitPick.id })) {
+        this.drag = { kind: "furnishing", id: fitPick.id, startWorld: w, moved: false, clone: this.altKey };
       }
       return;
     }
@@ -2209,13 +2312,18 @@ export class Tools {
       this.drag = { kind: "marquee", startWorld: w, boxEnd: w, moved: false };
       return;
     }
-    // In selectMode a tap on empty paper is a no-op, not a deselect -- losing
-    // a many-item gather to a stray tap is exactly the failure mode the mode
-    // exists to avoid. The one thing still worth a press here otherwise is
-    // the area figure, and the name over it when there is one: it opens that
-    // room's row in the zoom pane, which is where a name is written. Held
-    // until the release so a pan that starts over a label is still a pan.
-    if (!this.selectMode) this.store.select(null);
+    // A press on empty paper clears the selection, in selectMode as much as
+    // out of it: pressing next to a thing to let go of it is what every other
+    // tool does, and a mode that swallowed the press instead left no way out
+    // of it on the canvas at all. Clearing `sel` also ends the mode -- the
+    // constructor's store.onChange() exits it whenever the selection empties,
+    // which is the same route undo already takes back past a gathered group.
+    //
+    // The one thing still worth a press here is the area figure, and the name
+    // over it when there is one: it opens that room's row in the zoom pane,
+    // which is where a name is written. Held until the release so a pan that
+    // starts over a label is still a pan.
+    this.store.select(null);
     this.drag = {
       kind: "pan", startWorld: w, moved: false, lastScreen: s, startScreen: s,
       labelRoom: this.roomLabelAt(s),
@@ -2224,12 +2332,17 @@ export class Tools {
 
   /**
    * selectDown() plus the long-press hold: enters selectMode ~500ms into a
-   * press that has not moved, on a selectable (non-node) object -- mouse or
-   * touch, one code path either way (a held mouse button doing this too is
-   * harmless, and simpler than telling the two apart). selectDown() always
-   * runs first and unchanged, so an ordinary tap/click and a tap/click-then-
-   * drag are exactly what they were before; only a press that STAYS still for
-   * the whole delay does anything extra.
+   * press that has not moved, on a selectable (non-node) object. selectDown()
+   * always runs first and unchanged, so an ordinary tap and a tap-then-drag
+   * are exactly what they were before; only a press that STAYS still for the
+   * whole delay does anything extra.
+   *
+   * Reached from the touch/pen branch of onDown() only. The mouse ran through
+   * here too and should not: a press that pauses before it moves is a normal
+   * way to start a drag, and the timer fired mid-hesitation, so the drag was
+   * abandoned and the object toggled into a mode the visitor had not asked
+   * for. Shift+click and Shift+drag build a group on desktop; a finger has
+   * neither, which is what the hold is for.
    */
   private selectDownHold(s: Vec, w: Vec): void {
     // Already in the mode: every tap already toggles (see pick()), so a
@@ -2290,6 +2403,24 @@ export class Tools {
     this.selectMode = false;
     this.updateHint();
     this.onToolChange();
+  }
+
+  /**
+   * The canvas's select-mode badge, or null while the mode is off: how many
+   * are gathered, and the chrome inset it has to clear (the compact layout
+   * floats its top bar over a full-bleed canvas -- see Panel.canvasInsets).
+   * The mode changes what a tap does, so the surface the taps land on is
+   * where it has to be legible: the panel's Done affordance can sit under a
+   * peeking sheet, and the hint line reads as one more line of hint text.
+   *
+   * Read by the live canvas alone. The loupe and every export take their
+   * DrawExtras from elsewhere and so never draw it -- an editor mode is not
+   * part of the drawing.
+   */
+  selectModeBadge(): { n: number; top: number } | null {
+    const sel = this.store.sel;
+    if (!this.selectMode || !sel) return null;
+    return { n: this.store.selectedOf(sel.kind).length, top: this.viewInsets?.().top ?? 0 };
   }
 
   /**
@@ -2397,15 +2528,15 @@ export class Tools {
    *
    * `always` is true for stair and vide, whose single-item drag was already a
    * delta nudge with no snap of its own -- one code path covers one selected
-   * or several. It is false for symbol and cabinet, whose single-item drag
+   * or several. It is false for symbol and furnishing, whose single-item drag
    * re-poses under the cursor (wall snap, run snap): with one selected this
    * returns false so the caller runs that logic unchanged, exactly as before
-   * this generalised the cabinet-only group branch to every translatable
+   * this generalised the fit-out-only group branch to every translatable
    * kind. Returns whether it handled the move.
    */
   private groupTranslate(
     d: DragState, w: Vec, g: number, group: readonly Id[],
-    kind: "symbol" | "cabinet" | "stair" | "vide", always = false,
+    kind: "symbol" | "furnishing" | "stair" | "vide", always = false,
   ): boolean {
     const grouped = group.length > 1;
     if (!always && !grouped) return false;
@@ -2418,7 +2549,7 @@ export class Tools {
       const f = this.store.floorOf(doc);
       const list: Array<{ id: Id; x: number; y: number }> =
         kind === "symbol" ? f.symbols
-        : kind === "cabinet" ? cabinetsOf(f)
+        : kind === "furnishing" ? furnishingsOf(f)
         : kind === "stair" ? stairsOf(f)
         : videsOf(f);
       for (const item of list) if (targets.includes(item.id)) { item.x += dx; item.y += dy; }
@@ -2433,7 +2564,7 @@ export class Tools {
 
     if (d.clone) {
       d.clone = false;
-      const kind = d.kind === "symbol" || d.kind === "cabinet"
+      const kind = d.kind === "symbol" || d.kind === "furnishing"
         || d.kind === "stair" || d.kind === "vide" ? d.kind : null;
       const copy = kind && d.id ? this.cloneForDrag(kind, d.id) : null;
       if (copy) d.id = copy;
@@ -2490,19 +2621,20 @@ export class Tools {
       this.groupTranslate(d, w, g, this.store.selectedOf("stair"), "stair", true);
     } else if (d.kind === "vide") {
       this.groupTranslate(d, w, g, this.store.selectedOf("vide"), "vide", true);
-    } else if (d.kind === "cabinet") {
-      const group = this.store.selectedOf("cabinet");
-      if (this.groupTranslate(d, w, g, group, "cabinet")) return;
+    } else if (d.kind === "furnishing") {
+      const group = this.store.selectedOf("furnishing");
+      if (this.groupTranslate(d, w, g, group, "furnishing")) return;
       // One on its own is re-posed under the cursor rather than nudged by a
-      // delta: a cabinet snaps to walls and to its neighbours, and a dragged
-      // one has to take those snaps or a run cannot be rearranged once built.
+      // delta: a wall-mounted piece snaps to walls and to its neighbours, and a
+      // dragged one has to take those snaps or a run cannot be rearranged once
+      // built. A free-standing piece has neither, so it follows the cursor.
       this.store.mutate(doc => {
-        const c = cabinetsOf(this.store.floorOf(doc)).find(x => x.id === d.id);
+        const c = furnishingsOf(this.store.floorOf(doc)).find(x => x.id === d.id);
         if (!c) return;
+        const loose = { x: Math.round(w.x / g) * g, y: Math.round(w.y / g) * g, rotation: c.rotation };
+        if (!furnishingWallMounted(c.form)) { Object.assign(c, loose); return; }
         const snap = this.wallSnap();
-        const base = snap
-          ? { x: snap.x, y: snap.y, rotation: snap.rotation }
-          : { x: Math.round(w.x / g) * g, y: Math.round(w.y / g) * g, rotation: c.rotation };
+        const base = snap ? { x: snap.x, y: snap.y, rotation: snap.rotation } : loose;
         Object.assign(c, base, this.runSnap(base, c.width, c.id) ?? {});
       }, "drag" + d.id);
     } else if (d.kind === "zoomBox" || d.kind === "marquee") {
@@ -2622,12 +2754,13 @@ export class Tools {
       case "t": case "T": this.setTool("stair"); break;
       // H for the hole in the floor: the vide tool.
       case "h": case "H": this.setTool("vide"); break;
-      // C for cabinetry, Z for the zoom window and the room list.
-      case "c": case "C": this.setTool("cabinet"); break;
-      // U for utilities/utiliteiten: the route tool. Every other short mnemonic
-      // a services layer suggests is already spoken for -- R rotates, L is the
-      // measurements toggle, S is the symbol palette -- so this reaches past
-      // the obvious "R(oute)" to the next free letter that still reads as one.
+      // C for the fit-out — cabinetry and everything placed with it. Z for the
+      // zoom window and the room list.
+      case "c": case "C": this.setTool("furnishing"); break;
+      // U for utiliteiten: the services tool -- the runs and the terminals they
+      // end at. Every other short mnemonic it suggests is already spoken for --
+      // R rotates, L is the measurements toggle, S arms the last symbol -- so
+      // this reaches past the obvious "R" to the next free letter that reads.
       case "u": case "U": this.setTool("route"); break;
       case "z": case "Z": this.setTool("zoom"); break;
       // Fit, in any tool: the whole plan, or the selection with Shift. Zoom-all
@@ -2738,8 +2871,8 @@ export class Tools {
       this.requestRender();
       return;
     }
-    if (this.tool === "cabinet") {
-      this.cabinetRotation = stairAngle(this.cabinetRotation + Math.PI / 2);
+    if (this.tool === "furnishing") {
+      this.furnishingRotation = stairAngle(this.furnishingRotation + Math.PI / 2);
       this.onToolChange();
       this.requestRender();
       return;
@@ -2763,15 +2896,15 @@ export class Tools {
       });
       return;
     }
-    if (sel?.kind === "cabinet") {
-      const group = this.store.selectedOf("cabinet");
+    if (sel?.kind === "furnishing") {
+      const group = this.store.selectedOf("furnishing");
       this.store.mutate(doc => {
-        for (const c of cabinetsOf(this.store.floorOf(doc))) {
+        for (const c of furnishingsOf(this.store.floorOf(doc))) {
           if (!group.includes(c.id)) continue;
           // Each about its own middle, so a row of units stays a row rather
           // than swinging around whichever one was clicked first.
           const turned = stairAngle(c.rotation + Math.PI / 2);
-          Object.assign(c, turnAbout(c, cabinetBox(c), turned));
+          Object.assign(c, turnAbout(c, furnishingBox(c), turned));
           c.rotation = turned;
         }
       });
@@ -2792,18 +2925,19 @@ export class Tools {
       return;
     }
     // Mirroring a cabinet swaps the hinge side, which is the reason to reach
-    // for M on one: the run turns the corner and the doors have to follow.
-    if (this.tool === "cabinet") {
-      this.cabinetMirrored = !this.cabinetMirrored;
+    // for M on one: the run turns the corner and the doors have to follow. The
+    // same gesture puts a worktop's drainer on the other hand.
+    if (this.tool === "furnishing") {
+      this.furnishingMirrored = !this.furnishingMirrored;
       this.onToolChange();
       this.requestRender();
       return;
     }
     const sel = this.store.sel;
-    if (sel?.kind === "cabinet") {
-      const group = this.store.selectedOf("cabinet");
+    if (sel?.kind === "furnishing") {
+      const group = this.store.selectedOf("furnishing");
       this.store.mutate(doc => {
-        for (const c of cabinetsOf(this.store.floorOf(doc))) {
+        for (const c of furnishingsOf(this.store.floorOf(doc))) {
           if (group.includes(c.id)) c.mirrored = !c.mirrored;
         }
       });
@@ -2857,8 +2991,24 @@ export class Tools {
       }
       else if (sel.kind === "stair") f.stairs = stairsOf(f).filter(s => !group.includes(s.id));
       else if (sel.kind === "vide") f.vides = videsOf(f).filter(s => !group.includes(s.id));
-      else if (sel.kind === "route") f.routes = routesOf(f).filter(r => !group.includes(r.id));
-      else if (sel.kind === "cabinet") f.cabinets = cabinetsOf(f).filter(c => !group.includes(c.id));
+      else if (sel.kind === "route") {
+        f.routes = routesOf(f).filter(r => !group.includes(r.id));
+        if (doc.continuations) {
+          for (const link of doc.continuations) {
+            link.ports = link.ports.filter(p => p.floorId !== f.id || !group.includes(p.routeId));
+          }
+          doc.continuations = doc.continuations.filter(link => link.ports.length >= 2);
+        }
+      }
+      else if (sel.kind === "furnishing") {
+        // A run can end at a fornuis or a wastafel, so a furnishing is
+        // un-anchored on the way out exactly as a symbol is.
+        for (const id of group) {
+          const fn = furnishingsOf(f).find(x => x.id === id);
+          if (fn) unanchorRoutePoints(f, fn);
+        }
+        f.furnishings = furnishingsOf(f).filter(c => !group.includes(c.id));
+      }
       else if (sel.kind === "opening") {
         for (const w of f.walls) w.openings = w.openings.filter(o => !group.includes(o.id));
       }
@@ -2908,7 +3058,7 @@ export class Tools {
           ? (this.lengthBuffer
             ? h("selectWallTyped", { length: this.lengthBuffer })
             : h("selectWall"))
-          : this.store.sel?.kind === "cabinet" ? h("selectCabinet")
+          : this.store.sel?.kind === "furnishing" ? h("selectFurnishing")
           : h("select");
         break;
       case "door": this.hint = h("door"); break;
@@ -2918,10 +3068,10 @@ export class Tools {
       case "stair": this.hint = h("stair", { label: t("stair." + this.stairKind) }); break;
       case "vide": this.hint = h("vide"); break;
       case "route": this.hint = h("route"); break;
-      case "cabinet": {
-        const preset = cabinetPreset(this.cabinetPresetId);
-        this.hint = h("cabinet", {
-          label: preset ? t("cabinet." + preset.id) : t("panel.cabinetCustom"),
+      case "furnishing": {
+        const preset = furnishingPreset(this.furnishingPresetId);
+        this.hint = h("furnishing", {
+          label: preset ? t("furnishing." + preset.id) : t("panel.furnishingCustom"),
         });
         break;
       }
@@ -3471,14 +3621,14 @@ export class Tools {
       drawVideGhost(ctx, this.draftVide("ghost"), this.symbolColor ?? COLORS.symbol);
     }
 
-    // Cabinet placement ghost, with the two distances to the wall ends when it
+    // Fit-out placement ghost, with the two distances to the wall ends when it
     // is snapped to one — the same measurement a symbol or an opening gets.
-    if (this.tool === "cabinet") {
-      const ghost = this.draftCabinet("ghost");
-      const snap = this.wallSnap();
+    if (this.tool === "furnishing") {
+      const ghost = this.draftFurnishing("ghost");
+      const snap = furnishingWallMounted(ghost.form) ? this.wallSnap() : null;
       if (snap) this.drawWallOffsets(ctx, vp, px, snap.wall, snap.tMm, snap.side, ghost.depth);
-      drawCabinetGhost(ctx, ghost, this.symbolColor ?? COLORS.symbol);
-      const b = cabinetBox(ghost);
+      drawFurnishingGhost(ctx, ghost, this.symbolColor ?? COLORS.symbol);
+      const b = furnishingBox(ghost);
       drawLabel(ctx, vp,
         add(v(ghost.x, ghost.y), fromAngleRot(v(0, b.y1), ghost.rotation)),
         `${ghost.width} x ${ghost.depth}`);

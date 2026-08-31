@@ -49,9 +49,11 @@ export interface RouteSegment {
   bulge?: number;
 }
 
-export type RouteInstallation = "concealed" | "surface" | "free";
+export type RouteInstallation = "concealed" | "surface" | "floor" | "ceiling" | "free";
 
-export const ROUTE_INSTALLATIONS: readonly RouteInstallation[] = ["concealed", "surface", "free"];
+export const ROUTE_INSTALLATIONS: readonly RouteInstallation[] = [
+  "concealed", "surface", "floor", "ceiling", "free",
+];
 
 export type RouteTerminal = "source" | "capped";
 

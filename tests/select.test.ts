@@ -10,7 +10,7 @@ import { marqueePick, type MarqueeRect } from "../src/input/marquee";
 import { isMixed } from "../src/core/mixed";
 import { stairDefaults } from "../src/model/stair";
 import { stairBox, resolveStair } from "../src/core/stair";
-import { cabinetBox } from "../src/core/cabinet";
+import { furnishingBox } from "../src/core/furnishing";
 import { videBox } from "../src/core/vide";
 import { Vec, v } from "../src/geometry/vec";
 import { resources } from "../src/i18n";
@@ -37,7 +37,7 @@ function boundsOf(pts: readonly Vec[]): { min: Vec; max: Vec } {
 // --- MULTI_SELECT_KINDS: node is deliberately excluded ---
 {
   check("node is not a multi-select kind", !MULTI_SELECT_KINDS.has("node"));
-  const rest: SelKind[] = ["wall", "opening", "symbol", "stair", "vide", "cabinet", "route"];
+  const rest: SelKind[] = ["wall", "opening", "symbol", "stair", "vide", "furnishing", "route"];
   check("every other kind is", rest.every(k => MULTI_SELECT_KINDS.has(k)));
 }
 
@@ -117,14 +117,17 @@ function boundsOf(pts: readonly Vec[]): { min: Vec; max: Vec } {
 {
   const f = emptyDoc().floors[0]!;
 
-  // Two desks (free-standing, 1400x700), well apart.
+  // Two trench convectors (free-standing, 1000x200), well apart.
   f.symbols.push(
-    { id: "sym1", type: "desk", x: 0, y: 0, rotation: 0 },
-    { id: "sym2", type: "desk", x: 6000, y: 0, rotation: 0 },
+    { id: "sym1", type: "convector-pit", x: 0, y: 0, rotation: 0 },
+    { id: "sym2", type: "convector-pit", x: 6000, y: 0, rotation: 0 },
   );
-  // One cabinet, between the two desks.
-  const cab = { id: "cab1", kind: "base" as const, x: 3000, y: 2000, rotation: 0, width: 600, depth: 600, front: "door" as const };
-  f.cabinets = [cab];
+  // One cabinet, between the two.
+  const cab = {
+    id: "cab1", form: "cabinet" as const, kind: "base" as const, x: 3000, y: 2000,
+    rotation: 0, width: 600, depth: 600, front: "door" as const,
+  };
+  f.furnishings = [cab];
   // One stair.
   const stair = { id: "st1", kind: "steektrap" as const, x: 3000, y: 5000, rotation: 0, ...stairDefaults("steektrap") };
   f.stairs = [stair];
@@ -142,17 +145,17 @@ function boundsOf(pts: readonly Vec[]): { min: Vec; max: Vec } {
 
   // -- containment: a rect exactly around one object catches only it --
   {
-    const b = boundsOf([v(-700, -350), v(700, 350)]); // sym1's footprint at the origin
+    const b = boundsOf([v(-500, -100), v(500, 100)]); // sym1's footprint at the origin
     const picked = marqueePick(f, growRect(b.min, b.max, 10));
     check("a rect around one symbol picks only it", picked?.kind === "symbol" && picked.ids.length === 1 && picked.ids[0] === "sym1",
       JSON.stringify(picked));
   }
   {
-    const box = cabinetBox(cab);
+    const box = furnishingBox(cab);
     const corners = [v(cab.x + box.x0, cab.y + box.y0), v(cab.x + box.x1, cab.y + box.y1)];
     const bb = boundsOf(corners);
     const picked = marqueePick(f, growRect(bb.min, bb.max, 10));
-    check("a rect around the cabinet picks only it", picked?.kind === "cabinet" && picked.ids.join() === "cab1",
+    check("a rect around the cabinet picks only it", picked?.kind === "furnishing" && picked.ids.join() === "cab1",
       JSON.stringify(picked));
   }
   {
@@ -201,7 +204,7 @@ function boundsOf(pts: readonly Vec[]): { min: Vec; max: Vec } {
 
   // -- exclusion: a footprint poking even slightly out of the rect is not caught --
   {
-    const b = boundsOf([v(-700, -350), v(700, 350)]);
+    const b = boundsOf([v(-500, -100), v(500, 100)]);
     const picked = marqueePick(f, growRect(b.min, b.max, -10)); // shrunk: corners now outside
     check("a rect that clips a corner does not catch it", picked === null, JSON.stringify(picked));
   }
@@ -219,7 +222,7 @@ function boundsOf(pts: readonly Vec[]): { min: Vec; max: Vec } {
   // > stair > vide > route > opening > wall) --
   {
     // A rect around just the cabinet and the stair: 1 vs 1, cabinet wins.
-    const cBox = cabinetBox(cab);
+    const cBox = furnishingBox(cab);
     const sBox = stairBox(resolveStair(f, stair));
     const bb = boundsOf([
       v(cab.x + cBox.x0, cab.y + cBox.y0), v(cab.x + cBox.x1, cab.y + cBox.y1),
@@ -227,7 +230,7 @@ function boundsOf(pts: readonly Vec[]): { min: Vec; max: Vec } {
     ]);
     const picked = marqueePick(f, growRect(bb.min, bb.max, 10));
     check("a 1-1 tie between cabinet and stair favours cabinet",
-      picked?.kind === "cabinet" && picked.ids.join() === "cab1", JSON.stringify(picked));
+      picked?.kind === "furnishing" && picked.ids.join() === "cab1", JSON.stringify(picked));
   }
   {
     // A rect around just the stair and the vide: 1 vs 1, stair wins.

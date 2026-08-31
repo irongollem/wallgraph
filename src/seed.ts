@@ -1,8 +1,9 @@
 // Demo document so the editor opens with something worth poking at:
 // a small apartment with exterior walls, two interior walls, doors with swing,
-// a sliding window, a curved wall, fixtures, a kitchen run and named rooms.
+// a sliding window, a curved wall, a kitchen run, sanitair, furniture and
+// named rooms.
 import { PlanDoc, emptyDoc, newId, Wall } from "./model/doc";
-import { Cabinet, cabinetPreset } from "./model/cabinet";
+import { Furnishing, furnishingPreset, writeSpec } from "./model/furnishing";
 import { bulgeFromSagitta } from "./geometry/arc";
 import { v } from "./geometry/vec";
 
@@ -65,34 +66,27 @@ export function seedDoc(): PlanDoc {
   S("socket-double", 900, 150, 0);
   S("switch-single", 3200, 150, 0);
   S("radiator", 3600, 5250, Math.PI);
-  // Bathroom fixtures against right wall (face -x): rotation = angle(outNormal)-PI/2, outNormal=(-1,0) -> PI - PI/2 = PI/2
-  S("toilet", 7850, 900, Math.PI / 2);
-  S("sink", 7850, 1750, Math.PI / 2);
-  // Bath along the top wall of bathroom area.
-  S("bath", 6300, 150, 0);
   // Bedroom bits.
   S("socket-single", 4950, 3000, -Math.PI / 2);
   S("light-point", 6400, 3900, 0);
   S("light-point", 2200, 3600, 0);
 
-  // Cabinetry. A run along the top wall of the living space: the inner face is
-  // at y = 150 (a 300 mm wall), and rotation 0 puts +y into the room, so the
-  // units stand flush against it and butt end to end the way the tool snaps
-  // them. The sink goes under the window, as it is nearly always built.
-  const K = (preset: string, x: number, y: number, rotation: number, over: Partial<Cabinet> = {}): void => {
-    const p = cabinetPreset(preset);
+  // The fit-out. A kitchen run along the top wall of the living space: the
+  // inner face is at y = 150 (a 300 mm wall), and rotation 0 puts +y into the
+  // room, so the units stand flush against it and butt end to end the way the
+  // tool snaps them. The spoelkast goes under the window, as it is nearly
+  // always built.
+  const K = (preset: string, x: number, y: number, rotation: number, over: Partial<Furnishing> = {}): void => {
+    const p = furnishingPreset(preset);
     if (!p) return;
-    const { id: _preset, ...spec } = p;
-    f.cabinets ??= [];
-    f.cabinets.push({
-      id: newId("k"), kind: spec.kind, x, y, rotation,
-      width: spec.width, depth: spec.depth, height: spec.height,
-      front: spec.front, hinge: spec.hinge,
-      ...(spec.front === "drawers" ? { drawers: spec.drawers } : {}),
-      ...(spec.corner ? { corner: true } : {}),
-      ...(spec.worktop ? { worktop: true } : {}),
-      ...over,
-    });
+    const { id: _preset, group: _group, ...spec } = p;
+    const piece: Furnishing = {
+      id: newId("i"), form: spec.form, x, y, rotation,
+      width: spec.width, depth: spec.depth,
+    };
+    writeSpec(piece, spec);
+    f.furnishings ??= [];
+    f.furnishings.push({ ...piece, ...over });
   };
   K("hoekkast-onder", 600, 150, 0);          // 150..1050, into the left corner
   K("ladenkast", 1350, 150, 0);              // 1050..1650
@@ -108,6 +102,19 @@ export function seedDoc(): PlanDoc {
   // A wardrobe in the bedroom, against the bottom wall: rotation PI turns +y
   // back into the room.
   K("garderobekast", 7000, 5250, Math.PI);
+
+  // Sanitair against the right wall of the bathroom, facing -x: rotation =
+  // angle(outNormal) - PI/2, outNormal = (-1, 0) -> PI - PI/2 = PI/2. The bath
+  // runs along the top wall. All three are built to a size, so they are
+  // furnishings rather than symbols -- see model/furnishing.ts.
+  K("toilet", 7850, 900, Math.PI / 2);
+  K("wastafel", 7850, 1750, Math.PI / 2);
+  K("bad", 6300, 150, 0);
+
+  // A bed and a bedside table, free-standing: no wall to take, so the anchor is
+  // the middle of the footprint.
+  K("tweepersoonsbed", 6300, 4300, 0);
+  K("tafel", 3000, 4200, 0, { width: 900, depth: 900 });
 
   // Room names. The name and its point are stored; which room carries it
   // follows from the walls. See model/room.ts.

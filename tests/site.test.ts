@@ -5,6 +5,7 @@ import { docPages } from "../scripts/site/pages";
 import { robotsTxt, llmsTxt, sitemapXml } from "../scripts/site/files";
 import { seedDoc } from "../src/seed";
 import { SYMBOL_TYPES } from "../src/render/symbols";
+import { FURNISHING_PRESETS } from "../src/model/furnishing";
 import { WINDOW_KINDS, DOOR_KINDS, type Opening, type PlanDoc } from "../src/model/doc";
 import { resources, changeLanguage } from "../src/i18n";
 import { DOC_PATHS, DOC_IDS as LINK_IDS, docHref, SITE_ORIGIN } from "../src/links";
@@ -138,8 +139,12 @@ for (const [path, html] of generated) {
   ck(`${path} has no unresolved translation key`, !/>panel\.\w+</.test(html) && !/>symbol\.[\w-]+</.test(html));
   ck(`${path} declares its language`, html.includes(`<html lang="${path.startsWith("/en/") ? "en" : "nl"}">`));
 }
-ck("the symbol page draws every symbol",
-  (generated.get(DOCS.symbols.nl.path)!.match(/<svg /g) ?? []).length === SYMBOL_TYPES.length);
+// The symbol page is the catalogue: every registry symbol, plus every named
+// fit-out piece drawn at the size it is placed at.
+ck("the symbol page draws every symbol and every fit-out piece",
+  (generated.get(DOCS.symbols.nl.path)!.match(/<svg /g) ?? []).length
+    === SYMBOL_TYPES.length + FURNISHING_PRESETS.length,
+  String((generated.get(DOCS.symbols.nl.path)!.match(/<svg /g) ?? []).length));
 ck("the openings page draws every kind",
   (generated.get(DOCS.openings.nl.path)!.match(/<svg /g) ?? []).length === WINDOW_KINDS.length + DOOR_KINDS.length);
 

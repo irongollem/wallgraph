@@ -79,6 +79,12 @@ export function planSchema(siteUrl: string): JsonSchema {
           "Elevation of the ground floor (floors[0]) above project zero (Peil), mm. " +
           "May be negative. Absent means 0.",
       },
+      continuations: {
+        type: "array", items: { $ref: "#/$defs/routeContinuation" },
+        description:
+          "Vertical service links between route endpoints on different storeys. " +
+          "Absent means the plan has no cross-floor service continuity.",
+      },
       floors: {
         type: "array", minItems: 1, items: { $ref: "#/$defs/floor" },
         description: "Storeys, lowest first. The floor below draws as a tracing underlay.",
@@ -126,9 +132,11 @@ export function planSchema(siteUrl: string): JsonSchema {
             type: "array", items: { $ref: "#/$defs/vide" },
             description: "Openings in this floor's slab. Absent means the storey has none.",
           },
-          cabinets: {
-            type: "array", items: { $ref: "#/$defs/cabinet" },
-            description: "Placed cabinetry. Absent means the storey has none.",
+          furnishings: {
+            type: "array", items: { $ref: "#/$defs/furnishing" },
+            description:
+              "What the storey is fitted out with: cabinetry, appliances, sanitary " +
+              "fixtures and furniture. Absent means the storey has none.",
           },
           routes: {
             type: "array", items: { $ref: "#/$defs/route" },
@@ -191,6 +199,27 @@ export function planSchema(siteUrl: string): JsonSchema {
               "Authored and tri-state: absent means not stated, distinct from false.",
           },
           fireRating: { $ref: "#/$defs/fireRating", description: "A fire compartment wall's rating." },
+          material: {
+            enum: ["masonry", "concrete", "timber", "steel", "glass"],
+            description:
+              "What the body is built of; a single material, not a build-up. Absent means " +
+              "not stated, distinct from \"masonry\". Only \"glass\" changes the drawing: a " +
+              "glazed wall is drawn as its two faces rather than as poche.",
+          },
+          mullionMm: {
+            type: "integer", minimum: 1,
+            description:
+              "Mullion (stijl) centres, mm, read as a MAXIMUM pane width: each run of glass " +
+              "between openings is divided into equal bays no wider than this, so a door " +
+              "pushes the stijlen of its run aside instead of one landing in the doorway. " +
+              "Absent means none; ignored unless material is \"glass\".",
+          },
+          color: {
+            type: "string", pattern: "^#[0-9a-fA-F]{6}$",
+            description:
+              "Pen colour; absent means the plan's default masonry ink. States the status of " +
+              "the work the way a verbouwtekening does, and takes the fill, not just the outline.",
+          },
         },
       },
       opening: {
@@ -277,11 +306,12 @@ export function planSchema(siteUrl: string): JsonSchema {
           id: { $ref: "#/$defs/id" },
           discipline: { enum: [...DISCIPLINES] },
           points: {
-            type: "array", minItems: 2, items: { $ref: "#/$defs/routePoint" },
-            description: "The run's waypoints, in order.",
+            type: "array", minItems: 1, items: { $ref: "#/$defs/routePoint" },
+            description:
+              "The network nodes. A single point is a cross-floor starter awaiting a local segment.",
           },
           segments: {
-            type: "array", minItems: 1, items: { $ref: "#/$defs/routeSegment" },
+            type: "array", items: { $ref: "#/$defs/routeSegment" },
             description: "Explicit graph edges. Shared trunks occur once and branch at point ids.",
           },
           tag: { type: "string", description: "Short identifier printed on the plan." },
@@ -378,41 +408,87 @@ export function planSchema(siteUrl: string): JsonSchema {
           bulge: { type: "number", description: "DXF bulge from point a toward point b." },
         },
       },
-      cabinet: {
+      routeContinuation: {
+        type: "object",
+        required: ["id", "ports"],
+        additionalProperties: false,
+        description: "One service continuing vertically through two or more storeys.",
+        properties: {
+          id: { $ref: "#/$defs/id" },
+          tag: { type: "string", description: "Optional shaft/riser identifier." },
+          ports: {
+            type: "array", minItems: 2, items: { $ref: "#/$defs/routePort" },
+            description: "Floor-local route endpoints belonging to this vertical continuation.",
+          },
+        },
+      },
+      routePort: {
+        type: "object",
+        required: ["floorId", "routeId", "pointId"],
+        additionalProperties: false,
+        properties: {
+          floorId: { $ref: "#/$defs/id" },
+          routeId: { $ref: "#/$defs/id" },
+          pointId: { $ref: "#/$defs/id" },
+        },
+      },
+      furnishing: {
         type: "object",
         description:
-          "A cabinet. Like a stair, it stores its dimensions rather than being one fixed " +
-          "picture: the same unit is built 400, 600 or 800 wide, and the carcass, the " +
-          "front, the hinge mark and the worktop overhang are derived from these numbers " +
-          "at render time. Cabinetry rather than kitchen furniture -- the same object is " +
-          "a base unit, a wardrobe and an office cupboard. The anchor (x, y) is the " +
-          "middle of the wall-touching edge, with +y into the room.",
-        required: ["id", "kind", "x", "y", "rotation", "width", "depth", "front"],
+          "One thing the plan is fitted out with. Like a stair, it stores its dimensions " +
+          "rather than being one fixed picture: the same unit is built 400, 600 or 800 " +
+          "wide, a bath is 1700 or 1800 long, and the carcass, the front, the bowl and " +
+          "the worktop overhang are derived from these numbers at render time. `form` " +
+          "says which mark is drawn and which of the optional fields below are read; the " +
+          "rest are ignored. The anchor (x, y) is the middle of the wall-touching edge " +
+          "with +y into the room for a wall-mounted form, and the middle of the footprint " +
+          "for a free-standing one.",
+        required: ["id", "form", "x", "y", "rotation", "width", "depth"],
         additionalProperties: false,
         properties: {
           id: { $ref: "#/$defs/id" },
-          kind: {
-            enum: ["base", "wall", "tall"],
+          form: {
+            enum: [
+              "cabinet", "appliance", "counter",
+              "toilet", "urinal", "urinal-trough", "bidet",
+              "basin", "basin-trough", "bath", "shower", "shower-head",
+              "bed", "seat", "table", "table-round", "desk", "rack",
+            ],
             description:
-              "Height class. It decides how the unit meets the plan's section plane at " +
-              "about 1200 mm: base is seen from above and tall is cut, both drawn solid; " +
-              "wall is entirely overhead and drawn dashed.",
+              "What the piece is, and so which mark is drawn. Everything from \"cabinet\" " +
+              "through \"shower-head\" stands against a wall; the rest stand free.",
           },
           x: mm("mm."),
           y: mm("mm, positive down."),
           rotation: { type: "number", description: "Radians, clockwise on screen." },
-          mirrored: { type: "boolean", description: "Handedness. Flips the hinge side and a corner unit's diagonal." },
-          width: { type: "integer", minimum: 100, maximum: 3000, description: "mm along the wall." },
-          depth: { type: "integer", minimum: 100, maximum: 1200, description: "mm into the room." },
-          height: {
-            type: "integer", minimum: 100, maximum: 3000,
+          mirrored: {
+            type: "boolean",
             description:
-              "Carcass height in mm, plinth and worktop excluded. Not drawn in plan; " +
-              "absent means the height class's usual figure.",
+              "Handedness. Flips a cabinet's hinge side, a corner unit's diagonal and a " +
+              "worktop's drainer.",
+          },
+          width: { type: "integer", minimum: 100, maximum: 6000, description: "mm along the wall." },
+          depth: { type: "integer", minimum: 100, maximum: 3000, description: "mm into the room." },
+          height: {
+            type: "integer", minimum: 50, maximum: 6000,
+            description:
+              "Height in mm, plinth and worktop excluded for a cabinet. Not drawn in " +
+              "plan; absent means the form's usual figure. The ceiling is a warehouse " +
+              "rack rather than a kitchen unit.",
+          },
+          kind: {
+            enum: ["base", "wall", "tall"],
+            description:
+              "Cabinet height class. It decides how the unit meets the plan's section " +
+              "plane at about 1200 mm: base is seen from above and tall is cut, both " +
+              "drawn solid; wall is entirely overhead and drawn dashed. Read only when " +
+              "form is \"cabinet\"; absent means base.",
           },
           front: {
             enum: ["door", "double", "drawers", "open", "slide"],
-            description: "What closes the front. \"open\" is shelving with no front at all.",
+            description:
+              "What closes a cabinet front. \"open\" is shelving with no front at all. " +
+              "Read only when form is \"cabinet\"; absent means door.",
           },
           hinge: {
             enum: ["left", "right"],
@@ -426,7 +502,32 @@ export function planSchema(siteUrl: string): JsonSchema {
           },
           corner: { type: "boolean", description: "Diagonal-front corner unit." },
           worktop: { type: "boolean", description: "Blad over the carcass, drawn as an overhang along the front." },
-          label: { type: "string", description: "What the unit is called on the drawing." },
+          mark: {
+            enum: ["none", "cooktop", "oven", "microwave", "fridge", "freezer", "hood"],
+            description:
+              "Which toestel the appliance outline names. Read only when form is " +
+              "\"appliance\"; absent means the generic fixed appliance. \"hood\" hangs above " +
+              "the section plane and is drawn dashed.",
+          },
+          cistern: {
+            enum: ["exposed", "concealed"],
+            description: "Where a toilet's cistern sits. Read only when form is \"toilet\"; absent means exposed.",
+          },
+          rails: {
+            type: "boolean",
+            description: "Grab rails either side, the accessible toilet. Read only when form is \"toilet\".",
+          },
+          basins: {
+            type: "integer", minimum: 1, maximum: 2,
+            description: "How many bowls the run carries. Read only when form is \"basin\" or \"counter\".",
+          },
+          tray: {
+            enum: ["none", "tray", "linear"],
+            description:
+              "What a shower stands in: the bare wet area, a tray, or a tray drained by " +
+              "a goot. Read only when form is \"shower\"; absent means none.",
+          },
+          label: { type: "string", description: "What the piece is called on the drawing." },
           color: {
             type: "string", pattern: "^#[0-9a-fA-F]{6}$",
             description: "Pen colour; absent means the plan's default ink.",

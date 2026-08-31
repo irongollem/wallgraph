@@ -10,6 +10,7 @@ import { Panel } from "./ui/panel";
 import { tryLoadAutosave, scheduleAutosave } from "./io/json";
 import { seedDoc } from "./seed";
 import { areaModeOf, dimModeOf, PlanDoc } from "./model/doc";
+import { riserMarks } from "./core/continuation";
 import { v } from "./geometry/vec";
 import { language, on as onI18n } from "./i18n";
 
@@ -105,9 +106,12 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
       hoverSnap: tools.getSnap(),
       ghost,
       selMore: store.selMore,
+      riserMarks: riserMarks(store.doc, store.activeFloor),
       showUnderlay: tools.showUnderlay,
-      showRoutes: tools.showRoutes,
+      layers: tools.layers,
+      dimLayers: tools.dimLayers(),
       requestRedraw: requestRender,
+      selectMode: tools.selectModeBadge(),
       preview: (c, viewport) => tools.drawPreview(c, viewport),
     }, store.doc.gridMm, areaModeOf(store.doc), dimModeOf(store.doc));
     renderLoupe(rect, dpr, resolved, rooms, ghost);
@@ -155,12 +159,14 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
       hoverSnap: tools.getSnap(),
       ghost,
       selMore: store.selMore,
+      riserMarks: riserMarks(store.doc, store.activeFloor),
       // Draws the preview, but leaves the dimension hit rects to the canvas
       // pass: they are tested in canvas screen coordinates, not the lens's.
       preview: (c, viewport) => tools.drawPreview(c, viewport, false),
       showGrid: false,
       showUnderlay: tools.showUnderlay,
-      showRoutes: tools.showRoutes,
+      layers: tools.layers,
+      dimLayers: tools.dimLayers(),
     }, store.doc.gridMm, areaModeOf(store.doc), dimModeOf(store.doc));
     // Crosshair at the exact point, drawn last so nothing covers it.
     lctx.strokeStyle = COLORS.snap;

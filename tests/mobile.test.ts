@@ -78,11 +78,11 @@ function check(name: string, cond: boolean, detail = ""): void {
   // laid out for touch. i18n falls back to the key itself, so a missing twin
   // shows the visitor "hint.touchWallChain" rather than an instruction.
   const bases = [
-    "select", "selectWall", "selectWallTyped", "selectCabinet",
+    "select", "selectWall", "selectWallTyped", "selectFurnishing",
     "wallStart", "wallChain", "wallTyped",
     "wallRect", "wallRectTo", "wallCircle", "wallCircleTo", "wallPolygon", "wallPolygonTo",
     "door", "window", "passage", "symbol", "stair", "vide",
-    "cabinet", "route", "zoom",
+    "furnishing", "route", "zoom",
   ];
   const touchKey = (base: string): string => `touch${base[0]!.toUpperCase()}${base.slice(1)}`;
 
@@ -112,8 +112,8 @@ function check(name: string, cond: boolean, detail = ""): void {
   // title to hover. A missing one renders as its own key under the icon.
   const names = [
     "shortSelect", "shortWall", "shortDoor", "shortWindow", "shortPassage",
-    "shortStair", "shortVide", "shortSymbol",
-    "shortCabinet", "shortRoute", "shortZoom",
+    "shortStair", "shortVide",
+    "shortFurnishing", "shortRoute", "shortZoom",
     "shortGridSnap", "shortAngleSnap", "shortMeasurements",
   ];
   for (const lang of ["nl", "en"] as const) {

@@ -133,12 +133,12 @@ function box(f: Floor, x0: number, y0: number, x1: number, y1: number, thickness
   check("a symbol outside the walls is still framed", b.max.x >= 9000, JSON.stringify(b));
 
   const g = emptyDoc().floors[0]!;
-  g.cabinets = [{
-    id: newId("k"), kind: "base", x: 5000, y: 200, rotation: 0,
+  g.furnishings = [{
+    id: newId("i"), form: "cabinet", kind: "base", x: 5000, y: 200, rotation: 0,
     width: 600, depth: 600, front: "door",
   }];
   const cb = planBounds(g, resolveFloor(g))!;
-  check("a cabinet alone is framed", cb.max.y >= 800 && cb.min.x <= 4700, JSON.stringify(cb));
+  check("a furnishing alone is framed", cb.max.y >= 800 && cb.min.x <= 4700, JSON.stringify(cb));
 
   const h = emptyDoc().floors[0]!;
   h.roomNames = [{ id: newId("r"), x: 1500, y: 800, name: "Keuken" }];

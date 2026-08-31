@@ -1,15 +1,17 @@
 // Symbol palette: search box + collapsible category fold-outs of icon tiles.
-// Extracted out of panel.ts so the fold-out animation has a stable home: the
-// stylesheet animates .pal-body's grid-template-rows (0fr -> 1fr), and this
-// module's only job on toggle is to flip classes/aria state on existing
-// nodes -- never inline styles, never a DOM rebuild, or the transition dies.
+//
+// There is one palette per authoring section rather than one list of
+// everything: the service disciplines are placed from the Installaties pane
+// beside the runs they terminate, and safety equipment from Inrichten beside
+// the furniture. A palette is told which categories it covers and shows only
+// those, so a mark has exactly one home and the search never returns a symbol
+// the current pane cannot place.
 import { Tools } from "../input/tools";
-import { SYMBOLS, CATEGORIES, SymbolDef } from "../render/symbols";
+import { SYMBOLS, SymbolCategory, SymbolDef } from "../render/symbols";
 import { t, allTranslations } from "../i18n";
 import { COLORS, INKS } from "../render/draw";
 import { icon } from "./icons";
-
-const FOLD_FALLBACK_MS = 240;
+import { foldOut } from "./foldout";
 
 export class Palette {
   readonly el: HTMLElement;
@@ -25,15 +27,21 @@ export class Palette {
   /** The pen the tiles were last drawn in, so they are only rebuilt on a change. */
   private tileInk: string | null = null;
   private readonly idPrefix = "pal-" + Math.random().toString(36).slice(2);
+  private readonly defs: SymbolDef[];
 
-  constructor(private tools: Tools, private onPick: () => void) {
+  constructor(
+    private tools: Tools,
+    private categories: readonly SymbolCategory[],
+    private onPick: () => void,
+  ) {
+    this.defs = SYMBOLS.filter(s => categories.includes(s.category));
     this.el = el("div", "pal");
 
     const search = el("div", "pal-search");
     const searchBox = el("div", "pal-search-box");
     this.searchInput = document.createElement("input");
     this.searchInput.type = "search";
-    this.searchInput.placeholder = t("symbolSearch", { count: SYMBOLS.length });
+    this.searchInput.placeholder = t("symbolSearch", { count: this.defs.length });
     this.searchInput.oninput = () => { this.searchQ = this.searchInput.value; this.renderGrids(); };
     searchBox.append(icon("search", 15), this.searchInput);
     this.inkRow = this.buildInk();
@@ -44,9 +52,16 @@ export class Palette {
     this.renderGrids();
   }
 
+  /** Open one category, closing nothing: the armed discipline's own terminals. */
+  openCategory(cat: SymbolCategory): void {
+    if (!this.categories.includes(cat) || this.openCats.has(cat)) return;
+    this.openCats.add(cat);
+    this.renderGrids();
+  }
+
   refresh(): void {
     // Language change: rebuild labels/titles but keep what the user had open and typed.
-    this.searchInput.placeholder = t("symbolSearch", { count: SYMBOLS.length });
+    this.searchInput.placeholder = t("symbolSearch", { count: this.defs.length });
     this.searchInput.value = this.searchQ;
     const ink = this.buildInk();
     this.inkRow.replaceWith(ink);
@@ -115,7 +130,6 @@ export class Palette {
     return row;
   }
 
-
   private renderGrids(): void {
     this.scroll.innerHTML = "";
     this.tiles.clear();
@@ -123,69 +137,25 @@ export class Palette {
     const q = this.searchQ.trim().toLowerCase();
     if (q) {
       const grid = el("div", "pal-grid");
-      for (const def of SYMBOLS.filter(x => matches(x, q))) grid.append(this.tile(def));
+      for (const def of this.defs.filter(x => matches(x, q))) grid.append(this.tile(def));
       this.scroll.append(grid);
       return;
     }
-    for (const [cat] of CATEGORIES) {
-      const defs = SYMBOLS.filter(x => x.category === cat);
+    for (const cat of this.categories) {
+      const defs = this.defs.filter(x => x.category === cat);
       if (defs.length === 0) continue;
-      this.scroll.append(...this.category(cat, defs));
+      const grid = el("div", "pal-grid");
+      for (const def of defs) grid.append(this.tile(def));
+      const fold = foldOut({
+        id: `${this.idPrefix}-${cat}`,
+        label: t("category." + cat, {}),
+        count: defs.length,
+        open: this.openCats.has(cat),
+        content: grid,
+        onToggle: open => { if (open) this.openCats.add(cat); else this.openCats.delete(cat); },
+      });
+      this.scroll.append(fold.head, fold.body);
     }
-  }
-
-  private category(cat: string, defs: SymbolDef[]): [HTMLButtonElement, HTMLElement] {
-    const open = this.openCats.has(cat);
-    const bodyId = `${this.idPrefix}-${cat}`;
-
-    const head = el("button", "pal-cat") as HTMLButtonElement;
-    head.setAttribute("aria-expanded", String(open));
-    head.setAttribute("aria-controls", bodyId);
-    const chev = el("span", "chev");
-    chev.append(icon("chevron", 14));
-    const name = el("span");
-    name.textContent = t("category." + cat, {});
-    const count = el("span", "count");
-    count.textContent = String(defs.length);
-    head.append(chev, name, count);
-
-    const body = el("div", "pal-body");
-    body.id = bodyId;
-    if (open) body.classList.add("is-open");
-    const grid = el("div", "pal-grid");
-    for (const def of defs) grid.append(this.tile(def));
-    body.append(grid);
-
-    // A category near the bottom of the scroll area shouldn't stay hidden
-    // under the fold once it opens -- but we can only scroll to it after the
-    // height transition finishes (or a reduced-motion setup skips it, hence
-    // the timeout fallback). Fresh closures per open give each one its own
-    // "already ran" guard, so it fires at most once regardless of which path wins.
-    const openWithScroll = (): void => {
-      let done = false;
-      const finish = (): void => {
-        if (done) return;
-        done = true;
-        body.removeEventListener("transitionend", onEnd);
-        clearTimeout(timer);
-        head.scrollIntoView({ block: "nearest" });
-      };
-      const onEnd = (ev: TransitionEvent): void => {
-        if (ev.propertyName === "grid-template-rows") finish();
-      };
-      body.addEventListener("transitionend", onEnd);
-      const timer = setTimeout(finish, FOLD_FALLBACK_MS);
-    };
-
-    head.onclick = () => {
-      const nowOpen = !this.openCats.has(cat);
-      if (nowOpen) this.openCats.add(cat); else this.openCats.delete(cat);
-      head.setAttribute("aria-expanded", String(nowOpen));
-      body.classList.toggle("is-open", nowOpen);
-      if (nowOpen) openWithScroll();
-    };
-
-    return [head, body];
   }
 
   private tile(def: SymbolDef): HTMLButtonElement {

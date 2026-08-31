@@ -16,42 +16,65 @@
 // context (see recordSymbol) because the library draws them with canvas calls;
 // their arcs flatten to polylines, which is exact enough at symbol scale and
 // avoids guessing how a mirrored, rotated transform maps onto an ARC.
-import { PlanDoc, Floor, areaModeOf, dimModeOf, stairsOf, videsOf, cabinetsOf, routesOf, roomNamesOf } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf, dimModeOf, stairsOf, videsOf, furnishingsOf, routesOf, roomNamesOf, wallGlazed } from "../model/doc";
 import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
 import { recordSymbol, Prim } from "./record";
-import { openingMarks } from "./marks";
+import { openingMarks, mullionMarks } from "./marks";
 import { stairPrims } from "./stair";
 import { videPrims } from "./vide";
-import { cabinetPrims } from "./cabinet";
-import { cabinetOverhead } from "../model/cabinet";
+import { furnishingPrims } from "./furnishing";
+import { furnishingClass, furnishingOverhead, type FurnishingClass } from "../model/furnishing";
 import { resolveStair } from "../core/stair";
 import { resolveRoutes } from "../core/route";
-import { routePrims } from "./route";
+import { riserPrims, routePrims } from "./route";
+import { riserMarks } from "../core/continuation";
 import { routeKind, routeWater, routeVent, type Discipline } from "../model/route";
 import { saveViaHost, downloadBlob } from "./save";
 import { t } from "../i18n";
-import { routeMapLabel } from "../render/draw";
+import { routeMapLabel, junctionPen } from "../render/draw";
 
 export type DxfResult = "saved" | "empty" | "failed";
 
 /** Layer names are conventional in CAD; keep them stable and self-describing. */
 const LAYER = {
   walls: "WALLS",
+  /**
+   * Glazed wall bodies and their stijlen. Its own layer rather than a pen on
+   * WALLS for the reason CABINETS-OVERHEAD is its own layer: DXF colour is
+   * per-layer, not per-entity, so a glazen wand can only be told from masonry
+   * by the layer it lands on -- which is also where a CAD reader expects to
+   * find the distinction, and where they turn the glazing off.
+   */
+  glazing: "GLAZING",
   openings: "OPENINGS",
   symbols: "SYMBOLS",
   stairs: "STAIRS",
   vides: "VOIDS",
   rooms: "ROOMS",
-  // Cabinetry splits by height class, because that is the distinction a reader
-  // of the drawing acts on: base and tall units are cut or seen, wall units are
-  // overhead. A dash pattern cannot carry it — the recorder discards dashes —
-  // so the layer does, which is where CAD expects to find it anyway.
+  // The fit-out splits by trade, because that is how a reader of the drawing
+  // uses it: a plumber turns the sanitair layer on, a kitchen fitter the
+  // cabinets. Overhead work splits again -- base and tall units are cut or
+  // seen, wall units and an afzuigkap are above the section plane. A dash
+  // pattern cannot carry that, since the recorder discards dashes, so the layer
+  // does, which is where CAD expects to find it anyway.
   cabinets: "CABINETS",
   cabinetsOverhead: "CABINETS-OVERHEAD",
+  appliances: "APPLIANCES",
+  appliancesOverhead: "APPLIANCES-OVERHEAD",
+  sanitary: "SANITARY",
+  furniture: "FURNITURE",
 } as const;
+
+/** The layer a furnishing lands on: its trade, and whether it is overhead. */
+const FURNISHING_LAYER: Record<FurnishingClass, { solid: string; overhead: string }> = {
+  cabinetry: { solid: LAYER.cabinets, overhead: LAYER.cabinetsOverhead },
+  appliance: { solid: LAYER.appliances, overhead: LAYER.appliancesOverhead },
+  sanitary: { solid: LAYER.sanitary, overhead: LAYER.sanitary },
+  furniture: { solid: LAYER.furniture, overhead: LAYER.furniture },
+};
 
 /** One layer per discipline, registered only when the floor has routes at
  *  all (see toDxf) -- unlike every other layer above, which is always
@@ -96,7 +119,7 @@ const ROUTE_VENT_AFVOER_LAYER = "ROUTES-VENT-AFVOER";
 
 /** ACI colour indices — 7 is "by background", i.e. black on white paper. */
 const LAYER_COLOR: Record<string, number> = {
-  WALLS: 7, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, ROOMS: 8,
+  WALLS: 7, GLAZING: 4, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, ROOMS: 8,
   CABINETS: 6, "CABINETS-OVERHEAD": 6,
   "ROUTES-ELECTRICAL": 1, "ROUTES-WATER": 5, "ROUTES-VENT": 2, "ROUTES-GAS": 2,
   "ROUTES-ELECTRICAL-DATA": 1, "ROUTES-WATER-AFVOER": 5, "ROUTES-VENT-AFVOER": 2,
@@ -259,7 +282,7 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
   const floor: Floor | undefined = doc.floors[floorIndex] ?? doc.floors[0];
   if (!floor || (floor.walls.length === 0 && floor.symbols.length === 0
       && stairsOf(floor).length === 0 && videsOf(floor).length === 0
-      && cabinetsOf(floor).length === 0 && roomNamesOf(floor).length === 0
+      && furnishingsOf(floor).length === 0 && roomNamesOf(floor).length === 0
       && routesOf(floor).length === 0)) return null;
 
   const hasRoutes = routesOf(floor).length > 0;
@@ -278,11 +301,18 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
   ]);
   w.section("ENTITIES", () => {
     // Walls: each solid piece as a closed outline, so openings are real gaps
-    // rather than something drawn over.
+    // rather than something drawn over. A glazed wall's body and its stijlen go
+    // to GLAZING instead; a wall's own colour has no DXF equivalent at all,
+    // since colour here is a property of the layer rather than of the entity.
     for (const rw of resolved.walls.values()) {
-      for (const piece of rw.pieces) w.polyline(LAYER.walls, piece.poly, true);
+      const layer = wallGlazed(rw.wall) ? LAYER.glazing : LAYER.walls;
+      for (const piece of rw.pieces) w.polyline(layer, piece.poly, true);
+      emitPrims(w, LAYER.glazing, mullionMarks(rw));
     }
-    for (const j of resolved.junctions) w.polyline(LAYER.walls, j.poly, true);
+    // A wedge belongs to no one wall, so it follows what its neighbours agree
+    // on -- the same rule the canvas and the SVG use (junctionPen in draw.ts).
+    for (const j of resolved.junctions)
+      w.polyline(junctionPen(j, resolved.walls).glazed ? LAYER.glazing : LAYER.walls, j.poly, true);
 
     for (const rw of resolved.walls.values()) emitPrims(w, LAYER.openings, openingMarks(rw));
 
@@ -305,13 +335,17 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
             120, routeMapLabel(rr.route));
         }
       }
+      for (const mark of riserMarks(doc, floorIndex))
+        emitPrims(w, ROUTE_LAYER[mark.discipline], riserPrims(mark));
     }
 
     for (const st of stairsOf(floor))
       emitPrims(w, LAYER.stairs, stairPrims(resolveStair(floor, st)));
 
-    for (const c of cabinetsOf(floor))
-      emitPrims(w, cabinetOverhead(c) ? LAYER.cabinetsOverhead : LAYER.cabinets, cabinetPrims(c));
+    for (const fn of furnishingsOf(floor)) {
+      const layer = FURNISHING_LAYER[furnishingClass(fn.form)];
+      emitPrims(w, furnishingOverhead(fn) ? layer.overhead : layer.solid, furnishingPrims(fn));
+    }
 
     // Symbols, replayed through the recorder at their placed transform.
     for (const s of floor.symbols) {

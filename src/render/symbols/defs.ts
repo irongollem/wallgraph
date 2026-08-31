@@ -19,8 +19,7 @@
 //     to add. Those are still the caller's job, in screen space (see drawLabel).
 //   - Set ctx.lineWidth = 20 and wrap in ctx.save()/ctx.restore().
 export type SymbolCategory =
-  | "electrical" | "water" | "sanitary" | "heating" | "ventilation"
-  | "safety" | "kitchen" | "furniture";
+  | "electrical" | "water" | "heating" | "ventilation" | "safety";
 
 export interface SymbolDef {
   type: string;          // unique kebab-case id

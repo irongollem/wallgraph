@@ -25,7 +25,7 @@ function R(x: number, y: number, w: number, h: number, rx: number, fill = false)
 }
 
 export type IconName =
-  | "select" | "wall" | "door" | "window" | "passage" | "stair" | "vide" | "symbols"
+  | "select" | "wall" | "door" | "window" | "passage" | "stair" | "vide"
   | "cabinet" | "route" | "zoom" | "rename"
   | "shapeLine" | "shapeRect" | "shapeCircle" | "shapePoly"
   | "gridSnap" | "angleSnap" | "dimensions"
@@ -79,7 +79,6 @@ const ICONS: Record<IconName, Shape[]> = {
     P("M12.9 12.9 L17 17"),
     P("M6.6 9 H11.4 M9 6.6 V11.4"),
   ],
-  symbols: [C(10, 10, 6), P("M5.8 5.8 L14.2 14.2 M14.2 5.8 L5.8 14.2")],
   gridSnap: [
     P("M4 4 H16 M4 10 H16 M4 16 H16 M4 4 V16 M10 4 V16 M16 4 V16"),
     C(10, 10, 2.1, true),

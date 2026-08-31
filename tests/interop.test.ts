@@ -22,12 +22,12 @@ import path from "node:path";
 import type * as WebIFC from "web-ifc";
 import {
   type PlanDoc, type Floor, type Wall, type Opening, type SymbolInstance,
-  floorElevation, wallHeight, fireLabel, stairsOf, cabinetsOf, videsOf,
+  floorElevation, wallHeight, fireLabel, stairsOf, furnishingsOf, videsOf,
 } from "../src/model/doc";
 import { wallLength } from "../src/model/ops";
 import type { Vide } from "../src/model/vide";
 import type { Stair } from "../src/model/stair";
-import type { Cabinet } from "../src/model/cabinet";
+import type { Furnishing } from "../src/model/furnishing";
 import { toIfc } from "../src/io/ifc";
 import { ifcGuid } from "../src/model/guid";
 import { detectRooms } from "../src/core/rooms";
@@ -51,7 +51,8 @@ function check(name: string, cond: boolean, detail = ""): void {
 // clock. Layout: an 8x3 m ground floor split by a partition into two 4x3
 // rooms (one named, one not), one outer wall bulged; a fire-rated
 // self-closing door, a two-sash window and a passage; a vide, a stair, a
-// base and a wall cabinet, and one symbol per registry category (plus two
+// base and a wall cabinet, fit-out of all three IFC classes, and one symbol
+// per registry category (plus two
 // type-id overrides) in the unnamed room. A plain closed rectangle upper
 // floor gives floorElevation() a second storey to report.
 const SEED = "0123456789abcdef0123456789abcdef";
@@ -98,9 +99,14 @@ function buildDoc(): PlanDoc {
     id: "gf-stair1", kind: "steektrap", x: 2000, y: 300, rotation: 0,
     width: 900, going: 220, treads: 15, rise: 2800,
   };
-  const cabinets: Cabinet[] = [
-    { id: "gf-cab-base", kind: "base", x: 7500, y: 2700, rotation: 0, width: 600, depth: 600, front: "door" },
-    { id: "gf-cab-wall", kind: "wall", x: 7500, y: 300, rotation: 0, width: 600, depth: 350, front: "door", label: "Bovenkast" },
+  const furnishings: Furnishing[] = [
+    { id: "gf-cab-base", form: "cabinet", kind: "base", x: 7500, y: 2700, rotation: 0, width: 600, depth: 600, front: "door" },
+    { id: "gf-cab-wall", form: "cabinet", kind: "wall", x: 7500, y: 300, rotation: 0, width: 600, depth: 350, front: "door", label: "Bovenkast" },
+    // A fixture and a loose piece: the other two IFC classes the fit-out maps
+    // to, so this fixture exercises all three.
+    { id: "gf-fit-bath", form: "bath", x: 2600, y: 300, rotation: 0, width: 1700, depth: 750 },
+    { id: "gf-fit-sofa", form: "seat", x: 2400, y: 2000, rotation: 0, width: 2000, depth: 900 },
+    { id: "gf-fit-fridge", form: "appliance", mark: "fridge", x: 3400, y: 300, rotation: 0, width: 600, depth: 600 },
   ];
 
   // One symbol per registry category, plus two TYPE_OVERRIDES entries
@@ -109,18 +115,15 @@ function buildDoc(): PlanDoc {
   const symbols: SymbolInstance[] = [
     { id: "gf-sym-elec", type: "light-point", x: 1000, y: 1000, rotation: 0 },
     { id: "gf-sym-water", type: "water-point", x: 1200, y: 1000, rotation: 0 },
-    { id: "gf-sym-sanitary", type: "toilet", x: 1400, y: 1000, rotation: 0 },
     { id: "gf-sym-heating", type: "radiator", x: 1600, y: 1000, rotation: 0 },
     { id: "gf-sym-vent", type: "vent-supply", x: 1800, y: 1000, rotation: 0 },
     { id: "gf-sym-safety", type: "smoke-detector", x: 2000, y: 1000, rotation: 0 },
-    { id: "gf-sym-kitchen", type: "fridge", x: 2200, y: 1000, rotation: 0 },
-    { id: "gf-sym-furniture", type: "sofa", x: 2400, y: 1000, rotation: 0 },
   ];
 
   const ground: Floor = {
     id: "floor-gf", name: "Begane grond", height: 2600,
     nodes: groundNodes, walls: groundWalls, symbols,
-    stairs: [stair], vides: [vide], cabinets,
+    stairs: [stair], vides: [vide], furnishings,
     roomNames: [{ id: "gf-rn1", x: 2000, y: 1500, name: "Woonkamer" }], // inside the left room only
   };
 
@@ -136,7 +139,7 @@ function buildDoc(): PlanDoc {
       { id: "vp-w3", a: "vp-n2", b: "vp-n3", thickness: 300, bulge: 0, openings: [] },
       { id: "vp-w4", a: "vp-n3", b: "vp-n0", thickness: 300, bulge: 0, openings: [] },
     ],
-    symbols: [], stairs: [], vides: [], cabinets: [], roomNames: [],
+    symbols: [], stairs: [], vides: [], furnishings: [], roomNames: [],
   };
 
   return {
@@ -214,16 +217,15 @@ async function roundTrip(): Promise<void> {
   const windows = allOpenings.filter(o => o.kind === "window");
   const allVides = doc.floors.flatMap(f => videsOf(f));
   const allStairs = doc.floors.flatMap(f => stairsOf(f));
-  const allCabinets = doc.floors.flatMap(f => cabinetsOf(f));
+  const allFurnishings = doc.floors.flatMap(f => furnishingsOf(f));
   const totalRooms = doc.floors.reduce((n, f) => n + detectRooms(f).length, 0);
   // Both floors are closed rectangles, so floorSolids() returns a slab for
   // each — one IFCSLAB per floor.
   const expectedSlabs = doc.floors.length;
-  // CATEGORY_DEFAULTS maps both "kitchen" and "furniture" to IFCFURNITURE
-  // (see io/ifc.ts), so the fridge and sofa placed above land in the same
-  // IFC class as the two cabinets — not a coincidence to hide, the actual
-  // expected count.
-  const expectedFurniture = allCabinets.length + 2; // + fridge, sofa
+  // FURNISHING_CLASSES maps cabinetry and loose furniture to IFCFURNITURE,
+  // fixtures to IFCSANITARYTERMINAL and appliances to IFCELECTRICAPPLIANCE
+  // (see io/ifc.ts), so the five pieces above split three ways.
+  const expectedFurniture = allFurnishings.filter(f => f.form === "cabinet" || f.form === "seat").length;
 
   const countOfType = (type: number): number => api.GetLineIDsWithType(modelID, type).size();
 
@@ -246,8 +248,12 @@ async function roundTrip(): Promise<void> {
     String(countOfType(webifc.IFCSTAIR)));
   check("IFCSTAIRFLIGHT count matches the document (one flight per stair)",
     countOfType(webifc.IFCSTAIRFLIGHT) === allStairs.length, String(countOfType(webifc.IFCSTAIRFLIGHT)));
-  check("IFCFURNITURE count matches cabinets + kitchen/furniture symbols",
+  check("IFCFURNITURE count matches the cabinetry and loose furniture",
     countOfType(webifc.IFCFURNITURE) === expectedFurniture, String(countOfType(webifc.IFCFURNITURE)));
+  check("the bath exports as one IFCSANITARYTERMINAL",
+    countOfType(webifc.IFCSANITARYTERMINAL) === 1, String(countOfType(webifc.IFCSANITARYTERMINAL)));
+  check("the fridge exports as one IFCELECTRICAPPLIANCE",
+    countOfType(webifc.IFCELECTRICAPPLIANCE) === 1, String(countOfType(webifc.IFCELECTRICAPPLIANCE)));
 
   // ── relations resolve: every ref web-ifc itself can load via GetLine ─────
 

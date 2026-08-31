@@ -5,13 +5,13 @@
 // A second implementation is how a plan comes to export with its symbols intact
 // and open on screen with them cropped off, which is exactly what happened while
 // main.ts fitted the view to the node positions alone.
-import { Floor, stairsOf, videsOf, cabinetsOf, roomNamesOf } from "../model/doc";
+import { Floor, stairsOf, videsOf, furnishingsOf, roomNamesOf, routesOf } from "../model/doc";
 import { Resolved } from "./resolve";
 import { getSymbol } from "../render/symbols";
 import { stairCorners, resolveStair } from "./stair";
 import { videCorners } from "./vide";
-import { cabinetCorners } from "./cabinet";
-import { resolveRoutes } from "./route";
+import { furnishingCorners } from "./furnishing";
+import { resolveRoutePoints, resolveRoutes } from "./route";
 import { symbolFootprintCorners } from "./placed";
 import { arcFlatten } from "../geometry/arc";
 import { Vec, v } from "../geometry/vec";
@@ -39,13 +39,18 @@ export function planBounds(floor: Floor, resolved: Resolved): Bounds | null {
   // same derived box the hit-test and the selection frame use.
   for (const st of stairsOf(floor)) for (const c of stairCorners(resolveStair(floor, st))) b.add(c.x, c.y);
   for (const vd of videsOf(floor)) for (const c of videCorners(vd)) b.add(c.x, c.y);
-  for (const cb of cabinetsOf(floor)) for (const c of cabinetCorners(cb)) b.add(c.x, c.y);
+  for (const fn of furnishingsOf(floor)) for (const c of furnishingCorners(fn)) b.add(c.x, c.y);
   // Resolved, so a run following a moved symbol crops where it is actually
   // drawn, and the corridor fan (core/route.ts) never crops off a lane.
   // Bulged segments are flattened so the arc's bow past the chord is
   // included — the endpoints alone would let a curved route cross the crop.
   for (const rr of resolveRoutes(floor)) for (const s of rr.segments) {
     for (const p of arcFlatten(s.a, s.b, s.bulge, 2)) b.add(p.x, p.y);
+  }
+  // A one-point route is a cross-floor starter: its riser mark still occupies
+  // the plan even before a local segment has been drawn from it.
+  for (const route of routesOf(floor)) {
+    for (const p of resolveRoutePoints(floor, route)) b.add(p.x, p.y);
   }
   // A room name is a point, and a plan that is nothing but names still has to
   // frame somewhere rather than reporting itself empty.

@@ -249,6 +249,9 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 
 .pane-body[hidden] { display: none; }
 .pal { display: block; }
+/* A palette shows only in the pane of its own section; `display: block` above
+   would otherwise beat the hidden attribute's own rule. */
+.pal[hidden] { display: none; }
 .pal-search { padding: 9px 12px; border-bottom: 1px solid #eceadf; background: #fff; }
 .pal-search-box { display: flex; align-items: center; gap: 7px; padding: 5px 9px; border: 1px solid #d8d4c8; border-radius: 7px; background: #faf9f5; }
 .pal-search-box svg { color: #b5afa0; }

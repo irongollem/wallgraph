@@ -41,7 +41,17 @@ export function splitWall(f: Floor, w: Wall, tMm: number): PlanNode | null {
     bulge1 = Math.tan((theta * frac) / 4);
     bulge2 = Math.tan((theta * (1 - frac)) / 4);
   }
-  const w2: Wall = { id: newId("w"), a: mid.id, b: w.b, thickness: w.thickness, bulge: bulge2, openings: [] };
+  // Both halves are the same wall, so everything it states about itself carries:
+  // its thickness, its own height, whether it is load-bearing, its fire rating,
+  // and what it is built of and drawn in. Listing only `thickness` here left the
+  // far half of a split fire wall unrated and the far half of a glazed one
+  // masonry. `fireRating` is copied rather than shared, since the panel edits
+  // its `minutes` in place and the halves are separate walls from here on.
+  const w2: Wall = {
+    ...w,
+    id: newId("w"), a: mid.id, b: w.b, bulge: bulge2, openings: [],
+    ...(w.fireRating ? { fireRating: { ...w.fireRating } } : {}),
+  };
   w.b = mid.id;
   w.bulge = bulge1;
   // Redistribute openings by centre position.
@@ -374,7 +384,7 @@ export function unanchorRoutePoints(f: Floor, symbol: { id: Id; x: number; y: nu
 }
 
 /** The placed objects a copy applies to; walls and openings are not among them. */
-export type PlacedKind = "symbol" | "cabinet" | "stair" | "vide";
+export type PlacedKind = "symbol" | "furnishing" | "stair" | "vide";
 
 /**
  * Copy placed objects on a floor, keeping everything but their identity: what
@@ -395,7 +405,7 @@ export function cloneOnFloor(f: Floor, kind: PlacedKind, ids: readonly Id[]): Ma
     }
   };
   if (kind === "symbol") copyInto(f.symbols, "s");
-  else if (kind === "cabinet") copyInto((f.cabinets ??= []), "k");
+  else if (kind === "furnishing") copyInto((f.furnishings ??= []), "i");
   else if (kind === "stair") copyInto((f.stairs ??= []), "t");
   else copyInto((f.vides ??= []), "v");
   return made;

@@ -10,6 +10,7 @@
 import { ResolvedRoute } from "../core/route";
 import { arcInfo, sweepOf } from "../geometry/arc";
 import { Prim } from "./record";
+import type { ResolvedRiserMark } from "../core/continuation";
 
 export function routePrims(resolved: ResolvedRoute): Prim[] {
   const out: Prim[] = [];
@@ -23,5 +24,29 @@ export function routePrims(resolved: ResolvedRoute): Prim[] {
       start: (info.a0 * 180) / Math.PI, sweep: (sweep * 180) / Math.PI,
     });
   }
+  return out;
+}
+
+/** Cross-floor plan mark in the same geometry vocabulary SVG and DXF share. */
+export function riserPrims(mark: ResolvedRiserMark): Prim[] {
+  const rim = Array.from({ length: 20 }, (_, i) => {
+    const angle = (i / 20) * Math.PI * 2;
+    return { x: mark.at.x + Math.cos(angle) * 78, y: mark.at.y + Math.sin(angle) * 78 };
+  });
+  const out: Prim[] = [{ kind: "poly", closed: true, pts: rim }];
+  const head = (sign: -1 | 1): void => {
+    const y = mark.at.y + sign * 48;
+    out.push({ kind: "poly", closed: true, pts: [
+      { x: mark.at.x, y: y + sign * 38 },
+      { x: mark.at.x - 38, y: y - sign * 8 },
+      { x: mark.at.x + 38, y: y - sign * 8 },
+    ] });
+  };
+  if (mark.direction !== "down") head(-1);
+  if (mark.direction !== "up") head(1);
+  if (mark.members.length > 1)
+    out.push({ kind: "text", at: mark.at, size: 90, text: String(mark.members.length) });
+  if (mark.tag)
+    out.push({ kind: "text", at: { x: mark.at.x, y: mark.at.y + 153 }, size: 90, text: mark.tag });
   return out;
 }

@@ -4,6 +4,7 @@
 import { seedDoc } from "../src/seed";
 import { emptyDoc, newId } from "../src/model/doc";
 import { toSvg } from "../src/io/svg";
+import { COLORS } from "../src/render/draw";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ""): void {
@@ -95,6 +96,40 @@ for (const id of ["rooms", "walls", "openings", "symbols", "labels"])
   // Every name still draws.
   for (const name of ["Woonkamer", "Keuken", "Hal"])
     check(`${name} is still exported`, out.includes(`>${name}</text>`));
+}
+
+// --- wall material and pen reach the artwork ---
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.nodes.push(
+    { id: "vn0", x: 0, y: 0 }, { id: "vn1", x: 6000, y: 0 },
+    { id: "vn2", x: 6000, y: 3000 }, { id: "vn3", x: 0, y: 3000 },
+  );
+  f.walls.push(
+    // Glazed, with stijlen; a run of 6000 at 1200 divides on four of them.
+    { id: "vw0", a: "vn0", b: "vn1", thickness: 100, bulge: 0, openings: [],
+      material: "glass", mullionMm: 1200 },
+    // Marked as work to be built: the colour takes the fill, not just the line.
+    { id: "vw1", a: "vn1", b: "vn2", thickness: 300, bulge: 0, openings: [], color: "#d0342c" },
+    { id: "vw2", a: "vn2", b: "vn3", thickness: 300, bulge: 0, openings: [] },
+    { id: "vw3", a: "vn3", b: "vn0", thickness: 300, bulge: 0, openings: [] },
+  );
+  const out = toSvg(doc, 0) ?? "";
+  check("a glazing group is emitted for the stijlen", out.includes('id="glazing"'));
+  check("a coloured wall takes the pen as its FILL", out.includes('fill="#d0342c"'));
+  check("the plan still carries a default-pen wall group",
+    out.includes(COLORS.wallFill), COLORS.wallFill);
+  check("the glazed body is not drawn as poche", out.includes(COLORS.glassFill));
+  check("no NaN reaches a glazed wall's paths", !out.includes("NaN"));
+
+  // A wall stating nothing keeps the artwork it had before walls could differ.
+  const plainDoc = emptyDoc();
+  const pf = plainDoc.floors[0]!;
+  pf.nodes.push({ id: "pn0", x: 0, y: 0 }, { id: "pn1", x: 4000, y: 0 });
+  pf.walls.push({ id: "pw", a: "pn0", b: "pn1", thickness: 300, bulge: 0, openings: [] });
+  const plain = toSvg(plainDoc, 0) ?? "";
+  check("a plan of plain walls emits no glazing group", !plain.includes('id="glazing"'));
 }
 
 console.log(failures === 0 ? "ALL SVG TESTS PASSED" : `${failures} FAILURES`);

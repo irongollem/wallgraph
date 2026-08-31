@@ -13,6 +13,16 @@ import { ResolvedWall } from "../core/resolve";
 import { Vec } from "../geometry/vec";
 import { Prim } from "./record";
 
+/**
+ * The stijlen across a glazed wall, as lines face to face. Empty for a solid
+ * wall and for glazing that states no spacing. core/resolve.ts has already done
+ * the dividing — including pushing the stijlen of a run aside around a door —
+ * so both exporters and the canvas place them identically.
+ */
+export function mullionMarks(rw: ResolvedWall): Prim[] {
+  return rw.mullions.map(m => ({ kind: "line", a: m.a, b: m.b } as const));
+}
+
 export function openingMarks(rw: ResolvedWall): Prim[] {
   const out: Prim[] = [];
   for (const og of rw.openings) {
