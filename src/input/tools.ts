@@ -6,6 +6,7 @@ import {
   roomNamesOf, floorHeight, DOOR_DEFAULT_WIDTH, WINDOW_DEFAULT_WIDTH, PASSAGE_DEFAULT_WIDTH,
   OpeningKind, FireRating, dimModeOf,
 } from "../model/doc";
+import type { RoomUse } from "../model/room";
 import {
   Stair, ResolvedStair, StairKind, StairParams, stairDefaults, stairFields, clampStair,
   stairAngle, inheritsRise,
@@ -1465,6 +1466,20 @@ export class Tools {
       if (!text) { f.roomNames = roomNamesOf(f).filter(r => r.id !== id); return; }
       const rn = roomNamesOf(f).find(r => r.id === id);
       if (rn) rn.name = text;
+    });
+  }
+
+  /**
+   * Set or clear what a named room is used for. `use` rides on the RoomName
+   * (see model/room.ts), so this needs the name's own id and does nothing for
+   * a room that has not been named yet -- there is nowhere to store the use.
+   */
+  setRoomUse(id: string, use: RoomUse | undefined): void {
+    this.store.mutate(doc => {
+      const f = this.store.floorOf(doc);
+      const rn = roomNamesOf(f).find(r => r.id === id);
+      if (!rn) return;
+      if (use) rn.use = use; else delete rn.use;
     });
   }
 

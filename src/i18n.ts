@@ -136,6 +136,7 @@ export const resources = {
         cabinetNote: "klikt vast tegen een muur en tegen de kast ernaast \u00b7 bovenkasten staan gestreept",
         roomName: "Naam",
         roomRename: "Naam van deze ruimte",
+        roomUse: "Gebruik",
         zoom: "Zoomen",
         zoomAll: "Alles in beeld",
         zoomAllTitle: "Alles in beeld (F)",
@@ -600,6 +601,9 @@ export const resources = {
         widthNarrow: "breedte {{value}} mm — gebruikelijk ten minste {{limit}} mm",
         slopeSteep: "helling {{value}} — gebruikelijk niet steiler dan {{limit}}",
       },
+      fitoutIssue: {
+        workplaceNone: "{{value}} m² — geen volledige werkplek (richtwaarde vanaf {{limit}} m²)",
+      },
       cabinetKind: {
         base: "Onderkast",
         wall: "Bovenkast",
@@ -650,6 +654,18 @@ export const resources = {
         entree: "Entree",
         terras: "Terras",
         balkon: "Balkon",
+      },
+      roomUse: {
+        none: "niet opgegeven",
+        verblijf: "verblijfsruimte",
+        verkeer: "verkeersruimte",
+        sanitair: "sanitair",
+        techniek: "techniek",
+      },
+      fitout: {
+        workstations: "werkplekken (indicatief): {{n}}",
+        daylight: "daglicht (verhouding, geen toetsing): {{pct}}%",
+        ventilation: "ventilatie (indicatief): {{m3h}} m³/h",
       },
       vide: {
         label: "vide",
@@ -770,6 +786,7 @@ export const resources = {
         cabinetNote: "snaps to a wall and to the unit beside it \u00b7 wall units draw dashed",
         roomName: "Name",
         roomRename: "Name of this room",
+        roomUse: "Use",
         zoom: "Zoom",
         zoomAll: "Fit all",
         zoomAllTitle: "Fit all (F)",
@@ -1231,6 +1248,9 @@ export const resources = {
         widthNarrow: "width {{value}} mm — usually at least {{limit}} mm",
         slopeSteep: "gradient {{value}} — usually no steeper than {{limit}}",
       },
+      fitoutIssue: {
+        workplaceNone: "{{value}} m² — not a full workstation (guideline value from {{limit}} m²)",
+      },
       cabinetKind: {
         base: "Base unit",
         wall: "Wall unit",
@@ -1281,6 +1301,18 @@ export const resources = {
         entree: "Entrance",
         terras: "Terrace",
         balkon: "Balcony",
+      },
+      roomUse: {
+        none: "not stated",
+        verblijf: "occupied room",
+        verkeer: "circulation space",
+        sanitair: "sanitary room",
+        techniek: "technical room",
+      },
+      fitout: {
+        workstations: "workstations (indicative): {{n}}",
+        daylight: "daylight (ratio, not a compliance check): {{pct}}%",
+        ventilation: "ventilation (indicative): {{m3h}} m³/h",
       },
       vide: {
         label: "void",

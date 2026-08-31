@@ -216,6 +216,15 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
   font: inherit; color: #2b2e33; outline: none;
 }
 
+/* A room's row plus, underneath it, its indicative fit-out figures -- see
+   core/fitout.ts. Only a verblijfsruimte has any; every other room's item is
+   just the row. */
+.zone-figures { display: flex; flex-direction: column; gap: 1px; padding: 2px 9px 0; }
+.zone-figure { font: 10px system-ui, sans-serif; color: #a09a8a; }
+/* The one flagged figure: same treatment as a stair reading outside STAIR_LIMITS. */
+.zone-figure.is-warn { color: #b3261e; font-weight: 500; }
+.zone-use { padding: 4px 2px 0; }
+
 .prop-note { font: 10px system-ui, sans-serif; color: #a09a8a; padding: 1px 2px 4px; }
 /* A figure outside what a stair is ordinarily built to. Loud enough to find,
    stated as a figure rather than as a verdict -- see STAIR_LIMITS. */

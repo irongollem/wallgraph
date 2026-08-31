@@ -37,13 +37,23 @@ export interface Room {
   name?: string;
   /** The RoomName the name came from, so the name can be rewritten. */
   nameId?: Id;
+  /**
+   * Walls whose centerline forms part of this room's boundary, deduplicated.
+   * Follows straight from the half-edge walk below: every boundary edge is
+   * one wall's own segment (a wall drawn through another's midpoint splits it
+   * at that node first, so there is no wall a room edge could straddle), so
+   * this is read off the same trace that finds the room rather than by
+   * re-matching geometry afterward. What core/fitout.ts sums window area over
+   * for the daylight ratio.
+   */
+  boundingWallIds: Id[];
 }
 
-interface HalfEdge { from: number; to: number; visited: boolean; half: number }
+interface HalfEdge { from: number; to: number; visited: boolean; half: number; wallId: Id }
 
 /** One traced face of the flattened wall graph, before it is classified as a
  *  room or the outer boundary. */
-interface Face { poly: Vec[]; halves: number[]; area: number }
+interface Face { poly: Vec[]; halves: number[]; wallIds: Id[]; area: number }
 
 /**
  * Walk every face of the flattened wall graph by the sharpest-left turn rule:
@@ -70,7 +80,7 @@ function walkFaces(f: Floor): Face[] {
   const halfEdges: HalfEdge[] = [];
   const outgoing = new Map<number, number[]>(); // vertex -> half-edge indices
 
-  const addSeg = (a: Vec, b: Vec, half: number): void => {
+  const addSeg = (a: Vec, b: Vec, half: number, wallId: Id): void => {
     const ia = vid(a), ib = vid(b);
     if (ia === ib) return;
     const ek = Math.min(ia, ib) + "-" + Math.max(ia, ib);
@@ -78,7 +88,7 @@ function walkFaces(f: Floor): Face[] {
     edgeSet.add(ek);
     for (const [from, to] of [[ia, ib], [ib, ia]] as const) {
       const idx = halfEdges.length;
-      halfEdges.push({ from, to, visited: false, half });
+      halfEdges.push({ from, to, visited: false, half, wallId });
       const arr = outgoing.get(from);
       if (arr) arr.push(idx); else outgoing.set(from, [idx]);
     }
@@ -89,7 +99,7 @@ function walkFaces(f: Floor): Face[] {
     if (!A || !B || dist(A, B) < 1) continue;
     const flat = arcFlatten(A, B, w.bulge, 5);
     const half = w.thickness / 2;
-    for (let i = 0; i + 1 < flat.length; i++) addSeg(flat[i]!, flat[i + 1]!, half);
+    for (let i = 0; i + 1 < flat.length; i++) addSeg(flat[i]!, flat[i + 1]!, half, w.id);
   }
 
   // Sort outgoing edges by angle for the turn rule.
@@ -105,6 +115,7 @@ function walkFaces(f: Floor): Face[] {
     if (halfEdges[start]!.visited) continue;
     const polyIdx: number[] = [];
     const halves: number[] = []; // half-thickness of the wall carrying each edge
+    const wallIds: Id[] = []; // which wall carries each edge, same order as halves
     let cur = start;
     let guard = 0;
     while (guard++ < 100000) {
@@ -113,6 +124,7 @@ function walkFaces(f: Floor): Face[] {
       he.visited = true;
       polyIdx.push(he.from);
       halves.push(he.half);
+      wallIds.push(he.wallId);
       // Next: at he.to, pick the edge just CW of twin(cur) in the sorted order.
       const outs = outgoing.get(he.to)!;
       const tw = twin(cur);
@@ -123,7 +135,7 @@ function walkFaces(f: Floor): Face[] {
     }
     if (polyIdx.length < 3) continue;
     const poly = polyIdx.map(i => verts[i]!);
-    faces.push({ poly, halves, area: polygonArea(poly) });
+    faces.push({ poly, halves, wallIds, area: polygonArea(poly) });
   }
   return faces;
 }
@@ -140,6 +152,7 @@ export function detectRooms(f: Floor): Room[] {
       poly: face.poly, areaMm2: face.area,
       netPoly, netAreaMm2: netArea,
       centroid: polygonCentroid(face.poly),
+      boundingWallIds: Array.from(new Set(face.wallIds)),
     });
   }
   attachNames(f, rooms);

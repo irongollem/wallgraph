@@ -345,6 +345,14 @@ export function planSchema(siteUrl: string): JsonSchema {
           x: mm("mm."),
           y: mm("mm, positive down."),
           name: { type: "string", minLength: 1 },
+          use: {
+            enum: ["verblijf", "verkeer", "sanitair", "techniek"],
+            description:
+              "What the room is used for. Rides on the name because it is the only " +
+              "authored per-room anchor the document has. Absent means not stated, and " +
+              "only \"verblijf\" (verblijfsruimte) carries the indicative workstation, " +
+              "daylight-ratio and ventilation figures in core/fitout.ts.",
+          },
         },
       },
       stair: {
