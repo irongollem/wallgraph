@@ -12,7 +12,8 @@ A free, browser-based floorplan editor. mm-exact, wall-graph based, zero depende
 `npm run build` puts the whole editor in a single `dist/index.html` you can open offline or
 host anywhere static; releases attach that same file as a download.
 
-See [PLAN.md](PLAN.md) for the architecture and roadmap, and
+The roadmap lives in the [GitHub issues](https://github.com/irongollem/wallgraph/issues);
+see [CLAUDE.md](CLAUDE.md) for the architecture and
 [CONTRIBUTING.md](CONTRIBUTING.md) if you want to send a patch.
 
 ## Develop

@@ -2,7 +2,7 @@
 //
 // Rooms themselves are derived — detectRooms() walks the wall graph and finds
 // them, so there is nothing in the document to hang a name on, and inventing a
-// stored room would put derived geometry back in the document (see PLAN.md).
+// stored room would put derived geometry back in the document (see CLAUDE.md).
 //
 // What IS authored is the name and where it was written. So that is what this
 // stores: a point and a word. Which room it names follows from the point at
