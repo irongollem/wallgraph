@@ -39,6 +39,15 @@ const text = toIfc(doc);
 const lines = text.split("\n");
 const entityLines = lines.filter(l => l.startsWith("#"));
 
+/**
+ * True when a numeric NaN leaked into the serialization. The check must look
+ * OUTSIDE quoted strings only: a GlobalId is 22 characters of an alphabet
+ * containing both N and a, so a legitimate id occasionally contains the
+ * substring "NaN" — a bare includes() fails intermittently, since ids carry a
+ * Date.now() suffix and vary per run.
+ */
+const hasNumericNaN = (s: string): boolean => s.replace(/'[^']*'/g, "''").includes("NaN");
+
 // ── framing ──────────────────────────────────────────────────────────────────
 
 check("starts with ISO-10303-21;", lines[0] === "ISO-10303-21;");
@@ -49,7 +58,7 @@ check("states the IFC4 schema", text.includes("FILE_SCHEMA(('IFC4'));"));
   const close = (text.match(/\)/g) ?? []).length;
   check("parens balance", open === close, `${open} open, ${close} close`);
 }
-check("no NaN in the file", !text.includes("NaN"));
+check("no NaN in the file", !hasNumericNaN(text));
 check("declares millimetres", text.includes(".MILLI.") && text.includes(".METRE."));
 
 // ── spine cardinality ────────────────────────────────────────────────────────
@@ -257,7 +266,7 @@ check("one IFCBUILDINGSTOREY per floor", countOf("IFCBUILDINGSTOREY") === doc.fl
     const close = (richText.match(/\)/g) ?? []).length;
     check("parens balance (rich plan)", open === close, `${open} open, ${close} close`);
   }
-  check("no NaN in the rich plan", !richText.includes("NaN"));
+  check("no NaN in the rich plan", !hasNumericNaN(richText));
   check("no byte over 126 in the rich plan", [...richText].every(ch => ch.codePointAt(0)! <= 126));
   {
     const clock = Date.UTC(2026, 0, 1);
@@ -734,7 +743,7 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
     const dangling = [...referenced].filter(id => !defined.has(id));
     check("every #n referenced is defined (BIM7 plan)", dangling.length === 0, dangling.join(","));
   }
-  check("no NaN in the BIM7 plan", !text7.includes("NaN"));
+  check("no NaN in the BIM7 plan", !hasNumericNaN(text7));
   check("no byte over 126 in the BIM7 plan", [...text7].every(ch => ch.codePointAt(0)! <= 126));
   {
     const guids: string[] = [];
@@ -973,7 +982,7 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
     const dangling = [...referenced].filter(id => !defined.has(id));
     check("every #n referenced is defined (BIM8 plan)", dangling.length === 0, dangling.join(","));
   }
-  check("no NaN in the BIM8 plan", !text8.includes("NaN"));
+  check("no NaN in the BIM8 plan", !hasNumericNaN(text8));
 
   // ── psets/quantities are never added to a storey's containment rel ─────
   {
