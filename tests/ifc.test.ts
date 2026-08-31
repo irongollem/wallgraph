@@ -2,9 +2,10 @@
 // viewer for a missing reference or a malformed GlobalId, so the structural
 // rules are checked here rather than eyeballed.
 import {
-  emptyDoc, newId, floorElevation, DOOR_HEIGHT_DEFAULT, WINDOW_HEIGHT_DEFAULT,
+  emptyDoc, newId, floorElevation, DOOR_HEIGHT_DEFAULT, WINDOW_HEIGHT_DEFAULT, wallHeight,
   type Floor, type Wall, type Opening, type Id, type SymbolInstance,
 } from "../src/model/doc";
+import { wallLength } from "../src/model/ops";
 import { toIfc } from "../src/io/ifc";
 import { detectRooms } from "../src/core/rooms";
 import { SLAB_DEFAULT_MM } from "../src/core/solids";
@@ -801,6 +802,237 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
   check("an empty document has no symbol elements",
     !bare.includes("=IFCOUTLET(") && !bare.includes("=IFCSANITARYTERMINAL(")
       && !bare.includes("=IFCBUILDINGELEMENTPROXY("));
+}
+
+// ── BIM 8: property sets and quantities ─────────────────────────────────────
+//
+// Two 4x3 m rooms side by side (same shape as the BIM 5 block above), split
+// by a partition wall so IsExternal has both a true case and a false case to
+// prove. The bottom-left wall carries loadBearing + a fire rating and a
+// fire-rated, self-closing door of its own (a different rating, to prove the
+// two properties are read independently rather than one copying the other).
+{
+  function addNode8(f: Floor, x: number, y: number): Id {
+    const id = newId("n");
+    f.nodes.push({ id, x, y });
+    return id;
+  }
+  function addWall8(f: Floor, a: Id, b: Id, thickness: number): Wall {
+    const wall: Wall = { id: newId("w"), a, b, thickness, bulge: 0, openings: [] };
+    f.walls.push(wall);
+    return wall;
+  }
+  /** Every ref (`#n`) an entity's OWN argument list carries. */
+  function argRefs8(line: string): number[] {
+    return [...line.slice(line.indexOf("=") + 1).matchAll(/#(\d+)/g)].map(m => Number(m[1]));
+  }
+
+  const doc8 = emptyDoc();
+  const floor8 = doc8.floors[0]!;
+  floor8.name = "Begane grond";
+  const n0 = addNode8(floor8, 0, 0), n4 = addNode8(floor8, 4000, 0), n1 = addNode8(floor8, 8000, 0);
+  const n3 = addNode8(floor8, 0, 3000), n5 = addNode8(floor8, 4000, 3000), n2 = addNode8(floor8, 8000, 3000);
+  const wBottomLeft = addWall8(floor8, n0, n4, 300);   // facade: loadBearing + fireRating + door
+  addWall8(floor8, n4, n1, 300);                        // facade
+  addWall8(floor8, n1, n2, 300);                        // facade
+  addWall8(floor8, n2, n5, 300);                        // facade
+  addWall8(floor8, n5, n3, 300);                        // facade
+  addWall8(floor8, n3, n0, 300);                        // facade
+  const wPartition = addWall8(floor8, n4, n5, 150);     // interior, between the two rooms
+
+  wBottomLeft.loadBearing = true;
+  wBottomLeft.fireRating = { kind: "wbdbo", minutes: 60 };
+
+  const door: Opening = {
+    id: newId("o"), kind: "door", t: 1500, width: 900,
+    sashes: [{ action: "turn", hinge: "a" }],
+    fireRating: { kind: "wbdbo", minutes: 30 }, selfClosing: true,
+  };
+  wBottomLeft.openings.push(door);
+
+  const rooms8 = detectRooms(floor8);
+  check("BIM8 test doc encloses exactly two rooms", rooms8.length === 2, String(rooms8.length));
+
+  const text8 = toIfc(doc8);
+  const ents8 = text8.split("\n").filter(l => l.startsWith("#"));
+  const seed8 = doc8.guid ?? "";
+
+  /** A Pset_*Common's properties for a `${id}:pset`-or-`${id}:fillpset`-keyed
+   *  set, Name -> the property's raw serialized NominalValue. */
+  function parsedPset8(guidKey: string): Record<string, string> | undefined {
+    const guid = ifcGuid(seed8, guidKey);
+    const line = ents8.find(l => l.includes(`=IFCPROPERTYSET('${guid}'`));
+    if (!line) return undefined;
+    const propRefs = argRefs8(line).slice(1); // drop OwnerHistory
+    const out: Record<string, string> = {};
+    for (const id of propRefs) {
+      const pLine = ents8.find(l => l.startsWith(`#${id}=IFCPROPERTYSINGLEVALUE(`));
+      const m = pLine ? /^#\d+=IFCPROPERTYSINGLEVALUE\('([^']*)',\$,(.*),\$\);$/.exec(pLine) : null;
+      if (m) out[m[1]!] = m[2]!;
+    }
+    return out;
+  }
+
+  /** A Qto_WallBaseQuantities's quantities for a `${wall.id}:qto`-keyed set,
+   *  Name -> its numeric value. */
+  function parsedQto8(guidKey: string): Record<string, number> | undefined {
+    const guid = ifcGuid(seed8, guidKey);
+    const line = ents8.find(l => l.includes(`=IFCELEMENTQUANTITY('${guid}'`));
+    if (!line) return undefined;
+    const qtyRefs = argRefs8(line).slice(1); // drop OwnerHistory
+    const out: Record<string, number> = {};
+    for (const id of qtyRefs) {
+      const qLine = ents8.find(l =>
+        l.startsWith(`#${id}=IFCQUANTITYLENGTH(`) || l.startsWith(`#${id}=IFCQUANTITYVOLUME(`));
+      const m = qLine
+        ? /^#\d+=IFCQUANTITY(?:LENGTH|VOLUME)\('([^']*)',\$,\$,(-?\d+\.?\d*(?:E[+-]?\d+)?),\$\);$/.exec(qLine)
+        : null;
+      if (m) out[m[1]!] = Number(m[2]!);
+    }
+    return out;
+  }
+
+  const psetCountOf8 = (name: string): number =>
+    ents8.filter(l => l.includes("=IFCPROPERTYSET(") && l.includes(`'${name}'`)).length;
+
+  // ── Pset_WallCommon: one per wall — IsExternal is always stated once
+  //    rooms exist, so every wall carries at least one property ───────────
+  check("Pset_WallCommon is emitted once per wall (7 walls: 6 facade + 1 partition)",
+    psetCountOf8("Pset_WallCommon") === 7, String(psetCountOf8("Pset_WallCommon")));
+
+  // ── IsExternal: true on a facade wall, false on the partition ──────────
+  const facadeWall = floor8.walls.find(w => w.id !== wPartition.id && w.id !== wBottomLeft.id)!;
+  const facadePset = parsedPset8(`${facadeWall.id}:pset`);
+  const partitionPset = parsedPset8(`${wPartition.id}:pset`);
+  const loadBearingPset = parsedPset8(`${wBottomLeft.id}:pset`);
+  check("a facade wall's IsExternal serializes IFCBOOLEAN(.T.)",
+    facadePset?.IsExternal === "IFCBOOLEAN(.T.)", JSON.stringify(facadePset));
+  check("the partition wall's IsExternal serializes IFCBOOLEAN(.F.)",
+    partitionPset?.IsExternal === "IFCBOOLEAN(.F.)", JSON.stringify(partitionPset));
+  check("the loadBearing facade wall's IsExternal is also true",
+    loadBearingPset?.IsExternal === "IFCBOOLEAN(.T.)", JSON.stringify(loadBearingPset));
+
+  // ── LoadBearing: only the wall that states it ───────────────────────────
+  check("LoadBearing appears on the wall that states it",
+    loadBearingPset?.LoadBearing === "IFCBOOLEAN(.T.)", JSON.stringify(loadBearingPset));
+  check("LoadBearing is absent from a wall that states nothing",
+    facadePset?.LoadBearing === undefined, JSON.stringify(facadePset));
+  check("LoadBearing is absent from the partition (states nothing)",
+    partitionPset?.LoadBearing === undefined, JSON.stringify(partitionPset));
+
+  // ── FireRating: the exact fireLabel text ────────────────────────────────
+  check("the wall's FireRating carries the exact fireLabel text",
+    loadBearingPset?.FireRating === "IFCLABEL('WBDBO 60')", JSON.stringify(loadBearingPset));
+  check("a wall stating no fireRating carries none",
+    facadePset?.FireRating === undefined, JSON.stringify(facadePset));
+
+  // ── the door's Pset_DoorCommon ───────────────────────────────────────────
+  const doorPset = parsedPset8(`${door.id}:fillpset`);
+  check("the door's Pset_DoorCommon carries SelfClosing IFCBOOLEAN(.T.)",
+    doorPset?.SelfClosing === "IFCBOOLEAN(.T.)", JSON.stringify(doorPset));
+  check("the door's Pset_DoorCommon FireRating matches its own fireLabel (not the wall's)",
+    doorPset?.FireRating === "IFCLABEL('WBDBO 30')", JSON.stringify(doorPset));
+  check("the door's Pset_DoorCommon IsExternal matches its wall's (true, a facade wall)",
+    doorPset?.IsExternal === "IFCBOOLEAN(.T.)", JSON.stringify(doorPset));
+  check("exactly one Pset_DoorCommon (the door) and none named Pset_WindowCommon",
+    psetCountOf8("Pset_DoorCommon") === 1 && psetCountOf8("Pset_WindowCommon") === 0);
+
+  // ── Qto_WallBaseQuantities ───────────────────────────────────────────────
+  const qto = parsedQto8(`${wBottomLeft.id}:qto`);
+  const expectedLength = wallLength(floor8, wBottomLeft);
+  const expectedHeight = wallHeight(floor8, wBottomLeft);
+  const expectedGrossVolume = (expectedLength * wBottomLeft.thickness * expectedHeight) / 1e9;
+  check("Qto_WallBaseQuantities.Length matches wallLength()",
+    qto?.Length === expectedLength, `${qto?.Length} vs ${expectedLength}`);
+  check("Qto_WallBaseQuantities.Width matches the wall's thickness",
+    qto?.Width === wBottomLeft.thickness, `${qto?.Width} vs ${wBottomLeft.thickness}`);
+  check("Qto_WallBaseQuantities.Height matches wallHeight()",
+    qto?.Height === expectedHeight, `${qto?.Height} vs ${expectedHeight}`);
+  check("Qto_WallBaseQuantities.GrossVolume matches length*width*height/1e9 (openings NOT subtracted)",
+    qto?.GrossVolume !== undefined && Math.abs(qto.GrossVolume - expectedGrossVolume) < 1e-9,
+    `${qto?.GrossVolume} vs ${expectedGrossVolume}`);
+  check("Qto_WallBaseQuantities is emitted once per wall (7 walls, unconditional)",
+    ents8.filter(l => l.includes("=IFCELEMENTQUANTITY(") && l.includes("'Qto_WallBaseQuantities'")).length === 7);
+
+  // ── pset/qto GlobalIds are unique and stable across a re-export ─────────
+  {
+    const guids: string[] = [];
+    for (const l of ents8) {
+      const m = /^#\d+=IFC(?:PROPERTYSET|ELEMENTQUANTITY|RELDEFINESBYPROPERTIES)\('([^']*)'/.exec(l);
+      if (m) guids.push(m[1]!);
+    }
+    check("every pset/qto GlobalId in the BIM8 plan is present and unique",
+      guids.length > 0 && new Set(guids).size === guids.length, String(guids.length));
+
+    const again8ForGuids = toIfc(doc8);
+    const againGuids = again8ForGuids.split("\n")
+      .map(l => /^#\d+=IFC(?:PROPERTYSET|ELEMENTQUANTITY|RELDEFINESBYPROPERTIES)\('([^']*)'/.exec(l))
+      .filter((m): m is RegExpExecArray => m !== null)
+      .map(m => m[1]!);
+    check("pset/qto GlobalIds are stable across a re-export",
+      JSON.stringify([...guids].sort()) === JSON.stringify([...againGuids].sort()));
+  }
+
+  // ── byte-stable re-export ────────────────────────────────────────────────
+  {
+    const again8 = toIfc(doc8);
+    const a = text8.split("\n"), b = again8.split("\n");
+    const diffLines = a.length === b.length
+      ? a.map((l, i) => l === b[i] || l.startsWith("FILE_NAME(") ? null : i).filter((i): i is number => i !== null)
+      : [-1];
+    check("BIM8 export is byte-identical across re-export apart from FILE_NAME's timestamp",
+      diffLines.length === 0, diffLines.join(","));
+  }
+
+  // ── whole-file integrity ─────────────────────────────────────────────────
+  {
+    const defined = new Set<number>();
+    for (const l of ents8) { const m = /^#(\d+)=/.exec(l); if (m) defined.add(Number(m[1])); }
+    const referenced = new Set<number>();
+    for (const l of ents8) for (const r of argRefs8(l)) referenced.add(r);
+    const dangling = [...referenced].filter(id => !defined.has(id));
+    check("every #n referenced is defined (BIM8 plan)", dangling.length === 0, dangling.join(","));
+  }
+  check("no NaN in the BIM8 plan", !text8.includes("NaN"));
+
+  // ── psets/quantities are never added to a storey's containment rel ─────
+  {
+    const containmentLines8 = ents8.filter(l => l.includes("=IFCRELCONTAINEDINSPATIALSTRUCTURE("));
+    const psetIds = new Set<number>();
+    for (const l of ents8) {
+      if (l.includes("=IFCPROPERTYSET(") || l.includes("=IFCELEMENTQUANTITY(")) {
+        const m = /^#(\d+)=/.exec(l); if (m) psetIds.add(Number(m[1]));
+      }
+    }
+    check("no pset/qto entity appears in any containment rel",
+      containmentLines8.every(l => argRefs8(l).every(id => !psetIds.has(id))));
+  }
+}
+
+// ── an empty plan, and a wall with no rooms to derive IsExternal from,
+//    emit no property sets ──────────────────────────────────────────────────
+{
+  const bare = toIfc(emptyDoc());
+  check("an empty document has no property sets or wall quantities",
+    !bare.includes("=IFCPROPERTYSET(") && !bare.includes("Qto_WallBaseQuantities"));
+
+  // Two walls, nothing enclosed: Qto_WallBaseQuantities is unconditional so
+  // it still appears once per wall, but Pset_WallCommon needs at least one
+  // stated property and gets none here — no rooms to derive IsExternal from,
+  // and nothing else authored.
+  const openDoc = emptyDoc();
+  const floor = openDoc.floors[0]!;
+  const n0 = newId("n"), n1 = newId("n"), n2 = newId("n");
+  floor.nodes.push({ id: n0, x: 0, y: 0 }, { id: n1, x: 4000, y: 0 }, { id: n2, x: 4000, y: 3000 });
+  floor.walls.push(
+    { id: newId("w"), a: n0, b: n1, thickness: 300, bulge: 0, openings: [] },
+    { id: newId("w"), a: n1, b: n2, thickness: 300, bulge: 0, openings: [] },
+  );
+  const openText = toIfc(openDoc);
+  check("an open, unenclosed chain emits no Pset_WallCommon (IsExternal has nothing to derive)",
+    !openText.includes("=IFCPROPERTYSET("));
+  check("an open, unenclosed chain still emits Qto_WallBaseQuantities (unconditional)",
+    (openText.match(/=IFCELEMENTQUANTITY\(/g) ?? []).length === 2);
 }
 
 console.log(failures === 0 ? "ALL IFC TESTS PASSED" : `${failures} FAILURES`);

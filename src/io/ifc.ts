@@ -55,10 +55,11 @@
 // gets its own GlobalId derived from the element it hangs off, suffixed so it
 // cannot collide with that element's own id.
 import {
-  PlanDoc, Floor, projectOf, floorElevation, floorHeight, areaModeOf, dimModeOf, DimMode, Sash, sashSpecsOf,
-  openingHeight, videsOf, stairsOf, cabinetsOf, SymbolInstance,
+  PlanDoc, Floor, Wall, projectOf, floorElevation, floorHeight, areaModeOf, dimModeOf, DimMode, Sash, sashSpecsOf,
+  openingHeight, videsOf, stairsOf, cabinetsOf, SymbolInstance, wallHeight, fireLabel,
 } from "../model/doc";
 import { ifcGuid } from "../model/guid";
+import { wallLength } from "../model/ops";
 import { floorSolids } from "../core/solids";
 import { detectRooms, roomSize, sizeLabel, Room } from "../core/rooms";
 import { resolveStair, stairBox } from "../core/stair";
@@ -67,7 +68,7 @@ import { cabinetHeight } from "../model/cabinet";
 import { cabinetBox } from "../core/cabinet";
 import { getSymbol, SymbolDef, SymbolCategory } from "../render/symbols";
 import { Placed, LocalBox, worldPoint } from "../core/placed";
-import { Vec, v, add, sub, scale, norm, perp, len, mid } from "../geometry/vec";
+import { Vec, v, add, sub, scale, norm, perp, len, mid, pointInPolygon } from "../geometry/vec";
 import { saveViaHost, downloadBlob } from "./save";
 
 export type IfcResult = "saved" | "failed";
@@ -379,6 +380,42 @@ function symbolFootprint(def: SymbolDef, s: SymbolInstance): Vec[] {
   return boxQuad(s, box);
 }
 
+// ── wall side classification ────────────────────────────────────────────────
+
+/** How far past a wall's own half-thickness a side probe reaches, mm — enough
+ *  to clear the centerline itself and land unambiguously on one side. */
+const EXTERNAL_PROBE_EPS_MM = 5;
+
+/**
+ * Whether a wall borders the outside of the building: true unless BOTH of its
+ * sides fall inside a detected room. Probes a point half-thickness plus a
+ * small epsilon off the wall's own centerline midpoint, on each side, against
+ * the rooms' CENTERLINE polygons (`Room.poly`, not `netPoly` — a room's poly
+ * shares its boundary edges with the wall centerlines that bound it). This is
+ * the same test core/dimensions.ts's `insideAnyRoom` runs to tell a facade
+ * from an interior wall for a dimension chain, mirrored here per wall rather
+ * than per chain, using the chord (not the arc tangent) at the midpoint —
+ * the same tangent-line approximation resolve.ts already accepts at a miter.
+ *
+ * Undefined when the floor has no detected rooms at all: nothing here is a
+ * fact yet, so IsExternal is omitted rather than guessed at.
+ */
+function wallIsExternal(floor: Floor, wall: Wall, roomPolys: readonly Vec[][]): boolean | undefined {
+  if (roomPolys.length === 0) return undefined;
+  const na = floor.nodes.find(n => n.id === wall.a), nb = floor.nodes.find(n => n.id === wall.b);
+  if (!na || !nb) return undefined;
+  const A = v(na.x, na.y), B = v(nb.x, nb.y);
+  if (len(sub(B, A)) < 1e-6) return undefined;
+  const dir = norm(sub(B, A));
+  const n = perp(dir);
+  const midPt = mid(A, B);
+  const probe = wall.thickness / 2 + EXTERNAL_PROBE_EPS_MM;
+  const inside = (p: Vec): boolean => roomPolys.some(poly => pointInPolygon(p, poly));
+  const sideA = inside(add(midPt, scale(n, probe)));
+  const sideB = inside(add(midPt, scale(n, -probe)));
+  return !(sideA && sideB);
+}
+
 // ── the spine ────────────────────────────────────────────────────────────────
 
 /**
@@ -525,6 +562,47 @@ export function toIfc(doc: PlanDoc): string {
     return ref(pds);
   }
 
+  // ── property sets and quantities ──────────────────────────────────────────
+  //
+  // Every Pset_*Common/Qto_* attachment below funnels through these two: an
+  // IFCPROPERTYSET or IFCELEMENTQUANTITY plus the IFCRELDEFINESBYPROPERTIES
+  // that hangs it off its element — the same pairing BIM 5 already used for
+  // Qto_SpaceBaseQuantities, left as its own call site further down: its
+  // GlobalId suffixing (qset ':qset', rel ':qto') runs the other way round
+  // from these helpers' (set ':pset'/':qto', rel '<key>:rel'), so routing it
+  // through here would not stay byte-identical for the same input.
+
+  /** One typed IFCPROPERTYSINGLEVALUE(name, $, nominal value, $) entity id. */
+  function propValue(name: string, nominal: IfcArg): number {
+    return w.entity("IFCPROPERTYSINGLEVALUE", [str(name), UNSET, nominal, UNSET]);
+  }
+
+  const boolValue = (b: boolean): IfcArg => typed("IFCBOOLEAN", enumv(b ? "T" : "F"));
+  const labelValue = (s: string): IfcArg => typed("IFCLABEL", str(s));
+
+  /**
+   * Attaches one IFCPROPERTYSET to `elementId` via IFCRELDEFINESBYPROPERTIES,
+   * when there is at least one property to state — never an empty pset. The
+   * pset's own GlobalId is ifcGuid(seed, guidKey); the rel's is the same key
+   * suffixed ':rel' so it cannot collide with the pset's own id.
+   */
+  function attachPropertySet(elementId: number, guidKey: string, psetName: string, props: IfcArg[]): void {
+    if (props.length === 0) return;
+    const pset = w.entity("IFCPROPERTYSET",
+      [str(ifcGuid(seed, guidKey)), ref(ownerHistory), str(psetName), UNSET, list(...props)]);
+    w.entity("IFCRELDEFINESBYPROPERTIES",
+      [str(ifcGuid(seed, `${guidKey}:rel`)), ref(ownerHistory), UNSET, UNSET, list(ref(elementId)), ref(pset)]);
+  }
+
+  /** Attaches one IFCELEMENTQUANTITY to `elementId`, the same GlobalId and
+   *  rel pairing as attachPropertySet() above but for quantities. */
+  function attachQuantitySet(elementId: number, guidKey: string, qtoName: string, quantities: IfcArg[]): void {
+    const qset = w.entity("IFCELEMENTQUANTITY",
+      [str(ifcGuid(seed, guidKey)), ref(ownerHistory), str(qtoName), UNSET, UNSET, list(...quantities)]);
+    w.entity("IFCRELDEFINESBYPROPERTIES",
+      [str(ifcGuid(seed, `${guidKey}:rel`)), ref(ownerHistory), UNSET, UNSET, list(ref(elementId)), ref(qset)]);
+  }
+
   /**
    * A void quad shrunk to FILLER_DEPTH_MM about its own centerline — the door
    * or window leaf's placeholder geometry. `voidPoly` is built the way
@@ -584,6 +662,12 @@ export function toIfc(doc: PlanDoc): string {
     const fs = floorSolids(doc, i);
     if (!fs) continue; // no walls on this storey at all — nothing to place
 
+    // Computed once per floor and reused below: the wall-side probe (Pset
+    // IsExternal) and the space loop further down both need the same room
+    // set, and detectRooms() is pure, so a second call would just repeat it.
+    const rooms = detectRooms(floor);
+    const roomPolys = rooms.map(r => r.poly);
+
     // Identity placement relative to the storey: floorSolids() already
     // returns absolute plan coordinates, so every element on this storey
     // shares one relative placement rather than each carrying its own offset.
@@ -597,6 +681,27 @@ export function toIfc(doc: PlanDoc): string {
         [str(ifcGuid(seed, wall.id)), ref(ownerHistory), str(`Wall ${wall.thickness}`), UNSET, UNSET,
           ref(levelPlacement), bodyShape(bodyIds), UNSET, UNSET]);
       contained.push(wallEntity);
+
+      // ── Pset_WallCommon ──────────────────────────────────────────────────
+      const external = wallIsExternal(floor, wall, roomPolys);
+      const wallProps: IfcArg[] = [];
+      if (external !== undefined) wallProps.push(ref(propValue("IsExternal", boolValue(external))));
+      if (wall.loadBearing !== undefined) wallProps.push(ref(propValue("LoadBearing", boolValue(wall.loadBearing))));
+      if (wall.fireRating !== undefined) wallProps.push(ref(propValue("FireRating", labelValue(fireLabel(wall.fireRating)))));
+      attachPropertySet(wallEntity, `${wall.id}:pset`, "Pset_WallCommon", wallProps);
+
+      // ── Qto_WallBaseQuantities ───────────────────────────────────────────
+      // Gross: opening voids are NOT subtracted from the volume, matching the
+      // "gross" name honestly rather than reporting a net figure under it.
+      const lengthMm = wallLength(floor, wall);
+      const heightMm = wallHeight(floor, wall);
+      const grossVolumeM3 = (lengthMm * wall.thickness * heightMm) / 1e9;
+      attachQuantitySet(wallEntity, `${wall.id}:qto`, "Qto_WallBaseQuantities", [
+        ref(w.entity("IFCQUANTITYLENGTH", [str("Length"), UNSET, UNSET, real(lengthMm), UNSET])),
+        ref(w.entity("IFCQUANTITYLENGTH", [str("Width"), UNSET, UNSET, real(wall.thickness), UNSET])),
+        ref(w.entity("IFCQUANTITYLENGTH", [str("Height"), UNSET, UNSET, real(heightMm), UNSET])),
+        ref(w.entity("IFCQUANTITYVOLUME", [str("GrossVolume"), UNSET, UNSET, real(grossVolumeM3), UNSET])),
+      ]);
 
       for (const og of ws.voids) {
         const opening = wall.openings.find(o => o.id === og.openingId)!;
@@ -626,6 +731,18 @@ export function toIfc(doc: PlanDoc): string {
             [str(ifcGuid(seed, `${opening.id}:fills`)), ref(ownerHistory), UNSET, UNSET,
               ref(openingEntity), ref(fillEntity)]);
           contained.push(fillEntity);
+
+          // ── Pset_DoorCommon / Pset_WindowCommon ───────────────────────────
+          const fillProps: IfcArg[] = [];
+          if (opening.fireRating !== undefined) {
+            fillProps.push(ref(propValue("FireRating", labelValue(fireLabel(opening.fireRating)))));
+          }
+          // No stated-false in the model (Opening.selfClosing is a flag, not
+          // tri-state), so only `true` is ever written.
+          if (opening.selfClosing === true) fillProps.push(ref(propValue("SelfClosing", boolValue(true))));
+          if (external !== undefined) fillProps.push(ref(propValue("IsExternal", boolValue(external))));
+          const fillPsetName = opening.kind === "door" ? "Pset_DoorCommon" : "Pset_WindowCommon";
+          attachPropertySet(fillEntity, `${opening.id}:fillpset`, fillPsetName, fillProps);
         }
       }
     }
@@ -737,7 +854,7 @@ export function toIfc(doc: PlanDoc): string {
     const dim = dimModeOf(doc);
     const fh = floorHeight(floor);
     const spaceEntities: number[] = [];
-    for (const r of detectRooms(floor)) {
+    for (const r of rooms) {
       const key = spaceKey(floor, r);
       const spaceEntity = w.entity("IFCSPACE",
         [str(ifcGuid(seed, key)), ref(ownerHistory), spaceName(r, dim), UNSET, UNSET, ref(levelPlacement),
