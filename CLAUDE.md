@@ -7,8 +7,10 @@ A browser-based, mm-exact floorplan editor. Vanilla TypeScript, canvas rendering
 Licensed AGPL-3.0-only with commercial terms available. The dependency policy and
 [CLA](CLA.md) requirements preserve the commercial-licensing option.
 
-Read [PLAN.md](PLAN.md) for the full architecture rationale and roadmap; this file is the
-operational summary of repository invariants and verification commands.
+The roadmap lives in the repository's [GitHub issues](https://github.com/irongollem/wallgraph/issues)
+(label `roadmap`; the BIM/IFC work additionally carries `bim`, tracked from its parent
+issue). This file is the architecture reference: repository invariants and verification
+commands.
 
 ## Commands
 
@@ -310,6 +312,15 @@ sells commercial exceptions. Consequences for changes here:
 
 ## Known limitations
 
-Sloped or varying-thickness walls, exact wall-to-arc miters. These are
-choices, not oversights. Check [PLAN.md](PLAN.md) for the current roadmap before changing
-one.
+Deliberate cuts, not oversights — check the [roadmap issues](https://github.com/irongollem/wallgraph/issues)
+before changing one:
+
+- Sloped or varying-thickness walls; a wall is one thickness, not a material build-up.
+- Exact wall-to-arc miters (tangent-line approximation instead).
+- Stair figures are reported, never enforced; a stair does not snap to a wall the way a
+  wall-mounted symbol does.
+- A corner cabinet is a rectangle with the room-facing corner cut, not an L-shaped
+  carcass; cabinets carry no schedule and nothing checks unit overlap (a wall unit over
+  a base unit is the normal case).
+- A room takes one name; a second name in the same room stays unattached rather than
+  merging.

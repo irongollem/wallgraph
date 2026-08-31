@@ -2044,9 +2044,9 @@ export class Tools {
    * the corner" is a thing you can hit by eye instead of by arithmetic.
    *
    * Distances are centerline-to-node, matching `t` and the panel's "from
-   * corner" field — not to the finished inner corner (see the net-area cut in
-   * PLAN.md). Like the wall dimension layer, the line follows the chord on a
-   * curved wall while the numbers are true arc lengths.
+   * corner" field — not to the finished inner corner. Like the wall dimension
+   * layer, the line follows the chord on a curved wall while the numbers are
+   * true arc lengths.
    */
   private drawWallOffsets(ctx: CanvasRenderingContext2D, vp: Viewport, px: number, wall: Wall, tMm: number, side: 1 | -1, clearMm = 0): void {
     const f = this.floor;

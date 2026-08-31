@@ -1,8 +1,9 @@
 # AGENTS.md
 
 Instructions for AI coding agents working in this repository. Humans want
-[README.md](README.md) for using Wallgraph and [PLAN.md](PLAN.md) for why it is
-built this way. [CLAUDE.md](CLAUDE.md) is the long-form version of this file —
+[README.md](README.md) for using Wallgraph; the roadmap lives in the
+[GitHub issues](https://github.com/irongollem/wallgraph/issues).
+[CLAUDE.md](CLAUDE.md) is the long-form version of this file —
 read it before making non-trivial changes.
 
 Wallgraph is a browser-based, millimetre-exact floorplan editor: vanilla
