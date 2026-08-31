@@ -257,6 +257,105 @@ landed together: an unnamed zone is "23,5 m²" among five, a named one is "Keuke
 [plattegrond.crocode.nl](https://plattegrond.crocode.nl) on static hosting at ≈ €0,
 deploying from `main`. Optional accounts only if sharing demands it.
 
+**P4 — BIM (IFC export) — not started.** See the BIM section below for the full
+breakdown. The wall graph was chosen because it extrudes directly; this phase is
+where that pays off in an open interchange format rather than a picture.
+
+## BIM
+
+"Proper BIM" for Wallgraph means the plan leaves the editor as a structured,
+semantically rich building model in the open interchange format the AEC industry
+exchanges: **IFC** (Industry Foundation Classes, ISO 16739), buildingSMART's openBIM
+standard. Today the exports (SVG, DXF, PNG) carry the *drawing*; an IFC export carries
+the *building* — walls as solids with openings, storeys with elevations, rooms as
+spaces with areas, doors with fire ratings — readable by Revit, Archicad, Solibri,
+BIMcollab and every IFC viewer.
+
+### Format decision
+
+- **Target IFC4 (ISO 16739-1:2018), STEP serialization (`.ifc`), Reference View
+  concepts.** IFC4.3 ADD2 is the current ISO revision (2024) but adds infrastructure
+  scope Wallgraph does not need, and building-workflow import support is broadest on
+  IFC4. IFC5 is in development (component-based, JSON) and not a target. The writer
+  isolates schema-version specifics so a later IFC4.3 output is a variant, not a
+  rewrite.
+- **Hand-written STEP writer, zero runtime dependencies.** A STEP physical file is a
+  flat list of `#id=ENTITY(...);` lines — the same shape of problem as the existing
+  DXF writer (`src/io/dxf.ts`), and written the same way. No IFC library enters the
+  bundle; validation tooling is dev-only.
+
+### What the model is missing (stored data)
+
+The document stores a 2D wall graph; IFC needs the third dimension and identity.
+Each addition below is authored data, not derived geometry, so it belongs in the
+document under the existing rules:
+
+1. **Stable GlobalIds.** Every IFC element carries a 22-character GlobalId, and
+   federation/BCF workflows require it to survive re-export. Derive deterministically
+   from a stored per-document GUID seed plus the element id, so documents do not
+   change shape and re-exports keep identities.
+2. **Storey elevations.** `Floor.height` (floor-to-floor) exists; elevation is the
+   cumulative sum in `floors[]` order plus a document-level ground offset. Confirm
+   and document that `floors[]` is ordered bottom-up.
+3. **Wall height and function.** Default wall height is the storey height; a wall may
+   override it. `IsExternal` is derivable (walls bounding the outer face);
+   `LoadBearing` is authored and optional; walls gain an optional `fireRating`
+   (openings already have one).
+4. **Opening heights.** `Opening.sillHeight`/`height` are reserved but unused: give
+   them defaults (NL standard door head 2315 mm dagmaat, window sills per kind) and
+   panel fields.
+5. **Project metadata.** Project name, site address, building name for
+   IfcProject/IfcSite/IfcBuilding and owner history. Georeferencing (lat/long, true
+   north) is a later optional extra.
+
+### Derived 3D core (shared with the 3D view)
+
+One new derived module turns the resolved 2D geometry into solids: wall footprint
+polygons (from `resolveFloor()`) extruded to wall height, opening boxes positioned by
+`t`/sill/width/height as subtractions, room polygons extruded as space volumes, and a
+storey slab derived from the outer boundary with vides as holes. The P2 “3D extrusion
+view” consumes exactly this module; build it once, under `src/core/`, cached against
+the revision counter like the rest of derived geometry.
+
+### IFC mapping
+
+- **Spatial structure:** IfcProject → IfcSite → IfcBuilding → IfcBuildingStorey
+  (elevation), elements contained via IfcRelContainedInSpatialStructure, units in mm.
+- **Walls:** IfcWall, body = IfcExtrudedAreaSolid over the resolved footprint
+  (miters included), axis = centerline (line, or trimmed circle for a bulged wall).
+- **Openings:** IfcOpeningElement + IfcRelVoidsElement; doors/windows as
+  IfcDoor/IfcWindow filling the void (IfcRelFillsElement), OperationType /
+  PartitioningType mapped from the sash model (hinge side, action, leaf count).
+- **Rooms:** IfcSpace per detected room, named by `attachNames()`, with
+  Qto_SpaceBaseQuantities carrying the area in the document's declared basis.
+- **Slabs and vides:** derived IfcSlab per storey, vides as IfcOpeningElement voids.
+- **Stairs:** IfcStair with IfcStairFlight carrying NumberOfRisers/TreadLength etc.
+  from `ResolvedStair`.
+- **Cabinets and symbols:** IfcFurniture for cabinetry; symbols map by category
+  (sanitary → IfcSanitaryTerminal, electrical → IfcOutlet/IfcSwitchingDevice/…,
+  heating → IfcSpaceHeater, safety → IfcAlarm/…), IfcBuildingElementProxy as the
+  fallback. Simple box/footprint solids — the point is placement and semantics, not
+  product geometry.
+- **Property sets and quantities:** Pset_WallCommon (IsExternal, LoadBearing,
+  FireRating), Pset_DoorCommon/Pset_WindowCommon (FireRating, SelfClosing, external),
+  Qto_WallBaseQuantities, Qto_SpaceBaseQuantities. Fire ratings serialize the WBDBO
+  figure the drawing states.
+
+### Validation
+
+Structural golden-file tests like `tests/dxf.test.ts`, plus a dev-only round-trip:
+parse the emitted file with an IFC toolkit as a dev dependency and assert counts,
+containment and quantities. Manual gates before calling it done: the buildingSMART
+validation service, and imports into at least two independent consumers (e.g. an IFC
+viewer and Revit or Archicad).
+
+### Out of initial scope
+
+IFC *import* (centerline inference from arbitrary IFC walls is a research problem of
+its own), georeferencing, IFC4.3 output, space boundaries beyond first level, and
+material layer sets (a wall is one thickness, not a build-up — same known cut as
+always). Each is compatible with the chosen structure; none blocks the export.
+
 ## Measurement conventions
 
 Plans are dimensioned both ways and the gap is not small: a 4×3 m room with 300 mm
