@@ -1,11 +1,13 @@
 // Tool state machine + snapping + typed-mm input. Owns pointer/keyboard handling
 // for the canvas; rendering of previews goes through getPreview()/getSnap().
-import { Store } from "../model/store";
+import { Store, MULTI_SELECT_KINDS, type Selection } from "../model/store";
+import { marqueePick, type MarqueeRect } from "./marquee";
 import {
   Floor, Wall, Opening, PlanNode, SymbolInstance, Id, newId, stairsOf, videsOf, cabinetsOf,
-  roomNamesOf, floorHeight, DOOR_DEFAULT_WIDTH, WINDOW_DEFAULT_WIDTH, PASSAGE_DEFAULT_WIDTH,
+  routesOf, roomNamesOf, floorHeight, DOOR_DEFAULT_WIDTH, WINDOW_DEFAULT_WIDTH, PASSAGE_DEFAULT_WIDTH,
   OpeningKind, FireRating, dimModeOf,
 } from "../model/doc";
+import type { RoomUse } from "../model/room";
 import {
   Stair, ResolvedStair, StairKind, StairParams, stairDefaults, stairFields, clampStair,
   stairAngle, inheritsRise,
@@ -15,8 +17,15 @@ import {
   Cabinet, CabinetSpec, cabinetDefaults, cabinetPreset, clampCabinet,
 } from "../model/cabinet";
 import {
+  Route, RoutePoint, Discipline, RouteKind, ROUTE_VEINS_DEFAULT, clampRouteVeins,
+  RouteWater, clampRouteDiameter, defaultRouteDiameter,
+  RouteVent, VENT_DIAMETER_DEFAULT, clampDuctDiameter, clampRouteFlow,
+} from "../model/route";
+import { resolveRoutePoints, resolveRoutes, routeHit, ResolvedRoute } from "../core/route";
+import {
   nodeAt, splitWall, nearestWall, wallOnRay, wallLength, mergeNodes, deleteWall, clampOpening,
   cleanOrphanNodes, insertWall, insertRun, deleteRoomNames, cloneOnFloor, MIN_WALL_MM,
+  calibrateUnderlay, unanchorRoutePoints,
   type PlacedKind,
 } from "../model/ops";
 import {
@@ -26,6 +35,7 @@ import { Viewport } from "../render/viewport";
 import { Vec, v, add, sub, scale, norm, perp, dist, mid, angleOf, fromAngle, dot, pointInPolygon } from "../geometry/vec";
 import { arcInfo, arcPointAt, arcTangentAt, bulgeFromSagitta } from "../geometry/arc";
 import { getSymbol, SymbolDef, SYMBOL_TYPES } from "../render/symbols";
+import { dot as drawDot, circle as drawOpenCircle } from "../render/symbols/defs";
 import { stairHit, resolveStair, stairBox, stairCorners, stairIssues, gradient } from "../core/stair";
 import { drawStairGhost } from "../render/stair";
 import { videHit, videCorners } from "../core/vide";
@@ -35,14 +45,15 @@ import { turnAbout } from "../core/placed";
 import { drawCabinetGhost } from "../render/cabinet";
 import { planBounds, polyBounds, Bounds } from "../core/bounds";
 import { Room, roomAnchor, orphanedRoomNames } from "../core/rooms";
-import { drawLabel, COLORS, symbolInk } from "../render/draw";
+import { drawLabel, COLORS, symbolInk, routeInk } from "../render/draw";
+import { ROUTE_VENT_EXTRA_MM, LINE_WIDTH_MM } from "../render/route";
 import { Resolved, ResolvedWall } from "../core/resolve";
 import { dimensionChains, DimChain } from "../core/dimensions";
 import { t } from "../i18n";
 
 export type ToolName =
   | "select" | "wall" | "door" | "window" | "passage" | "symbol" | "stair" | "vide"
-  | "cabinet" | "zoom";
+  | "cabinet" | "route" | "zoom";
 
 /** Finger travel that still counts as a tap rather than a drag. */
 const TAP_SLOP_PX = 10;
@@ -71,13 +82,21 @@ const ROOM_LABEL_HIT_PX = { x: 52, y: 11 };
  */
 const WALL_SNAP_MIN_MM = 150;
 
+/** How far a route stands off a wall's centerline when it hugs one, mm. */
+const ROUTE_WALL_HUG_MM = 30;
+/** Shortest step the route tool accepts between two waypoints, mm -- same
+ *  figure the wall tool uses for the same reason (MIN_WALL_MM). */
+const MIN_ROUTE_STEP_MM = MIN_WALL_MM;
+
 export interface SnapResult { p: Vec; kind: "node" | "wall" | "grid" | "free"; wall?: Wall; tMm?: number; node?: PlanNode }
 
 interface DragState {
   kind: "node" | "wall" | "symbol" | "stair" | "vide" | "cabinet"
-      | "bow" | "opening" | "pan" | "zoomBox";
+      | "bow" | "opening" | "pan" | "zoomBox" | "routeVertex" | "marquee";
   id?: string;
   wallId?: string;
+  /** routeVertex only: which point in the route's own array is being moved. */
+  pointIndex?: number;
   startWorld: Vec;
   orig?: unknown;
   moved: boolean;
@@ -91,6 +110,18 @@ interface DragState {
   /** Where the press started on screen. A pan moves the world under a fixed
    *  cursor, so startWorld cannot answer "did this travel?". */
   startScreen?: Vec;
+}
+
+/**
+ * Whether a drag kind is a handle on the currently selected object -- a
+ * route's waypoint or a wall's bow handle -- rather than picking the object
+ * up fresh. selectDownHold() uses this to skip arming the long-press hold:
+ * the object (route/wall) stays `sel`, which IS in MULTI_SELECT_KINDS, so
+ * without the check a still press aiming a handle would fire the hold timer
+ * mid-aim. Exported for testing as a pure predicate, without faking timers.
+ */
+export function isHandleDrag(kind: DragState["kind"]): boolean {
+  return kind === "routeVertex" || kind === "bow";
 }
 
 export class Tools {
@@ -139,6 +170,61 @@ export class Tools {
   videRotation = 0;
 
   /**
+   * What the route tool draws with next -- sticky like lastThickness, since
+   * a plan is drawn discipline by discipline rather than one run at a time.
+   */
+  routeDiscipline: Discipline = "electrical";
+  /**
+   * Electrical-only fields for the next route -- sticky like routeDiscipline,
+   * since a plan is wired groep by groep and kind by kind, not one run at a
+   * time. Kept armed even while routeDiscipline is something else, so
+   * switching back to electrical remembers the last choice.
+   */
+  routeKind: RouteKind = "power";
+  routeVeins: number = ROUTE_VEINS_DEFAULT;
+  routeGroup = "";
+  routeSpec = "";
+  /**
+   * Water-only fields for the next route -- sticky like routeDiscipline, the
+   * same way the electrical fields above are. Kept armed even while
+   * routeDiscipline is something else, so switching back to water remembers
+   * the last choice.
+   */
+  routeWater: RouteWater = "koud";
+  routeDiameter: number = defaultRouteDiameter("koud");
+  /**
+   * Vent-only fields for the next route -- sticky like routeDiscipline, the
+   * same way the electrical and water fields above are. `routeFlow` is the
+   * one exception among every sticky route field: it stays `undefined` by
+   * default and armed rather than reset after each run, because a flow
+   * figure is specific to the one run it was designed for, not a plan-wide
+   * choice the way a groep or a diameter is -- but once a person has typed
+   * one, the next run is very often at the same figure (a row of identical
+   * grilles), so it stays armed until changed rather than clearing itself.
+   */
+  routeVent: RouteVent = "toevoer";
+  routeDuctDiameter: number = VENT_DIAMETER_DEFAULT;
+  routeFlow: number | undefined = undefined;
+  /**
+   * Per-discipline visibility. Editor state, like snapGrid -- not persisted,
+   * no document impact, and no bearing on SVG/DXF exports (those draw every
+   * discipline; see io/svg.ts and io/dxf.ts). All true by default: a floor
+   * with routes on it opens showing them.
+   */
+  showRoutes: Record<Discipline, boolean> = { electrical: true, water: true, vent: true };
+  /** World point the in-progress route chain last placed a point at, or null
+   *  when no chain is open. */
+  private routeStart: Vec | null = null;
+  /** Waypoints placed so far in the open chain; committed as one Route only
+   *  when the chain ends (Esc, double-click, or the touch "Done" button) --
+   *  see commitRoute(). Unlike the wall tool, nothing reaches the document
+   *  until then, which is what makes the whole run one undo step. */
+  private routePoints: RoutePoint[] = [];
+  /** The route tool's own snap: symbols and wall-hugging on top of what
+   *  computeSnap already does. Recomputed on every move; see computeRouteSnap. */
+  private routeSnap: { p: Vec; anchor?: Id } | null = null;
+
+  /**
    * The cabinet the tool will place next, and the named preset it came from.
    * Like a stair, a cabinet carries its size in the document, so the tool holds
    * a full specification rather than a type.
@@ -177,6 +263,12 @@ export class Tools {
    * off means a free position to the millimetre.
    */
   snapWall = true;
+  /**
+   * Whether the active floor's trace-over image is drawn. Editor state, like
+   * snapGrid — not persisted, no document impact. An export excludes the
+   * underlay unconditionally regardless of this flag (see DrawExtras.showUnderlay).
+   */
+  showUnderlay = true;
   /** Shift, as the last pointer or key event reported it. */
   private shiftKey = false;
   /** Alt at the last press: a drag that starts under it copies rather than moves. */
@@ -190,6 +282,21 @@ export class Tools {
   private dimRects: Array<{ x: number; y: number; w: number; h: number; wallId: string }> = [];
   private dimInput: HTMLInputElement | null = null;
   hint = "";
+
+  /**
+   * Scale-calibration capture, armed from the Underlay panel section. NOT a
+   * rail tool: it captures on top of whichever tool is active (see onDown/
+   * onMove/onTap/onKey, each of which checks `calibArmed` before anything
+   * tool-specific) and hands control straight back once it commits or is
+   * cancelled — the point of calibrating is to keep tracing with the tool you
+   * were already using. `calibP0`/`calibP1` are world mm, captured through the
+   * same snap the active tool already computes. Once both are down,
+   * `lengthBuffer` (shared with the wall tool's typed length, so the keypad
+   * and Enter work unchanged) holds the typed real-world distance.
+   */
+  private calibArmed = false;
+  private calibP0: Vec | null = null;
+  private calibP1: Vec | null = null;
 
   /**
    * How much of the canvas the chrome covers, in CSS px, or null when it covers
@@ -222,6 +329,31 @@ export class Tools {
    */
   touchUi = false;
 
+  /**
+   * The iOS-style "edit mode" a long-press (mouse or touch, see
+   * selectDownHold() below) drops the select tool into: a plain tap toggles
+   * an object's membership through selectAlso() instead of replacing it, and a
+   * tap on empty paper is a no-op rather than a deselect -- so a many-item
+   * gather is never lost to a stray tap. Editor state, never the document;
+   * setTool()/cancel() and a floor switch (see Panel's storey controls) all
+   * exit it, same as any other armed gesture.
+   */
+  selectMode = false;
+  /** Screen point of a press that might still become a long-press hold; null
+   *  once the hold is no longer live (fired, cancelled, or released). */
+  private longPressFrom: Vec | null = null;
+  private longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * What the hold would toggle, and the selection to toggle it against.
+   * selectDown() below always runs its ordinary replace-and-maybe-drag first
+   * -- that is what makes a plain tap/click and a tap/click-then-drag work
+   * completely unchanged -- so the selection from BEFORE that replace is
+   * snapshotted here. Firing hands both to selectAlso(), which reproduces a
+   * real shift-click instead of toggling the object against itself.
+   */
+  private longPressTarget: Selection | null = null;
+  private longPressBase: { sel: Selection | null; selMore: string[] } | null = null;
+
   constructor(
     private store: Store,
     private vp: Viewport,
@@ -236,6 +368,15 @@ export class Tools {
     canvas.addEventListener("pointerup", e => this.onUp(e));
     canvas.addEventListener("pointercancel", e => this.onCancelPointer(e));
     canvas.addEventListener("wheel", e => this.onWheel(e), { passive: false });
+    // Double-click ends a route chain, the mouse-side twin of the touch
+    // "Done" button -- both go through commitRoute() (see endChain()).
+    canvas.addEventListener("dblclick", e => {
+      if (this.tool !== "route" || !this.routeStart) return;
+      e.preventDefault();
+      this.commitRoute();
+      this.updateHint();
+      this.onToolChange();
+    });
     canvas.addEventListener("pointerleave", () => {
       this.hoverSymbol = null; this.hoverStair = null; this.requestRender();
     });
@@ -254,6 +395,13 @@ export class Tools {
       if (e.key !== "Shift") return;
       this.shiftKey = false;
       this.shiftChanged();
+    });
+    // undo()/redo()/replace() can empty the selection directly (not through
+    // exitSelectMode()) -- e.g. undoing back past the object that was being
+    // bulk-edited. Notice it here so the compact layout's "Done (n)" pill
+    // does not linger over an empty selection.
+    store.onChange(() => {
+      if (this.selectMode && !this.store.sel) this.exitSelectMode();
     });
   }
 
@@ -387,13 +535,98 @@ export class Tools {
     this.chainStartNode = null;
     this.chainFirstNode = null;
     this.shapeStart = null;
+    this.routeStart = null;
+    this.routePoints = [];
     this.lengthBuffer = "";
     this.drag = null;
+    this.calibArmed = false;
+    this.calibP0 = null;
+    this.calibP1 = null;
+    // setTool() runs this on every switch, and Escape runs it directly -- both
+    // are named exits from selectMode (see the field comment).
+    this.selectMode = false;
+    this.cancelLongPress();
     if (render) this.requestRender();
   }
 
-  /** True while a wall chain is open, so the host can offer a way to close it. */
-  get chaining(): boolean { return this.chainStart !== null; }
+  /** True while a scale-calibration capture is armed, at any of its stages. */
+  get calibrating(): boolean { return this.calibArmed; }
+
+  /** True once both calibration points are down and a distance is being typed. */
+  private get calibratingDistance(): boolean { return this.calibArmed && this.calibP1 !== null; }
+
+  /**
+   * Arm scale calibration from the panel: the next two clicks/taps on the
+   * canvas mark a known distance, then the real length is typed. See the
+   * `calibArmed` field comment for what this is and is not.
+   */
+  startCalibration(): void {
+    if (!this.floor.underlay) return;
+    this.calibArmed = true;
+    this.calibP0 = null;
+    this.calibP1 = null;
+    this.lengthBuffer = "";
+    this.updateHint();
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /** Cancel an armed calibration capture: Esc, or the panel's own control. */
+  cancelCalibration(): void {
+    this.cancel();
+    this.updateHint();
+    this.onToolChange();
+  }
+
+  /**
+   * One of calibration's two points landing — from the mouse path in onDown,
+   * or from a tap via onTap. Uses whatever the active tool's own snap already
+   * computed, so calibrating against a wall's known length snaps exactly the
+   * way placing a door on that wall would.
+   */
+  private calibClick(): void {
+    const snap = this.snap ?? this.computeSnap(this.cursor, false);
+    if (!this.calibP0) {
+      this.calibP0 = snap.p;
+    } else if (!this.calibP1) {
+      if (dist(snap.p, this.calibP0) < 1) return; // degenerate: the same point twice
+      this.calibP1 = snap.p;
+    }
+    this.updateHint();
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /**
+   * Commit the typed real-world distance: rescale the underlay so the two
+   * marked points read as that distance, keeping the first one fixed on
+   * screen. The actual arithmetic is calibrateUnderlay() in model/ops.ts —
+   * pure and unit-tested there, since Tools itself needs a live canvas to
+   * construct.
+   */
+  private applyCalibration(): void {
+    const p0 = this.calibP0, p1 = this.calibP1;
+    const mm = parseFloat(this.lengthBuffer);
+    this.calibArmed = false;
+    this.calibP0 = null;
+    this.calibP1 = null;
+    this.lengthBuffer = "";
+    if (p0 && p1) {
+      this.store.mutate(doc => {
+        const f = this.store.floorOf(doc);
+        if (!f.underlay) return;
+        const next = calibrateUnderlay(f.underlay, p0, p1, mm);
+        if (next) f.underlay = next;
+      });
+    }
+    this.updateHint();
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /** True while a wall or route chain is open, so the host can offer a way
+   *  to end it (touch has no Esc, and route chaining has no ring to close). */
+  get chaining(): boolean { return this.chainStart !== null || this.routeStart !== null; }
 
   /** True while a shape has its first point down and is waiting for the second. */
   get shaping(): boolean { return this.shapeStart !== null; }
@@ -428,7 +661,9 @@ export class Tools {
    * appears for.
    */
   get typingLength(): boolean {
-    return (this.tool === "wall" && this.chainStart !== null)
+    return this.calibratingDistance
+        || (this.tool === "wall" && this.chainStart !== null)
+        || (this.tool === "route" && this.routeStart !== null)
         || (this.tool === "select" && this.store.sel?.kind === "wall");
   }
 
@@ -455,10 +690,13 @@ export class Tools {
     this.afterTyping();
   }
 
-  /** Act on the typed length: place the next chain point, or resize the wall. */
+  /** Act on the typed length: commit a calibration, place the next chain
+   *  point, or resize the wall. */
   commitLength(): void {
     if (!this.lengthBuffer) return;
+    if (this.calibratingDistance) { this.applyCalibration(); return; }
     if (this.tool === "wall" && this.chainStart) { this.wallClick(); return; }
+    if (this.tool === "route" && this.routeStart) { this.routeClick(); return; }
     if (this.tool === "select" && this.store.sel?.kind === "wall") this.applyTypedLength();
   }
 
@@ -468,8 +706,19 @@ export class Tools {
     this.requestRender();
   }
 
-  /** Close an open wall chain. What Escape and the right mouse button do. */
+  /**
+   * End an open chain. For a wall this abandons the pending point (every
+   * wall already clicked is already in the document); for a route -- which
+   * commits nothing until the chain ends -- this is what actually WRITES the
+   * route, so it and Escape/double-click all go through commitRoute().
+   */
   endChain(): void {
+    if (this.tool === "route" && this.routeStart) {
+      this.commitRoute();
+      this.updateHint();
+      this.onToolChange();
+      return;
+    }
     this.cancel();
     this.updateHint();
     this.onToolChange();
@@ -552,7 +801,17 @@ export class Tools {
     return { p: v(Math.round(p.x / g) * g, Math.round(p.y / g) * g), kind };
   }
 
-  getSnap(): Vec | null { return this.snap?.p ?? null; }
+  getSnap(): Vec | null { return this.snap?.p ?? this.routeSnap?.p ?? null; }
+
+  /**
+   * World-mm point at the centre of the visible canvas — where a freshly
+   * imported underlay should land (io/underlay.ts's initialUnderlay), and
+   * generally "the middle of what the visitor is looking at".
+   */
+  viewportCenterWorld(): Vec {
+    const { w, h } = this.canvasSize();
+    return this.vp.toWorld(v(w / 2, h / 2));
+  }
 
   /**
    * Shift went down or came up without the pointer moving. A shape only needs
@@ -670,6 +929,10 @@ export class Tools {
       const vd = videsOf(f).find(x => x.id === sel.id);
       return vd ? polyBounds(videCorners(vd)) : null;
     }
+    if (sel.kind === "route") {
+      const route = routesOf(f).find(x => x.id === sel.id);
+      return route ? polyBounds(resolveRoutePoints(f, route)) : null;
+    }
     if (sel.kind === "symbol") {
       const sym = f.symbols.find(x => x.id === sel.id);
       const def = sym && getSymbol(sym.type);
@@ -737,6 +1000,7 @@ export class Tools {
     if (this.pointers.size === 0) this.navigated = false;
     this.tapStart = null;
     this.drag = null;
+    this.cancelLongPress();
     this.requestRender();
   }
 
@@ -747,6 +1011,7 @@ export class Tools {
    * lifting. Select is the exception — it acts on contact so a drag can start.
    */
   private onTap(time: number): void {
+    if (this.calibArmed) { this.calibClick(); return; }
     if (this.tool === "select") {
       // Double tap on empty paper frames the plan. BOTH taps have to have hit
       // nothing: testing only the second one turns an ordinary tap-a-wall then
@@ -770,6 +1035,7 @@ export class Tools {
       case "stair": this.placeStair(); break;
       case "vide": this.placeVide(); break;
       case "cabinet": this.placeCabinet(); break;
+      case "route": this.routeClick(); break;
       // zoom acted on contact; its release is handled as a zoomBox drag.
       case "zoom": break;
     }
@@ -801,11 +1067,29 @@ export class Tools {
       this.drag = null;
       if (held && held.kind !== "zoomBox") this.finishDrag(held);
       this.tapStart = null;
+      this.cancelLongPress();
       this.pinch = this.pinchState();
       this.requestRender();
       return;
     }
     if (this.pointers.size > 2) return;
+
+    // Scale calibration captures on top of whatever tool is armed, so it is
+    // checked before any of the tool-specific handling below -- including the
+    // dimension-value click just after this, which would otherwise fire first
+    // when calibrating from the select tool.
+    if (this.calibArmed) {
+      this.cursor = w;
+      this.snap = this.computeSnap(w, false);
+      if (e.pointerType !== "mouse") {
+        this.tapStart = { screen: s, time: e.timeStamp };
+        this.requestRender();
+        return;
+      }
+      if (e.button !== 0) return;
+      this.calibClick();
+      return;
+    }
 
     // A dimension value opens for editing however it was pressed. This sat in
     // the mouse path only, which left the touch hint ("tik de mm-waarde om te
@@ -822,13 +1106,14 @@ export class Tools {
 
     if (e.pointerType !== "mouse") {
       this.cursor = w;
-      this.snap = this.tool === "select" ? null : this.computeSnap(w, this.tool === "wall");
+      this.snap = this.tool === "select" || this.tool === "route" ? null : this.computeSnap(w, this.tool === "wall");
+      this.routeSnap = this.tool === "route" ? this.computeRouteSnap(w) : null;
       this.tapStart = { screen: s, time: e.timeStamp };
       // Two tools need the press itself rather than the release: select, so a
       // drag can start, and zoom, so the window can be dragged out. Neither has
       // changed the document by the time a second finger could arrive, so both
       // are safe to abandon mid-gesture.
-      if (this.tool === "select") this.selectDown(s, w);
+      if (this.tool === "select") this.selectDownHold(s, w);
       else if (this.tool === "zoom") this.zoomDown(s, w);
       this.requestRender();
       return;
@@ -848,8 +1133,9 @@ export class Tools {
       case "stair": this.placeStair(); break;
       case "vide": this.placeVide(); break;
       case "cabinet": this.placeCabinet(); break;
+      case "route": this.routeClick(); break;
       case "zoom": this.zoomDown(s, w); return;
-      case "select": this.selectDown(s, w); break;
+      case "select": this.selectDownHold(s, w); break;
     }
   }
 
@@ -862,20 +1148,35 @@ export class Tools {
     if (this.pointers.size >= 2) { this.pinchMove(); return; }
     this.cursor = w;
 
+    // Movement past the drag threshold cancels a pending long-press hold
+    // (see selectDownHold()) -- whatever selectDown() already started (a
+    // drag, or nothing) proceeds exactly as it does today.
+    if (this.longPressFrom && dist(s, this.longPressFrom) > TAP_SLOP_PX) this.cancelLongPress();
+
     if (this.drag) { this.dragMove(s, w); return; }
+
+    if (this.calibArmed) {
+      this.snap = this.computeSnap(w, false);
+      this.requestRender();
+      return;
+    }
 
     // What is this thing? A placed symbol is a bare line drawing, so name the
     // one under the cursor (see drawPreview).
     this.hoverStair = this.tool === "select" ? this.stairAt(w)?.id ?? null : null;
     this.hoverSymbol = this.tool === "select" && !this.hoverStair
       ? this.symbolAt(w)?.id ?? null : null;
-    this.snap = this.tool === "select" ? null : this.computeSnap(w, this.tool === "wall");
+    this.snap = this.tool === "select" || this.tool === "route" ? null : this.computeSnap(w, this.tool === "wall");
+    this.routeSnap = this.tool === "route" ? this.computeRouteSnap(w) : null;
     this.requestRender();
   }
 
   private onUp(e: PointerEvent): void {
     this.pointers.delete(e.pointerId);
     if (this.pointers.size < 2) this.pinch = null;
+    // A release before the delay is a plain tap/click, however brief --
+    // never a fire, so the hold has nothing left to do.
+    this.cancelLongPress();
 
     // The fingers of a pinch lift one at a time; neither is a tap.
     if (this.navigated) {
@@ -913,6 +1214,7 @@ export class Tools {
     const d = this.drag;
     this.drag = null;
     if (d.kind === "zoomBox") { this.zoomUp(d); this.requestRender(); return; }
+    if (d.kind === "marquee") { this.marqueeUp(d); this.requestRender(); return; }
     // `moved` is set by the first pointermove, which a mouse emits for a pixel
     // of jitter, so travel is what decides: a press that stayed put opened the
     // room's row, one that went somewhere panned.
@@ -1197,6 +1499,222 @@ export class Tools {
     this.store.select({ kind: "vide", id: vd.id });
   }
 
+  // ---- routes ----
+  /** Arm a discipline for the route tool. Sticky, like lastThickness. */
+  setRouteDiscipline(d: Discipline): void {
+    this.routeDiscipline = d;
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /** Arm what the next electrical run carries. Sticky, like routeDiscipline. */
+  setRouteKind(k: RouteKind): void {
+    this.routeKind = k;
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /**
+   * Arm the aders count for the next power run. [2,3,4,5] are the chip row's
+   * ordinary options; a typed value can go up to the schema's own maximum.
+   */
+  setRouteVeins(n: number): void {
+    this.routeVeins = clampRouteVeins(n);
+    this.onToolChange();
+  }
+
+  /** Arm the groep for the next power run. */
+  setRouteGroup(s: string): void {
+    this.routeGroup = s.trim();
+    this.onToolChange();
+  }
+
+  /** Arm the cable spec for the next data run. */
+  setRouteSpec(s: string): void {
+    this.routeSpec = s.trim();
+    this.onToolChange();
+  }
+
+  /**
+   * Arm the water kind for the next run. When the armed diameter still sits
+   * on the OLD kind's own default -- i.e. the user never typed or chipped a
+   * diameter of their own -- it follows the new kind's default too, the same
+   * "only reset when nothing was overridden" rule a placed route's diameter
+   * field applies via its own absence (see ui/route.ts).
+   */
+  setRouteWater(w: RouteWater): void {
+    if (this.routeDiameter === defaultRouteDiameter(this.routeWater)) {
+      this.routeDiameter = defaultRouteDiameter(w);
+    }
+    this.routeWater = w;
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /** Arm the nominal diameter for the next water run. */
+  setRouteDiameter(n: number): void {
+    this.routeDiameter = clampRouteDiameter(n);
+    this.onToolChange();
+  }
+
+  /** Arm the toevoer/afvoer kind for the next vent run. Sticky, like routeDiscipline. */
+  setRouteVent(v: RouteVent): void {
+    this.routeVent = v;
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /** Arm the nominal duct diameter for the next vent run. */
+  setRouteDuctDiameter(n: number): void {
+    this.routeDuctDiameter = clampDuctDiameter(n);
+    this.onToolChange();
+  }
+
+  /** Arm the design flow for the next vent run, or clear it back to unstated. */
+  setRouteFlow(n: number | undefined): void {
+    this.routeFlow = n === undefined ? undefined : clampRouteFlow(n);
+    this.onToolChange();
+  }
+
+  /**
+   * A fixed 30 mm stand-off from the nearest wall's centerline, on the
+   * cursor's side -- reusing wallSnap()'s own centerline-projection maths
+   * (see its comment) rather than a symbol's half-thickness offset, since a
+   * route is not mounted flush to the face the way a symbol is.
+   */
+  private routeWallHug(p: Vec): Vec | null {
+    const f = this.floor;
+    const nw = nearestWall(f, p, Math.max(WALL_SNAP_MIN_MM, 30 / this.vp.pxPerMm));
+    if (!nw) return null;
+    const a = f.nodes.find(n => n.id === nw.wall.a)!, b = f.nodes.find(n => n.id === nw.wall.b)!;
+    const L = wallLength(f, nw.wall);
+    const frac = Math.max(0, Math.min(1, nw.tMm / L));
+    const pOn = arcPointAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, frac);
+    const n = perp(arcTangentAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, frac));
+    const side = dot(sub(p, pOn), n) >= 0 ? 1 : -1;
+    return add(pOn, scale(n, ROUTE_WALL_HUG_MM * side));
+  }
+
+  /**
+   * The route tool's snap: a nearby symbol anchors the point to it (so the
+   * run follows the symbol if it later moves); failing that, an existing
+   * node gives an exact point to start or end on; failing that, the run hugs
+   * the nearest wall (routeWallHug above); failing that, it falls back to
+   * grid/whole-mm placement like every other tool. Ortho/45 lock applies
+   * while a chain is open, the same rule computeSnap uses for a wall.
+   */
+  private computeRouteSnap(raw: Vec): { p: Vec; anchor?: Id } {
+    const f = this.floor;
+    const tol = 12 / this.vp.pxPerMm;
+
+    let bestSym: SymbolInstance | null = null, bestD = Infinity;
+    for (const s of f.symbols) {
+      const d = dist(v(s.x, s.y), raw);
+      if (d <= tol && d < bestD) { bestSym = s; bestD = d; }
+    }
+    if (bestSym) return { p: v(bestSym.x, bestSym.y), anchor: bestSym.id };
+
+    for (const n of f.nodes) {
+      if (dist(v(n.x, n.y), raw) <= tol) return { p: v(n.x, n.y) };
+    }
+
+    let p = raw;
+    if (this.routeStart && (this.ortho || this.shiftKey)) {
+      const d = sub(raw, this.routeStart);
+      const ang = Math.round(angleOf(d) / (Math.PI / 4)) * (Math.PI / 4);
+      const dir = fromAngle(ang);
+      p = add(this.routeStart, scale(dir, dot(d, dir)));
+    }
+
+    const hug = this.routeWallHug(p);
+    if (hug) return { p: hug };
+
+    const g = this.gridStep;
+    return { p: v(Math.round(p.x / g) * g, Math.round(p.y / g) * g) };
+  }
+
+  /**
+   * One click/tap of the route tool: arms the first waypoint, or appends the
+   * next one to the open chain. Nothing reaches the document here -- see
+   * commitRoute() -- so this can run freely without an undo entry per point.
+   */
+  private routeClick(): void {
+    const snap = this.routeSnap ?? this.computeRouteSnap(this.cursor);
+    let target = snap.p;
+    let anchor = snap.anchor;
+    if (this.routeStart && this.lengthBuffer) {
+      const mm = parseFloat(this.lengthBuffer);
+      if (isFinite(mm) && mm > 0) {
+        target = add(this.routeStart, scale(norm(sub(target, this.routeStart)), mm));
+        anchor = undefined; // a typed length overrides wherever the pointer landed
+      }
+    }
+    const pt: RoutePoint = { x: Math.round(target.x), y: Math.round(target.y) };
+    if (anchor) pt.anchor = anchor;
+    if (!this.routeStart) {
+      this.routePoints = [pt];
+    } else {
+      if (dist(target, this.routeStart) < MIN_ROUTE_STEP_MM) return;
+      this.routePoints.push(pt);
+    }
+    this.routeStart = target;
+    this.lengthBuffer = "";
+    this.updateHint();
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /**
+   * End the open chain: two or more waypoints become one Route, written in a
+   * single mutate() call so the whole run is one undo step. Fewer than two
+   * points is nothing to draw and is simply dropped. Called by Escape,
+   * double-click, and the touch "Done" button (endChain()).
+   */
+  private commitRoute(): void {
+    if (this.routePoints.length >= 2) {
+      const route: Route = { id: newId("rt"), discipline: this.routeDiscipline, points: this.routePoints };
+      // Electrical vocabulary, only when it applies and only when it says
+      // something a reader would not already assume -- the armed defaults
+      // (power, 3 aders) are left unstated, the way an absent Cabinet.hinge
+      // means "left" rather than being written out on every placement.
+      if (this.routeDiscipline === "electrical") {
+        if (this.routeKind !== "power") route.kind = this.routeKind;
+        if (this.routeKind === "power") {
+          if (this.routeVeins !== ROUTE_VEINS_DEFAULT) route.veins = this.routeVeins;
+          if (this.routeGroup) route.group = this.routeGroup;
+        } else if (this.routeSpec) {
+          route.spec = this.routeSpec;
+        }
+      } else if (this.routeDiscipline === "water") {
+        if (this.routeWater !== "koud") route.water = this.routeWater;
+        if (this.routeDiameter !== defaultRouteDiameter(this.routeWater)) route.diameter = this.routeDiameter;
+      } else if (this.routeDiscipline === "vent") {
+        if (this.routeVent !== "toevoer") route.vent = this.routeVent;
+        if (this.routeDuctDiameter !== VENT_DIAMETER_DEFAULT) route.ductDiameter = this.routeDuctDiameter;
+        if (this.routeFlow !== undefined) route.flow = this.routeFlow;
+      }
+      this.store.mutate(doc => {
+        (this.store.floorOf(doc).routes ??= []).push(route);
+      });
+      this.store.select({ kind: "route", id: route.id });
+    }
+    this.routeStart = null;
+    this.routePoints = [];
+    this.lengthBuffer = "";
+    this.requestRender();
+  }
+
+  /** Topmost route whose resolved line (plus a grab margin) covers `w`. */
+  private routeAt(w: Vec): { route: Route; resolved: ResolvedRoute } | undefined {
+    const all = resolveRoutes(this.floor);
+    const tol = Math.max(15, 12 / this.vp.pxPerMm);
+    for (let i = all.length - 1; i >= 0; i--) {
+      const rr = all[i]!;
+      if (routeHit(rr, w, tol)) return { route: rr.route, resolved: rr };
+    }
+    return undefined;
+  }
+
   // ---- cabinets ----
   /**
    * Where the cabinet lands for the current cursor.
@@ -1332,6 +1850,20 @@ export class Tools {
   }
 
   /**
+   * Set or clear what a named room is used for. `use` rides on the RoomName
+   * (see model/room.ts), so this needs the name's own id and does nothing for
+   * a room that has not been named yet -- there is nowhere to store the use.
+   */
+  setRoomUse(id: string, use: RoomUse | undefined): void {
+    this.store.mutate(doc => {
+      const f = this.store.floorOf(doc);
+      const rn = roomNamesOf(f).find(r => r.id === id);
+      if (!rn) return;
+      if (use) rn.use = use; else delete rn.use;
+    });
+  }
+
+  /**
    * The room whose label on the canvas covers screen point `s`. The box is
    * generous horizontally because a label is as wide as the word in it, and
    * this is tested only after everything drawn has had its chance at the click.
@@ -1356,6 +1888,29 @@ export class Tools {
   }
 
   // ---- select tool ----
+  /**
+   * True when a press on a selectable object should build the selection
+   * rather than replace it -- the desktop shift-click, or a touch/mouse hold
+   * that has already dropped the tool into selectMode (see selectDownHold()).
+   * One flag, so every kind below picks through the same helper instead of
+   * cabinet alone special-casing shift the way it used to.
+   */
+  private get multiPick(): boolean { return this.shiftKey || this.selectMode; }
+
+  /**
+   * Picks `sel`: builds the group (selectAlso) under multiPick, otherwise
+   * replaces it -- but keeps an already-grouped member selected rather than
+   * collapsing to just this one, or a group could never be taken hold of to
+   * drag. Returns whether the caller may still start a drag: multiPick never
+   * does (building a group is the whole gesture, the way shift-click never
+   * used to drag a cabinet), a plain pick always does.
+   */
+  private pick(sel: Selection): boolean {
+    if (this.multiPick) { this.store.selectAlso(sel); this.requestRender(); return false; }
+    if (!this.store.isSelected(sel.kind, sel.id)) this.store.select(sel);
+    return true;
+  }
+
   private selectDown(s: Vec, w: Vec): void {
     this.lengthBuffer = "";
     this.closeDimInput();
@@ -1374,7 +1929,26 @@ export class Tools {
       }
     }
 
-    // Nodes.
+    // A waypoint of the SELECTED route: checked before the generic node loop,
+    // since these are marks the route tool draws, not graph nodes. Dropping
+    // one on a symbol re-anchors it -- dragMove's routeVertex branch runs
+    // through the same computeRouteSnap() the tool itself draws with.
+    const selRoute = this.store.sel?.kind === "route"
+      ? routesOf(f).find(x => x.id === this.store.sel!.id) : undefined;
+    if (selRoute) {
+      const marks = resolveRoutePoints(f, selRoute);
+      for (let i = 0; i < marks.length; i++) {
+        if (dist(marks[i]!, w) <= tol * 1.5) {
+          this.drag = { kind: "routeVertex", id: selRoute.id, pointIndex: i, startWorld: w, moved: false };
+          return;
+        }
+      }
+    }
+
+    // Nodes. Never multi-picked: a node is a graph junction, not an object a
+    // plan bulk-edits (see the comment on Selection in model/store.ts), so it
+    // always replaces the selection and always starts its own drag, even
+    // under multiPick.
     for (const n of f.nodes) {
       if (dist(v(n.x, n.y), w) <= tol) {
         this.store.select({ kind: "node", id: n.id });
@@ -1387,50 +1961,60 @@ export class Tools {
     // reach past it to something underneath.
     const stairPick = this.stairAt(w);
     if (stairPick) {
-      this.store.select({ kind: "stair", id: stairPick.id });
-      this.drag = { kind: "stair", id: stairPick.id, startWorld: w, moved: false, clone: this.altKey };
+      if (this.pick({ kind: "stair", id: stairPick.id })) {
+        this.drag = { kind: "stair", id: stairPick.id, startWorld: w, moved: false, clone: this.altKey };
+      }
       return;
     }
     const symHit = this.symbolAt(w);
     if (symHit) {
-      this.store.select({ kind: "symbol", id: symHit.id });
-      this.drag = { kind: "symbol", id: symHit.id, startWorld: w, moved: false, clone: this.altKey };
+      if (this.pick({ kind: "symbol", id: symHit.id })) {
+        this.drag = { kind: "symbol", id: symHit.id, startWorld: w, moved: false, clone: this.altKey };
+      }
       return;
     }
     // Cabinetry after the symbols it holds: a socket drawn on a unit's front
     // has to stay clickable, and a carcass is the larger target underneath.
     const cabPick = this.cabinetAt(w);
     if (cabPick) {
-      // Shift builds a selection instead of starting a drag: a run is
-      // rearranged by picking out the units that move and then dragging any
-      // one of them. A plain press on a unit already in the selection keeps
-      // that selection, or the group could never be taken hold of.
-      if (this.shiftKey) {
-        this.store.selectAlso({ kind: "cabinet", id: cabPick.id });
-        this.requestRender();
-        return;
+      if (this.pick({ kind: "cabinet", id: cabPick.id })) {
+        this.drag = { kind: "cabinet", id: cabPick.id, startWorld: w, moved: false, clone: this.altKey };
       }
-      if (!this.store.isSelected("cabinet", cabPick.id)) {
-        this.store.select({ kind: "cabinet", id: cabPick.id });
-      }
-      this.drag = { kind: "cabinet", id: cabPick.id, startWorld: w, moved: false, clone: this.altKey };
       return;
     }
-    // Openings (near their centerline center).
+    // Routes, over the masonry and under whatever stands on them -- the same
+    // order they draw in (see render/draw.ts). Never draggable from a plain
+    // press (see routeVertex above), grouped or not -- an anchored point
+    // would fight a whole-route translation, so v1 leaves routes out of group
+    // drag entirely.
+    const routePick = this.routeAt(w);
+    if (routePick) {
+      this.pick({ kind: "route", id: routePick.route.id });
+      return;
+    }
+    // Openings (near their centerline center). Not group-draggable: an
+    // opening lives on its wall (t = distance from node a), so "move the
+    // group" has no meaning independent of the walls underneath -- a press on
+    // one still moves only that one, even with several selected.
     for (const rw of res.walls.values()) {
       for (const og of rw.openings) {
         if (dist(og.center, w) <= Math.max(og.opening.width / 2, tol)) {
-          this.store.select({ kind: "opening", id: og.opening.id, wallId: rw.wall.id });
-          this.drag = { kind: "opening", id: og.opening.id, wallId: rw.wall.id, startWorld: w, moved: false };
+          if (this.pick({ kind: "opening", id: og.opening.id, wallId: rw.wall.id })) {
+            this.drag = { kind: "opening", id: og.opening.id, wallId: rw.wall.id, startWorld: w, moved: false };
+          }
           return;
         }
       }
     }
-    // Walls (point in outline).
+    // Walls (point in outline). Not group-draggable either: a wall is two
+    // shared nodes, and translating every selected wall independently would
+    // tear the graph apart at whichever corners they share with a wall that
+    // was not selected -- a press still moves only the one under the pointer.
     for (const rw of res.walls.values()) {
       if (pointInPolygon(w, rw.outline)) {
-        this.store.select({ kind: "wall", id: rw.wall.id });
-        this.drag = { kind: "wall", id: rw.wall.id, startWorld: w, moved: false };
+        if (this.pick({ kind: "wall", id: rw.wall.id })) {
+          this.drag = { kind: "wall", id: rw.wall.id, startWorld: w, moved: false };
+        }
         return;
       }
     }
@@ -1438,19 +2022,118 @@ export class Tools {
     // click, and its own area is otherwise empty.
     const videPick = this.videAt(w);
     if (videPick) {
-      this.store.select({ kind: "vide", id: videPick.id });
-      this.drag = { kind: "vide", id: videPick.id, startWorld: w, moved: false, clone: this.altKey };
+      if (this.pick({ kind: "vide", id: videPick.id })) {
+        this.drag = { kind: "vide", id: videPick.id, startWorld: w, moved: false, clone: this.altKey };
+      }
       return;
     }
-    // Nothing drawn is under the pointer. The one thing still worth a press
-    // here is the area figure, and the name over it when there is one: it opens
-    // that room's row in the zoom pane, which is where a name is written. Held
+    // Nothing drawn is under the pointer.
+    if (this.shiftKey) {
+      // A rubber-band marquee: world-space corners, so it tracks correctly
+      // through a pan/zoom mid-drag. Resolved to a selection on release --
+      // see marqueeUp(). Plain empty-space drag stays pan; this only takes
+      // over once shift says "select a region" rather than "look around".
+      this.drag = { kind: "marquee", startWorld: w, boxEnd: w, moved: false };
+      return;
+    }
+    // In selectMode a tap on empty paper is a no-op, not a deselect -- losing
+    // a many-item gather to a stray tap is exactly the failure mode the mode
+    // exists to avoid. The one thing still worth a press here otherwise is
+    // the area figure, and the name over it when there is one: it opens that
+    // room's row in the zoom pane, which is where a name is written. Held
     // until the release so a pan that starts over a label is still a pan.
-    this.store.select(null);
+    if (!this.selectMode) this.store.select(null);
     this.drag = {
       kind: "pan", startWorld: w, moved: false, lastScreen: s, startScreen: s,
       labelRoom: this.roomLabelAt(s),
     };
+  }
+
+  /**
+   * selectDown() plus the long-press hold: enters selectMode ~500ms into a
+   * press that has not moved, on a selectable (non-node) object -- mouse or
+   * touch, one code path either way (a held mouse button doing this too is
+   * harmless, and simpler than telling the two apart). selectDown() always
+   * runs first and unchanged, so an ordinary tap/click and a tap/click-then-
+   * drag are exactly what they were before; only a press that STAYS still for
+   * the whole delay does anything extra.
+   */
+  private selectDownHold(s: Vec, w: Vec): void {
+    // Already in the mode: every tap already toggles (see pick()), so a
+    // second hold has nothing to add.
+    if (this.selectMode) { this.selectDown(s, w); return; }
+    const base = { sel: this.store.sel, selMore: [...this.store.selMore] };
+    this.selectDown(s, w);
+    // A press that landed on a handle -- a selected route's waypoint or a
+    // selected wall's bow handle -- is aiming that handle, not picking the
+    // object up fresh; its owning object (route/wall) is still `sel` and IS
+    // in MULTI_SELECT_KINDS, so without this guard the hold would fire
+    // mid-aim, null the drag and toggle the selection out from under it (see
+    // isHandleDrag() below).
+    if (this.drag && isHandleDrag(this.drag.kind)) return;
+    const target = this.store.sel;
+    if (!target || !MULTI_SELECT_KINDS.has(target.kind)) return;
+    this.longPressFrom = s;
+    this.longPressBase = base;
+    this.longPressTarget = target;
+    this.longPressTimer = setTimeout(() => this.fireLongPress(), TAP_MS);
+  }
+
+  /** The hold fired: drop into selectMode with the pressed object toggled
+   *  into whatever was selected before the press replaced it. */
+  private fireLongPress(): void {
+    this.longPressTimer = null;
+    const target = this.longPressTarget, base = this.longPressBase;
+    this.longPressFrom = null;
+    this.longPressTarget = null;
+    this.longPressBase = null;
+    if (!target || !base) return;
+    // A drag selectDown() may have started (e.g. a cabinet's re-pose) is
+    // abandoned, not finished -- the hold means "start selecting", not "move
+    // this" -- and this pointer's later movement must not resume one.
+    this.drag = null;
+    this.tapStart = null;
+    this.store.sel = base.sel;
+    this.store.selMore = base.selMore;
+    this.store.selectAlso(target);
+    this.selectMode = true;
+    this.updateHint();
+    this.requestRender();
+  }
+
+  /** Movement past the drag threshold, or a release, before the hold fires:
+   *  falls through to today's drag/tap behavior, already under way. */
+  private cancelLongPress(): void {
+    if (this.longPressTimer !== null) { clearTimeout(this.longPressTimer); this.longPressTimer = null; }
+    this.longPressFrom = null;
+    this.longPressTarget = null;
+    this.longPressBase = null;
+  }
+
+  /** The "Done" affordance: leaves selectMode with the selection intact, so
+   *  the visitor lands directly in its bulk-edit pane. */
+  exitSelectMode(): void {
+    if (!this.selectMode) return;
+    this.selectMode = false;
+    this.updateHint();
+    this.onToolChange();
+  }
+
+  /**
+   * The rubber-band marquee's release: everything of the dominant kind fully
+   * inside the dragged rect (see marquee.ts) replaces the selection outright.
+   * A tiny drag (a shift-click that barely moved) resolves against a
+   * zero-area rect, which simply catches nothing.
+   */
+  private marqueeUp(d: DragState): void {
+    const end = d.boxEnd ?? d.startWorld;
+    const rect: MarqueeRect = {
+      min: v(Math.min(d.startWorld.x, end.x), Math.min(d.startWorld.y, end.y)),
+      max: v(Math.max(d.startWorld.x, end.x), Math.max(d.startWorld.y, end.y)),
+    };
+    const picked = marqueePick(this.floor, rect);
+    if (picked) this.store.selectMany(picked.kind, picked.ids);
+    else this.store.select(null);
   }
 
   /**
@@ -1532,6 +2215,44 @@ export class Tools {
     return dragId;
   }
 
+  /**
+   * Group drag for the translatable placed kinds (symbol, cabinet, stair,
+   * vide): several move by the same grid-quantised delta rather than each
+   * taking its own snap, or a run/arrangement would pull itself apart under
+   * the drag. Walls, nodes, openings and routes never call this -- see the
+   * comments in selectDown() for why each is excluded.
+   *
+   * `always` is true for stair and vide, whose single-item drag was already a
+   * delta nudge with no snap of its own -- one code path covers one selected
+   * or several. It is false for symbol and cabinet, whose single-item drag
+   * re-poses under the cursor (wall snap, run snap): with one selected this
+   * returns false so the caller runs that logic unchanged, exactly as before
+   * this generalised the cabinet-only group branch to every translatable
+   * kind. Returns whether it handled the move.
+   */
+  private groupTranslate(
+    d: DragState, w: Vec, g: number, group: readonly Id[],
+    kind: "symbol" | "cabinet" | "stair" | "vide", always = false,
+  ): boolean {
+    const grouped = group.length > 1;
+    if (!always && !grouped) return false;
+    const delta = sub(w, d.startWorld);
+    const dx = Math.round(delta.x / g) * g, dy = Math.round(delta.y / g) * g;
+    if (dx === 0 && dy === 0) return true;
+    d.startWorld = add(d.startWorld, v(dx, dy));
+    const targets = grouped ? group : [d.id!];
+    this.store.mutate(doc => {
+      const f = this.store.floorOf(doc);
+      const list: Array<{ id: Id; x: number; y: number }> =
+        kind === "symbol" ? f.symbols
+        : kind === "cabinet" ? cabinetsOf(f)
+        : kind === "stair" ? stairsOf(f)
+        : videsOf(f);
+      for (const item of list) if (targets.includes(item.id)) { item.x += dx; item.y += dy; }
+    }, "drag" + d.id);
+    return true;
+  }
+
   private dragMove(s: Vec, w: Vec): void {
     const d = this.drag!;
     d.moved = true;
@@ -1573,6 +2294,8 @@ export class Tools {
         }, "drag" + d.id);
       }
     } else if (d.kind === "symbol") {
+      const group = this.store.selectedOf("symbol");
+      if (this.groupTranslate(d, w, g, group, "symbol")) return;
       this.store.mutate(doc => {
         const sym = this.store.floorOf(doc).symbols.find(x => x.id === d.id);
         if (!sym) return;
@@ -1589,45 +2312,14 @@ export class Tools {
       }, "drag" + d.id);
     } else if (d.kind === "stair") {
       // Moved by a quantised delta rather than re-posed under the cursor: the
-      // anchor of a stair is the foot of the flight, not the point grabbed.
-      const delta = sub(w, d.startWorld);
-      const dx = Math.round(delta.x / g) * g, dy = Math.round(delta.y / g) * g;
-      if (dx !== 0 || dy !== 0) {
-        d.startWorld = add(d.startWorld, v(dx, dy));
-        this.store.mutate(doc => {
-          const st = stairsOf(this.store.floorOf(doc)).find(x => x.id === d.id);
-          if (st) { st.x += dx; st.y += dy; }
-        }, "drag" + d.id);
-      }
+      // anchor of a stair is the foot of the flight, not the point grabbed --
+      // true of one stair or several, so groupTranslate() covers both.
+      this.groupTranslate(d, w, g, this.store.selectedOf("stair"), "stair", true);
     } else if (d.kind === "vide") {
-      const delta = sub(w, d.startWorld);
-      const dx = Math.round(delta.x / g) * g, dy = Math.round(delta.y / g) * g;
-      if (dx !== 0 || dy !== 0) {
-        d.startWorld = add(d.startWorld, v(dx, dy));
-        this.store.mutate(doc => {
-          const vd = videsOf(this.store.floorOf(doc)).find(x => x.id === d.id);
-          if (vd) { vd.x += dx; vd.y += dy; }
-        }, "drag" + d.id);
-      }
+      this.groupTranslate(d, w, g, this.store.selectedOf("vide"), "vide", true);
     } else if (d.kind === "cabinet") {
       const group = this.store.selectedOf("cabinet");
-      if (group.length > 1) {
-        // Several at once move by the delta the cursor travelled, and take no
-        // snap: a snap is worked out for one unit against one wall, and
-        // applying it to each member in turn would pull the group apart. What
-        // was arranged stays arranged, and lands on whole grid steps.
-        const delta = sub(w, d.startWorld);
-        const dx = Math.round(delta.x / g) * g, dy = Math.round(delta.y / g) * g;
-        if (dx === 0 && dy === 0) return;
-        d.startWorld = add(d.startWorld, v(dx, dy));
-        this.store.mutate(doc => {
-          const f = this.store.floorOf(doc);
-          for (const c of cabinetsOf(f)) {
-            if (group.includes(c.id)) { c.x += dx; c.y += dy; }
-          }
-        }, "drag" + d.id);
-        return;
-      }
+      if (this.groupTranslate(d, w, g, group, "cabinet")) return;
       // One on its own is re-posed under the cursor rather than nudged by a
       // delta: a cabinet snaps to walls and to its neighbours, and a dragged
       // one has to take those snaps or a run cannot be rearranged once built.
@@ -1640,7 +2332,7 @@ export class Tools {
           : { x: Math.round(w.x / g) * g, y: Math.round(w.y / g) * g, rotation: c.rotation };
         Object.assign(c, base, this.runSnap(base, c.width, c.id) ?? {});
       }, "drag" + d.id);
-    } else if (d.kind === "zoomBox") {
+    } else if (d.kind === "zoomBox" || d.kind === "marquee") {
       d.boxEnd = w;
       this.requestRender();
     } else if (d.kind === "bow") {
@@ -1667,6 +2359,16 @@ export class Tools {
           clampOpening(f, wall, o);
         }
       }, "drag" + d.id);
+    } else if (d.kind === "routeVertex") {
+      const idx = d.pointIndex!;
+      const snap = this.computeRouteSnap(w);
+      this.store.mutate(doc => {
+        const route = routesOf(this.store.floorOf(doc)).find(x => x.id === d.id);
+        const pt = route?.points[idx];
+        if (!pt) return;
+        pt.x = Math.round(snap.p.x); pt.y = Math.round(snap.p.y);
+        if (snap.anchor) pt.anchor = snap.anchor; else delete pt.anchor;
+      }, "drag" + d.id + ":" + idx);
     }
   }
 
@@ -1678,6 +2380,19 @@ export class Tools {
     if (e.shiftKey !== this.shiftKey) {
       this.shiftKey = e.shiftKey;
       this.shiftChanged();
+    }
+
+    // A calibration capture is modal: every key it does not itself use is
+    // swallowed rather than falling through to a tool shortcut, so "typing 6
+    // 0 0" while calibrating never also arms the cabinet tool via "c".
+    if (this.calibArmed) {
+      if (this.calibratingDistance) {
+        if (/^[0-9.]$/.test(e.key)) { this.typeLength(e.key); return; }
+        if (e.key === "Backspace" && this.lengthBuffer) { this.backspaceLength(); return; }
+        if (e.key === "Enter" && this.lengthBuffer) { this.commitLength(); return; }
+      }
+      if (e.key === "Escape") { this.cancelCalibration(); return; }
+      return;
     }
 
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
@@ -1698,7 +2413,14 @@ export class Tools {
     }
 
     switch (e.key) {
-      case "Escape": this.cancel(); this.updateHint(); break;
+      // Escape ends a route chain by COMMITTING it (routeStart !== null means
+      // there is something to commit): unlike a wall chain, nothing has
+      // reached the document yet, so a bare cancel() here would silently
+      // throw the whole run away. Every other cancel -- an unfinished wall
+      // chain, a drag, a shape's first point -- still just unwinds.
+      case "Escape":
+        if (this.tool === "route" && this.routeStart) { this.commitRoute(); this.updateHint(); break; }
+        this.cancel(); this.updateHint(); break;
       case "v": case "V": this.setTool("select"); break;
       // W arms the wall tool; pressing it again steps through the shapes it
       // draws, so the four live behind one key and one rail button.
@@ -1716,6 +2438,11 @@ export class Tools {
       case "h": case "H": this.setTool("vide"); break;
       // C for cabinetry, Z for the zoom window and the room list.
       case "c": case "C": this.setTool("cabinet"); break;
+      // U for utilities/utiliteiten: the route tool. Every other short mnemonic
+      // a services layer suggests is already spoken for -- R rotates, L is the
+      // measurements toggle, S is the symbol palette -- so this reaches past
+      // the obvious "R(oute)" to the next free letter that still reads as one.
+      case "u": case "U": this.setTool("route"); break;
       case "z": case "Z": this.setTool("zoom"); break;
       // Fit, in any tool: the whole plan, or the selection with Shift. Zoom-all
       // is the move a drawing is read with, so it does not live behind a tool.
@@ -1910,9 +2637,16 @@ export class Tools {
     });
   }
 
+  /**
+   * Removes every selected member -- the whole group when several are
+   * selected, one object otherwise -- through each kind's own delete path, in
+   * ONE mutation, so undo restores the lot in a single step. Node is
+   * intentionally not grouped (see selectDown()), so it always deletes alone.
+   */
   deleteSelected(): void {
     const sel = this.store.sel;
     if (!sel) return;
+    const group = this.store.selectedOf(sel.kind);
     // The rooms as they stand, for the names a merge is about to orphan: taking
     // a wall out joins two rooms, and the smaller one's name has nothing left
     // to name. Read before the mutation, since afterwards it is gone.
@@ -1920,21 +2654,27 @@ export class Tools {
     this.store.mutate(doc => {
       const f = this.store.floorOf(doc);
       if (sel.kind === "wall") {
-        deleteWall(f, sel.id);
+        for (const id of group) deleteWall(f, id);
         deleteRoomNames(f, orphanedRoomNames(f, before));
       } else if (sel.kind === "node") {
         f.walls = f.walls.filter(w => w.a !== sel.id && w.b !== sel.id);
         cleanOrphanNodes(f);
         deleteRoomNames(f, orphanedRoomNames(f, before));
-      } else if (sel.kind === "symbol") f.symbols = f.symbols.filter(s => s.id !== sel.id);
-      else if (sel.kind === "stair") f.stairs = stairsOf(f).filter(s => s.id !== sel.id);
-      else if (sel.kind === "vide") f.vides = videsOf(f).filter(s => s.id !== sel.id);
-      else if (sel.kind === "cabinet") {
-        const group = this.store.selectedOf("cabinet");
-        f.cabinets = cabinetsOf(f).filter(c => !group.includes(c.id));
+      } else if (sel.kind === "symbol") {
+        // Un-anchor every route point following any of these symbols, in the
+        // SAME mutation that removes them -- see unanchorRoutePoints().
+        for (const id of group) {
+          const sym = f.symbols.find(s => s.id === id);
+          if (sym) unanchorRoutePoints(f, sym);
+        }
+        f.symbols = f.symbols.filter(s => !group.includes(s.id));
       }
+      else if (sel.kind === "stair") f.stairs = stairsOf(f).filter(s => !group.includes(s.id));
+      else if (sel.kind === "vide") f.vides = videsOf(f).filter(s => !group.includes(s.id));
+      else if (sel.kind === "route") f.routes = routesOf(f).filter(r => !group.includes(r.id));
+      else if (sel.kind === "cabinet") f.cabinets = cabinetsOf(f).filter(c => !group.includes(c.id));
       else if (sel.kind === "opening") {
-        for (const w of f.walls) w.openings = w.openings.filter(o => o.id !== sel.id);
+        for (const w of f.walls) w.openings = w.openings.filter(o => !group.includes(o.id));
       }
     });
     this.store.select(null);
@@ -1954,6 +2694,14 @@ export class Tools {
 
   updateHint(): void {
     const h = (base: string, vars?: Record<string, string | number>): string => t(this.hintKey(base), vars);
+    // Calibration overrides whatever the active tool would say: it captures
+    // on top of it, so its own next-step instruction has to win.
+    if (this.calibArmed) {
+      this.hint = this.calibratingDistance
+        ? h("calibrateDistance", { length: this.lengthBuffer || "0" })
+        : this.calibP0 ? h("calibrateSecond") : h("calibrateFirst");
+      return;
+    }
     switch (this.tool) {
       case "wall": {
         if (this.wallShape !== "line") {
@@ -1968,7 +2716,9 @@ export class Tools {
         break;
       }
       case "select":
-        this.hint = this.store.sel?.kind === "wall"
+        this.hint = this.selectMode
+          ? h("selectMode", { n: this.store.sel ? this.store.selectedOf(this.store.sel.kind).length : 0 })
+          : this.store.sel?.kind === "wall"
           ? (this.lengthBuffer
             ? h("selectWallTyped", { length: this.lengthBuffer })
             : h("selectWall"))
@@ -1981,6 +2731,7 @@ export class Tools {
       case "symbol": this.hint = h("symbol", { label: getSymbol(this.symbolType) ? t("symbol." + this.symbolType) : this.symbolType }); break;
       case "stair": this.hint = h("stair", { label: t("stair." + this.stairKind) }); break;
       case "vide": this.hint = h("vide"); break;
+      case "route": this.hint = h("route"); break;
       case "cabinet": {
         const preset = cabinetPreset(this.cabinetPresetId);
         this.hint = h("cabinet", {
@@ -2281,9 +3032,40 @@ export class Tools {
    * `dimRects` alone, or the rects end up in that viewport's space and tapping
    * a dimension to type a length hits nothing.
    */
+  /** The marker + live line a calibration capture draws over the plan. */
+  private drawCalibrationPreview(ctx: CanvasRenderingContext2D, vp: Viewport, px: number): void {
+    const p0 = this.calibP0!;
+    const p1 = this.calibP1 ?? this.snap?.p ?? this.cursor;
+    ctx.save();
+    ctx.strokeStyle = COLORS.select;
+    ctx.lineWidth = 1.5 * px;
+    // Solid once the second point is down and fixed; dashed while it is still
+    // tracking the cursor, the same "not committed yet" convention the wall
+    // preview uses.
+    ctx.setLineDash(this.calibP1 ? [] : [40, 40]);
+    ctx.beginPath();
+    ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = COLORS.select;
+    for (const p of this.calibP1 ? [p0, p1] : [p0]) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 5 * px, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    const L = Math.round(dist(p0, p1));
+    drawLabel(ctx, vp, scale(add(p0, p1), 0.5), this.lengthBuffer ? `${this.lengthBuffer}▎mm` : `${L} mm`, COLORS.select);
+  }
+
   drawPreview(ctx: CanvasRenderingContext2D, vp: Viewport, collectHits = true): void {
     const px = 1 / vp.pxPerMm;
     const f = this.floor;
+
+    // Scale-calibration capture: a marker on the first point, a live (dashed,
+    // while still following the cursor) line to the second, drawn regardless
+    // of the active tool since calibration sits on top of it.
+    if (this.calibArmed && this.calibP0) this.drawCalibrationPreview(ctx, vp, px);
 
     // Node handles in select mode.
     if (this.tool === "select") {
@@ -2294,6 +3076,18 @@ export class Tools {
         ctx.beginPath();
         ctx.arc(n.x, n.y, 3.5 * px, 0, Math.PI * 2);
         ctx.fill(); ctx.stroke();
+      }
+      // A selected route's own waypoints, drawable but not graph nodes, so
+      // they get the same handle drawn on top of the route's own marks.
+      if (this.store.sel?.kind === "route") {
+        const selRoute = routesOf(f).find(x => x.id === this.store.sel!.id);
+        if (selRoute) {
+          for (const p of resolveRoutePoints(f, selRoute)) {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 3.5 * px, 0, Math.PI * 2);
+            ctx.fill(); ctx.stroke();
+          }
+        }
       }
       if (collectHits) this.dimRects = [];
       // Dimension lines with editable values: all walls when toggled on,
@@ -2421,6 +3215,44 @@ export class Tools {
       if (run) this.drawShapeGhost(ctx, vp, run);
     }
 
+    // Route chain preview: the committed waypoints, a live segment to the
+    // cursor, and a mark at every point already placed -- open where it
+    // anchors a symbol, filled where it stands free, the same convention
+    // drawRoute() uses for a finished run (render/route.ts).
+    if (this.tool === "route" && this.routeStart) {
+      const snap = this.routeSnap ?? this.computeRouteSnap(this.cursor);
+      let target = snap.p;
+      if (this.lengthBuffer) {
+        const mm = parseFloat(this.lengthBuffer);
+        if (isFinite(mm) && mm > 0) target = add(this.routeStart, scale(norm(sub(target, this.routeStart)), mm));
+      }
+      const ink = routeInk(this.routeDiscipline, this.routeDiscipline === "water" ? this.routeWater : undefined);
+      ctx.save();
+      ctx.strokeStyle = ink;
+      ctx.fillStyle = ink;
+      ctx.lineWidth = this.routeDiscipline === "vent" ? LINE_WIDTH_MM + ROUTE_VENT_EXTRA_MM : LINE_WIDTH_MM;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      const first = this.routePoints[0]!;
+      ctx.moveTo(first.x, first.y);
+      for (let i = 1; i < this.routePoints.length; i++) ctx.lineTo(this.routePoints[i]!.x, this.routePoints[i]!.y);
+      ctx.lineTo(target.x, target.y);
+      ctx.setLineDash([60, 60]); // the whole run is uncommitted until the chain ends
+      ctx.stroke();
+      ctx.setLineDash([]);
+      for (const p of this.routePoints) {
+        if (p.anchor) { ctx.beginPath(); drawOpenCircle(ctx, p.x, p.y, 45); ctx.stroke(); }
+        else drawDot(ctx, p.x, p.y, 40);
+      }
+      if (snap.anchor) { ctx.beginPath(); drawOpenCircle(ctx, target.x, target.y, 45); ctx.stroke(); }
+      else drawDot(ctx, target.x, target.y, 40);
+      ctx.restore();
+      const L = Math.round(dist(this.routeStart, target));
+      drawLabel(ctx, vp, scale(add(this.routeStart, target), 0.5),
+        this.lengthBuffer ? `${this.lengthBuffer}▎mm` : `${L} mm`);
+    }
+
     // Symbol placement ghost.
     if (this.tool === "symbol") {
       const def = getSymbol(this.symbolType);
@@ -2475,6 +3307,19 @@ export class Tools {
       ctx.fillStyle = COLORS.selectWash;
       ctx.lineWidth = 1.5 * px;
       ctx.setLineDash([30, 30]);
+      ctx.fillRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+      ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+      ctx.restore();
+    }
+
+    // Marquee rect (shift+drag from empty space). Same screen-space idiom as
+    // the zoom window above, undashed so the two read as distinct gestures.
+    if (this.drag?.kind === "marquee" && this.drag.boxEnd) {
+      const a = this.drag.startWorld, b = this.drag.boxEnd;
+      ctx.save();
+      ctx.strokeStyle = COLORS.select;
+      ctx.fillStyle = COLORS.selectWash;
+      ctx.lineWidth = 1.5 * px;
       ctx.fillRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
       ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
       ctx.restore();

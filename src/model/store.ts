@@ -2,8 +2,25 @@
 // command-object migration path exists if they ever aren't) + change notification.
 import { PlanDoc, emptyDoc, Floor, Id, newId } from "./doc";
 
-export type SelKind = "wall" | "node" | "opening" | "symbol" | "stair" | "vide" | "cabinet";
+export type SelKind = "wall" | "node" | "opening" | "symbol" | "stair" | "vide" | "cabinet" | "route";
+/**
+ * One picked object. `sel` plus `selMore` below is the WHOLE selection, and it
+ * is always same-kind: a mixed bag of a wall and a cabinet has no field in
+ * common to show in the property pane, and every group gesture (drag,
+ * alt-copy, delete, bulk edit) means one thing for every member only because
+ * they are all the same kind. `node` is deliberately never grouped -- a node
+ * is a graph junction, not an object a plan bulk-edits, so the select tool's
+ * shift-click and marquee paths both skip it (see input/tools.ts).
+ */
 export interface Selection { kind: SelKind; id: Id; wallId?: Id } // opening carries wallId
+
+/**
+ * The kinds a multi-select gesture (shift-click, touch hold, marquee) may
+ * gather into a group. Every SelKind except "node" -- see the comment on
+ * Selection above.
+ */
+export const MULTI_SELECT_KINDS: ReadonlySet<SelKind> =
+  new Set(["wall", "opening", "symbol", "stair", "vide", "cabinet", "route"]);
 
 type Listener = () => void;
 
@@ -23,6 +40,29 @@ export class Store {
   private lastCoalesceKey: string | null = null;
   private gestureKey: string | null = null;
   private lastMutateAt = 0;
+
+  /**
+   * Undo-snapshot storage for Floor.underlay images.
+   *
+   * A snapshot is JSON.stringify(doc), taken on every non-coalesced mutate()
+   * — several hundred per session — and Floor.underlay.dataUrl is a several-
+   * hundred-KB data URL. Embedding it in every snapshot on the 200-entry
+   * stack retains up to ~100 MB and re-stringifies the image on every
+   * discrete edit, for a single image that rarely changes.
+   *
+   * Instead, snapshotDoc() below replaces a floor's real dataUrl with a
+   * content-keyed token (`underlay:<hash>`, never a valid data: URI prefix)
+   * before stringifying, and stores the real dataUrl here under that token.
+   * restoreDoc() reverses it on undo/redo. Keying by content hash means
+   * repeated snapshots of the SAME image (the common case — most edits don't
+   * touch the underlay) collapse onto one stored copy rather than one per
+   * snapshot. purgeUnderlayStore() drops entries no stack entry references
+   * any more, after every push/pop/clear of either stack.
+   *
+   * The LIVE document (`this.doc`) always carries the real dataUrl directly;
+   * only strings pushed onto undoStack/redoStack are tokenized.
+   */
+  private underlayStore = new Map<string, string>();
 
   /**
    * Index of the floor being edited. floors[0] is the lowest storey, so the
@@ -61,7 +101,7 @@ export class Store {
       d.floors.splice(this.activeFloor + 1, 0,
         {
           id: newId("f"), name,
-          nodes: [], walls: [], symbols: [], stairs: [], vides: [], cabinets: [], roomNames: [],
+          nodes: [], walls: [], symbols: [], stairs: [], vides: [], cabinets: [], routes: [], roomNames: [],
         });
     });
     this.activeFloor = Math.min(this.activeFloor + 1, this.doc.floors.length - 1);
@@ -86,15 +126,37 @@ export class Store {
         w.b = nodeMap.get(w.b) ?? w.b;
         for (const o of w.openings) o.id = newId("o");
       }
-      for (const sym of copy.symbols) { sym.id = newId("s"); if (sym.wallId) delete sym.wallId; }
+      // Symbol ids are remapped too, and a route anchored to one has to follow
+      // -- the anchor stores the OLD id at this point, and every symbol on the
+      // copy is about to be assigned a fresh one.
+      const symMap = new Map<Id, Id>();
+      for (const sym of copy.symbols) {
+        const id = newId("s"); symMap.set(sym.id, id); sym.id = id;
+        if (sym.wallId) delete sym.wallId;
+      }
       for (const st of copy.stairs ?? []) st.id = newId("t");
       for (const vd of copy.vides ?? []) vd.id = newId("v");
       for (const cb of copy.cabinets ?? []) cb.id = newId("k");
+      for (const rt of copy.routes ?? []) {
+        rt.id = newId("rt");
+        for (const p of rt.points) {
+          if (!p.anchor) continue;
+          const mapped = symMap.get(p.anchor);
+          // A dangling anchor stays dangling rather than pointing at whatever
+          // fresh symbol id happens to come next; it falls back to its stored
+          // x/y at derive time, same as on the original floor.
+          if (mapped) p.anchor = mapped; else delete p.anchor;
+        }
+      }
       // Room names do not come up with the walls. A name is authored, and it
       // names the room below: an upper storey duplicated off the ground floor
       // is a keuken and a woonkamer that have to be deleted one by one before
       // the storey can be named at all.
       copy.roomNames = [];
+      // Nor does the trace-over image: a scan is a fact about the floor it was
+      // made from, not the one being started, and carrying its (potentially
+      // large) dataUrl into the copy would double the document for nothing.
+      delete copy.underlay;
       d.floors.splice(this.activeFloor + 1, 0, copy);
     });
     this.activeFloor = Math.min(this.activeFloor + 1, this.doc.floors.length - 1);
@@ -124,6 +186,61 @@ export class Store {
   onChange(fn: Listener): void { this.listeners.push(fn); }
   private notify(): void { this.revision++; for (const l of this.listeners) l(); }
 
+  /** Cheap 32-bit content hash (FNV-1a), hex-encoded — not cryptographic,
+   *  just enough to key an undo-snapshot side table (see underlayStore). */
+  private static hashToken(s: string): string {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return `underlay:${(h >>> 0).toString(16)}`;
+  }
+
+  /** JSON.stringify(doc), except every floor's underlay.dataUrl (if any) is
+   *  replaced by a token into underlayStore rather than embedded — see the
+   *  field comment on underlayStore for why. */
+  private snapshotDoc(doc: PlanDoc): string {
+    if (!doc.floors.some(f => f.underlay)) return JSON.stringify(doc);
+    const floors = doc.floors.map(f => {
+      if (!f.underlay) return f;
+      const token = Store.hashToken(f.underlay.dataUrl);
+      if (!this.underlayStore.has(token)) this.underlayStore.set(token, f.underlay.dataUrl);
+      return { ...f, underlay: { ...f.underlay, dataUrl: token } };
+    });
+    return JSON.stringify({ ...doc, floors });
+  }
+
+  /** Reverses snapshotDoc(): re-attaches each floor's real dataUrl from
+   *  underlayStore. A token missing from the store (purged, or a corrupt
+   *  snapshot) drops that floor's underlay rather than surfacing the raw
+   *  token as if it were image data. */
+  private restoreDoc(json: string): PlanDoc {
+    const doc = JSON.parse(json) as PlanDoc;
+    for (const f of doc.floors) {
+      if (!f.underlay) continue;
+      const real = this.underlayStore.get(f.underlay.dataUrl);
+      if (real) f.underlay.dataUrl = real; else delete f.underlay;
+    }
+    return doc;
+  }
+
+  /** Drops any underlayStore entry no longer referenced by either stack.
+   *  Call after every push, pop, or clear of undoStack/redoStack. */
+  private purgeUnderlayStore(): void {
+    if (this.underlayStore.size === 0) return;
+    const referenced = new Set<string>();
+    const re = /underlay:[0-9a-f]+/g;
+    for (const s of this.undoStack) for (const m of s.matchAll(re)) referenced.add(m[0]);
+    for (const s of this.redoStack) for (const m of s.matchAll(re)) referenced.add(m[0]);
+    for (const token of this.underlayStore.keys()) if (!referenced.has(token)) this.underlayStore.delete(token);
+  }
+
+  /** Test-support only: the raw undo/redo snapshot strings, to assert they
+   *  never embed image bytes (see underlayStore above). Not read by any
+   *  production code path. */
+  debugSnapshots(): readonly string[] { return [...this.undoStack, ...this.redoStack]; }
+
   /** Apply a mutation with undo. Same coalesceKey within 900ms merges into one undo step. */
   /**
    * Group a continuous gesture -- a scrubbed number field, a drag -- into ONE
@@ -139,9 +256,10 @@ export class Store {
     const key = this.gestureKey ?? coalesceKey;
     const coalesce = key !== undefined && key === this.lastCoalesceKey && now - this.lastMutateAt < 900;
     if (!coalesce) {
-      this.undoStack.push(JSON.stringify(this.doc));
+      this.undoStack.push(this.snapshotDoc(this.doc));
       if (this.undoStack.length > 200) this.undoStack.shift();
       this.redoStack.length = 0;
+      this.purgeUnderlayStore();
     }
     this.lastCoalesceKey = key ?? null;
     this.lastMutateAt = now;
@@ -154,7 +272,7 @@ export class Store {
    * unavailable in sandboxed hosting anyway). */
   replace(doc: PlanDoc, undoable = false): void {
     if (undoable) {
-      this.undoStack.push(JSON.stringify(this.doc));
+      this.undoStack.push(this.snapshotDoc(this.doc));
       this.redoStack.length = 0;
     } else {
       this.undoStack.length = 0;
@@ -163,7 +281,9 @@ export class Store {
     this.doc = doc;
     this.clampFloor();
     this.sel = null;
+    this.selMore = [];
     this.lastCoalesceKey = null;
+    this.purgeUnderlayStore();
     this.notify();
   }
 
@@ -214,21 +334,25 @@ export class Store {
   undo(): void {
     const prev = this.undoStack.pop();
     if (prev === undefined) return;
-    this.redoStack.push(JSON.stringify(this.doc));
-    this.doc = JSON.parse(prev) as PlanDoc;
+    this.redoStack.push(this.snapshotDoc(this.doc));
+    this.doc = this.restoreDoc(prev);
     this.clampFloor();
     this.sel = null;
+    this.selMore = [];
     this.lastCoalesceKey = null;
+    this.purgeUnderlayStore();
     this.notify();
   }
 
   redo(): void {
     const next = this.redoStack.pop();
     if (next === undefined) return;
-    this.undoStack.push(JSON.stringify(this.doc));
-    this.doc = JSON.parse(next) as PlanDoc;
+    this.undoStack.push(this.snapshotDoc(this.doc));
+    this.doc = this.restoreDoc(next);
     this.clampFloor();
     this.sel = null;
+    this.selMore = [];
+    this.purgeUnderlayStore();
     this.notify();
   }
 

@@ -26,7 +26,7 @@ function R(x: number, y: number, w: number, h: number, rx: number, fill = false)
 
 export type IconName =
   | "select" | "wall" | "door" | "window" | "passage" | "stair" | "vide" | "symbols"
-  | "cabinet" | "zoom" | "rename"
+  | "cabinet" | "route" | "zoom" | "rename"
   | "shapeLine" | "shapeRect" | "shapeCircle" | "shapePoly"
   | "gridSnap" | "angleSnap" | "dimensions"
   | "undo" | "redo" | "dots" | "chevron" | "plus" | "minus" | "close"
@@ -58,6 +58,12 @@ const ICONS: Record<IconName, Shape[]> = {
   // A unit in plan: the carcass, the front band across it, and the diagonal
   // that says which end the door is hung on -- what the drawing itself shows.
   cabinet: [P("M3.4 4 H16.6 V15 H3.4 Z M3.4 12.8 H16.6 M3.4 12.8 L16.6 4")],
+  // A run with its waypoints: the polyline a service is chained along, dotted
+  // at each point the way the tool itself marks one down.
+  route: [
+    P("M3.2 15.4 L8 8.6 L12.4 12 L16.8 4.6"),
+    C(3.2, 15.4, 1.5, true), C(8, 8.6, 1.5, true), C(12.4, 12, 1.5, true), C(16.8, 4.6, 1.5, true),
+  ],
   // The four runs the wall tool draws, each shown as the ring it leaves behind.
   // The line carries its two end nodes because that is what distinguishes it
   // from the shapes: it is drawn point by point.

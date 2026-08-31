@@ -2,6 +2,7 @@
 // imported from their source, and document objects reject unknown properties.
 import { SYMBOL_TYPES } from "../../src/render/symbols";
 import { STAIR_KINDS } from "../../src/model/stair";
+import { DISCIPLINES, ROUTE_KINDS, ROUTE_WATERS, ROUTE_VENTS } from "../../src/model/route";
 
 export type JsonSchema = Record<string, unknown>;
 
@@ -63,6 +64,19 @@ export function planSchema(siteUrl: string): JsonSchema {
           "Where north points: degrees clockwise from screen-up. Absent means the " +
           "direction has not been stated and no north arrow is drawn.",
       },
+      guid: {
+        type: "string", pattern: "^[0-9a-f]{32}$",
+        description:
+          "Per-document seed for IFC GlobalIds: combined with each element's own id, " +
+          "it keeps identities stable across re-exports and keeps two documents from " +
+          "colliding. Absent on documents written before this existed.",
+      },
+      groundMm: {
+        type: "integer",
+        description:
+          "Elevation of the ground floor (floors[0]) above project zero (Peil), mm. " +
+          "May be negative. Absent means 0.",
+      },
       floors: {
         type: "array", minItems: 1, items: { $ref: "#/$defs/floor" },
         description: "Storeys, lowest first. The floor below draws as a tracing underlay.",
@@ -70,6 +84,22 @@ export function planSchema(siteUrl: string): JsonSchema {
     },
     $defs: {
       id: { type: "string", minLength: 1, description: "Unique within the document." },
+      fireRating: {
+        type: "object",
+        required: ["kind", "minutes"],
+        additionalProperties: false,
+        description: "A Dutch fire-resistance rating.",
+        properties: {
+          kind: {
+            enum: ["wbdbo", "wbd", "wrd"],
+            description:
+              "wbdbo: weerstand tegen branddoorslag en brandoverslag, the Bouwbesluit " +
+              "figure for a door in a compartment wall. wbd: branddoorslag alone. " +
+              "wrd: weerstand tegen rookdoorgang.",
+          },
+          minutes: { type: "integer", minimum: 0 },
+        },
+      },
       floor: {
         type: "object",
         required: ["id", "name", "nodes", "walls", "symbols"],
@@ -98,11 +128,25 @@ export function planSchema(siteUrl: string): JsonSchema {
             type: "array", items: { $ref: "#/$defs/cabinet" },
             description: "Placed cabinetry. Absent means the storey has none.",
           },
+          routes: {
+            type: "array", items: { $ref: "#/$defs/route" },
+            description:
+              "Manually drawn service runs -- electrical, water, ventilation -- as " +
+              "switchable layers over the plan. Absent means the storey has none.",
+          },
           roomNames: {
             type: "array", items: { $ref: "#/$defs/roomName" },
             description:
               "What the rooms are called. Rooms themselves are derived from the wall " +
               "graph, so only the name and the point it was written at are stored.",
+          },
+          underlay: {
+            $ref: "#/$defs/underlay",
+            description:
+              "A trace-over image for this floor. Absent means none loaded. Stripped " +
+              "from every floor before a document is encoded into a share-link URL " +
+              "fragment (see io/link.ts's encodePlan) -- a share link carries the " +
+              "drawing, not the scan. JSON export/import keeps it verbatim.",
           },
         },
       },
@@ -135,6 +179,16 @@ export function planSchema(siteUrl: string): JsonSchema {
               "does not mean straight, it means the arc maths sees NaN.",
           },
           openings: { type: "array", items: { $ref: "#/$defs/opening" } },
+          height: {
+            type: "integer", minimum: 1,
+            description: "mm, floor to floor. Absent means the storey height.",
+          },
+          loadBearing: {
+            type: "boolean",
+            description:
+              "Authored and tri-state: absent means not stated, distinct from false.",
+          },
+          fireRating: { $ref: "#/$defs/fireRating", description: "A fire compartment wall's rating." },
         },
       },
       opening: {
@@ -156,23 +210,15 @@ export function planSchema(siteUrl: string): JsonSchema {
           glazed: { type: "boolean", description: "Glazed leaf — drawn as a thin double line." },
           powered: { type: "boolean", description: "Electrically operated." },
           selfClosing: { type: "boolean", description: "Self-closing, as a fire door must be." },
-          fireRating: {
-            type: "object",
-            required: ["kind", "minutes"],
-            additionalProperties: false,
-            properties: {
-              kind: {
-                enum: ["wbdbo", "wbd", "wrd"],
-                description:
-                  "wbdbo: weerstand tegen branddoorslag en brandoverslag, the Bouwbesluit " +
-                  "figure for a door in a compartment wall. wbd: branddoorslag alone. " +
-                  "wrd: weerstand tegen rookdoorgang.",
-              },
-              minutes: { type: "integer", minimum: 0 },
-            },
-          },
-          sillHeight: mm("mm above floor. Reserved for elevations and 3D."),
-          height: mm("mm. Reserved for elevations and 3D."),
+          fireRating: { $ref: "#/$defs/fireRating", description: "A double door has one rating, not two." },
+          sillHeight: mm(
+            "mm above the floor. Only meaningful for a window; absent means 900 " +
+            "(borstwering) for a window, 0 for a door or passage.",
+          ),
+          height: mm(
+            "mm. Absent means the kind's default: 2315 for a door or passage " +
+            "(binnendeurkozijn dagmaat), 1415 for a window.",
+          ),
         },
       },
       sash: {
@@ -214,6 +260,103 @@ export function planSchema(siteUrl: string): JsonSchema {
             type: "string", pattern: "^#[0-9a-fA-F]{6}$",
             description: "Pen colour; absent means the plan's default ink.",
           },
+        },
+      },
+      route: {
+        type: "object",
+        description:
+          "A manually drawn run of a building service -- electrical, water or " +
+          "ventilation -- as a switchable layer over the plan. Same DXF bulge " +
+          "convention as a wall's centerline: one bulge per point, for the segment " +
+          "leaving it toward the next.",
+        required: ["id", "discipline", "points"],
+        additionalProperties: false,
+        properties: {
+          id: { $ref: "#/$defs/id" },
+          discipline: { enum: [...DISCIPLINES] },
+          points: {
+            type: "array", items: { $ref: "#/$defs/routePoint" },
+            description: "The run's waypoints, in order.",
+          },
+          kind: {
+            enum: [...ROUTE_KINDS],
+            description:
+              "Electrical-only: what the run carries. Meaningful only when discipline " +
+              "is \"electrical\"; a water or vent route ignores it. Absent means " +
+              "\"power\", the ordinary case.",
+          },
+          veins: {
+            type: "integer", minimum: 2, maximum: 8,
+            description:
+              "Aantal aders. Meaningful for power runs only (kind is \"power\" or " +
+              "absent) -- a data run's pairs follow from `spec` instead. Absent means " +
+              "3, the ordinary geschakelde/wandcontactdoos run.",
+          },
+          group: {
+            type: "string",
+            description:
+              "Groep, as the meterkast labels it (\"1\", \"2\", \"K1\"). Meaningful for " +
+              "power runs; a data run does not belong to a groep.",
+          },
+          spec: {
+            type: "string",
+            description: "Data-cable spec (\"Cat6\"). Meaningful for kind \"utp\" or \"coax\".",
+          },
+          water: {
+            enum: [...ROUTE_WATERS],
+            description:
+              "Water-only: koud/warm/afvoer. Meaningful only when discipline is " +
+              "\"water\"; an electrical or vent route ignores it. Absent means " +
+              "\"koud\", the ordinary supply run.",
+          },
+          diameter: {
+            type: "integer", minimum: 8, maximum: 200,
+            description:
+              "Water-only: nominal pipe diameter, mm. Meaningful only when discipline " +
+              "is \"water\". Absent defaults per water kind -- 15 for koud/warm, 50 " +
+              "for afvoer.",
+          },
+          vent: {
+            enum: [...ROUTE_VENTS],
+            description:
+              "Vent-only: toevoer/afvoer. Meaningful only when discipline is \"vent\"; " +
+              "an electrical or water route ignores it. Absent means \"toevoer\" " +
+              "(supply air).",
+          },
+          ductDiameter: {
+            type: "integer", minimum: 63, maximum: 400,
+            description:
+              "Vent-only: nominal duct diameter, mm. Meaningful only when discipline " +
+              "is \"vent\". Absent means 125.",
+          },
+          flow: {
+            type: "integer", minimum: 1,
+            description:
+              "Vent-only: design flow for this run, m3/h. Meaningful only when " +
+              "discipline is \"vent\". Absent means not stated -- there is no default, " +
+              "unlike every other optional field on a route.",
+          },
+        },
+      },
+      routePoint: {
+        type: "object",
+        description:
+          "One waypoint. x/y are authoritative unless `anchor` resolves to a symbol " +
+          "still on the floor, in which case the symbol's own position is read " +
+          "instead at render time -- x/y then stand only as the fallback for a " +
+          "dangling anchor.",
+        required: ["x", "y"],
+        additionalProperties: false,
+        properties: {
+          x: mm("mm."),
+          y: mm("mm, positive down."),
+          bulge: {
+            type: "number",
+            description:
+              "DXF bulge for the segment leaving this point toward the next: 0 or " +
+              "absent is straight. Meaningless on a route's last point.",
+          },
+          anchor: { $ref: "#/$defs/id", description: "A symbol instance id this point follows." },
         },
       },
       cabinet: {
@@ -271,6 +414,28 @@ export function planSchema(siteUrl: string): JsonSchema {
           },
         },
       },
+      underlay: {
+        type: "object",
+        description:
+          "A raster image traced over while drawing this floor. mmPerPixel is a " +
+          "ratio, not a length -- kept as a number rather than an integer, unlike " +
+          "every stored coordinate elsewhere in this document.",
+        required: ["dataUrl", "x", "y", "mmPerPixel", "opacity"],
+        additionalProperties: false,
+        properties: {
+          dataUrl: {
+            type: "string", pattern: "^data:image/",
+            description: "The image, downscaled and re-encoded on import.",
+          },
+          x: mm("mm. Top-left corner of the image in world space."),
+          y: mm("mm, positive down. Top-left corner of the image in world space."),
+          mmPerPixel: {
+            type: "number", exclusiveMinimum: 0,
+            description: "World mm per image pixel.",
+          },
+          opacity: { type: "number", minimum: 0, maximum: 1, description: "0 (invisible) to 1 (opaque)." },
+        },
+      },
       roomName: {
         type: "object",
         description:
@@ -284,6 +449,14 @@ export function planSchema(siteUrl: string): JsonSchema {
           x: mm("mm."),
           y: mm("mm, positive down."),
           name: { type: "string", minLength: 1 },
+          use: {
+            enum: ["verblijf", "verkeer", "sanitair", "techniek"],
+            description:
+              "What the room is used for. Rides on the name because it is the only " +
+              "authored per-room anchor the document has. Absent means not stated, and " +
+              "only \"verblijf\" (verblijfsruimte) carries the indicative workstation, " +
+              "daylight-ratio and ventilation figures in core/fitout.ts.",
+          },
         },
       },
       stair: {
@@ -406,6 +579,10 @@ function check(schema: JsonSchema, value: unknown, path: string, ctx: Ctx, out: 
   }
   if (typeof value === "number") {
     if (typeof schema.minimum === "number" && value < schema.minimum) bad(`must be >= ${schema.minimum}`);
+    if (typeof schema.maximum === "number" && value > schema.maximum) bad(`must be <= ${schema.maximum}`);
+    if (typeof schema.exclusiveMinimum === "number" && value <= schema.exclusiveMinimum) {
+      bad(`must be > ${schema.exclusiveMinimum}`);
+    }
   }
   if (typeof value === "string") {
     if (typeof schema.minLength === "number" && value.length < schema.minLength) bad("is empty");

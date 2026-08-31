@@ -128,6 +128,11 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 .sec-rule { flex-grow: 1; height: 1px; background: #eceadf; }
 .sec-close { border: none; background: none; padding: 0; font: inherit; color: #b5afa0; cursor: pointer; }
 .sec-close:hover { color: #6b675c; }
+.sec-done {
+  border: none; border-radius: 999px; padding: 3px 10px; font: 600 10px system-ui, sans-serif;
+  background: #e05d2d; color: #fff; cursor: pointer;
+}
+.sec-done:hover { background: #c94f22; }
 
 /* ---------- property rows ---------- */
 
@@ -215,6 +220,15 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
   border: 1px solid #2d7de0; border-radius: 6px; background: #fff;
   font: inherit; color: #2b2e33; outline: none;
 }
+
+/* A room's row plus, underneath it, its indicative fit-out figures -- see
+   core/fitout.ts. Only a verblijfsruimte has any; every other room's item is
+   just the row. */
+.zone-figures { display: flex; flex-direction: column; gap: 1px; padding: 2px 9px 0; }
+.zone-figure { font: 10px system-ui, sans-serif; color: #a09a8a; }
+/* The one flagged figure: same treatment as a stair reading outside STAIR_LIMITS. */
+.zone-figure.is-warn { color: #b3261e; font-weight: 500; }
+.zone-use { padding: 4px 2px 0; }
 
 .prop-note { font: 10px system-ui, sans-serif; color: #a09a8a; padding: 1px 2px 4px; }
 /* A figure outside what a stair is ordinarily built to. Loud enough to find,

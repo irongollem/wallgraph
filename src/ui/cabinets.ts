@@ -15,6 +15,7 @@ import {
 } from "../model/cabinet";
 import { cabinetBox } from "../core/cabinet";
 import { turnAbout } from "../core/placed";
+import { isMixed } from "../core/mixed";
 import { cabinetMark } from "../render/cabinet";
 import { stairAngle } from "../model/stair";
 import { COLORS } from "../render/draw";
@@ -110,9 +111,13 @@ export function renderCabinetProps(store: Store, tools: Tools, rows: PaneRows, i
   };
 
   const preset = cabinetPresetOf(cab);
-  rows.secHead(t("panel.cabinet", {
-    kind: preset ? t("cabinet." + preset.id) : t("panel.cabinetCustom"),
-  }), { sel: true });
+  const groupCabs = cabinetsOf(store.floor).filter(c => group.includes(c.id));
+  // "3 × Kast" once several are gathered, the same header format every kind's
+  // bulk pane uses; the singular "Kast: preset" name otherwise, unchanged.
+  rows.secHead(group.length > 1
+    ? t("panel.selectionHeader", { n: group.length, label: t("panel.cabinetPlain") })
+    : t("panel.cabinet", { kind: preset ? t("cabinet." + preset.id) : t("panel.cabinetCustom") }),
+    { sel: true, mode: true });
   if (group.length > 1) rows.noteRow(t("panel.cabinetGroup", { n: group.length }));
 
   // Swapping the named unit rewrites every field it names, the way picking a
@@ -149,10 +154,21 @@ export function renderCabinetProps(store: Store, tools: Tools, rows: PaneRows, i
     }), 15, { snap: snapAngle });
   rows.textRow(t("panel.cabinetLabel"), cab.label ?? "",
     s => mut(c => { const v = s.trim(); if (v) c.label = v; else delete c.label; }));
+  // Colour and worktop are the two fields a bulk edit ("recolour ten units",
+  // "add a worktop to the run") is actually reached for; grown onto the
+  // existing per-unit pane rather than a separate reduced view, since a
+  // cabinet's spec (kind/width/depth/front/hinge) has no single group-wide
+  // reading the way it does for a wall's thickness or an opening's width.
   rows.colorRow(t("panel.color"), cab.color ?? null, hex => {
     tools.symbolColor = hex;
-    mut(c => { if (hex) c.color = hex; else delete c.color; }, "color:" + id);
-  });
+    if (group.length > 1) mutAll(c => { if (hex) c.color = hex; else delete c.color; });
+    else mut(c => { if (hex) c.color = hex; else delete c.color; }, "color:" + id);
+  }, { mixed: group.length > 1 && isMixed(groupCabs, c => c.color ?? "") });
+  if (group.length > 1) {
+    rows.checkRow(t("panel.cabinetWorktop"), groupCabs[0]?.worktop === true,
+      b => mutAll(c => { if (b) c.worktop = true; else delete c.worktop; }),
+      { mixed: isMixed(groupCabs, c => !!c.worktop) });
+  }
   rows.btnRow(t("panel.mirror"), () => mutAll(c => { c.mirrored = !c.mirrored; }),
     t("panel.mirrorTitle"), "M");
   rows.infoRow(t("panel.cabinetFootprint"),

@@ -1,41 +1,54 @@
 // Rail, storey/palette/property pane, and status bar. Plain DOM.
 import { Store, type Selection } from "../model/store";
 import { roomKey, orphanedRoomNames, type Room } from "../core/rooms";
+import { isMixed } from "../core/mixed";
 import { Tools, ToolName } from "../input/tools";
 import { clampOpening, wallLength, deleteWall, deleteRoomNames } from "../model/ops";
 import type { SymbolDef } from "../render/symbols";
 import { sagittaFromBulge, bulgeFromSagitta } from "../geometry/arc";
 import { v, norm, sub, add, scale } from "../geometry/vec";
 import { exportJson, copyJson, importJsonFile, parseDoc, clearAutosave } from "../io/json";
+import { pickUnderlayImage, prepareUnderlayImage, initialUnderlay, imageFromClipboard } from "../io/underlay";
 import { exportPng } from "../io/image";
 import { exportDxf } from "../io/dxf";
+import { exportIfc } from "../io/ifc";
 import { exportSvg } from "../io/svg";
 import { exportPermit } from "../io/permit";
-import { permitChecklist } from "../core/permit";
+import { permitChecklist, PermitCheck } from "../core/permit";
 import { seedDoc } from "../seed";
 import {
-  emptyDoc, areaModeOf, dimModeOf, floorHeight, projectOf, sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS,
+  emptyDoc, areaModeOf, dimModeOf, floorHeight, wallHeight, openingSill, openingHeight, projectOf,
+  sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS,
   doorKindOf, DOOR_KINDS, widthsFor, DOOR_WIDTHS_DOUBLE, FIRE_KINDS, FIRE_MINUTES,
-  FIRE_MINUTES_DEFAULT,
+  FIRE_MINUTES_DEFAULT, routesOf,
   type AreaMode, type DimMode, type Sash, type HingeEdge, type Opening, type Wall, type Floor, type FireKind,
-  type ProjectMeta,
+  type ProjectMeta, type Id,
 } from "../model/doc";
+import { DISCIPLINES } from "../model/route";
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
 import { COLORS, INKS } from "../render/draw";
 import { icon, type IconName } from "./icons";
 import { docHref, DOC_IDS } from "../links";
 import { openMenu, type MenuEntry } from "./menu";
 import { Palette } from "./palette";
-import { renderStairTool, renderStairProps, type PaneRows } from "./stairs";
+import { renderStairTool, renderStairProps, renderStairBulk, type PaneRows } from "./stairs";
 import { renderCabinetTool, renderCabinetProps } from "./cabinets";
 import { renderZoomTool, type RoomEdit } from "./zoom";
 import { renderOpeningTool } from "./openings";
 import { renderWallTool } from "./walls";
-import { renderVideTool, renderVideProps } from "./vide";
+import { renderVideTool, renderVideProps, renderVideBulk } from "./vide";
+import { renderRouteTool, renderRouteProps, renderRouteBulk } from "./route";
 import { scrubbable } from "./scrub";
 import { watchLayout, isTouchPrimary, type LayoutMode } from "./layout";
 import { Sheet } from "./sheet";
 import { buildKeypad } from "./keypad";
+
+/**
+ * selRow's mixed marker: an option value no real field ever uses, so it can
+ * never collide with a legitimate "" value (loadBearing's unknown, a fire
+ * rating's none) the way a plain "" sentinel would.
+ */
+const MIXED_SENTINEL = "__mixed__";
 
 export class Panel {
   private rail: HTMLElement;
@@ -63,6 +76,10 @@ export class Panel {
   private chainBar: HTMLElement | null = null;
   /** What the bar over the sheet currently says; "" when there is no bar. */
   private chainBarSig = "";
+  /** The compact layout's pinned "Done (n)" pill while the select tool's
+   *  long-press mode is live -- same precedent as chainBar above. */
+  private modeBar: HTMLElement | null = null;
+  private modeBarSig = "";
   private actionsEl: HTMLElement | null = null;
   /** Told when the shell changes, so the host can re-frame the plan. */
   onLayoutChange: (() => void) | null = null;
@@ -73,15 +90,24 @@ export class Panel {
   private props: HTMLElement;
   private storeyEl: HTMLElement;
   private planEl: HTMLElement;
+  private underlayEl: HTMLElement;
   private permitEl: HTMLElement;
   /** Everything the pane's structure depends on; a change rebuilds it. */
   private lastPaneSig = "";
   /** Selection alone — drives the fade, so a grid tweak does not flash. */
   private lastSelSig = "";
   private planOpen = false;
+  private underlayOpen = false;
   private permitOpen = false;
   /** The permit checklist's container; repopulated in place while open. */
   private permitChecksEl: HTMLElement | null = null;
+  /** permitChecklist() cache, keyed on store.revision -- it runs resolveFloor,
+   *  planBounds, dimensionChains and detectRooms itself (see core/permit.ts),
+   *  so recomputing it on every store notification would repeat that work per
+   *  mutation during a drag while the permit section happens to be open. Same
+   *  pattern as derived() in main.ts. */
+  private permitCacheRev = -1;
+  private permitCacheItems: PermitCheck[] = [];
   /** Which room's name field is open in the zoom pane; see RoomEdit. */
   private roomEditKey: string | null = null;
   /** True mid drag-scrub: the pane must not rebuild and yank the input out
@@ -125,6 +151,7 @@ export class Panel {
     this.paneScroll = el("div", "pane-scroll");
     this.paneScroll.append(this.paneBody, this.palette.el);
     this.planEl = this.buildPlanSection();
+    this.underlayEl = this.buildUnderlaySection();
     this.permitEl = this.buildPermitSection();
 
     this.mode = watchLayout(next => {
@@ -142,6 +169,17 @@ export class Panel {
     this.refreshToolbar();
     store.onChange(() => this.refreshToolbar());
     onI18n("languageChanged", () => { this.palette.refresh(); this.renderFoot(); this.refreshToolbar(); });
+    // Paste-an-image is the underlay section's second import path, alongside
+    // the file picker. Scoped to while that section is open, and skipped over
+    // a text field, so an ordinary Ctrl+V into the permit's project-name field
+    // (or anywhere else) is never hijacked into loading an underlay.
+    window.addEventListener("paste", e => {
+      if (!this.underlayOpen) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+      const file = imageFromClipboard(e);
+      if (file) { e.preventDefault(); void this.loadUnderlayFile(file); }
+    });
   }
 
   /**
@@ -170,7 +208,7 @@ export class Panel {
         el("div", "rail-spacer"), this.historyEl);
       const sideBody = el("div", "side-body");
       sideBody.append(this.rail, this.pane);
-      this.pane.replaceChildren(this.storeyEl, this.paneScroll, this.planEl, this.permitEl);
+      this.pane.replaceChildren(this.storeyEl, this.paneScroll, this.planEl, this.underlayEl, this.permitEl);
       this.root.replaceChildren(this.head, sideBody, this.status, this.foot);
       return;
     }
@@ -189,11 +227,13 @@ export class Panel {
     // changes height with its detent, so nothing floating above it has a
     // position CSS can know.
     sheet.foot.replaceChildren(this.status, toolbar);
-    // Both are re-added by renderTyping, which runs at the end of every refresh.
+    // All three are re-added by renderTyping, which runs at the end of every refresh.
     this.keypadEl = null;
     this.chainBar = null;
     this.chainBarSig = "";
-    sheet.body.replaceChildren(this.paneScroll, this.planEl, this.permitEl, this.foot);
+    this.modeBar = null;
+    this.modeBarSig = "";
+    sheet.body.replaceChildren(this.paneScroll, this.planEl, this.underlayEl, this.permitEl, this.foot);
     this.root.replaceChildren(top, modes, sheet.el);
   }
 
@@ -307,6 +347,7 @@ export class Panel {
       toolBtn("stair", "stair", "T", t("tool.stair"), t("tool.shortStair")),
       toolBtn("vide", "vide", "H", t("tool.vide"), t("tool.shortVide")),
       toolBtn("cabinet", "cabinet", "C", t("tool.cabinet"), t("tool.shortCabinet")),
+      toolBtn("route", "route", "U", t("tool.route"), t("tool.shortRoute")),
       toolBtn("zoom", "zoom", "Z", t("tool.zoom"), t("tool.shortZoom")),
     );
     // The symbol palette is a tool like the rest on a phone, where the pane it
@@ -396,6 +437,7 @@ export class Panel {
       { kind: "item", icon: "docPng", label: t("action.png"), hint: "PNG", onPick: () => { void this.savePng(); } },
       { kind: "item", icon: "docSvg", label: t("action.svg"), hint: "SVG", onPick: () => { void this.saveSvg(); } },
       { kind: "item", icon: "docDxf", label: t("action.dxf"), hint: "DXF", onPick: () => { void this.saveDxf(); } },
+      { kind: "item", icon: "docDxf", label: t("action.ifc"), hint: "IFC", onPick: () => { void this.saveIfc(); } },
       { kind: "item", icon: "docCopy", label: t("action.copy"), onPick: () => {
         void copyJson(this.store.doc).then(ok => this.flash(ok ? t("status.copied") : t("status.copyFailed")));
       } },
@@ -446,6 +488,13 @@ export class Panel {
       : "status.dxfFailed"));
   }
 
+  /** BIM spatial structure export. Whole document, not one storey — every
+   *  floor becomes an IFCBUILDINGSTOREY, so there is no floorIndex to pass. */
+  private async saveIfc(): Promise<void> {
+    const result = await exportIfc(this.store.doc);
+    this.flash(t(result === "saved" ? "status.ifcSaved" : "status.ifcFailed"));
+  }
+
   /**
    * Storey picker. Floors are listed top-down (highest first) because that is
    * how a stack of storeys reads on paper, while the document stores
@@ -465,12 +514,19 @@ export class Panel {
       if (i === this.store.activeFloor) o.selected = true;
       select.append(o);
     }
-    select.onchange = () => this.store.setActiveFloor(Number(select.value));
+    // A selection on another storey means nothing here (Store.setActiveFloor
+    // already clears it) -- the select tool's long-press mode has to follow,
+    // or a stale "Klaar" pill would sit over a pane with nothing left to
+    // land in.
+    select.onchange = () => { this.store.setActiveFloor(Number(select.value)); this.tools.exitSelectMode(); };
     const addBtn = el("button", "storey-add") as HTMLButtonElement;
     addBtn.type = "button";
     addBtn.title = t("panel.floorAdd");
     addBtn.append(icon("plus", 14));
-    addBtn.onclick = () => this.store.addFloor(t("panel.floorNewName", { n: floors.length + 1 }));
+    addBtn.onclick = () => {
+      this.store.addFloor(t("panel.floorNewName", { n: floors.length + 1 }));
+      this.tools.exitSelectMode();
+    };
     row.append(select, addBtn);
     return row;
   }
@@ -482,23 +538,34 @@ export class Panel {
     // pane has a third state: nothing selected, but something to configure.
     const stairMode = this.tools.tool === "stair";
     const videMode = this.tools.tool === "vide";
+    const routeMode = this.tools.tool === "route";
     const paneTool = this.tools.tool === "cabinet"
       || this.tools.tool === "zoom" || this.tools.tool === "door"
       || this.tools.tool === "window" || this.tools.tool === "passage"
       || this.tools.tool === "wall";
     const selSig = (stairMode ? `stair-tool:${this.tools.stairKind}|` : "")
       + (videMode ? "vide-tool|" : "")
+      + (routeMode ? `route-tool:${this.tools.routeDiscipline}|` : "")
       + (paneTool ? "pane-tool:" + this.tools.tool + "|" : "")
       + (this.tools.tool === "wall"
         ? `wall:${this.tools.wallShape}:${this.tools.polygonSides}:${this.tools.squareLock}:${this.tools.canCloseChain}|`
         : "")
-      + (sel ? `${sel.kind}:${sel.id}` : "none");
+      // selMore (count + ids) so the pane rebuilds when the group changes --
+      // a shift-click, a marquee catch, or a mode toggle -- not only when the
+      // primary selection itself changes. selectMode rides along too, since
+      // entering/leaving it changes what the header offers (the Done button).
+      + (sel ? `${sel.kind}:${sel.id}:${this.store.selMore.length}:${this.store.selMore.join(",")}` : "none")
+      + (this.tools.selectMode ? "|mode" : "");
     // Plan rows and the storey picker read from the document, so they have to
     // rebuild when an undo changes a value under them -- but not on every
     // store change, or placing a symbol would yank focus out of an open field.
     const paneSig = [this.store.activeFloor, d.floors.map(fl => fl.name).join("\u0001"),
-      d.gridMm, areaModeOf(d), floorHeight(this.store.floor), this.tools.lastThickness,
+      d.gridMm, areaModeOf(d), floorHeight(this.store.floor), d.groundMm ?? "", this.tools.lastThickness,
       JSON.stringify(d.project ?? null), d.northDeg ?? "",
+      this.store.floor.underlay ? "u1" : "u0", this.tools.calibrating ? "c1" : "c0",
+      // The Plan section's per-discipline toggles only show once the floor
+      // has routes, so a route being added or removed has to rebuild it too.
+      routesOf(this.store.floor).length,
       selSig].join("|");
 
     if (paneSig !== this.lastPaneSig) {
@@ -512,6 +579,9 @@ export class Panel {
       const plan = this.buildPlanSection();
       this.planEl.replaceWith(plan);
       this.planEl = plan;
+      const underlay = this.buildUnderlaySection();
+      this.underlayEl.replaceWith(underlay);
+      this.underlayEl = underlay;
       const permit = this.buildPermitSection();
       this.permitEl.replaceWith(permit);
       this.permitEl = permit;
@@ -522,8 +592,8 @@ export class Panel {
 
     const swap = selSig !== this.lastSelSig;
     this.lastSelSig = selSig;
-    this.paneBody.hidden = !sel && !stairMode && !videMode && !paneTool;
-    if (sel || stairMode || videMode || paneTool) {
+    this.paneBody.hidden = !sel && !stairMode && !videMode && !routeMode && !paneTool;
+    if (sel || stairMode || videMode || routeMode || paneTool) {
       this.paneBody.className = "pane-body" + (swap ? " pane-swap" : "");
       this.renderProps(this.props);
     }
@@ -572,7 +642,7 @@ export class Panel {
       if (barSig) {
         const bar = el("div", "wg-chain");
         const label = el("span", "sec-label");
-        label.textContent = t("panel.wall");
+        label.textContent = t(this.tools.tool === "route" ? "panel.route" : "panel.wall");
         bar.append(label, el("div", "sec-rule"));
         if (this.tools.canCloseChain) {
           const close = el("button", "wg-done") as HTMLButtonElement;
@@ -590,6 +660,31 @@ export class Panel {
         bar.append(done);
         sheet.body.prepend(bar);
         this.chainBar = bar;
+      }
+    }
+
+    // The compact layout's "Done (n)" pill: the wide layout gets its Done
+    // button beside the selection count header instead (see secHead's `mode`
+    // option), but that header can scroll out of view under a peeking sheet
+    // -- so it is pinned here too, same precedent as chainBar above.
+    const n = this.store.selMore.length + 1;
+    const modeSig = this.tools.selectMode && this.store.selMore.length > 0 ? String(n) : "";
+    if (modeSig !== this.modeBarSig) {
+      this.modeBarSig = modeSig;
+      this.modeBar?.remove();
+      this.modeBar = null;
+      if (modeSig) {
+        const bar = el("div", "wg-chain");
+        const label = el("span", "sec-label");
+        label.textContent = String(n);
+        bar.append(label, el("div", "sec-rule"));
+        const done = el("button", "wg-done") as HTMLButtonElement;
+        done.type = "button";
+        done.textContent = t("panel.selectModeDone", { n });
+        done.onclick = () => this.tools.exitSelectMode();
+        bar.append(done);
+        sheet.body.prepend(bar);
+        this.modeBar = bar;
       }
     }
 
@@ -625,9 +720,13 @@ export class Panel {
     const floors = this.store.doc.floors;
     textRow(t("panel.floorRename"), this.store.floor.name, n => this.store.renameFloor(n));
     if (this.store.floorBelow) noteRow(t("panel.floorGhost"));
-    btnRow(t("panel.floorDuplicate"), () =>
-      this.store.duplicateFloor(t("panel.floorNewName", { n: floors.length + 1 })));
-    if (floors.length > 1) btnRow(t("panel.floorDelete"), () => this.store.deleteFloor());
+    btnRow(t("panel.floorDuplicate"), () => {
+      this.store.duplicateFloor(t("panel.floorNewName", { n: floors.length + 1 }));
+      this.tools.exitSelectMode();
+    });
+    if (floors.length > 1) {
+      btnRow(t("panel.floorDelete"), () => { this.store.deleteFloor(); this.tools.exitSelectMode(); });
+    }
   }
 
   /** Sash editor. An opening is one hole; the sashes divide it. */
@@ -744,6 +843,15 @@ export class Panel {
     }
     rows.numRow(t("panel.fromCorner"), o.t - o.width / 2,
       n => mutOpening(o2 => { o2.t = n + o2.width / 2; }));
+
+    // Vertical placement. Only a window has a sill worth stating; a door or
+    // passage reaches the floor.
+    if (o.kind === "window") {
+      rows.numRow(t("panel.sillHeight"), openingSill(o),
+        n => mutOpening(o2 => { o2.sillHeight = Math.max(0, Math.round(n)); }), 50);
+    }
+    rows.numRow(t("panel.openingHeight"), openingHeight(o),
+      n => mutOpening(o2 => { o2.height = Math.max(100, Math.round(n)); }), 50);
 
     if (o.kind === "door") this.renderLeaves(o, mutOpening, rows.selRow, rows.numRow, rows.noteRow);
     if (o.kind === "window") {
@@ -899,7 +1007,12 @@ export class Panel {
       if (extra.title) row.title = extra.title;
       row.append(Object.assign(el("span"), { textContent: label }));
       const input = el("input") as HTMLInputElement;
-      input.type = "number"; input.value = String(Math.round(value)); input.step = String(step);
+      input.type = "number"; input.step = String(step);
+      // Mixed: a bulk pane's field where the selected objects disagree. Left
+      // blank with a placeholder rather than showing one member's value as if
+      // it applied to all -- typing (or scrubbing) still commits to every
+      // member, same as an ordinary field.
+      if (extra.mixed) input.placeholder = "—"; else input.value = String(Math.round(value));
       input.onchange = () => { const n = parseFloat(input.value); if (isFinite(n)) onCommit(n); };
       scrubbable(input, {
         step,
@@ -911,28 +1024,43 @@ export class Panel {
       row.append(input);
       p.append(row);
     };
-    const selRow = (label: string, value: string, options: Array<[string, string]>, onCommit: (s: string) => void): void => {
+    const selRow = (
+      label: string, value: string, options: Array<[string, string]>, onCommit: (s: string) => void,
+      opts: { mixed?: boolean } = {},
+    ): void => {
       const row = el("label", "prop-row");
       row.append(Object.assign(el("span"), { textContent: label }));
       const sl = el("select") as HTMLSelectElement;
-      for (const [val, lab] of options) {
+      // Mixed: a leading "—" option that commits nothing, selected until the
+      // visitor actually picks one of the real options -- picking the mixed
+      // marker back is not offered, since there is no value it would mean.
+      if (opts.mixed) {
         const o = el("option") as HTMLOptionElement;
-        o.value = val; o.textContent = lab; if (val === value) o.selected = true;
+        o.value = MIXED_SENTINEL; o.textContent = "—"; o.selected = true;
         sl.append(o);
       }
-      sl.onchange = () => onCommit(sl.value);
+      for (const [val, lab] of options) {
+        const o = el("option") as HTMLOptionElement;
+        o.value = val; o.textContent = lab; if (!opts.mixed && val === value) o.selected = true;
+        sl.append(o);
+      }
+      sl.onchange = () => { if (sl.value !== MIXED_SENTINEL) onCommit(sl.value); };
       row.append(sl);
       p.append(row);
     };
     // `allowEmpty` is for fields where clearing means "unset" (the title-block
     // fields); elsewhere an emptied field keeps its old value, since a floor
     // with no name at all has nothing to show in the storey picker.
-    const textRow = (label: string, value: string, onCommit: (s: string) => void, allowEmpty = false): void => {
+    const textRow = (
+      label: string, value: string, onCommit: (s: string) => void,
+      opts: { allowEmpty?: boolean; mixed?: boolean } = {},
+    ): void => {
       const row = el("label", "prop-row");
       row.append(Object.assign(el("span"), { textContent: label }));
       const input = el("input") as HTMLInputElement;
-      input.type = "text"; input.value = value;
-      input.onchange = () => { const t2 = input.value.trim(); if (t2 || allowEmpty) onCommit(t2); };
+      input.type = "text";
+      if (opts.mixed) { input.value = ""; input.placeholder = "—"; } else input.value = value;
+      input.onchange = () => { const t2 = input.value.trim(); if (t2 || opts.allowEmpty) onCommit(t2); };
       row.append(input);
       p.append(row);
     };
@@ -949,7 +1077,10 @@ export class Panel {
      * dropdown puts a word between the user and the thing they are choosing.
      * `null` is the default ink and is stored as no colour at all.
      */
-    const colorRow = (label: string, value: string | null, onCommit: (hex: string | null) => void): void => {
+    const colorRow = (
+      label: string, value: string | null, onCommit: (hex: string | null) => void,
+      opts: { mixed?: boolean } = {},
+    ): void => {
       const row = el("div", "prop-row");
       row.append(Object.assign(el("span"), { textContent: label }));
       const chips = el("div", "ink-row");
@@ -959,7 +1090,9 @@ export class Panel {
         const name = t("panel.ink" + ink.id[0]!.toUpperCase() + ink.id.slice(1));
         b.title = name;
         b.setAttribute("aria-label", name);
-        const on = ink.hex === value;
+        // Mixed: no swatch reads as "the" current colour, since there isn't
+        // one -- picking any of them still commits it to every member.
+        const on = !opts.mixed && ink.hex === value;
         b.setAttribute("aria-pressed", String(on));
         if (on) b.classList.add("is-on");
         b.style.background = ink.hex ?? COLORS.symbol;
@@ -974,7 +1107,7 @@ export class Panel {
       custom.value = value ?? COLORS.symbol;
       custom.title = t("panel.inkCustom");
       custom.setAttribute("aria-label", t("panel.inkCustom"));
-      if (value !== null && !INKS.some(i => i.hex === value)) custom.classList.add("is-on");
+      if (!opts.mixed && value !== null && !INKS.some(i => i.hex === value)) custom.classList.add("is-on");
       // Same guard a number scrub needs, for the same reason: every commit
       // notifies the store, and a pane rebuild would swap this input out from
       // under an open picker -- after which its remaining events go nowhere.
@@ -1006,29 +1139,38 @@ export class Panel {
      * value is one click away and visibly one of a short set — a dropdown hides
      * both facts, and a bare number field states no opinion at all.
      */
-    const chipRow = (
-      label: string, values: readonly number[], value: number, onCommit: (n: number) => void,
+    const chipRow = <T extends string | number>(
+      label: string, values: readonly T[], value: T, onCommit: (v: T) => void,
     ): void => {
       const row = el("div", "chip-row");
       row.setAttribute("role", "group");
       row.setAttribute("aria-label", label);
-      for (const mm of values) {
+      for (const v of values) {
         const b = el("button", "chip") as HTMLButtonElement;
         b.type = "button";
-        b.textContent = String(mm);
-        const on = mm === Math.round(value);
+        b.textContent = String(v);
+        // A number chip matches on the rounded value, the way a scrubbed
+        // field settles; a string chip (recent groep labels) matches exactly.
+        const on = typeof v === "number" ? v === Math.round(value as number) : v === value;
         b.setAttribute("aria-pressed", String(on));
         if (on) b.classList.add("is-on");
-        b.onclick = () => onCommit(mm);
+        b.onclick = () => onCommit(v);
         row.append(b);
       }
       p.append(row);
     };
-    const checkRow = (label: string, value: boolean, onCommit: (b: boolean) => void): void => {
+    const checkRow = (
+      label: string, value: boolean, onCommit: (b: boolean) => void,
+      opts: { mixed?: boolean } = {},
+    ): void => {
       const row = el("label", "prop-row");
       row.append(Object.assign(el("span"), { textContent: label }));
       const cb = el("input") as HTMLInputElement;
       cb.type = "checkbox"; cb.checked = value;
+      // Mixed: the DOM indeterminate state (a dash rather than a tick/blank),
+      // cleared the moment the visitor actually clicks it -- native checkbox
+      // behaviour, so nothing here has to reset it by hand.
+      if (opts.mixed) cb.indeterminate = true;
       cb.onchange = () => onCommit(cb.checked);
       row.append(cb);
       p.append(row);
@@ -1076,6 +1218,11 @@ export class Panel {
       // one placed would carry the old height as an override of the new one.
       this.tools.followStoreyHeight(h);
     }, 100, { title: t("panel.floorHeightHelp") });
+    // Ground floor's elevation above project zero (Peil). Plan-wide, not
+    // per-floor, so it sits beside the storey height rather than in renderFloors.
+    numRow(t("panel.groundMm"), this.store.doc.groundMm ?? 0,
+      n => this.store.mutate(d => { d.groundMm = Math.round(n); }), 100,
+      { title: t("panel.groundMmHelp") });
     numRow(t("panel.newWallThickness"), this.tools.lastThickness, n => { this.tools.lastThickness = Math.max(20, n); }, 10);
     // Editor state like the grid snap rather than part of the document: it
     // decides whether a cabinet or a wall-mounted symbol takes the nearest wall
@@ -1094,8 +1241,89 @@ export class Panel {
       m => this.store.mutate(d => { d.dimMode = m as DimMode; }));
     if (dimModeOf(this.store.doc) !== "centerline") noteRow(t("panel.dimNote"));
 
+    // Per-discipline visibility, only once there is something to hide: an
+    // empty floor showing three toggles for a layer it does not have would
+    // be furniture nobody can use yet.
+    if (routesOf(this.store.floor).length > 0) {
+      for (const disc of DISCIPLINES) {
+        const key = "showRoutes" + disc[0]!.toUpperCase() + disc.slice(1);
+        checkRow(t("panel." + key), this.tools.showRoutes[disc], on => {
+          this.tools.showRoutes[disc] = on;
+          this.tools.refresh();
+        });
+      }
+    }
+
     wrap.append(head, body);
     return wrap;
+  }
+
+  /**
+   * The trace-over image: load it, calibrate its scale, and control how it
+   * shows while drawing. Its own section under Plan, with the same fold
+   * behaviour -- present in both layouts, rebuilt (not patched) on the plan
+   * pane's signature the way buildPlanSection/buildPermitSection are. Only
+   * the load/paste affordances show until an underlay actually exists.
+   */
+  private buildUnderlaySection(): HTMLElement {
+    const open = this.underlayOpen;
+    const wrap = el("div", "plan-sec");
+    const head = el("button", "plan-head") as HTMLButtonElement;
+    head.type = "button";
+    head.setAttribute("aria-expanded", String(open));
+    const chev = el("span", "chev");
+    chev.append(icon("chevron", 14));
+    head.append(chev, Object.assign(el("span", "sec-label"), { textContent: t("panel.underlay") }));
+    const body = el("div", "plan-body" + (open ? " is-open" : ""));
+    const inner = el("div", "plan-rows");
+    body.append(inner);
+    head.onclick = () => {
+      const next = !body.classList.contains("is-open");
+      this.underlayOpen = next;
+      body.classList.toggle("is-open", next);
+      head.setAttribute("aria-expanded", String(next));
+    };
+
+    const { numRow, btnRow, noteRow, checkRow } = this.rowKit(inner);
+    const underlay = this.store.floor.underlay;
+
+    btnRow(t("panel.underlayLoad"), () => pickUnderlayImage(file => { void this.loadUnderlayFile(file); }));
+    noteRow(t("panel.underlayPasteHint"));
+
+    if (underlay) {
+      if (this.tools.calibrating) {
+        btnRow(t("panel.underlayCalibrateCancel"), () => this.tools.cancelCalibration());
+        noteRow(t("panel.underlayCalibrateNote"));
+      } else {
+        btnRow(t("panel.underlayCalibrate"), () => this.tools.startCalibration());
+      }
+      numRow(t("panel.underlayOpacity"), Math.round(underlay.opacity * 100), n =>
+        this.store.mutate(d => {
+          const u = this.store.floorOf(d).underlay;
+          if (u) u.opacity = Math.max(0, Math.min(100, Math.round(n))) / 100;
+        }), 5);
+      checkRow(t("panel.underlayShow"), this.tools.showUnderlay, on => {
+        this.tools.showUnderlay = on;
+        this.tools.refresh();
+      });
+      btnRow(t("panel.underlayRemove"), () => {
+        this.tools.cancelCalibration();
+        this.store.mutate(d => { delete this.store.floorOf(d).underlay; });
+      });
+    }
+
+    wrap.append(head, body);
+    return wrap;
+  }
+
+  /** Downscale, place and store a freshly picked or pasted underlay image. */
+  private async loadUnderlayFile(file: File): Promise<void> {
+    const prepared = await prepareUnderlayImage(file);
+    if (!prepared) { this.flash(t("status.underlayFailed")); return; }
+    const center = this.tools.viewportCenterWorld();
+    const underlay = initialUnderlay(prepared.dataUrl, prepared.width, prepared.height, center);
+    this.store.mutate(d => { this.store.floorOf(d).underlay = underlay; });
+    this.refreshToolbar();
   }
 
   /**
@@ -1131,11 +1359,11 @@ export class Panel {
         if (value === "") delete p[key]; else p[key] = value;
         if (Object.keys(p).length === 0) delete d.project;
       });
-    textRow(t("panel.permitProject"), meta.name ?? "", setMeta("name"), true);
-    textRow(t("panel.permitAddress"), meta.address ?? "", setMeta("address"), true);
-    textRow(t("panel.permitAuthor"), meta.author ?? "", setMeta("author"), true);
-    textRow(t("panel.permitNumber"), meta.number ?? "", setMeta("number"), true);
-    textRow(t("panel.permitDate"), meta.date ?? "", setMeta("date"), true);
+    textRow(t("panel.permitProject"), meta.name ?? "", setMeta("name"), { allowEmpty: true });
+    textRow(t("panel.permitAddress"), meta.address ?? "", setMeta("address"), { allowEmpty: true });
+    textRow(t("panel.permitAuthor"), meta.author ?? "", setMeta("author"), { allowEmpty: true });
+    textRow(t("panel.permitNumber"), meta.number ?? "", setMeta("number"), { allowEmpty: true });
+    textRow(t("panel.permitDate"), meta.date ?? "", setMeta("date"), { allowEmpty: true });
     noteRow(t("panel.permitDateHelp"));
     // Set/unset rather than a bare number: an absent direction draws no arrow,
     // because a guessed north would be a false statement on the sheet.
@@ -1162,7 +1390,11 @@ export class Panel {
   private syncPermitChecks(): void {
     const box = this.permitChecksEl;
     if (!box || !this.permitOpen) return;
-    const items = permitChecklist(this.store.doc, this.store.activeFloor);
+    if (this.store.revision !== this.permitCacheRev) {
+      this.permitCacheRev = this.store.revision;
+      this.permitCacheItems = permitChecklist(this.store.doc, this.store.activeFloor);
+    }
+    const items = this.permitCacheItems;
     const sig = items.map(i => `${i.id}:${i.ok}`).join("|");
     if (sig === box.dataset.sig) return;
     box.dataset.sig = sig;
@@ -1174,24 +1406,164 @@ export class Panel {
     }
   }
 
+  /**
+   * Properties of every selected wall at once: thickness, own-height,
+   * load-bearing and fire rating -- the fields a bulk edit is actually
+   * reached for ("make this whole run 200mm", "mark it load-bearing").
+   * Length and the bow handle stay single-wall only; there is no group
+   * reading of "the length" of several different walls.
+   */
+  private renderWallBulk(rows: PaneRows, group: readonly Id[]): void {
+    const f = this.store.floor;
+    const walls = f.walls.filter(w => group.includes(w.id));
+    const first = walls[0];
+    if (!first) return;
+    rows.secHead(t("panel.selectionHeader", { n: walls.length, label: t("panel.wall") }), { sel: true, mode: true });
+    const mutAll = (fn: (w: Wall) => void): void => {
+      this.store.mutate(d => {
+        for (const w of this.store.floorOf(d).walls) if (group.includes(w.id)) fn(w);
+      });
+    };
+    const thickMixed = isMixed(walls, w => w.thickness);
+    rows.numRow(t("panel.thickness"), first.thickness, n => {
+      this.tools.lastThickness = Math.max(20, n);
+      mutAll(w => { w.thickness = Math.max(20, n); });
+    }, 10, { mixed: thickMixed });
+
+    const ownHeightMixed = isMixed(walls, w => w.height !== undefined);
+    rows.checkRow(t("panel.wallOwnHeight"), first.height !== undefined, on => mutAll(w => {
+      if (on) w.height = floorHeight(f); else delete w.height;
+    }), { mixed: ownHeightMixed });
+    if (!ownHeightMixed && first.height !== undefined) {
+      const heightMixed = isMixed(walls, w => wallHeight(f, w));
+      rows.numRow(t("panel.wallHeight"), wallHeight(f, first), n => mutAll(w => {
+        w.height = Math.max(100, Math.round(n));
+      }), 50, { mixed: heightMixed });
+    }
+    const lbMixed = isMixed(walls, w => w.loadBearing);
+    rows.selRow(t("panel.loadBearing"), first.loadBearing === undefined ? "" : first.loadBearing ? "yes" : "no",
+      [["", t("panel.loadBearingUnknown")], ["yes", t("panel.loadBearingYes")], ["no", t("panel.loadBearingNo")]],
+      v => mutAll(w => { w.loadBearing = v === "" ? undefined : v === "yes"; }), { mixed: lbMixed });
+    const fkMixed = isMixed(walls, w => w.fireRating?.kind ?? "");
+    rows.selRow(t("panel.fireRating"), first.fireRating?.kind ?? "",
+      [["", t("panel.fireNone")], ...FIRE_KINDS.map(k => [k, t("panel.fire_" + k)] as [string, string])],
+      value => mutAll(w => {
+        w.fireRating = value
+          ? { kind: value as FireKind, minutes: w.fireRating?.minutes ?? FIRE_MINUTES_DEFAULT }
+          : undefined;
+      }), { mixed: fkMixed });
+    if (walls.some(w => w.fireRating)) {
+      rows.noteRow(t("panel.fireHelp"));
+      const withRating = walls.find(w => w.fireRating)!;
+      rows.chipRow(t("panel.fireMinutes"), FIRE_MINUTES, withRating.fireRating!.minutes,
+        n => mutAll(w => { if (w.fireRating) w.fireRating.minutes = n; }));
+    }
+    rows.dangerRow(t("panel.deleteWall"), () => this.tools.deleteSelected());
+  }
+
+  /**
+   * Properties of every selected opening at once: width, fire rating and
+   * self-closing. The primary opening's kind (door/window/passage) picks the
+   * width chip ladder shown -- a group is same-kind ("opening") but can in
+   * principle mix door/window/passage, the same simplification renderRouteBulk
+   * (route.ts) documents for discipline.
+   */
+  private renderOpeningBulk(rows: PaneRows, group: readonly Id[]): void {
+    const f = this.store.floor;
+    const hits: Opening[] = [];
+    for (const w of f.walls) for (const o of w.openings) if (group.includes(o.id)) hits.push(o);
+    const primary = hits[0];
+    if (!primary) return;
+    rows.secHead(t("panel.selectionHeader", {
+      n: hits.length,
+      label: primary.kind === "door" ? t("panel.door") : primary.kind === "window" ? t("panel.window") : t("panel.passage"),
+    }), { sel: true, mode: true });
+
+    const mutAll = (fn: (o2: Opening) => void): void => {
+      this.store.mutate(d => {
+        const fl = this.store.floorOf(d);
+        for (const w of fl.walls) for (const o2 of w.openings) {
+          if (group.includes(o2.id)) { fn(o2); clampOpening(fl, w, o2); }
+        }
+      });
+    };
+    const setWidth = (n: number): void => mutAll(o2 => { o2.width = Math.max(50, Math.round(n)); });
+    const widthMixed = isMixed(hits, o => o.width);
+    rows.numRow(t("panel.width"), primary.width, setWidth, 10, { mixed: widthMixed });
+    rows.chipRow(t("panel.width"), widthsFor(primary.kind), primary.width, setWidth);
+
+    const fkMixed = isMixed(hits, o => o.fireRating?.kind ?? "");
+    rows.selRow(t("panel.fireRating"), primary.fireRating?.kind ?? "",
+      [["", t("panel.fireNone")], ...FIRE_KINDS.map(k => [k, t("panel.fire_" + k)] as [string, string])],
+      value => mutAll(o2 => {
+        o2.fireRating = value
+          ? { kind: value as FireKind, minutes: o2.fireRating?.minutes ?? FIRE_MINUTES_DEFAULT }
+          : undefined;
+        if (value) o2.selfClosing = true;
+      }), { mixed: fkMixed });
+    if (hits.some(o => o.fireRating)) {
+      rows.noteRow(t("panel.fireHelp"));
+      const withRating = hits.find(o => o.fireRating)!;
+      rows.chipRow(t("panel.fireMinutes"), FIRE_MINUTES, withRating.fireRating!.minutes,
+        n => mutAll(o2 => { if (o2.fireRating) o2.fireRating.minutes = n; }));
+    }
+    const scMixed = isMixed(hits, o => o.selfClosing ?? false);
+    rows.checkRow(t("panel.selfClosing"), primary.selfClosing ?? false,
+      b => mutAll(o2 => { o2.selfClosing = b || undefined; }), { mixed: scMixed });
+    rows.dangerRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());
+  }
+
+  /** Properties of every selected symbol at once: colour, the one field a
+   *  bulk edit is reached for ("recolour twenty sockets red"). */
+  private renderSymbolBulk(rows: PaneRows, group: readonly Id[]): void {
+    const f = this.store.floor;
+    const syms = f.symbols.filter(s => group.includes(s.id));
+    const first = syms[0];
+    if (!first) return;
+    rows.secHead(t("panel.selectionHeader", { n: syms.length, label: t("panel.symbolPlain") }), { sel: true, mode: true });
+    const mixed = isMixed(syms, s => s.color ?? "");
+    rows.colorRow(t("panel.color"), first.color ?? null, hex => {
+      this.tools.symbolColor = hex;
+      this.store.mutate(d => {
+        for (const s of this.store.floorOf(d).symbols) if (group.includes(s.id)) { if (hex) s.color = hex; else delete s.color; }
+      }, "color:" + group.join(","));
+    }, { mixed });
+    rows.dangerRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());
+  }
+
   private renderProps(p: HTMLElement): void {
     p.replaceChildren();
     const sel = this.store.sel;
     const f = this.store.floor;
     const { numRow, selRow, textRow, noteRow, warnRow, btnRow, colorRow, chipRow, checkRow } = this.rowKit(p);
 
-    const secHead = (label: string, opts: { sel?: boolean; later?: boolean } = {}): void => {
+    const secHead = (label: string, opts: { sel?: boolean; later?: boolean; mode?: boolean } = {}): void => {
       const wrap = el("div", "sec" + (opts.later ? " sec-later" : ""));
       const lbl = el("span", "sec-label" + (opts.sel ? " is-sel" : ""));
       lbl.textContent = label;
       wrap.append(lbl, el("div", "sec-rule"));
+      // The "Done" affordance: only while the select tool's long-press mode
+      // is actually live AND there is a group to land the visitor in (a lone
+      // selection never enters the mode in the first place, but the flag
+      // could in principle outlive it -- see Tools.exitSelectMode). Beside
+      // the close button in the wide layout; the compact layout's pinned
+      // pill (renderTyping()) is the same affordance for when this header is
+      // scrolled out of view under the sheet.
+      if (opts.mode && this.tools.selectMode && this.store.selMore.length > 0 && this.mode !== "compact") {
+        const done = el("button", "sec-done") as HTMLButtonElement;
+        done.type = "button";
+        const n = this.store.selMore.length + 1;
+        done.textContent = t("panel.selectModeDone", { n });
+        done.onclick = () => this.tools.exitSelectMode();
+        wrap.append(done);
+      }
       if (opts.sel) {
         const close = el("button", "sec-close") as HTMLButtonElement;
         close.type = "button";
         close.title = t("panel.close");
         close.setAttribute("aria-label", t("panel.close"));
         close.append(icon("close", 14));
-        close.onclick = () => this.store.select(null);
+        close.onclick = () => { this.store.select(null); this.tools.exitSelectMode(); };
         wrap.append(close);
       }
       p.append(wrap);
@@ -1251,19 +1623,46 @@ export class Panel {
     // The opening tools state what the next opening is placed with, above the
     // properties of whichever one was just placed.
     if (this.tools.tool === "door" || this.tools.tool === "window" || this.tools.tool === "passage") {
-      if (sel?.kind === "opening") this.renderOpeningProps(sel, rows);
+      if (sel?.kind === "opening") {
+        const group = this.store.selectedOf("opening");
+        if (group.length > 1) this.renderOpeningBulk(rows, group); else this.renderOpeningProps(sel, rows);
+      }
       renderOpeningTool(this.store, this.tools, rows, this.tools.tool);
       return;
     }
 
     // The vide tool, like the stair tool, keeps its fields in the property area.
     if (this.tools.tool === "vide") {
-      if (sel?.kind === "vide") renderVideProps(this.store, this.tools, rows, sel.id);
+      if (sel?.kind === "vide") {
+        const group = this.store.selectedOf("vide");
+        if (group.length > 1) renderVideBulk(this.store, this.tools, rows, group);
+        else renderVideProps(this.store, this.tools, rows, sel.id);
+      }
       renderVideTool(this.store, this.tools, rows);
       return;
     }
     if (sel?.kind === "vide") {
-      renderVideProps(this.store, this.tools, rows, sel.id);
+      const group = this.store.selectedOf("vide");
+      if (group.length > 1) renderVideBulk(this.store, this.tools, rows, group);
+      else renderVideProps(this.store, this.tools, rows, sel.id);
+      return;
+    }
+
+    // The route tool, like the stair and vide tools, keeps its fields in the
+    // property area.
+    if (this.tools.tool === "route") {
+      if (sel?.kind === "route") {
+        const group = this.store.selectedOf("route");
+        if (group.length > 1) renderRouteBulk(this.store, this.tools, rows, group);
+        else renderRouteProps(this.store, this.tools, rows, sel.id);
+      }
+      renderRouteTool(this.store, this.tools, rows);
+      return;
+    }
+    if (sel?.kind === "route") {
+      const group = this.store.selectedOf("route");
+      if (group.length > 1) renderRouteBulk(this.store, this.tools, rows, group);
+      else renderRouteProps(this.store, this.tools, rows, sel.id);
       return;
     }
 
@@ -1271,7 +1670,11 @@ export class Panel {
     // palette does: placing a stair selects it, so the next kind has to be
     // reachable without deselecting first.
     if (this.tools.tool === "stair") {
-      if (sel?.kind === "stair") renderStairProps(this.store, this.tools, rows, sel.id);
+      if (sel?.kind === "stair") {
+        const group = this.store.selectedOf("stair");
+        if (group.length > 1) renderStairBulk(this.store, this.tools, rows, group);
+        else renderStairProps(this.store, this.tools, rows, sel.id);
+      }
       renderStairTool(p, this.store, this.tools, rows, () => this.refreshToolbar());
       return;
     }
@@ -1280,11 +1683,15 @@ export class Panel {
     if (!sel) return;
 
     if (sel.kind === "stair") {
-      renderStairProps(this.store, this.tools, rows, sel.id);
+      const group = this.store.selectedOf("stair");
+      if (group.length > 1) renderStairBulk(this.store, this.tools, rows, group);
+      else renderStairProps(this.store, this.tools, rows, sel.id);
       return;
     }
 
     if (sel.kind === "wall") {
+      const group = this.store.selectedOf("wall");
+      if (group.length > 1) { this.renderWallBulk(rows, group); return; }
       const w = f.walls.find(x => x.id === sel.id);
       if (!w) return;
       secHead(t("panel.wall"), { sel: true });
@@ -1312,6 +1719,51 @@ export class Panel {
           if (wall) wall.thickness = Math.max(20, n);
         });
       });
+      // Set/unset rather than a bare number: absent means "follows the
+      // storey", not a stated height that happens to match it.
+      checkRow(t("panel.wallOwnHeight"), w.height !== undefined, on => this.store.mutate(d => {
+        const fl = this.store.floorOf(d);
+        const wall = fl.walls.find(x => x.id === sel.id);
+        if (!wall) return;
+        if (on) wall.height = floorHeight(fl); else delete wall.height;
+      }));
+      if (w.height !== undefined) {
+        numRow(t("panel.wallHeight"), wallHeight(f, w), n => this.store.mutate(d => {
+          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+          if (wall) wall.height = Math.max(100, Math.round(n));
+        }), 50);
+      }
+      // Tri-state: "" is not stated, not the same fact as "no" for IFC.
+      selRow(t("panel.loadBearing"), w.loadBearing === undefined ? "" : w.loadBearing ? "yes" : "no",
+        [["", t("panel.loadBearingUnknown")], ["yes", t("panel.loadBearingYes")], ["no", t("panel.loadBearingNo")]],
+        v => this.store.mutate(d => {
+          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+          if (!wall) return;
+          wall.loadBearing = v === "" ? undefined : v === "yes";
+        }));
+      selRow(t("panel.fireRating"), w.fireRating?.kind ?? "",
+        [["", t("panel.fireNone")],
+          ...FIRE_KINDS.map(k => [k, t("panel.fire_" + k)] as [string, string])],
+        value => this.store.mutate(d => {
+          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+          if (!wall) return;
+          wall.fireRating = value
+            ? { kind: value as FireKind, minutes: wall.fireRating?.minutes ?? FIRE_MINUTES_DEFAULT }
+            : undefined;
+        }));
+      if (w.fireRating) {
+        noteRow(t("panel.fireHelp"));
+        chipRow(t("panel.fireMinutes"), FIRE_MINUTES, w.fireRating.minutes,
+          n => this.store.mutate(d => {
+            const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+            if (wall?.fireRating) wall.fireRating.minutes = n;
+          }));
+        numRow(t("panel.fireMinutes"), w.fireRating.minutes,
+          n => this.store.mutate(d => {
+            const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+            if (wall?.fireRating) wall.fireRating.minutes = Math.max(0, Math.round(n));
+          }), 15);
+      }
       const a = f.nodes.find(x => x.id === w.a)!, b = f.nodes.find(x => x.id === w.b)!;
       numRow(t("panel.sagitta"), sagittaFromBulge(v(a.x, a.y), v(b.x, b.y), w.bulge), n => {
         this.store.mutate(d => {
@@ -1336,11 +1788,15 @@ export class Panel {
     }
 
     if (sel.kind === "opening") {
-      this.renderOpeningProps(sel, rows);
+      const group = this.store.selectedOf("opening");
+      if (group.length > 1) this.renderOpeningBulk(rows, group);
+      else this.renderOpeningProps(sel, rows);
       return;
     }
 
     if (sel.kind === "symbol") {
+      const group = this.store.selectedOf("symbol");
+      if (group.length > 1) { this.renderSymbolBulk(rows, group); return; }
       const s = f.symbols.find(x => x.id === sel.id);
       if (!s) return;
       secHead(t("panel.symbol", { type: t("symbol." + s.type) }), { sel: true });
@@ -1395,6 +1851,8 @@ export function matches(def: SymbolDef, q: string): boolean {
 export interface NumRowExtra {
   title?: string;
   snap?: (value: number) => number;
+  /** Bulk pane only: the selected objects disagree on this field. */
+  mixed?: boolean;
 }
 
 function dist2(a: { x: number; y: number }, b: { x: number; y: number }): number {

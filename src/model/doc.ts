@@ -3,7 +3,9 @@
 import type { Stair } from "./stair";
 import type { Vide } from "./vide";
 import type { Cabinet } from "./cabinet";
+import type { Route } from "./route";
 import type { RoomName } from "./room";
+import { newDocGuid } from "./guid";
 
 export type Id = string;
 
@@ -86,7 +88,9 @@ export interface Opening {
    * sash — a double door has one rating, not two. See FireKind.
    */
   fireRating?: FireRating;
+  /** mm above the floor. Windows default to WINDOW_SILL_DEFAULT; read via openingSill(). */
   sillHeight?: number;
+  /** mm. Absent means the kind's default; read via openingHeight(). */
   height?: number;
 }
 
@@ -97,6 +101,16 @@ export interface Wall {
   thickness: number; // mm
   bulge: number;     // 0 = straight
   openings: Opening[];
+  /** mm, floor to floor. Absent means the storey height; read via wallHeight(). */
+  height?: number;
+  /**
+   * Authored, and deliberately tri-state: absent means "not stated", which is
+   * a different fact from `false` for IFC (Pset_WallCommon.LoadBearing has no
+   * "unknown" of its own otherwise). Never collapsed by an accessor.
+   */
+  loadBearing?: boolean;
+  /** Same FireRating an opening carries — a fire compartment wall has one. */
+  fireRating?: FireRating;
 }
 
 export interface SymbolInstance {
@@ -118,12 +132,48 @@ export interface SymbolInstance {
   color?: string;
 }
 
+/**
+ * A raster image traced over while drawing a storey -- a scanned or
+ * photographed existing plan, placed and scaled so the walls can be drawn
+ * over it. A tracing aid, not part of the drawing: it never appears in an
+ * export (io/image.ts's PNG path never sets DrawExtras.showUnderlay; SVG,
+ * DXF, IFC and the permit sheet never read Floor.underlay at all) and never
+ * travels in a share link (io/link.ts's encodePlan strips it from every
+ * floor before encoding -- a multi-hundred-KB data URL would break the URL
+ * fragment, and a share link carries the drawing, not the scan).
+ */
+export interface Underlay {
+  /** The image, downscaled and re-encoded on import (see io/underlay.ts). */
+  dataUrl: string;
+  /** mm. Top-left corner of the image in world space. */
+  x: number;
+  /** mm, positive down. Top-left corner of the image in world space. */
+  y: number;
+  /**
+   * World mm per image pixel. A ratio, not a length or a coordinate, so a
+   * float here is consistent with invariant 1 (integer mm) rather than a
+   * violation of it -- nothing about "integer millimetres" constrains a
+   * scale factor. Set imprecisely on import and corrected by calibration.
+   */
+  mmPerPixel: number;
+  /** 0 (invisible) to 1 (opaque). */
+  opacity: number;
+}
+
 export interface Floor {
   id: Id;
   name: string;
   nodes: PlanNode[];
   walls: Wall[];
   symbols: SymbolInstance[];
+  /**
+   * Trace-over image for this storey, absent until one is loaded. Per floor,
+   * because each storey traces its own scan: Store.duplicateFloor() drops it
+   * from the copy for the same reason it resets `roomNames` rather than
+   * carrying them up -- a scan of this floor is not a fact about the next
+   * one, and duplicating it would double the document's size for nothing.
+   */
+  underlay?: Underlay;
   /**
    * Placed stairs. Optional because a plan drawn before stairs existed simply
    * has none, the way `areaMode` is optional — read it through stairsOf().
@@ -140,6 +190,12 @@ export interface Floor {
    * same kastje is built 400, 600 or 800 wide; see model/cabinet.ts.
    */
   cabinets?: Cabinet[];
+  /**
+   * Manually drawn service runs -- electrical, water, ventilation -- as
+   * switchable layers over the plan. Absent means the plan predates them, or
+   * simply has none; see model/route.ts and routesOf() below.
+   */
+  routes?: Route[];
   /**
    * What the rooms are called. A name is authored, so it is stored; which room
    * it names is derived from its point. See model/room.ts.
@@ -163,6 +219,9 @@ export function videsOf(f: Floor): Vide[] { return f.vides ?? []; }
 /** A floor's cabinets. Absent means none, not an error. */
 export function cabinetsOf(f: Floor): Cabinet[] { return f.cabinets ?? []; }
 
+/** A floor's routes. Absent means none, not an error. */
+export function routesOf(f: Floor): Route[] { return f.routes ?? []; }
+
 /** A floor's room names. Absent means none, not an error. */
 export function roomNamesOf(f: Floor): RoomName[] { return f.roomNames ?? []; }
 
@@ -172,6 +231,9 @@ export function roomNamesOf(f: Floor): RoomName[] { return f.roomNames ?? []; }
  */
 export const FLOOR_HEIGHT_DEFAULT = 2800;
 export const floorHeight = (f: Floor): number => f.height ?? FLOOR_HEIGHT_DEFAULT;
+
+/** A wall's own height, mm. Absent means the storey height it stands on. */
+export const wallHeight = (f: Floor, w: Wall): number => w.height ?? floorHeight(f);
 
 /**
  * How reported areas are measured. Plans are dimensioned both ways in practice
@@ -229,11 +291,35 @@ export interface PlanDoc {
    * a guessed arrow would be a false statement on a sheet.
    */
   northDeg?: number;
+  /**
+   * Per-document seed for IFC GlobalIds (32 lowercase hex chars). Combined
+   * with each element's own id by ifcGuid() in guid.ts, so a re-export keeps
+   * every element's identity and two documents cannot collide. Absent on
+   * documents written before this existed.
+   */
+  guid?: string;
+  /**
+   * Elevation of the ground floor (floors[0]) above project zero (Peil), mm,
+   * may be negative. Absent means 0. See floorElevation().
+   */
+  groundMm?: number;
+  /** Storeys, lowest first: floors[0] is the ground floor, the storey picker
+   *  and floorElevation() both rely on that order. */
   floors: Floor[];
 }
 
 /** Title-block data. Absent fields read as empty, not as an error. */
 export const projectOf = (d: PlanDoc): ProjectMeta => d.project ?? {};
+
+/**
+ * Elevation of floor `index` above project zero (Peil), mm: the ground
+ * floor's own elevation plus the storey height of every floor below it.
+ */
+export function floorElevation(d: PlanDoc, index: number): number {
+  let z = d.groundMm ?? 0;
+  for (let i = 0; i < index; i++) z += floorHeight(d.floors[i]!);
+  return z;
+}
 
 export const AREA_MODE_DEFAULT: AreaMode = "net";
 export const areaModeOf = (d: PlanDoc): AreaMode => d.areaMode ?? AREA_MODE_DEFAULT;
@@ -250,10 +336,10 @@ export const GRID_DEFAULT_MM = 100;
 
 export function emptyDoc(): PlanDoc {
   return {
-    version: 1, unit: "mm", gridMm: GRID_DEFAULT_MM,
+    version: 1, unit: "mm", gridMm: GRID_DEFAULT_MM, guid: newDocGuid(),
     floors: [{
       id: newId("f"), name: "Floor 1",
-      nodes: [], walls: [], symbols: [], stairs: [], vides: [], cabinets: [], roomNames: [],
+      nodes: [], walls: [], symbols: [], stairs: [], vides: [], cabinets: [], routes: [], roomNames: [],
     }],
   };
 }
@@ -322,6 +408,31 @@ export function widthsFor(kind: OpeningKind): readonly number[] {
   return kind === "door" ? DOOR_WIDTHS
        : kind === "window" ? WINDOW_WIDTHS
        : PASSAGE_WIDTHS;
+}
+
+/**
+ * Default opening heights, mm, dagmaat (the standard NL binnendeurkozijn head
+ * height). A door or open passage reaches the same head; a window's is lower
+ * because it sits on a borstwering rather than the floor.
+ */
+export const DOOR_HEIGHT_DEFAULT = 2315;
+export const PASSAGE_HEIGHT_DEFAULT = 2315;
+export const WINDOW_HEIGHT_DEFAULT = 1415;
+/** Default sill height, mm: the ordinary borstwering under a window. */
+export const WINDOW_SILL_DEFAULT = 900;
+
+/** An opening's sill height, mm above the floor. Only a window has one that
+ *  is not the floor itself. */
+export function openingSill(o: Opening): number {
+  return o.kind === "window" ? o.sillHeight ?? WINDOW_SILL_DEFAULT : o.sillHeight ?? 0;
+}
+
+/** An opening's height, mm, defaulted per kind when not stated. */
+export function openingHeight(o: Opening): number {
+  if (o.height !== undefined) return o.height;
+  return o.kind === "window" ? WINDOW_HEIGHT_DEFAULT
+       : o.kind === "door" ? DOOR_HEIGHT_DEFAULT
+       : PASSAGE_HEIGHT_DEFAULT;
 }
 
 /**

@@ -20,6 +20,14 @@ let saveTimer: number | undefined;
 export function scheduleAutosave(doc: PlanDoc): void {
   clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => {
+    // A floor's underlay (model/doc.ts) is the one field that can make this
+    // write large enough to matter: localStorage is MB-order, and a document
+    // carrying one or more downscaled-but-still-substantial data URLs can
+    // exceed a quota that an ordinary plan never approaches. This catch is
+    // what absorbs that -- a failed autosave loses nothing already on screen,
+    // it just means the NEXT load falls back to the demo plan, the same as if
+    // no autosave existed yet -- so it stays silent rather than growing a
+    // dedicated failure path for a write nothing else depends on succeeding.
     try { localStorage.setItem(KEY, JSON.stringify(doc)); } catch { /* storage unavailable */ }
   }, 400);
 }

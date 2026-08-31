@@ -59,7 +59,7 @@ export function arcTangentAt(a: Vec, b: Vec, bulge: number, t: number): Vec {
 }
 
 /** Signed sweep from a0 to a1 honouring direction (canvas y-down angles). */
-function sweepOf(info: ArcInfo): number {
+export function sweepOf(info: ArcInfo): number {
   let d = info.a1 - info.a0;
   const TAU = Math.PI * 2;
   if (info.ccw) { // decreasing canvas angle

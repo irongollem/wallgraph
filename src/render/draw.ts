@@ -1,7 +1,8 @@
 // Full scene render. Immediate mode: redraw everything on change (documents at
 // this scale render in well under a frame). Layers: grid, rooms, walls,
-// opening decorations, symbols, selection, labels (labels in screen space).
-import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, videsOf, cabinetsOf, fireLabel } from "../model/doc";
+// opening decorations, routes, cabinets, symbols, stairs, selection, labels
+// (labels in screen space).
+import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, videsOf, cabinetsOf, fireLabel, Underlay } from "../model/doc";
 import { Resolved, OpeningGeom } from "../core/resolve";
 import { Room, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
 import { Selection } from "../model/store";
@@ -11,6 +12,9 @@ import { getSymbol } from "./symbols";
 import { drawStair, drawStairGhost } from "./stair";
 import { drawVide } from "./vide";
 import { drawCabinet } from "./cabinet";
+import { drawRoute } from "./route";
+import { resolveRoutes, resolveRoutePoints } from "../core/route";
+import { routeWater, type Discipline, type RouteWater } from "../model/route";
 import { ROOM_NAME_PX } from "../model/room";
 import { resolveStair } from "../core/stair";
 import { t } from "../i18n";
@@ -48,7 +52,39 @@ export const COLORS = {
    * in red and survives an export that loses the colour.
    */
   stairWarn: "#b3261e",
+  /**
+   * Default ink per discipline, chosen to sit clearly apart from each other,
+   * from the selection orange, and from the snap/dimension blue -- print-safe
+   * saturated hues rather than a scheme tied to any drawing standard. Which
+   * colour means what is a follow-up issue; this is only "tell three layers
+   * apart at a glance". A route carries no colour of its own (see
+   * model/route.ts), unlike a symbol or a stair, so there is no per-instance
+   * override to read through.
+   */
+  routeElectrical: "#7d4dae",
+  routeWater: "#1a7a6e",
+  /**
+   * Warm water's own tint within the water ink family -- a warmer, redder
+   * hue of the same water green rather than an unrelated colour, so "this is
+   * still water" reads at a glance and only the temperature differs. Koud
+   * and afvoer stay on COLORS.routeWater; only warm overrides.
+   */
+  routeWaterWarm: "#b0602f",
+  routeVent: "#9c7a1f",
 };
+
+/**
+ * The ink for one discipline's routes. `water` is read only when `d` is
+ * "water" -- warm gets its own tint (COLORS.routeWaterWarm); koud and afvoer
+ * both draw in the ordinary water ink, afvoer distinguished by dash and
+ * weight instead (see render/route.ts).
+ */
+export function routeInk(d: Discipline, water?: RouteWater): string {
+  if (d === "water" && water === "warm") return COLORS.routeWaterWarm;
+  return d === "electrical" ? COLORS.routeElectrical
+       : d === "water" ? COLORS.routeWater
+       : COLORS.routeVent;
+}
 
 /**
  * The pens a plan is annotated with, offered as presets by the colour picker.
@@ -86,17 +122,22 @@ export function symbolInk(s: { color?: string }): string {
 /**
  * The storey below, drawn faintly beneath the active one: its resolved walls,
  * to line storeys up, and the floor itself for the flight that climbs out of
- * it. Never hit-tested or selectable, so an underlay can't be edited by
- * accident, and it carries no room names — those name the rooms below.
+ * it. Never hit-tested or selectable, so a ghost can't be edited by accident,
+ * and it carries no room names — those name the rooms below.
+ *
+ * Not to be confused with `Underlay` (model/doc.ts): that is the per-floor
+ * trace-over image a visitor loads and draws over, an authored document
+ * field. This is wholly derived — the floor below, resolved the same way the
+ * active one is — and exists only for this one render call.
  */
-export interface Underlay {
+export interface GhostFloor {
   floor: Floor;
   resolved: Resolved;
 }
 
 export interface DrawExtras {
   hoverSnap?: Vec | null;
-  ghost?: Underlay | null;
+  ghost?: GhostFloor | null;
   /**
    * Selected alongside `sel`, by id and of its kind — the cabinets a
    * shift-click has added to the one the property pane edits. Every one of
@@ -106,7 +147,70 @@ export interface DrawExtras {
   selMore?: readonly string[];
   /** False for exports: no grid, and no legend describing one. */
   showGrid?: boolean;
+  /**
+   * True to draw the floor's trace-over image (Tools.showUnderlay, the
+   * editor's own visibility toggle). Absent/false excludes it -- the default
+   * is OFF rather than mirroring showGrid's "on unless told otherwise",
+   * because every export (PNG here; SVG/DXF/IFC/permit never read
+   * Floor.underlay at all) must exclude the underlay unconditionally, and an
+   * export that forgot to pass a `false` would otherwise leak it. io/image.ts's
+   * PNG path simply never sets this.
+   */
+  showUnderlay?: boolean;
+  /**
+   * Per-discipline visibility (Tools.showRoutes). Absent, or a discipline
+   * missing from it, means visible -- an export that never sets this (PNG
+   * included; see io/image.ts) draws every route regardless of what a live
+   * editor's toggles happen to say, since it has no Tools to read them from.
+   */
+  showRoutes?: Record<Discipline, boolean>;
+  /**
+   * Called once when a cached underlay image finishes decoding, so the host
+   * can redraw with it visible. Unused, and safe to omit, wherever
+   * showUnderlay is never true (every offscreen/export render).
+   */
+  requestRedraw?: () => void;
   preview?: ((ctx: CanvasRenderingContext2D, vp: Viewport) => void) | null;
+}
+
+/**
+ * One decoded HTMLImageElement per underlay dataUrl, so a data URL of a few
+ * hundred KB is decoded once rather than on every frame. Keyed by the dataUrl
+ * itself rather than by floor id, so a changed dataUrl (a reloaded image)
+ * naturally gets a fresh entry instead of needing an explicit invalidation
+ * step; the old entry is simply never looked up again. Unbounded, but a
+ * session touches at most a handful of underlay images.
+ */
+const underlayImageCache = new Map<string, HTMLImageElement>();
+
+function getUnderlayImage(dataUrl: string, requestRedraw?: () => void): HTMLImageElement {
+  let img = underlayImageCache.get(dataUrl);
+  if (!img) {
+    img = new Image();
+    img.onload = () => requestRedraw?.();
+    img.src = dataUrl;
+    underlayImageCache.set(dataUrl, img);
+  }
+  return img;
+}
+
+/**
+ * The trace-over image, in world space: `u.x`/`u.y` is its top-left corner
+ * and `u.mmPerPixel` sizes it, both mm. Drawn with its own save/scale/
+ * translate rather than inside drawScene's world-space block, because it has
+ * to land BEFORE the grid (see the call site) while the world-space block
+ * opens after it.
+ */
+function drawUnderlayImage(ctx: CanvasRenderingContext2D, vp: Viewport, u: Underlay, requestRedraw?: () => void): void {
+  const img = getUnderlayImage(u.dataUrl, requestRedraw);
+  if (!img.complete || img.naturalWidth === 0) return; // still decoding; onload above redraws once it lands
+  const w = img.naturalWidth * u.mmPerPixel, h = img.naturalHeight * u.mmPerPixel;
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, Math.min(1, u.opacity));
+  ctx.scale(vp.pxPerMm, vp.pxPerMm);
+  ctx.translate(-vp.origin.x, -vp.origin.y);
+  ctx.drawImage(img, u.x, u.y, w, h);
+  ctx.restore();
 }
 
 export function drawScene(
@@ -114,9 +218,25 @@ export function drawScene(
   floor: Floor, resolved: Resolved, rooms: Room[], sel: Selection | null,
   extras: DrawExtras, gridMm: number, areaMode: AreaMode, dimMode: DimMode,
 ): void {
+  // True for the primary selection AND every member `extras.selMore` carries
+  // alongside it -- a shift-click, a touch hold, or a marquee's catch all
+  // draw the same frame, not just the one clicked or picked last. One helper
+  // so every kind below routes selection highlighting through the same
+  // check, the way the cabinet path already did before this generalised it.
+  const isSel = (kind: Selection["kind"], id: string): boolean =>
+    sel?.kind === kind && (sel.id === id || extras.selMore?.includes(id) === true);
+
   ctx.save();
   ctx.fillStyle = COLORS.bg;
   ctx.fillRect(0, 0, canvasW, canvasH);
+
+  // Tracing aid, drawn UNDER the grid but OVER the paper: under the grid so
+  // the grid stays visible for tracing (drawing it under the paper would hide
+  // it entirely; drawing it over the grid would bury the grid under a scan),
+  // and under the whole drawing below. See DrawExtras.showUnderlay.
+  if (extras.showUnderlay && floor.underlay) {
+    drawUnderlayImage(ctx, vp, floor.underlay, extras.requestRedraw);
+  }
 
   const steps = extras.showGrid === false ? null : drawGrid(ctx, vp, canvasW, canvasH, gridMm);
 
@@ -139,7 +259,7 @@ export function drawScene(
   for (const vd of videsOf(floor)) {
     drawVide(ctx, vd, {
       px, ink: symbolInk(vd), fallbackLabel: t("vide.label"), cut: COLORS.bg,
-      selected: sel?.kind === "vide" && sel.id === vd.id,
+      selected: isSel("vide", vd.id),
       select: COLORS.select, wash: COLORS.selectWash,
     });
   }
@@ -170,17 +290,17 @@ export function drawScene(
 
   // Walls.
   for (const rw of resolved.walls.values()) {
-    const isSel = sel?.kind === "wall" && sel.id === rw.wall.id;
+    const wallSel = isSel("wall", rw.wall.id);
     for (const piece of rw.pieces) {
       ctx.beginPath();
       tracePoly(ctx, piece.poly);
-      ctx.fillStyle = isSel ? "#5a4638" : COLORS.wallFill;
+      ctx.fillStyle = wallSel ? "#5a4638" : COLORS.wallFill;
       ctx.fill();
-      ctx.strokeStyle = isSel ? COLORS.select : COLORS.wallStroke;
-      ctx.lineWidth = (isSel ? 2 : 1) * px;
+      ctx.strokeStyle = wallSel ? COLORS.select : COLORS.wallStroke;
+      ctx.lineWidth = (wallSel ? 2 : 1) * px;
       ctx.stroke();
     }
-    for (const og of rw.openings) drawOpening(ctx, og, px, sel);
+    for (const og of rw.openings) drawOpening(ctx, og, px, isSel("opening", og.opening.id));
   }
 
   // Junction fill goes on top of the wall pieces: it closes the wedge a T-shaped
@@ -193,20 +313,33 @@ export function drawScene(
     ctx.fill();
   }
 
+  // Routes: a services overlay. Drawn over the masonry, so a duct reads as
+  // crossing a wall in plan the way it does on an installation drawing, and
+  // under the cabinets and symbols that follow so a socket or tap placed on
+  // top of a run stays the thing actually read there.
+  for (const rr of resolveRoutes(floor)) {
+    const route = rr.route;
+    if (extras.showRoutes?.[route.discipline] === false) continue;
+    drawRoute(ctx, rr, route.points, resolveRoutePoints(floor, route), {
+      ink: routeInk(route.discipline, route.discipline === "water" ? routeWater(route) : undefined),
+      selected: isSel("route", route.id),
+      select: COLORS.select, wash: COLORS.selectWash,
+    });
+  }
+
   // Cabinetry, over the masonry and under the symbols. A unit stands against a
   // wall, so the wall draws first and takes the back edge with it; a socket or
   // a tap drawn on a unit has to stay visible over its front.
   for (const c of cabinetsOf(floor)) {
     drawCabinet(ctx, c, {
       px, ink: symbolInk(c),
-      selected: sel?.kind === "cabinet"
-        && (sel.id === c.id || extras.selMore?.includes(c.id) === true),
+      selected: isSel("cabinet", c.id),
       select: COLORS.select, wash: COLORS.selectWash,
     });
   }
 
   // Symbols.
-  for (const s of floor.symbols) drawSymbol(ctx, s, px, sel?.kind === "symbol" && sel.id === s.id);
+  for (const s of floor.symbols) drawSymbol(ctx, s, px, isSel("symbol", s.id));
 
   // Stairs last, over the symbols. Their own wash goes down first, so whatever
   // a flight crosses -- walls, a room tint, a symbol beneath it -- recedes
@@ -214,7 +347,7 @@ export function drawScene(
   for (const st of stairsOf(floor)) {
     drawStair(ctx, resolveStair(floor, st), {
       px, ink: symbolInk(st),
-      selected: sel?.kind === "stair" && sel.id === st.id,
+      selected: isSel("stair", st.id),
       select: COLORS.select, wash: COLORS.selectWash,
       backing: COLORS.stairWash, warn: COLORS.stairWarn,
     });
@@ -337,9 +470,8 @@ function fmtMm(mm: number): string {
   return mm >= 1000 ? `${+(mm / 1000).toFixed(2)} m` : `${mm} mm`;
 }
 
-function drawOpening(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number, sel: Selection | null): void {
+function drawOpening(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number, isSel: boolean): void {
   const o = og.opening;
-  const isSel = sel?.kind === "opening" && sel.id === o.id;
   const color = isSel ? COLORS.select : COLORS.opening;
   ctx.strokeStyle = color;
   ctx.lineWidth = (isSel ? 2 : 1.2) * px;

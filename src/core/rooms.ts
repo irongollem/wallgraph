@@ -37,11 +37,34 @@ export interface Room {
   name?: string;
   /** The RoomName the name came from, so the name can be rewritten. */
   nameId?: Id;
+  /**
+   * Walls whose centerline forms part of this room's boundary, deduplicated.
+   * Follows straight from the half-edge walk below: every boundary edge is
+   * one wall's own segment (a wall drawn through another's midpoint splits it
+   * at that node first, so there is no wall a room edge could straddle), so
+   * this is read off the same trace that finds the room rather than by
+   * re-matching geometry afterward. What core/fitout.ts sums window area over
+   * for the daylight ratio.
+   */
+  boundingWallIds: Id[];
 }
 
-interface HalfEdge { from: number; to: number; visited: boolean; half: number }
+interface HalfEdge { from: number; to: number; visited: boolean; half: number; wallId: Id }
 
-export function detectRooms(f: Floor): Room[] {
+/** One traced face of the flattened wall graph, before it is classified as a
+ *  room or the outer boundary. */
+interface Face { poly: Vec[]; halves: number[]; wallIds: Id[]; area: number }
+
+/**
+ * Walk every face of the flattened wall graph by the sharpest-left turn rule:
+ * the bounded rooms AND the one unbounded outer face, undifferentiated. Faces
+ * trace with positive shoelace area when bounded, negative when unbounded
+ * (see the module comment) — callers tell them apart by sign.
+ *
+ * Shared by detectRooms() (keeps positive-area faces above the sliver
+ * threshold) and outerBoundary() (keeps the unbounded one).
+ */
+function walkFaces(f: Floor): Face[] {
   // Collect flattened vertices with dedup (quantize to 1mm).
   const verts: Vec[] = [];
   const vmap = new Map<string, number>();
@@ -57,7 +80,7 @@ export function detectRooms(f: Floor): Room[] {
   const halfEdges: HalfEdge[] = [];
   const outgoing = new Map<number, number[]>(); // vertex -> half-edge indices
 
-  const addSeg = (a: Vec, b: Vec, half: number): void => {
+  const addSeg = (a: Vec, b: Vec, half: number, wallId: Id): void => {
     const ia = vid(a), ib = vid(b);
     if (ia === ib) return;
     const ek = Math.min(ia, ib) + "-" + Math.max(ia, ib);
@@ -65,7 +88,7 @@ export function detectRooms(f: Floor): Room[] {
     edgeSet.add(ek);
     for (const [from, to] of [[ia, ib], [ib, ia]] as const) {
       const idx = halfEdges.length;
-      halfEdges.push({ from, to, visited: false, half });
+      halfEdges.push({ from, to, visited: false, half, wallId });
       const arr = outgoing.get(from);
       if (arr) arr.push(idx); else outgoing.set(from, [idx]);
     }
@@ -76,7 +99,7 @@ export function detectRooms(f: Floor): Room[] {
     if (!A || !B || dist(A, B) < 1) continue;
     const flat = arcFlatten(A, B, w.bulge, 5);
     const half = w.thickness / 2;
-    for (let i = 0; i + 1 < flat.length; i++) addSeg(flat[i]!, flat[i + 1]!, half);
+    for (let i = 0; i + 1 < flat.length; i++) addSeg(flat[i]!, flat[i + 1]!, half, w.id);
   }
 
   // Sort outgoing edges by angle for the turn rule.
@@ -87,11 +110,12 @@ export function detectRooms(f: Floor): Room[] {
 
   const twin = (i: number): number => (i % 2 === 0 ? i + 1 : i - 1);
 
-  const rooms: Room[] = [];
+  const faces: Face[] = [];
   for (let start = 0; start < halfEdges.length; start++) {
     if (halfEdges[start]!.visited) continue;
     const polyIdx: number[] = [];
     const halves: number[] = []; // half-thickness of the wall carrying each edge
+    const wallIds: Id[] = []; // which wall carries each edge, same order as halves
     let cur = start;
     let guard = 0;
     while (guard++ < 100000) {
@@ -100,6 +124,7 @@ export function detectRooms(f: Floor): Room[] {
       he.visited = true;
       polyIdx.push(he.from);
       halves.push(he.half);
+      wallIds.push(he.wallId);
       // Next: at he.to, pick the edge just CW of twin(cur) in the sorted order.
       const outs = outgoing.get(he.to)!;
       const tw = twin(cur);
@@ -110,20 +135,49 @@ export function detectRooms(f: Floor): Room[] {
     }
     if (polyIdx.length < 3) continue;
     const poly = polyIdx.map(i => verts[i]!);
-    const area = polygonArea(poly);
+    faces.push({ poly, halves, wallIds, area: polygonArea(poly) });
+  }
+  return faces;
+}
+
+export function detectRooms(f: Floor): Room[] {
+  const rooms: Room[] = [];
+  for (const face of walkFaces(f)) {
     // With this turn rule (y-down), bounded faces trace with positive shoelace
     // area; the unbounded outer face is negative. Verified by tests/core.test.ts.
-    if (area <= 1e4) continue; // rejects outer face and <0.01 m² slivers
-    const netPoly = insetPolygon(poly, halves);
+    if (face.area <= 1e4) continue; // rejects outer face and <0.01 m² slivers
+    const netPoly = insetPolygon(face.poly, face.halves);
     const netArea = Math.max(0, polygonArea(netPoly));
     rooms.push({
-      poly, areaMm2: area,
+      poly: face.poly, areaMm2: face.area,
       netPoly, netAreaMm2: netArea,
-      centroid: polygonCentroid(poly),
+      centroid: polygonCentroid(face.poly),
+      boundingWallIds: Array.from(new Set(face.wallIds)),
     });
   }
   attachNames(f, rooms);
   return rooms;
+}
+
+/**
+ * The outer boundary of the wall graph: centerline vertices, like `Room.poly`
+ * — not offset to the outer wall faces. This is the unbounded face the same
+ * half-edge walk visits and detectRooms() discards, so it is the most
+ * negative-area face rather than the positive ones. Null when the graph
+ * encloses nothing (no walls, or an open chain — walking a tree-shaped graph
+ * retraces every edge and cancels to near-zero area either way).
+ *
+ * Assumes one connected wall graph, which is what a single storey's slab is;
+ * several disjoint closed loops on one floor would each contribute their own
+ * negative-area face and only the largest is reported.
+ */
+export function outerBoundary(f: Floor): Vec[] | null {
+  let best: Face | null = null;
+  for (const face of walkFaces(f)) {
+    if (best === null || face.area < best.area) best = face;
+  }
+  if (!best || best.area >= -1e4) return null;
+  return best.poly;
 }
 
 /** Corners count as square within about two degrees. */

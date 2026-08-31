@@ -14,7 +14,8 @@ import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
-import { COLORS, symbolInk } from "../render/draw";
+import { COLORS, routeInk, symbolInk } from "../render/draw";
+import { ROUTE_DATA_DASH, ROUTE_AFVOER_DASH, ROUTE_AFVOER_EXTRA_MM, ROUTE_VENT_EXTRA_MM, LINE_WIDTH_MM } from "../render/route";
 import { stairBox } from "../core/stair";
 import { recordSymbol, Prim } from "./record";
 import { openingMarks } from "./marks";
@@ -24,6 +25,9 @@ import { cabinetPrims } from "./cabinet";
 import { cabinetOverhead } from "../model/cabinet";
 import { videBox } from "../core/vide";
 import { resolveStair } from "../core/stair";
+import { resolveRoutes } from "../core/route";
+import { routePrims } from "./route";
+import { DISCIPLINES, routeKind, routeWater, routeVent } from "../model/route";
 import { planBounds } from "../core/bounds";
 import { saveViaHost, downloadBlob } from "./save";
 import { t } from "../i18n";
@@ -221,6 +225,85 @@ export function planSvgParts(doc: PlanDoc, floor: Floor, resolved: ReturnType<ty
   return parts;
 }
 
+/** Route line weight in mm -- same figure render/route.ts draws with. */
+const W_ROUTE = LINE_WIDTH_MM;
+
+/**
+ * Routes as SVG, one group per discipline (`id="routes-electrical"` etc.), in
+ * the discipline's own ink. Kept OUTSIDE planSvgParts deliberately: that
+ * function also composes the permit sheet (io/permit.ts), and a bouwkundige
+ * permit sheet carries no services -- see the module comment on io/permit.ts.
+ * Called only from toSvg below, so the permit path never reaches it.
+ */
+export function routeSvgParts(floor: Floor): string[] {
+  const parts: string[] = [];
+  const resolved = resolveRoutes(floor);
+  for (const discipline of DISCIPLINES) {
+    const group = resolved.filter(r => r.route.discipline === discipline);
+    if (group.length === 0) continue;
+    const ink = routeInk(discipline);
+    parts.push(`<g id="routes-${discipline}" fill="none" stroke="${ink}" stroke-width="${W_ROUTE}" stroke-linecap="round">`);
+    if (discipline === "electrical") {
+      // A data run (utp/coax) is dashed here rather than in its recorded
+      // geometry: the recorder discards dash patterns, so the group carries
+      // it -- the same reasoning a wall cabinet's dash is carried by its own
+      // SVG group (see the cabinets group in planSvgParts, and io/cabinet.ts).
+      // A power run is the plain, undashed sub-group, matching every other
+      // discipline's markup.
+      const power = group.filter(r => routeKind(r.route) === "power");
+      const data = group.filter(r => routeKind(r.route) !== "power");
+      for (const rr of power) for (const p of routePrims(rr)) parts.push(primSvg(p));
+      if (data.length > 0) {
+        parts.push(`<g stroke-dasharray="${ROUTE_DATA_DASH.join(" ")}">`);
+        for (const rr of data) for (const p of routePrims(rr)) parts.push(primSvg(p));
+        parts.push(`</g>`);
+      }
+    } else if (discipline === "water") {
+      // koud stays the plain outer group -- solid, the ordinary water ink,
+      // matching every other discipline's markup. warm is a colour-override
+      // sub-group (its own tint within the water ink family, see
+      // render/draw.ts's COLORS.routeWaterWarm); afvoer is a dashed, wider
+      // sub-group -- the recorder/prims path this feeds cannot carry a dash
+      // or a widened stroke, so the SVG group carries them, the same
+      // reasoning io/dxf.ts documents for CABINETS-OVERHEAD and this
+      // function's own electrical data sub-group above.
+      const koud = group.filter(r => routeWater(r.route) === "koud");
+      const warm = group.filter(r => routeWater(r.route) === "warm");
+      const afvoer = group.filter(r => routeWater(r.route) === "afvoer");
+      for (const rr of koud) for (const p of routePrims(rr)) parts.push(primSvg(p));
+      if (warm.length > 0) {
+        parts.push(`<g stroke="${routeInk("water", "warm")}">`);
+        for (const rr of warm) for (const p of routePrims(rr)) parts.push(primSvg(p));
+        parts.push(`</g>`);
+      }
+      if (afvoer.length > 0) {
+        parts.push(`<g stroke-width="${W_ROUTE + ROUTE_AFVOER_EXTRA_MM}" stroke-dasharray="${ROUTE_AFVOER_DASH.join(" ")}">`);
+        for (const rr of afvoer) for (const p of routePrims(rr)) parts.push(primSvg(p));
+        parts.push(`</g>`);
+      }
+    } else if (discipline === "vent") {
+      // Every vent run draws wider than the other disciplines, toevoer and
+      // afvoer alike -- a duct is a spatial object even in plan (see
+      // render/route.ts's ROUTE_VENT_EXTRA_MM) -- so the widened stroke
+      // wraps both sub-groups here rather than only the dashed one. afvoer
+      // is additionally dashed on its own sub-group, the same
+      // recorder-drops-dashes reasoning as the water afvoer split above.
+      const toevoer = group.filter(r => routeVent(r.route) !== "afvoer");
+      const afvoer = group.filter(r => routeVent(r.route) === "afvoer");
+      parts.push(`<g stroke-width="${W_ROUTE + ROUTE_VENT_EXTRA_MM}">`);
+      for (const rr of toevoer) for (const p of routePrims(rr)) parts.push(primSvg(p));
+      if (afvoer.length > 0) {
+        parts.push(`<g stroke-dasharray="${ROUTE_AFVOER_DASH.join(" ")}">`);
+        for (const rr of afvoer) for (const p of routePrims(rr)) parts.push(primSvg(p));
+        parts.push(`</g>`);
+      }
+      parts.push(`</g>`);
+    }
+    parts.push(`</g>`);
+  }
+  return parts;
+}
+
 /** The plan of one storey as an SVG document. */
 export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
   const floor: Floor | undefined = doc.floors[floorIndex] ?? doc.floors[0];
@@ -242,6 +325,7 @@ export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
   );
   parts.push(`<rect x="${n(minX)}" y="${n(minY)}" width="${n(w)}" height="${n(h)}" fill="${COLORS.bg}"/>`);
   parts.push(...planSvgParts(doc, floor, resolved));
+  parts.push(...routeSvgParts(floor));
   parts.push(`</svg>`);
   return parts.join("\n") + "\n";
 }

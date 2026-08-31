@@ -16,7 +16,7 @@
 // context (see recordSymbol) because the library draws them with canvas calls;
 // their arcs flatten to polylines, which is exact enough at symbol scale and
 // avoids guessing how a mirrored, rotated transform maps onto an ARC.
-import { PlanDoc, Floor, areaModeOf, dimModeOf, stairsOf, videsOf, cabinetsOf, roomNamesOf } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf, dimModeOf, stairsOf, videsOf, cabinetsOf, routesOf, roomNamesOf } from "../model/doc";
 import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
@@ -28,6 +28,9 @@ import { videPrims } from "./vide";
 import { cabinetPrims } from "./cabinet";
 import { cabinetOverhead } from "../model/cabinet";
 import { resolveStair } from "../core/stair";
+import { resolveRoutes } from "../core/route";
+import { routePrims } from "./route";
+import { routeKind, routeWater, routeVent, type Discipline } from "../model/route";
 import { saveViaHost, downloadBlob } from "./save";
 import { t } from "../i18n";
 
@@ -49,10 +52,53 @@ const LAYER = {
   cabinetsOverhead: "CABINETS-OVERHEAD",
 } as const;
 
+/** One layer per discipline, registered only when the floor has routes at
+ *  all (see toDxf) -- unlike every other layer above, which is always
+ *  declared even when its own kind of object is absent from the plan. */
+const ROUTE_LAYER: Record<Discipline, string> = {
+  electrical: "ROUTES-ELECTRICAL", water: "ROUTES-WATER", vent: "ROUTES-VENT",
+};
+
+/**
+ * An electrical data run (utp/coax) gets its own layer rather than a dash
+ * pattern -- the same reasoning as CABINETS-OVERHEAD above: a dash cannot
+ * survive the recorder/prims path, so the distinction has to live in the
+ * layer instead, which is where CAD expects to find it anyway. Registered
+ * only when the floor actually has a data run (see toDxf), unlike
+ * ROUTE_LAYER's three names, which are declared together once the floor has
+ * any route at all.
+ */
+const ROUTE_DATA_LAYER = "ROUTES-ELECTRICAL-DATA";
+
+/**
+ * An afvoer run gets its own layer for the same reason ROUTE_DATA_LAYER
+ * does: the dash and the wider stroke it draws with on canvas and in SVG
+ * (see render/route.ts) cannot survive the recorder/prims path this feeds,
+ * so the distinction has to live in the layer instead. Registered only when
+ * the floor actually has a drain run (see toDxf); koud and warm both stay on
+ * ROUTE_LAYER.water -- warm's own tint (COLORS.routeWaterWarm) is a
+ * canvas/SVG stroke override with no DXF equivalent, since DXF colour is
+ * per-layer, not per-entity.
+ */
+const ROUTE_AFVOER_LAYER = "ROUTES-WATER-AFVOER";
+
+/**
+ * A vent afvoer (extract) run gets its own layer for the same reason
+ * ROUTE_AFVOER_LAYER does: its dash (see render/route.ts) cannot survive the
+ * recorder/prims path this feeds, so the distinction has to live in the
+ * layer instead. Registered only when the floor actually has an extract run
+ * (see toDxf); toevoer stays on ROUTE_LAYER.vent. Named distinctly from
+ * ROUTE_AFVOER_LAYER above so the two disciplines' drain/extract layers
+ * never collide on a CAD package's layer list.
+ */
+const ROUTE_VENT_AFVOER_LAYER = "ROUTES-VENT-AFVOER";
+
 /** ACI colour indices — 7 is "by background", i.e. black on white paper. */
 const LAYER_COLOR: Record<string, number> = {
   WALLS: 7, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, ROOMS: 8,
   CABINETS: 6, "CABINETS-OVERHEAD": 6,
+  "ROUTES-ELECTRICAL": 1, "ROUTES-WATER": 5, "ROUTES-VENT": 2,
+  "ROUTES-ELECTRICAL-DATA": 1, "ROUTES-WATER-AFVOER": 5, "ROUTES-VENT-AFVOER": 2,
 };
 
 class DxfWriter {
@@ -212,12 +258,23 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
   const floor: Floor | undefined = doc.floors[floorIndex] ?? doc.floors[0];
   if (!floor || (floor.walls.length === 0 && floor.symbols.length === 0
       && stairsOf(floor).length === 0 && videsOf(floor).length === 0
-      && cabinetsOf(floor).length === 0 && roomNamesOf(floor).length === 0)) return null;
+      && cabinetsOf(floor).length === 0 && roomNamesOf(floor).length === 0
+      && routesOf(floor).length === 0)) return null;
 
+  const hasRoutes = routesOf(floor).length > 0;
+  const hasElectricalData = routesOf(floor).some(r => r.discipline === "electrical" && routeKind(r) !== "power");
+  const hasAfvoer = routesOf(floor).some(r => r.discipline === "water" && routeWater(r) === "afvoer");
+  const hasVentAfvoer = routesOf(floor).some(r => r.discipline === "vent" && routeVent(r) === "afvoer");
   const resolved = resolveFloor(floor);
   const w = new DxfWriter();
   w.header();
-  w.tables(Object.values(LAYER));
+  w.tables([
+    ...Object.values(LAYER),
+    ...(hasRoutes ? Object.values(ROUTE_LAYER) : []),
+    ...(hasElectricalData ? [ROUTE_DATA_LAYER] : []),
+    ...(hasAfvoer ? [ROUTE_AFVOER_LAYER] : []),
+    ...(hasVentAfvoer ? [ROUTE_VENT_AFVOER_LAYER] : []),
+  ]);
   w.section("ENTITIES", () => {
     // Walls: each solid piece as a closed outline, so openings are real gaps
     // rather than something drawn over.
@@ -229,6 +286,19 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
     for (const rw of resolved.walls.values()) emitPrims(w, LAYER.openings, openingMarks(rw));
 
     for (const vd of videsOf(floor)) emitPrims(w, LAYER.vides, videPrims(vd, t("vide.label")));
+
+    if (hasRoutes) {
+      for (const rr of resolveRoutes(floor)) {
+        const layer = rr.route.discipline === "electrical" && routeKind(rr.route) !== "power"
+          ? ROUTE_DATA_LAYER
+          : rr.route.discipline === "water" && routeWater(rr.route) === "afvoer"
+          ? ROUTE_AFVOER_LAYER
+          : rr.route.discipline === "vent" && routeVent(rr.route) === "afvoer"
+          ? ROUTE_VENT_AFVOER_LAYER
+          : ROUTE_LAYER[rr.route.discipline];
+        emitPrims(w, layer, routePrims(rr));
+      }
+    }
 
     for (const st of stairsOf(floor))
       emitPrims(w, LAYER.stairs, stairPrims(resolveStair(floor, st)));

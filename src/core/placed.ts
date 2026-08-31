@@ -60,3 +60,25 @@ export function turnAbout(p: Placed, b: LocalBox, rotation: number): { x: number
   const after = worldPoint({ x: 0, y: 0, rotation, mirrored: p.mirrored }, mid);
   return { x: Math.round(at.x - after.x), y: Math.round(at.y - after.y) };
 }
+
+/** The footprint shape a symbol draw(ctx) contract describes: wall-mounted x
+ *  in [-width/2, width/2], y in [0, depth]; free-standing y in
+ *  [-depth/2, depth/2] (see defs.ts). */
+export interface SymbolFootprintDef { wallMounted: boolean; width: number; depth: number }
+
+/**
+ * A placed symbol's four rotated footprint corners in world millimetres.
+ * Shared by core/bounds.ts (plan framing), input/marquee.ts (rubber-band
+ * selection) and io/ifc.ts (extruded export geometry) so the corner walk
+ * cannot drift between the three.
+ */
+export function symbolFootprintCorners(def: SymbolFootprintDef, p: Placed): Vec[] {
+  const y0 = def.wallMounted ? 0 : -def.depth / 2;
+  const box: LocalBox = { x0: -def.width / 2, y0, x1: def.width / 2, y1: y0 + def.depth };
+  return [
+    worldPoint(p, v(box.x0, box.y0)),
+    worldPoint(p, v(box.x1, box.y0)),
+    worldPoint(p, v(box.x1, box.y1)),
+    worldPoint(p, v(box.x0, box.y1)),
+  ];
+}

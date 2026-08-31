@@ -12,7 +12,7 @@ TypeScript, canvas rendering, **zero runtime dependencies**.
 ## Commands
 
 ```sh
-npm install        # 4 dev-only deps; the shipped bundle has zero dependencies
+npm install        # dev-only deps; the shipped bundle has zero dependencies
 npm run check      # typecheck + tests — run this before every commit
 npm run build      # typecheck + bundle to dist/  (SITE_URL=… for the hosted form)
 npm run dev        # watch build + http://localhost:5173

@@ -12,12 +12,31 @@
 // face that no longer exists.
 import type { Id } from "./doc";
 
+/**
+ * What a room is used for, in the Bouwbesluit sense the fit-out figures in
+ * core/fitout.ts read: only "verblijf" (verblijfsruimte) gets workstation,
+ * daylight and ventilation figures. The other three are stated so a plan can
+ * say what a space is without implying it takes fit-out figures it does not.
+ */
+export type RoomUse = "verblijf" | "verkeer" | "sanitair" | "techniek";
+
+export const ROOM_USES: readonly RoomUse[] = ["verblijf", "verkeer", "sanitair", "techniek"];
+
 export interface RoomName {
   id: Id;
   /** A point inside the room, world mm. Integer, like every stored coordinate. */
   x: number;
   y: number;
   name: string;
+  /**
+   * What the room is used for. Rides on the name rather than being its own
+   * stored fact because RoomName is the only authored per-room anchor this
+   * model has -- there is no stored room to hang it on instead (rooms are
+   * derived, see core/rooms.ts). A room with no name-point therefore cannot
+   * state a use, and gets no fit-out figures; that is the honest outcome, not
+   * a gap to fill by guessing. Absent means "not stated".
+   */
+  use?: RoomUse;
 }
 
 /**

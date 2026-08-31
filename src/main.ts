@@ -4,7 +4,7 @@ import { Store } from "./model/store";
 import { resolveFloor, Resolved } from "./core/resolve";
 import { detectRooms, Room } from "./core/rooms";
 import { Viewport } from "./render/viewport";
-import { drawScene, COLORS, type Underlay } from "./render/draw";
+import { drawScene, COLORS, type GhostFloor } from "./render/draw";
 import { Tools } from "./input/tools";
 import { Panel } from "./ui/panel";
 import { tryLoadAutosave, scheduleAutosave } from "./io/json";
@@ -63,8 +63,8 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
   let cachedRev = -1;
   let cachedResolved: Resolved = { walls: new Map(), junctions: [] };
   let cachedRooms: Room[] = [];
-  let cachedGhost: Underlay | null = null;
-  function derived(): { resolved: Resolved; rooms: Room[]; ghost: Underlay | null } {
+  let cachedGhost: GhostFloor | null = null;
+  function derived(): { resolved: Resolved; rooms: Room[]; ghost: GhostFloor | null } {
     if (store.revision !== cachedRev) {
       cachedRev = store.revision;
       cachedResolved = resolveFloor(store.floor);
@@ -105,6 +105,9 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
       hoverSnap: tools.getSnap(),
       ghost,
       selMore: store.selMore,
+      showUnderlay: tools.showUnderlay,
+      showRoutes: tools.showRoutes,
+      requestRedraw: requestRender,
       preview: (c, viewport) => tools.drawPreview(c, viewport),
     }, store.doc.gridMm, areaModeOf(store.doc), dimModeOf(store.doc));
     renderLoupe(rect, dpr, resolved, rooms, ghost);
@@ -124,7 +127,7 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
    * the plan at the zoom the finger is already covering.
    */
   function renderLoupe(
-    rect: DOMRect, dpr: number, resolved: Resolved, rooms: Room[], ghost: Underlay | null,
+    rect: DOMRect, dpr: number, resolved: Resolved, rooms: Room[], ghost: GhostFloor | null,
   ): void {
     const at = tools.loupeAt();
     if (!at) { loupe.hidden = true; return; }
@@ -156,6 +159,8 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
       // pass: they are tested in canvas screen coordinates, not the lens's.
       preview: (c, viewport) => tools.drawPreview(c, viewport, false),
       showGrid: false,
+      showUnderlay: tools.showUnderlay,
+      showRoutes: tools.showRoutes,
     }, store.doc.gridMm, areaModeOf(store.doc), dimModeOf(store.doc));
     // Crosshair at the exact point, drawn last so nothing covers it.
     lctx.strokeStyle = COLORS.snap;

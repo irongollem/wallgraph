@@ -13,8 +13,9 @@
 import { Store } from "../model/store";
 import { Tools } from "../input/tools";
 import { Room, roomKey, unattachedRoomNames } from "../core/rooms";
-import { ROOM_NAMES, type RoomName } from "../model/room";
-import { areaModeOf } from "../model/doc";
+import { ROOM_NAMES, ROOM_USES, type RoomName, type RoomUse } from "../model/room";
+import { areaModeOf, roomNamesOf } from "../model/doc";
+import { roomFigures, roomVentRouted, type RoomFigures, type RoomVentRouted } from "../core/fitout";
 import { icon } from "./icons";
 import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
@@ -64,8 +65,8 @@ export function renderZoomTool(
     for (const r of sorted) {
       const area = ((net ? r.netAreaMm2 : r.areaMm2) / 1e6).toFixed(1) + " m²";
       list.append(edit.key === roomKey(r)
-        ? nameRow(tools, edit, r, area)
-        : zoneRow(tools, edit, r, area));
+        ? nameRow(tools, edit, r, area, store)
+        : roomItem(tools, edit, store, r, area));
     }
     for (const rn of loose) {
       const key = "name:" + rn.id;
@@ -126,6 +127,15 @@ function looseNameRow(tools: Tools, edit: RoomEdit, rn: RoomName): HTMLElement {
   return row;
 }
 
+/** A room at rest, with its fit-out figures (if it has any) underneath. */
+function roomItem(tools: Tools, edit: RoomEdit, store: Store, r: Room, area: string): HTMLElement {
+  const item = el("div", "zone-item");
+  item.append(zoneRow(tools, edit, r, area));
+  const figures = roomFigures(store.floor, r, store.doc);
+  if (figures) item.append(figuresBlock(figures, roomVentRouted(store.floor, r)));
+  return item;
+}
+
 /** A room at rest: press it to frame it, press the pencil to name it. */
 function zoneRow(tools: Tools, edit: RoomEdit, r: Room, area: string): HTMLElement {
   const row = el("div", "zone-row");
@@ -155,7 +165,8 @@ function zoneRow(tools: Tools, edit: RoomEdit, r: Room, area: string): HTMLEleme
  * how a name is taken back off a room now that there is nothing to select and
  * delete.
  */
-function nameRow(tools: Tools, edit: RoomEdit, r: Room, area: string): HTMLElement {
+function nameRow(tools: Tools, edit: RoomEdit, r: Room, area: string, store: Store): HTMLElement {
+  const wrap = el("div", "zone-item is-editing");
   const row = el("div", "zone-row is-editing");
   const input = el("input", "zone-input") as HTMLInputElement;
   input.type = "text";
@@ -186,10 +197,69 @@ function nameRow(tools: Tools, edit: RoomEdit, r: Room, area: string): HTMLEleme
   input.onblur = () => finish(true);
 
   row.append(input, Object.assign(el("span", "zone-area"), { textContent: area }));
+  wrap.append(row);
+  // The use only has somewhere to live once the name has an id of its own —
+  // a room about to be named for the first time has nothing to attach it to.
+  if (r.nameId !== undefined) {
+    const rn = roomNamesOf(store.floor).find(x => x.id === r.nameId);
+    if (rn) wrap.append(useRow(tools, rn));
+  }
   // A microtask, not a direct call: the row is still detached at this point and
   // only reaches the document when renderZoomTool appends the list.
   queueMicrotask(() => { input.focus(); input.select(); input.scrollIntoView({ block: "nearest" }); });
+  return wrap;
+}
+
+/** What the room is used for, offered beside the name while it is being edited. */
+function useRow(tools: Tools, rn: RoomName): HTMLElement {
+  const row = el("label", "prop-row zone-use");
+  row.append(Object.assign(el("span"), { textContent: t("panel.roomUse") }));
+  const sl = el("select") as HTMLSelectElement;
+  const options: Array<[string, string]> = [
+    ["", t("roomUse.none")],
+    ...ROOM_USES.map(u => [u, t("roomUse." + u)] as [string, string]),
+  ];
+  for (const [val, lab] of options) {
+    const o = el("option") as HTMLOptionElement;
+    o.value = val; o.textContent = lab;
+    if (val === (rn.use ?? "")) o.selected = true;
+    sl.append(o);
+  }
+  sl.onchange = () => tools.setRoomUse(rn.id, sl.value === "" ? undefined : sl.value as RoomUse);
+  row.append(sl);
   return row;
+}
+
+/**
+ * Compact fit-out figures for a verblijfsruimte: one line each, the
+ * workplaceNone flag in the warning colour the way a stair issue is. When any
+ * vent route (issue #28) ends in the room, the routed supply/extract is
+ * stated beside the indicative demand -- two figures side by side, both
+ * explicitly indicative, with no compliance claim (the same stance as every
+ * other figure here). A routed supply below the indicative demand gets a
+ * neutral note, not a warning: this pairs the two figures, it does not check
+ * one against the other.
+ */
+function figuresBlock(figures: RoomFigures, routed: RoomVentRouted): HTMLElement {
+  const box = el("div", "zone-figures");
+  const line = (text: string, warn = false): void => {
+    box.append(Object.assign(el("div", "zone-figure" + (warn ? " is-warn" : "")), { textContent: text }));
+  };
+  line(t("fitout.workstations", { n: figures.workstations }));
+  line(t("fitout.daylight", { pct: (figures.daylightRatio * 100).toFixed(1) }));
+  line(t("fitout.ventilation", { m3h: Math.round(figures.ventilationM3h) }));
+  const anyRouted = routed.toevoer > 0 || routed.afvoer > 0
+    || routed.toevoerUnstated > 0 || routed.afvoerUnstated > 0;
+  if (anyRouted) {
+    line(t("fitout.ventRouted", { toevoer: Math.round(routed.toevoer), afvoer: Math.round(routed.afvoer) }));
+    if (routed.toevoer < figures.ventilationM3h) line(t("fitout.ventRoutedBelow"));
+    const unstated = routed.toevoerUnstated + routed.afvoerUnstated;
+    if (unstated > 0) line(t("fitout.ventRoutedUnstated", { n: unstated }));
+  }
+  for (const issue of figures.issues) {
+    line(t("fitoutIssue." + issue.code, { value: issue.value.toFixed(1), limit: issue.limit }), true);
+  }
+  return box;
 }
 
 /** The dozen names nearly every plan uses, offered as completions. */
