@@ -10,12 +10,15 @@ import { exportJson, copyJson, importJsonFile, parseDoc, clearAutosave } from ".
 import { exportPng } from "../io/image";
 import { exportDxf } from "../io/dxf";
 import { exportSvg } from "../io/svg";
+import { exportPermit } from "../io/permit";
+import { permitChecklist } from "../core/permit";
 import { seedDoc } from "../seed";
 import {
-  emptyDoc, areaModeOf, dimModeOf, floorHeight, sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS,
+  emptyDoc, areaModeOf, dimModeOf, floorHeight, projectOf, sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS,
   doorKindOf, DOOR_KINDS, widthsFor, DOOR_WIDTHS_DOUBLE, FIRE_KINDS, FIRE_MINUTES,
   FIRE_MINUTES_DEFAULT,
   type AreaMode, type DimMode, type Sash, type HingeEdge, type Opening, type Wall, type Floor, type FireKind,
+  type ProjectMeta,
 } from "../model/doc";
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
 import { COLORS, INKS } from "../render/draw";
@@ -70,11 +73,15 @@ export class Panel {
   private props: HTMLElement;
   private storeyEl: HTMLElement;
   private planEl: HTMLElement;
+  private permitEl: HTMLElement;
   /** Everything the pane's structure depends on; a change rebuilds it. */
   private lastPaneSig = "";
   /** Selection alone — drives the fade, so a grid tweak does not flash. */
   private lastSelSig = "";
   private planOpen = false;
+  private permitOpen = false;
+  /** The permit checklist's container; repopulated in place while open. */
+  private permitChecksEl: HTMLElement | null = null;
   /** Which room's name field is open in the zoom pane; see RoomEdit. */
   private roomEditKey: string | null = null;
   /** True mid drag-scrub: the pane must not rebuild and yank the input out
@@ -118,6 +125,7 @@ export class Panel {
     this.paneScroll = el("div", "pane-scroll");
     this.paneScroll.append(this.paneBody, this.palette.el);
     this.planEl = this.buildPlanSection();
+    this.permitEl = this.buildPermitSection();
 
     this.mode = watchLayout(next => {
       if (next === this.mode) return;
@@ -162,7 +170,7 @@ export class Panel {
         el("div", "rail-spacer"), this.historyEl);
       const sideBody = el("div", "side-body");
       sideBody.append(this.rail, this.pane);
-      this.pane.replaceChildren(this.storeyEl, this.paneScroll, this.planEl);
+      this.pane.replaceChildren(this.storeyEl, this.paneScroll, this.planEl, this.permitEl);
       this.root.replaceChildren(this.head, sideBody, this.status, this.foot);
       return;
     }
@@ -185,7 +193,7 @@ export class Panel {
     this.keypadEl = null;
     this.chainBar = null;
     this.chainBarSig = "";
-    sheet.body.replaceChildren(this.paneScroll, this.planEl, this.foot);
+    sheet.body.replaceChildren(this.paneScroll, this.planEl, this.permitEl, this.foot);
     this.root.replaceChildren(top, modes, sheet.el);
   }
 
@@ -422,6 +430,14 @@ export class Panel {
       : "status.svgFailed"));
   }
 
+  /** The permit sheet. Same shape as savePng: one flash, keys spelled out. */
+  private async savePermit(): Promise<void> {
+    const result = await exportPermit(this.store.doc, this.store.activeFloor);
+    this.flash(t(result === "saved" ? "status.permitSaved"
+      : result === "empty" ? "status.permitEmpty"
+      : "status.permitFailed"));
+  }
+
   /** CAD export. Same shape as savePng: one flash, keys spelled out. */
   private async saveDxf(): Promise<void> {
     const result = await exportDxf(this.store.doc, this.store.activeFloor);
@@ -482,6 +498,7 @@ export class Panel {
     // store change, or placing a symbol would yank focus out of an open field.
     const paneSig = [this.store.activeFloor, d.floors.map(fl => fl.name).join("\u0001"),
       d.gridMm, areaModeOf(d), floorHeight(this.store.floor), this.tools.lastThickness,
+      JSON.stringify(d.project ?? null), d.northDeg ?? "",
       selSig].join("|");
 
     if (paneSig !== this.lastPaneSig) {
@@ -495,7 +512,13 @@ export class Panel {
       const plan = this.buildPlanSection();
       this.planEl.replaceWith(plan);
       this.planEl = plan;
+      const permit = this.buildPermitSection();
+      this.permitEl.replaceWith(permit);
+      this.permitEl = permit;
     }
+    // The checklist reads derived geometry (rooms, chains), which changes on
+    // edits the pane signature does not see — so it refreshes in place.
+    this.syncPermitChecks();
 
     const swap = selSig !== this.lastSelSig;
     this.lastSelSig = selSig;
@@ -901,12 +924,15 @@ export class Panel {
       row.append(sl);
       p.append(row);
     };
-    const textRow = (label: string, value: string, onCommit: (s: string) => void): void => {
+    // `allowEmpty` is for fields where clearing means "unset" (the title-block
+    // fields); elsewhere an emptied field keeps its old value, since a floor
+    // with no name at all has nothing to show in the storey picker.
+    const textRow = (label: string, value: string, onCommit: (s: string) => void, allowEmpty = false): void => {
       const row = el("label", "prop-row");
       row.append(Object.assign(el("span"), { textContent: label }));
       const input = el("input") as HTMLInputElement;
       input.type = "text"; input.value = value;
-      input.onchange = () => { const t2 = input.value.trim(); if (t2) onCommit(t2); };
+      input.onchange = () => { const t2 = input.value.trim(); if (t2 || allowEmpty) onCommit(t2); };
       row.append(input);
       p.append(row);
     };
@@ -1070,6 +1096,82 @@ export class Panel {
 
     wrap.append(head, body);
     return wrap;
+  }
+
+  /**
+   * The permit sheet: title-block fields, the north direction, a content
+   * checklist and the export. Its own section under Plan, with the same fold
+   * behaviour, because it is plan-wide state rather than a selection's.
+   */
+  private buildPermitSection(): HTMLElement {
+    const open = this.permitOpen;
+    const wrap = el("div", "plan-sec");
+    const head = el("button", "plan-head") as HTMLButtonElement;
+    head.type = "button";
+    head.setAttribute("aria-expanded", String(open));
+    const chev = el("span", "chev");
+    chev.append(icon("chevron", 14));
+    head.append(chev, Object.assign(el("span", "sec-label"), { textContent: t("panel.permit") }));
+    const body = el("div", "plan-body" + (open ? " is-open" : ""));
+    const inner = el("div", "plan-rows");
+    body.append(inner);
+    head.onclick = () => {
+      const next = !body.classList.contains("is-open");
+      this.permitOpen = next;
+      body.classList.toggle("is-open", next);
+      head.setAttribute("aria-expanded", String(next));
+      this.syncPermitChecks();
+    };
+
+    const { numRow, textRow, noteRow, btnRow, checkRow } = this.rowKit(inner);
+    const meta = projectOf(this.store.doc);
+    const setMeta = (key: keyof ProjectMeta) => (value: string): void =>
+      this.store.mutate(d => {
+        const p = d.project ?? (d.project = {});
+        if (value === "") delete p[key]; else p[key] = value;
+        if (Object.keys(p).length === 0) delete d.project;
+      });
+    textRow(t("panel.permitProject"), meta.name ?? "", setMeta("name"), true);
+    textRow(t("panel.permitAddress"), meta.address ?? "", setMeta("address"), true);
+    textRow(t("panel.permitAuthor"), meta.author ?? "", setMeta("author"), true);
+    textRow(t("panel.permitNumber"), meta.number ?? "", setMeta("number"), true);
+    textRow(t("panel.permitDate"), meta.date ?? "", setMeta("date"), true);
+    noteRow(t("panel.permitDateHelp"));
+    // Set/unset rather than a bare number: an absent direction draws no arrow,
+    // because a guessed north would be a false statement on the sheet.
+    checkRow(t("panel.permitNorth"), this.store.doc.northDeg !== undefined, on =>
+      this.store.mutate(d => { if (on) d.northDeg = d.northDeg ?? 0; else delete d.northDeg; }));
+    if (this.store.doc.northDeg !== undefined) {
+      numRow(t("panel.permitNorthDeg"), this.store.doc.northDeg, deg =>
+        this.store.mutate(d => { d.northDeg = ((Math.round(deg) % 360) + 360) % 360; }), 5);
+    }
+    this.permitChecksEl = el("div");
+    inner.append(this.permitChecksEl);
+    noteRow(t("panel.permitNote"));
+    btnRow(t("panel.permitExport"), () => { void this.savePermit(); });
+
+    wrap.append(head, body);
+    this.syncPermitChecks();
+    return wrap;
+  }
+
+  /**
+   * The checklist reads derived geometry, so it cannot wait for the pane
+   * signature; it refreshes in place, and only while the section is open.
+   */
+  private syncPermitChecks(): void {
+    const box = this.permitChecksEl;
+    if (!box || !this.permitOpen) return;
+    const items = permitChecklist(this.store.doc, this.store.activeFloor);
+    const sig = items.map(i => `${i.id}:${i.ok}`).join("|");
+    if (sig === box.dataset.sig) return;
+    box.dataset.sig = sig;
+    box.replaceChildren();
+    for (const it of items) {
+      const row = el("div", "prop-note" + (it.ok ? "" : " is-warn"));
+      row.textContent = `${it.ok ? "✓" : "○"} ${t("check." + it.id)}`;
+      box.append(row);
+    }
   }
 
   private renderProps(p: HTMLElement): void {

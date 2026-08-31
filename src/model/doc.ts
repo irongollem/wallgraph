@@ -194,6 +194,24 @@ export type AreaMode = "net" | "centerline";
  */
 export type DimMode = "centerline" | "clear" | "both";
 
+/**
+ * What the sheet's title block states about the plan. All fields are authored
+ * and optional: an empty title block is a statement nobody made, not an error.
+ * The permit checklist reports which fields a submission ordinarily needs.
+ */
+export interface ProjectMeta {
+  /** Project name as the title block states it. */
+  name?: string;
+  /** Site address (straat, huisnummer, plaats). */
+  address?: string;
+  /** Drawing number (tekeningnummer). */
+  number?: string;
+  /** Who drew it (getekend). */
+  author?: string;
+  /** Date as written on the sheet. Absent means the export date. */
+  date?: string;
+}
+
 export interface PlanDoc {
   version: 1;
   unit: "mm";
@@ -202,8 +220,20 @@ export interface PlanDoc {
   areaMode?: AreaMode;
   /** Absent means "centerline": the convention the editor drew before this. */
   dimMode?: DimMode;
+  /** Title-block data. Absent means nothing has been filled in. */
+  project?: ProjectMeta;
+  /**
+   * Where north points: degrees clockwise from screen-up, an integer 0-359.
+   * Authored, because the drawing cannot know its own orientation. Absent
+   * means the direction has not been stated, so no north arrow is drawn —
+   * a guessed arrow would be a false statement on a sheet.
+   */
+  northDeg?: number;
   floors: Floor[];
 }
+
+/** Title-block data. Absent fields read as empty, not as an error. */
+export const projectOf = (d: PlanDoc): ProjectMeta => d.project ?? {};
 
 export const AREA_MODE_DEFAULT: AreaMode = "net";
 export const areaModeOf = (d: PlanDoc): AreaMode => d.areaMode ?? AREA_MODE_DEFAULT;

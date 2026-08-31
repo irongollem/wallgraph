@@ -41,7 +41,7 @@ const W_SYMBOL = 16;
 const n = (v: number): string => (Math.round(v * 100) / 100).toString();
 
 /** &, < and > would otherwise end the attribute or open a tag. */
-function esc(s: string): string {
+export function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
@@ -100,26 +100,14 @@ export function primSvg(p: Prim): string {
   return `<path d="${primPath(p)}"/>`;
 }
 
-/** The plan of one storey as an SVG document. */
-export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
-  const floor: Floor | undefined = doc.floors[floorIndex] ?? doc.floors[0];
-  if (!floor) return null;
-  const resolved = resolveFloor(floor);
-  const bounds = planBounds(floor, resolved);
-  if (!bounds) return null;
-
-  const minX = bounds.min.x - MARGIN_MM;
-  const minY = bounds.min.y - MARGIN_MM;
-  const w = bounds.max.x - bounds.min.x + 2 * MARGIN_MM;
-  const h = bounds.max.y - bounds.min.y + 2 * MARGIN_MM;
-
+/**
+ * The drawing itself — every group from the room tint up to the labels, in
+ * world millimetres, without the enclosing <svg> element. `toSvg` wraps it in
+ * a document at true scale; the permit sheet embeds it in a scaled group on a
+ * paper-sized page. One emitter, so the two cannot draw a different plan.
+ */
+export function planSvgParts(doc: PlanDoc, floor: Floor, resolved: ReturnType<typeof resolveFloor>): string[] {
   const parts: string[] = [];
-  parts.push(
-    `<svg xmlns="http://www.w3.org/2000/svg" version="1.1"` +
-    ` width="${n(w)}mm" height="${n(h)}mm"` +
-    ` viewBox="${n(minX)} ${n(minY)} ${n(w)} ${n(h)}">`,
-  );
-  parts.push(`<rect x="${n(minX)}" y="${n(minY)}" width="${n(w)}" height="${n(h)}" fill="${COLORS.bg}"/>`);
 
   // Rooms beneath everything, as the editor draws them.
   const net = areaModeOf(doc) === "net";
@@ -230,6 +218,30 @@ export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
     parts.push(`</g>`);
   }
 
+  return parts;
+}
+
+/** The plan of one storey as an SVG document. */
+export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
+  const floor: Floor | undefined = doc.floors[floorIndex] ?? doc.floors[0];
+  if (!floor) return null;
+  const resolved = resolveFloor(floor);
+  const bounds = planBounds(floor, resolved);
+  if (!bounds) return null;
+
+  const minX = bounds.min.x - MARGIN_MM;
+  const minY = bounds.min.y - MARGIN_MM;
+  const w = bounds.max.x - bounds.min.x + 2 * MARGIN_MM;
+  const h = bounds.max.y - bounds.min.y + 2 * MARGIN_MM;
+
+  const parts: string[] = [];
+  parts.push(
+    `<svg xmlns="http://www.w3.org/2000/svg" version="1.1"` +
+    ` width="${n(w)}mm" height="${n(h)}mm"` +
+    ` viewBox="${n(minX)} ${n(minY)} ${n(w)} ${n(h)}">`,
+  );
+  parts.push(`<rect x="${n(minX)}" y="${n(minY)}" width="${n(w)}" height="${n(h)}" fill="${COLORS.bg}"/>`);
+  parts.push(...planSvgParts(doc, floor, resolved));
   parts.push(`</svg>`);
   return parts.join("\n") + "\n";
 }
