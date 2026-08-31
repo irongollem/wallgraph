@@ -97,6 +97,13 @@ export interface Underlay {
 export interface DrawExtras {
   hoverSnap?: Vec | null;
   ghost?: Underlay | null;
+  /**
+   * Selected alongside `sel`, by id and of its kind — the cabinets a
+   * shift-click has added to the one the property pane edits. Every one of
+   * them carries the selection frame; the drawing must not say that only the
+   * last one clicked will move.
+   */
+  selMore?: readonly string[];
   /** False for exports: no grid, and no legend describing one. */
   showGrid?: boolean;
   preview?: ((ctx: CanvasRenderingContext2D, vp: Viewport) => void) | null;
@@ -192,7 +199,8 @@ export function drawScene(
   for (const c of cabinetsOf(floor)) {
     drawCabinet(ctx, c, {
       px, ink: symbolInk(c),
-      selected: sel?.kind === "cabinet" && sel.id === c.id,
+      selected: sel?.kind === "cabinet"
+        && (sel.id === c.id || extras.selMore?.includes(c.id) === true),
       select: COLORS.select, wash: COLORS.selectWash,
     });
   }

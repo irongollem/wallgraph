@@ -234,7 +234,7 @@ komt op de plattegrond en in elke export.</p>
 <p><kbd>S</kbd> opent het symboolgereedschap. Zoeken in het palet werkt in beide talen; de zoekterm
 &ldquo;socket&rdquo; vindt bijvoorbeeld de wandcontactdoos in de Nederlandse interface. Symbolen die aan
 een muur horen klikken vlak tegen het muurvlak en draaien mee. <kbd>R</kbd> roteert, <kbd>M</kbd>
-spiegelt. Kleur is betekenis, geen opmaak: zwart is bestaand, rood is nieuw, geel verdwijnt.
+spiegelt, <kbd>Alt</kbd>+slepen maakt een kopie van wat al goed staat. Kleur is betekenis, geen opmaak: zwart is bestaand, rood is nieuw, geel verdwijnt.
 Alle ${SYMBOLS.length} staan op <a href="/symbolen/">plattegrondsymbolen</a>.</p>
 
 <h2 id="trappen">Trappen</h2>
@@ -277,6 +277,10 @@ naast een intypbare maat voor een vulpaneel op maat. Een kast klikt vlak tegen d
 ernaast, zodat een keukenopstelling als aaneengesloten rij ontstaat in plaats van stuk voor stuk op het
 oog uitgelijnd. <kbd>R</kbd> draait een kwartslag om het midden van de kast, <kbd>M</kbd> spiegelt de
 draairichting van het front.</p>
+<p><kbd>Shift</kbd>+klik kiest meer kasten tegelijk; slepen verplaatst dan alles wat geselecteerd is, en
+draaien, spiegelen en verwijderen gelden voor de hele selectie. Een groep neemt geen snap: wat eenmaal is
+opgesteld blijft opgesteld. <kbd>Alt</kbd>+slepen kopieert in plaats van te verplaatsen — de kopie hangt
+aan de cursor en houdt maat, kleur en draairichting van het origineel.</p>
 
 <h2 id="zoomen">Ruimtes in beeld en op naam</h2>
 <p><kbd>F</kbd> brengt de hele plattegrond in beeld, <kbd>Shift</kbd>+<kbd>F</kbd> de selectie. Beide
@@ -339,6 +343,8 @@ applicatieserver vereist. De plattegrond blijft na het sluiten van het tabblad b
 <tr><td><kbd>G</kbd></td><td>rastersnapping aan/uit</td></tr>
 <tr><td><kbd>L</kbd></td><td>maatlijnen aan/uit</td></tr>
 <tr><td><kbd>R</kbd> <kbd>M</kbd></td><td>roteren om het midden, spiegelen</td></tr>
+<tr><td><kbd>Shift</kbd>+klik</td><td>meer kasten selecteren</td></tr>
+<tr><td><kbd>Alt</kbd>+slepen</td><td>kopie slepen in plaats van het origineel</td></tr>
 <tr><td><kbd>Del</kbd></td><td>selectie verwijderen</td></tr>
 <tr><td><kbd>Enter</kbd></td><td>muurketen sluiten (zonder getypte lengte)</td></tr>
 <tr><td><kbd>Esc</kbd></td><td>afbreken / keten afsluiten</td></tr>
@@ -395,7 +401,8 @@ and every export.</p>
 <h2 id="symbols">Symbols</h2>
 <p><kbd>S</kbd> opens the symbol tool. Palette search matches both languages; for example,
 &ldquo;wandcontactdoos&rdquo; finds the socket in the English interface. Wall-mounted symbols
-snap to the wall face and align with it. <kbd>R</kbd> rotates and <kbd>M</kbd> mirrors. Colour indicates
+snap to the wall face and align with it. <kbd>R</kbd> rotates, <kbd>M</kbd> mirrors, and <kbd>Alt</kbd>-drag copies one that is
+already right. Colour indicates
 status: black is existing, red is new work and yellow is to be removed. All ${SYMBOLS.length} are listed under
 <a href="/en/symbols/">floorplan symbols</a>.</p>
 
@@ -436,6 +443,10 @@ solid; <b>wall units hang entirely above it and are therefore drawn dashed</b>, 
 and 1200 mm, beside a typed width for a filler cut to size. A cabinet snaps flush to a wall and to the
 unit beside it, so a kitchen comes out as a continuous run rather than a line of units aligned by eye.
 <kbd>R</kbd> turns a quarter about the middle of the unit, <kbd>M</kbd> flips the hinge side.</p>
+<p><kbd>Shift</kbd>-click picks out more than one unit; dragging then moves everything selected, and
+turning, mirroring and deleting apply to the whole selection. A group takes no snap, so a run that has
+been arranged stays arranged. <kbd>Alt</kbd>-drag copies instead of moving — the copy follows the cursor
+with the original's size, colour and hinge side.</p>
 
 <h2 id="zoom">Framing and naming rooms</h2>
 <p><kbd>F</kbd> fits the whole plan, <kbd>Shift</kbd>+<kbd>F</kbd> the selection. Both work in any tool.
@@ -496,6 +507,8 @@ server. The plan remains available after the tab is closed.</p>
 <tr><td><kbd>G</kbd></td><td>grid snap on/off</td></tr>
 <tr><td><kbd>L</kbd></td><td>dimension lines on/off</td></tr>
 <tr><td><kbd>R</kbd> <kbd>M</kbd></td><td>rotate about the middle, mirror</td></tr>
+<tr><td><kbd>Shift</kbd>+click</td><td>select more cabinets</td></tr>
+<tr><td><kbd>Alt</kbd>+drag</td><td>drag a copy instead of the original</td></tr>
 <tr><td><kbd>Del</kbd></td><td>delete the selection</td></tr>
 <tr><td><kbd>Enter</kbd></td><td>close the wall chain (with no length typed)</td></tr>
 <tr><td><kbd>Esc</kbd></td><td>cancel / end the chain</td></tr>

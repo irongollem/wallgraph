@@ -99,10 +99,21 @@ export function renderCabinetProps(store: Store, tools: Tools, rows: PaneRows, i
     }, coalesceKey);
   };
 
+  // What a shift-click has gathered. The pane states one unit's numbers — the
+  // one clicked last — and edits them on that unit; the gestures that mean the
+  // same thing for every member are the ones that apply to all of them.
+  const group = store.selectedOf("cabinet");
+  const mutAll = (fn: (c: Cabinet) => void): void => {
+    store.mutate(d => {
+      for (const c of cabinetsOf(store.floorOf(d))) if (group.includes(c.id)) fn(c);
+    });
+  };
+
   const preset = cabinetPresetOf(cab);
   rows.secHead(t("panel.cabinet", {
     kind: preset ? t("cabinet." + preset.id) : t("panel.cabinetCustom"),
   }), { sel: true });
+  if (group.length > 1) rows.noteRow(t("panel.cabinetGroup", { n: group.length }));
 
   // Swapping the named unit rewrites every field it names, the way picking a
   // door kind rewrites the sash list. The hinge side is a tuning and survives.
@@ -142,7 +153,8 @@ export function renderCabinetProps(store: Store, tools: Tools, rows: PaneRows, i
     tools.symbolColor = hex;
     mut(c => { if (hex) c.color = hex; else delete c.color; }, "color:" + id);
   });
-  rows.btnRow(t("panel.mirror"), () => mut(c => { c.mirrored = !c.mirrored; }), t("panel.mirrorTitle"), "M");
+  rows.btnRow(t("panel.mirror"), () => mutAll(c => { c.mirrored = !c.mirrored; }),
+    t("panel.mirrorTitle"), "M");
   rows.infoRow(t("panel.cabinetFootprint"),
     `${cab.width} × ${cab.depth} × ${cabinetHeight(cab)} mm`);
   rows.noteRow(t("panel.cabinetNote"));

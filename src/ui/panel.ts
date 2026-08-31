@@ -998,7 +998,17 @@ export class Panel {
       }
       p.append(row);
     };
-    return { numRow, selRow, textRow, noteRow, warnRow, btnRow, colorRow, chipRow };
+    const checkRow = (label: string, value: boolean, onCommit: (b: boolean) => void): void => {
+      const row = el("label", "prop-row");
+      row.append(Object.assign(el("span"), { textContent: label }));
+      const cb = el("input") as HTMLInputElement;
+      cb.type = "checkbox"; cb.checked = value;
+      cb.onchange = () => onCommit(cb.checked);
+      row.append(cb);
+      p.append(row);
+    };
+
+    return { numRow, selRow, textRow, noteRow, warnRow, btnRow, colorRow, chipRow, checkRow };
   }
 
   /**
@@ -1028,7 +1038,7 @@ export class Panel {
       head.setAttribute("aria-expanded", String(next));
     };
 
-    const { numRow, selRow, textRow, noteRow, btnRow } = this.rowKit(inner);
+    const { numRow, selRow, textRow, noteRow, btnRow, checkRow } = this.rowKit(inner);
     this.renderFloors(btnRow, textRow, noteRow);
     numRow(t("panel.grid"), this.store.doc.gridMm, n => this.store.mutate(d => { d.gridMm = Math.max(1, n); }), 10);
     // Storey height belongs to the floor, not to each stair on it: a stair
@@ -1041,6 +1051,10 @@ export class Panel {
       this.tools.followStoreyHeight(h);
     }, 100, { title: t("panel.floorHeightHelp") });
     numRow(t("panel.newWallThickness"), this.tools.lastThickness, n => { this.tools.lastThickness = Math.max(20, n); }, 10);
+    // Editor state like the grid snap rather than part of the document: it
+    // decides whether a cabinet or a wall-mounted symbol takes the nearest wall
+    // face while it is placed or dragged. Off leaves it wherever it is put.
+    checkRow(t("panel.snapWall"), this.tools.snapWall, (on: boolean) => { this.tools.snapWall = on; });
     selRow(t("panel.areaMode"), areaModeOf(this.store.doc),
       [["net", t("panel.areaNet")], ["centerline", t("panel.areaCenterline")]],
       m => this.store.mutate(d => { d.areaMode = m as AreaMode; }));
@@ -1062,7 +1076,7 @@ export class Panel {
     p.replaceChildren();
     const sel = this.store.sel;
     const f = this.store.floor;
-    const { numRow, selRow, textRow, noteRow, warnRow, btnRow, colorRow, chipRow } = this.rowKit(p);
+    const { numRow, selRow, textRow, noteRow, warnRow, btnRow, colorRow, chipRow, checkRow } = this.rowKit(p);
 
     const secHead = (label: string, opts: { sel?: boolean; later?: boolean } = {}): void => {
       const wrap = el("div", "sec" + (opts.later ? " sec-later" : ""));
@@ -1081,15 +1095,6 @@ export class Panel {
       p.append(wrap);
     };
 
-    const checkRow = (label: string, value: boolean, onCommit: (b: boolean) => void): void => {
-      const row = el("label", "prop-row");
-      row.append(Object.assign(el("span"), { textContent: label }));
-      const cb = el("input") as HTMLInputElement;
-      cb.type = "checkbox"; cb.checked = value;
-      cb.onchange = () => onCommit(cb.checked);
-      row.append(cb);
-      p.append(row);
-    };
     // Read-only: a derived figure the user cannot type into. Editing stays on the
     // centerline, which is what the document actually stores; showing the clear
     // span as an input would invite typing a number that has no single solution.

@@ -2,7 +2,7 @@
 // for the canvas; rendering of previews goes through getPreview()/getSnap().
 import { Store } from "../model/store";
 import {
-  Floor, Wall, Opening, PlanNode, SymbolInstance, newId, stairsOf, videsOf, cabinetsOf,
+  Floor, Wall, Opening, PlanNode, SymbolInstance, Id, newId, stairsOf, videsOf, cabinetsOf,
   roomNamesOf, floorHeight, DOOR_DEFAULT_WIDTH, WINDOW_DEFAULT_WIDTH, PASSAGE_DEFAULT_WIDTH,
   OpeningKind, FireRating, dimModeOf,
 } from "../model/doc";
@@ -16,7 +16,8 @@ import {
 } from "../model/cabinet";
 import {
   nodeAt, splitWall, nearestWall, wallOnRay, wallLength, mergeNodes, deleteWall, clampOpening,
-  cleanOrphanNodes, insertWall, insertRun, deleteRoomNames, MIN_WALL_MM,
+  cleanOrphanNodes, insertWall, insertRun, deleteRoomNames, cloneOnFloor, MIN_WALL_MM,
+  type PlacedKind,
 } from "../model/ops";
 import {
   WallShape, WALL_SHAPES, ShapeRun, shapeRun, clampSides, POLYGON_DEFAULT_SIDES,
@@ -63,6 +64,13 @@ const DIM_CHAIN_REACH = 900;
  */
 const ROOM_LABEL_HIT_PX = { x: 52, y: 11 };
 
+/**
+ * How close a cabinet or a wall-mounted symbol has to be before the nearest
+ * wall takes it, mm, when the screen distance works out smaller. Half of a
+ * thick wall, so the face is still reachable from the middle of the masonry.
+ */
+const WALL_SNAP_MIN_MM = 150;
+
 export interface SnapResult { p: Vec; kind: "node" | "wall" | "grid" | "free"; wall?: Wall; tMm?: number; node?: PlanNode }
 
 interface DragState {
@@ -78,6 +86,8 @@ interface DragState {
   boxEnd?: Vec;
   /** The room whose label this press landed on, when it landed on nothing else. */
   labelRoom?: Room;
+  /** Alt was held: the first movement copies what is being dragged. */
+  clone?: boolean;
   /** Where the press started on screen. A pan moves the world under a fixed
    *  cursor, so startWorld cannot answer "did this travel?". */
   startScreen?: Vec;
@@ -161,8 +171,16 @@ export class Tools {
   private chainFirstNode: string | null = null;
   /** First point of the shape being drawn; no document change until the second. */
   private shapeStart: Vec | null = null;
+  /**
+   * Whether a cabinet or a wall-mounted symbol takes hold of the nearest wall
+   * face while it is placed or dragged. Editor state, like the grid snap, and
+   * off means a free position to the millimetre.
+   */
+  snapWall = true;
   /** Shift, as the last pointer or key event reported it. */
   private shiftKey = false;
+  /** Alt at the last press: a drag that starts under it copies rather than moves. */
+  private altKey = false;
   private cursor: Vec = v(0, 0);
   lengthBuffer = "";
   private drag: DragState | null = null;
@@ -640,8 +658,9 @@ export class Tools {
     if (!sel) return null;
     const f = this.floor;
     if (sel.kind === "cabinet") {
-      const c = cabinetsOf(f).find(x => x.id === sel.id);
-      return c ? polyBounds(cabinetCorners(c)) : null;
+      const group = this.store.selectedOf("cabinet");
+      const pts = cabinetsOf(f).filter(c => group.includes(c.id)).flatMap(cabinetCorners);
+      return pts.length > 0 ? polyBounds(pts) : null;
     }
     if (sel.kind === "stair") {
       const st = stairsOf(f).find(x => x.id === sel.id);
@@ -763,6 +782,7 @@ export class Tools {
     try { this.canvas.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
     this.lastPointerType = e.pointerType;
     this.shiftKey = e.shiftKey;
+    this.altKey = e.altKey;
     this.hoverSymbol = null; // a name pill has no business sitting under a click or drag
     this.hoverStair = null;
     const s = this.screenOf(e);
@@ -1062,8 +1082,14 @@ export class Tools {
    * the document — symbolPose()'s result is spread straight onto a symbol.
    */
   private wallSnap(): { wall: Wall; tMm: number; side: 1 | -1; x: number; y: number; rotation: number } | null {
+    if (!this.snapWall) return null;
     const f = this.floor;
-    const nw = nearestWall(f, this.cursor, 60 / this.vp.pxPerMm + 500);
+    // A screen distance rather than a distance on the plan, so the pull is the
+    // same 30 px at every zoom. It used to carry a flat 500 mm on top of that,
+    // which at ordinary zoom reached half a metre into the room and took hold
+    // of anything put down near a wall. Openings are not placed through here;
+    // a door lands on a wall whatever this says.
+    const nw = nearestWall(f, this.cursor, Math.max(WALL_SNAP_MIN_MM, 30 / this.vp.pxPerMm));
     if (!nw) return null;
     const a = f.nodes.find(n => n.id === nw.wall.a)!;
     const b = f.nodes.find(n => n.id === nw.wall.b)!;
@@ -1362,21 +1388,32 @@ export class Tools {
     const stairPick = this.stairAt(w);
     if (stairPick) {
       this.store.select({ kind: "stair", id: stairPick.id });
-      this.drag = { kind: "stair", id: stairPick.id, startWorld: w, moved: false };
+      this.drag = { kind: "stair", id: stairPick.id, startWorld: w, moved: false, clone: this.altKey };
       return;
     }
     const symHit = this.symbolAt(w);
     if (symHit) {
       this.store.select({ kind: "symbol", id: symHit.id });
-      this.drag = { kind: "symbol", id: symHit.id, startWorld: w, moved: false };
+      this.drag = { kind: "symbol", id: symHit.id, startWorld: w, moved: false, clone: this.altKey };
       return;
     }
     // Cabinetry after the symbols it holds: a socket drawn on a unit's front
     // has to stay clickable, and a carcass is the larger target underneath.
     const cabPick = this.cabinetAt(w);
     if (cabPick) {
-      this.store.select({ kind: "cabinet", id: cabPick.id });
-      this.drag = { kind: "cabinet", id: cabPick.id, startWorld: w, moved: false };
+      // Shift builds a selection instead of starting a drag: a run is
+      // rearranged by picking out the units that move and then dragging any
+      // one of them. A plain press on a unit already in the selection keeps
+      // that selection, or the group could never be taken hold of.
+      if (this.shiftKey) {
+        this.store.selectAlso({ kind: "cabinet", id: cabPick.id });
+        this.requestRender();
+        return;
+      }
+      if (!this.store.isSelected("cabinet", cabPick.id)) {
+        this.store.select({ kind: "cabinet", id: cabPick.id });
+      }
+      this.drag = { kind: "cabinet", id: cabPick.id, startWorld: w, moved: false, clone: this.altKey };
       return;
     }
     // Openings (near their centerline center).
@@ -1402,7 +1439,7 @@ export class Tools {
     const videPick = this.videAt(w);
     if (videPick) {
       this.store.select({ kind: "vide", id: videPick.id });
-      this.drag = { kind: "vide", id: videPick.id, startWorld: w, moved: false };
+      this.drag = { kind: "vide", id: videPick.id, startWorld: w, moved: false, clone: this.altKey };
       return;
     }
     // Nothing drawn is under the pointer. The one thing still worth a press
@@ -1471,10 +1508,42 @@ export class Tools {
     return d;
   }
 
+  /**
+   * Alt-drag: the gesture takes a copy and leaves the original where it was, so
+   * something already turned, coloured and sized is placed again without any of
+   * that being set up a second time. Several selected cabinets copy together.
+   * Returns the id to go on dragging, or null when nothing was copied.
+   *
+   * The copy is made on the first movement rather than at the press, so alt
+   * held over a click that goes nowhere leaves no duplicate on the original.
+   */
+  private cloneForDrag(kind: PlacedKind, id: Id): Id | null {
+    const group = this.store.isSelected(kind, id) ? this.store.selectedOf(kind) : [id];
+    let made = new Map<Id, Id>();
+    this.store.mutate(doc => { made = cloneOnFloor(this.store.floorOf(doc), kind, group); });
+    const dragId = made.get(id);
+    if (dragId === undefined) return null;
+    // The copy under the cursor leads, so the pane keeps showing what is being
+    // dragged and a group of them stays a group.
+    this.store.selectMany(kind, [dragId, ...group.flatMap(o => {
+      const clone = made.get(o);
+      return clone === undefined || clone === dragId ? [] : [clone];
+    })]);
+    return dragId;
+  }
+
   private dragMove(s: Vec, w: Vec): void {
     const d = this.drag!;
     d.moved = true;
     const g = this.gridStep;
+
+    if (d.clone) {
+      d.clone = false;
+      const kind = d.kind === "symbol" || d.kind === "cabinet"
+        || d.kind === "stair" || d.kind === "vide" ? d.kind : null;
+      const copy = kind && d.id ? this.cloneForDrag(kind, d.id) : null;
+      if (copy) d.id = copy;
+    }
 
     if (d.kind === "pan") {
       if (d.lastScreen) this.vp.panPx(s.x - d.lastScreen.x, s.y - d.lastScreen.y);
@@ -1511,7 +1580,11 @@ export class Tools {
         this.symbolType = sym.type;
         const pose = this.symbolPose();
         this.symbolType = saveType;
-        Object.assign(sym, pose);
+        // A symbol that is not landing on a wall keeps the angle it was turned
+        // to. symbolPose() answers for a placement, where zero is the right
+        // default; a drag moves something that has already been aimed, and
+        // dropping a desk back to square is not a move.
+        Object.assign(sym, pose.wallId === undefined ? { ...pose, rotation: sym.rotation } : pose);
         if (!getSymbol(sym.type)?.wallMounted) delete sym.wallId;
       }, "drag" + d.id);
     } else if (d.kind === "stair") {
@@ -1537,9 +1610,27 @@ export class Tools {
         }, "drag" + d.id);
       }
     } else if (d.kind === "cabinet") {
-      // Re-posed under the cursor rather than nudged by a delta: a cabinet
-      // snaps to walls and to its neighbours, and a dragged one has to take
-      // those snaps or a run cannot be rearranged once it is built.
+      const group = this.store.selectedOf("cabinet");
+      if (group.length > 1) {
+        // Several at once move by the delta the cursor travelled, and take no
+        // snap: a snap is worked out for one unit against one wall, and
+        // applying it to each member in turn would pull the group apart. What
+        // was arranged stays arranged, and lands on whole grid steps.
+        const delta = sub(w, d.startWorld);
+        const dx = Math.round(delta.x / g) * g, dy = Math.round(delta.y / g) * g;
+        if (dx === 0 && dy === 0) return;
+        d.startWorld = add(d.startWorld, v(dx, dy));
+        this.store.mutate(doc => {
+          const f = this.store.floorOf(doc);
+          for (const c of cabinetsOf(f)) {
+            if (group.includes(c.id)) { c.x += dx; c.y += dy; }
+          }
+        }, "drag" + d.id);
+        return;
+      }
+      // One on its own is re-posed under the cursor rather than nudged by a
+      // delta: a cabinet snaps to walls and to its neighbours, and a dragged
+      // one has to take those snaps or a run cannot be rearranged once built.
       this.store.mutate(doc => {
         const c = cabinetsOf(this.store.floorOf(doc)).find(x => x.id === d.id);
         if (!c) return;
@@ -1760,12 +1851,16 @@ export class Tools {
       return;
     }
     if (sel?.kind === "cabinet") {
+      const group = this.store.selectedOf("cabinet");
       this.store.mutate(doc => {
-        const c = cabinetsOf(this.store.floorOf(doc)).find(x => x.id === sel.id);
-        if (!c) return;
-        const turned = stairAngle(c.rotation + Math.PI / 2);
-        Object.assign(c, turnAbout(c, cabinetBox(c), turned));
-        c.rotation = turned;
+        for (const c of cabinetsOf(this.store.floorOf(doc))) {
+          if (!group.includes(c.id)) continue;
+          // Each about its own middle, so a row of units stays a row rather
+          // than swinging around whichever one was clicked first.
+          const turned = stairAngle(c.rotation + Math.PI / 2);
+          Object.assign(c, turnAbout(c, cabinetBox(c), turned));
+          c.rotation = turned;
+        }
       });
       return;
     }
@@ -1793,9 +1888,11 @@ export class Tools {
     }
     const sel = this.store.sel;
     if (sel?.kind === "cabinet") {
+      const group = this.store.selectedOf("cabinet");
       this.store.mutate(doc => {
-        const c = cabinetsOf(this.store.floorOf(doc)).find(x => x.id === sel.id);
-        if (c) c.mirrored = !c.mirrored;
+        for (const c of cabinetsOf(this.store.floorOf(doc))) {
+          if (group.includes(c.id)) c.mirrored = !c.mirrored;
+        }
       });
       return;
     }
@@ -1832,7 +1929,10 @@ export class Tools {
       } else if (sel.kind === "symbol") f.symbols = f.symbols.filter(s => s.id !== sel.id);
       else if (sel.kind === "stair") f.stairs = stairsOf(f).filter(s => s.id !== sel.id);
       else if (sel.kind === "vide") f.vides = videsOf(f).filter(s => s.id !== sel.id);
-      else if (sel.kind === "cabinet") f.cabinets = cabinetsOf(f).filter(c => c.id !== sel.id);
+      else if (sel.kind === "cabinet") {
+        const group = this.store.selectedOf("cabinet");
+        f.cabinets = cabinetsOf(f).filter(c => !group.includes(c.id));
+      }
       else if (sel.kind === "opening") {
         for (const w of f.walls) w.openings = w.openings.filter(o => o.id !== sel.id);
       }
@@ -1872,6 +1972,7 @@ export class Tools {
           ? (this.lengthBuffer
             ? h("selectWallTyped", { length: this.lengthBuffer })
             : h("selectWall"))
+          : this.store.sel?.kind === "cabinet" ? h("selectCabinet")
           : h("select");
         break;
       case "door": this.hint = h("door"); break;

@@ -104,6 +104,7 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
     drawScene(ctx, vp, rect.width, rect.height, store.floor, resolved, rooms, store.sel, {
       hoverSnap: tools.getSnap(),
       ghost,
+      selMore: store.selMore,
       preview: (c, viewport) => tools.drawPreview(c, viewport),
     }, store.doc.gridMm, areaModeOf(store.doc), dimModeOf(store.doc));
     renderLoupe(rect, dpr, resolved, rooms, ghost);
@@ -150,6 +151,7 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
     drawScene(lctx, lens, LOUPE_PX, LOUPE_PX, store.floor, resolved, rooms, store.sel, {
       hoverSnap: tools.getSnap(),
       ghost,
+      selMore: store.selMore,
       // Draws the preview, but leaves the dimension hit rects to the canvas
       // pass: they are tested in canvas screen coordinates, not the lens's.
       preview: (c, viewport) => tools.drawPreview(c, viewport, false),

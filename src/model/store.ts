@@ -9,7 +9,13 @@ type Listener = () => void;
 
 export class Store {
   doc: PlanDoc = emptyDoc();
+  /** The selected object the property pane edits. */
   sel: Selection | null = null;
+  /**
+   * Selected alongside `sel`, by id, all of the same kind as it. Read through
+   * selectedOf() / isSelected(), which answer nothing once `sel` is gone.
+   */
+  selMore: Id[] = [];
   revision = 0;
   private undoStack: string[] = [];
   private redoStack: string[] = [];
@@ -161,7 +167,49 @@ export class Store {
     this.notify();
   }
 
-  select(sel: Selection | null): void { this.sel = sel; this.notify(); }
+  select(sel: Selection | null): void { this.sel = sel; this.selMore = []; this.notify(); }
+
+  /** Select several at once, the first of them as the one the pane edits. */
+  selectMany(kind: SelKind, ids: readonly Id[]): void {
+    const [first, ...rest] = ids;
+    this.sel = first === undefined ? null : { kind, id: first };
+    this.selMore = [...rest];
+    this.notify();
+  }
+
+  /**
+   * Add to the selection, or take out what is already in it — a shift-click.
+   *
+   * Everything selected is of one kind: a gesture that means "move these" has
+   * to mean the same thing for every member, and a mixed selection has no
+   * properties to show. Clicking something of another kind therefore starts a
+   * new selection rather than joining the two.
+   */
+  selectAlso(sel: Selection): void {
+    if (!this.sel || this.sel.kind !== sel.kind) { this.select(sel); return; }
+    if (this.sel.id === sel.id) {
+      // The primary steps out and the next one selected takes its place, so
+      // shift-clicking twice leaves what was there before.
+      const [next, ...rest] = this.selMore;
+      this.sel = next === undefined ? null : { kind: sel.kind, id: next };
+      this.selMore = rest;
+    } else if (this.selMore.includes(sel.id)) {
+      this.selMore = this.selMore.filter(id => id !== sel.id);
+    } else {
+      this.selMore = [this.sel.id, ...this.selMore];
+      this.sel = sel;
+    }
+    this.notify();
+  }
+
+  /** Every selected id, when the selection is of this kind. The primary first. */
+  selectedOf(kind: SelKind): Id[] {
+    return this.sel?.kind === kind ? [this.sel.id, ...this.selMore] : [];
+  }
+
+  isSelected(kind: SelKind, id: Id): boolean {
+    return this.sel?.kind === kind && (this.sel.id === id || this.selMore.includes(id));
+  }
 
   undo(): void {
     const prev = this.undoStack.pop();

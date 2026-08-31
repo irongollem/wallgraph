@@ -354,3 +354,31 @@ export function deleteRoomNames(f: Floor, ids: readonly Id[]): void {
   const dead = new Set(ids);
   f.roomNames = roomNamesOf(f).filter(rn => !dead.has(rn.id));
 }
+
+/** The placed objects a copy applies to; walls and openings are not among them. */
+export type PlacedKind = "symbol" | "cabinet" | "stair" | "vide";
+
+/**
+ * Copy placed objects on a floor, keeping everything but their identity: what
+ * comes back is at the same spot, turned the same way, in the same colour and
+ * at the same size. Alt-drag is what calls this and then moves the copy, so
+ * something set up once is placed again without being set up a second time.
+ *
+ * Returns old id -> new id, in the order the floor lists them.
+ */
+export function cloneOnFloor(f: Floor, kind: PlacedKind, ids: readonly Id[]): Map<Id, Id> {
+  const made = new Map<Id, Id>();
+  const copyInto = <T extends { id: Id }>(list: T[], prefix: string): void => {
+    for (const item of [...list]) {
+      if (!ids.includes(item.id)) continue;
+      const clone = { ...item, id: newId(prefix) };
+      list.push(clone);
+      made.set(item.id, clone.id);
+    }
+  };
+  if (kind === "symbol") copyInto(f.symbols, "s");
+  else if (kind === "cabinet") copyInto((f.cabinets ??= []), "k");
+  else if (kind === "stair") copyInto((f.stairs ??= []), "t");
+  else copyInto((f.vides ??= []), "v");
+  return made;
+}

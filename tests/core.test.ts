@@ -3,7 +3,9 @@ import { emptyDoc, newId, Wall, GRID_DEFAULT_MM } from "../src/model/doc";
 import { Store } from "../src/model/store";
 import { sashesOf, sashSpecsOf, doorKindOf, windowKindOf, DOOR_KINDS, WINDOW_KINDS, type Opening } from "../src/model/doc";
 import { detectRooms, rectSize, roomSize } from "../src/core/rooms";
-import { insertWall, insertRun, nodeAt, wallLength, wallOnRay } from "../src/model/ops";
+import {
+  insertWall, insertRun, nodeAt, wallLength, wallOnRay, cloneOnFloor,
+} from "../src/model/ops";
 import { shapeRun } from "../src/model/shape";
 import { dimensionChains } from "../src/core/dimensions";
 import { seedDoc } from "../src/seed";
@@ -278,6 +280,76 @@ function rectFloor(wallTh = 100) {
   const top = res.walls.get(f.walls[0]!.id)!;
   check("clear span shorter than centerline", top.clearLength < top.length,
     `${top.clearLength} vs ${top.length}`);
+}
+
+// --- alt-drag copies ---
+{
+  const f = emptyDoc().floors[0]!;
+  f.symbols.push({ id: "s1", type: "desk", x: 1000, y: 2000, rotation: Math.PI / 2, color: "#d0342c" });
+  f.cabinets = [
+    { id: "k1", kind: "base", x: 0, y: 0, rotation: 0.4, width: 600, depth: 600,
+      front: "door", mirrored: true, label: "spoelkast" },
+    { id: "k2", kind: "base", x: 600, y: 0, rotation: 0.4, width: 600, depth: 600, front: "drawers" },
+  ];
+
+  const one = cloneOnFloor(f, "symbol", ["s1"]);
+  const copy = f.symbols.find(x => x.id === one.get("s1"));
+  check("a copy is made", f.symbols.length === 2 && copy !== undefined);
+  check("the copy keeps everything but its identity",
+    copy?.x === 1000 && copy?.y === 2000 && copy?.rotation === Math.PI / 2
+    && copy?.color === "#d0342c" && copy?.type === "desk");
+  check("and the original is untouched", f.symbols[0]!.id === "s1");
+  check("ids do not collide", new Set(f.symbols.map(x => x.id)).size === 2);
+
+  const pair = cloneOnFloor(f, "cabinet", ["k1", "k2"]);
+  check("several copy together", pair.size === 2 && (f.cabinets ?? []).length === 4);
+  const k1 = (f.cabinets ?? []).find(c => c.id === pair.get("k1"));
+  check("a cabinet copy keeps its handedness and label",
+    k1?.mirrored === true && k1?.label === "spoelkast" && k1?.rotation === 0.4);
+
+  check("what is not asked for is not copied",
+    cloneOnFloor(f, "vide", ["nope"]).size === 0);
+}
+
+// --- selecting several at once ---
+{
+  const st = new Store();
+  st.replace(emptyDoc());
+  const cab = (id: string) => ({ kind: "cabinet" as const, id });
+
+  st.select(cab("k1"));
+  check("one selected is one", st.selectedOf("cabinet").join() === "k1");
+  st.selectAlso(cab("k2"));
+  check("shift adds to the selection, last first",
+    st.selectedOf("cabinet").join() === "k2,k1", st.selectedOf("cabinet").join());
+  check("both count as selected",
+    st.isSelected("cabinet", "k1") && st.isSelected("cabinet", "k2"));
+  check("the pane edits the one clicked last", st.sel?.id === "k2");
+
+  st.selectAlso(cab("k1"));
+  check("shift-clicking a member takes it out", st.selectedOf("cabinet").join() === "k2");
+  st.selectAlso(cab("k2"));
+  check("and taking the last one out clears the selection",
+    st.sel === null && st.selectedOf("cabinet").length === 0);
+
+  st.select(cab("k1"));
+  st.selectAlso(cab("k2"));
+  st.selectAlso(cab("k1"));
+  check("taking the primary out promotes the next", st.sel?.id === "k2" && st.selMore.length === 0);
+
+  // Everything selected is of one kind: there is no gesture that means the
+  // same thing for a cabinet and a wall.
+  st.select(cab("k1"));
+  st.selectAlso(cab("k2"));
+  st.selectAlso({ kind: "wall", id: "w1" });
+  check("another kind starts a new selection",
+    st.sel?.kind === "wall" && st.selMore.length === 0 && st.selectedOf("cabinet").length === 0);
+
+  st.select(cab("k1"));
+  st.selectAlso(cab("k2"));
+  st.select(null);
+  check("clearing the selection clears all of it",
+    st.selMore.length === 0 && !st.isSelected("cabinet", "k2"));
 }
 
 // --- multi-floor store ---
