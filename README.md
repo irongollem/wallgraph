@@ -32,6 +32,10 @@ npm run build      # typecheck + bundle to dist/index.html (single file)
 - **W** wall tool — click to chain; type a length in mm + Enter for exact segments; O toggles angle snap, G toggles grid snap; Esc ends the chain
 - **V** select — drag corners/walls/symbols; drag a selected wall's ◆ midpoint handle to curve it
 - **D / N / P** door / window / passage — click on a wall; direction, width and offset in the panel
+- **U** services — draw electrical, water, drain, ventilation and gas networks; endpoints snap
+  to compatible symbols. Select an existing network before pressing U, then start on one of its
+  nodes or a straight segment to add a branch/junction. Choose inbouw, opbouw or a free route in
+  the panel; opbouw follows the actual wall face.
 - **R / M** rotate / mirror a selected symbol · **Del** delete · **Ctrl+Z / Ctrl+Shift+Z** undo / redo
 - Hover a placed symbol to see what it is; click to select and edit it
 - Sliding a socket, door or window along a wall shows live dimensions to both wall ends,

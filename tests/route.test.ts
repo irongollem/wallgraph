@@ -9,7 +9,7 @@ import {
   ROUTE_VENTS, routeVent, routeDuctDiameter, routeFlow, VENT_DIAMETERS,
 } from "../src/model/route";
 import {
-  resolveRoutePoints, routeLength, resolveRoutes, routeGroupSummaries, routeKindSummaries,
+  resolveRoutePoints, routeLength, resolveRoutes, routeDistance, routeGroupSummaries, routeKindSummaries,
   routeWaterSummaries,
 } from "../src/core/route";
 import { arcLength } from "../src/geometry/arc";
@@ -27,7 +27,7 @@ function check(name: string, cond: boolean, detail = ""): void {
 }
 
 const route = (over: Partial<Route> = {}): Route =>
-  ({ id: "rt1", discipline: "electrical", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }], ...over });
+  ({ id: "rt1", discipline: "electrical", points: [{ id: "p0", x: 0, y: 0 }, { id: "p1", x: 1000, y: 0 }], segments: [{ id: "s0", a: "p0", b: "p1" }], ...over });
 
 /* ── resolveRoutePoints: anchors ── */
 
@@ -35,7 +35,7 @@ const route = (over: Partial<Route> = {}): Route =>
   const doc = emptyDoc();
   const f = doc.floors[0]!;
   f.symbols.push({ id: "s1", type: "socket-single", x: 500, y: 500, rotation: 0 });
-  const rt: Route = { id: "rt1", discipline: "water", points: [{ x: 0, y: 0, anchor: "s1" }, { x: 1000, y: 1000 }] };
+  const rt: Route = { id: "rt1", discipline: "water", points: [{ id: "p0", x: 0, y: 0, anchor: "s1" }, { id: "p1", x: 1000, y: 1000 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]};
   f.routes = [rt];
 
   let pts = resolveRoutePoints(f, rt);
@@ -61,7 +61,7 @@ const route = (over: Partial<Route> = {}): Route =>
   const f = doc.floors[0]!;
   const sym = { id: "s1", type: "socket-single", x: 500, y: 500, rotation: 0 };
   f.symbols.push(sym);
-  const rt: Route = { id: "rt1", discipline: "vent", points: [{ x: 0, y: 0, anchor: "s1" }, { x: 1000, y: 0 }] };
+  const rt: Route = { id: "rt1", discipline: "vent", points: [{ id: "p0", x: 0, y: 0, anchor: "s1" }, { id: "p1", x: 1000, y: 0 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]};
   f.routes = [rt];
 
   sym.x = 777; sym.y = 333; // moved before the symbol is deleted
@@ -77,7 +77,7 @@ const route = (over: Partial<Route> = {}): Route =>
 
 {
   const f = emptyDoc().floors[0]!;
-  const straight = route({ points: [{ x: 0, y: 0 }, { x: 3000, y: 0 }, { x: 3000, y: 4000 }] });
+  const straight = route({ points: [{ id: "p0", x: 0, y: 0 }, { id: "p1", x: 3000, y: 0 }, { id: "p2", x: 3000, y: 4000 }] , segments: [{ id: "s0", a: "p0", b: "p1" }, { id: "s1", a: "p1", b: "p2" }]});
   check("straight length sums the segments", routeLength(f, straight) === 7000, String(routeLength(f, straight)));
 
   // A bulged segment's contribution has to be the true arc length, not the
@@ -85,7 +85,10 @@ const route = (over: Partial<Route> = {}): Route =>
   // hand-derived figure, since that is the formula routeLength must delegate to.
   const bulge = 0.3;
   const p0 = { x: 0, y: 0 }, p1 = { x: 1000, y: 0 };
-  const bulged = route({ points: [{ ...p0, bulge }, p1] });
+  const bulged = route({
+    points: [{ id: "p0", ...p0 }, { id: "p1", ...p1 }],
+    segments: [{ id: "s0", a: "p0", b: "p1", bulge }],
+  });
   const len = routeLength(f, bulged);
   const expectedArc = arcLength(p0, p1, bulge);
   check("a bulged segment is longer than its chord",
@@ -101,14 +104,55 @@ const route = (over: Partial<Route> = {}): Route =>
     Number.isInteger(route().points[0]!.x) && Number.isInteger(route().points[0]!.y));
 }
 
+/* ── graph branches and wall attachment ── */
+
+{
+  const f = emptyDoc().floors[0]!;
+  const branched: Route = {
+    id: "tree", discipline: "water", water: "afvoer",
+    points: [
+      { id: "source", x: 0, y: 0, terminal: "source" },
+      { id: "tee", x: 1000, y: 0 },
+      { id: "left", x: 2000, y: -1000, terminal: "capped" },
+      { id: "right", x: 2000, y: 1000, terminal: "capped" },
+    ],
+    segments: [
+      { id: "trunk", a: "source", b: "tee" },
+      { id: "branch-a", a: "tee", b: "left" },
+      { id: "branch-b", a: "tee", b: "right" },
+    ],
+  };
+  f.routes = [branched];
+  check("a branched network resolves every stored edge once", resolveRoutes(f)[0]!.segments.length === 3);
+  check("a shared trunk contributes once to network length",
+    Math.abs(routeLength(f, branched) - (1000 + 2 * Math.sqrt(2_000_000))) < 1e-6,
+    String(routeLength(f, branched)));
+
+  f.nodes.push({ id: "na", x: 0, y: 0 }, { id: "nb", x: 2000, y: 0 });
+  f.walls.push({ id: "wall", a: "na", b: "nb", thickness: 100, bulge: 0, openings: [] });
+  const surface: Route = {
+    id: "surface", discipline: "gas", installation: "surface",
+    points: [
+      { id: "wa", x: 500, y: 0, wallId: "wall", wallT: 500, wallSide: 1 },
+      { id: "wb", x: 1500, y: 0, wallId: "wall", wallT: 1500, wallSide: 1 },
+    ],
+    segments: [{ id: "ws", a: "wa", b: "wb" }],
+  };
+  check("surface mounting resolves to the wall face, not a fixed centerline offset",
+    resolveRoutePoints(f, surface)[0]!.y === 50, JSON.stringify(resolveRoutePoints(f, surface)[0]));
+  f.nodes[0]!.y = 100; f.nodes[1]!.y = 100;
+  check("a wall-attached surface route follows a moved wall",
+    resolveRoutePoints(f, surface)[0]!.y === 150, JSON.stringify(resolveRoutePoints(f, surface)[0]));
+}
+
 /* ── resolveRoutes: corridor fanning ── */
 
 {
   const doc = emptyDoc();
   const f = doc.floors[0]!;
   // Two routes over the exact same straight span.
-  const a: Route = { id: "aaa", discipline: "electrical", points: [{ x: 0, y: 0 }, { x: 2000, y: 0 }] };
-  const b: Route = { id: "bbb", discipline: "water", points: [{ x: 0, y: 0 }, { x: 2000, y: 0 }] };
+  const a: Route = { id: "aaa", discipline: "electrical", points: [{ id: "p0", x: 0, y: 0 }, { id: "p1", x: 2000, y: 0 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]};
+  const b: Route = { id: "bbb", discipline: "water", points: [{ id: "p0", x: 0, y: 0 }, { id: "p1", x: 2000, y: 0 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]};
   f.routes = [a, b];
 
   const resolved1 = resolveRoutes(f);
@@ -127,9 +171,12 @@ const route = (over: Partial<Route> = {}): Route =>
   check("two calls against the same floor fan the same routes into the same lanes",
     a1.a.y === a2.a.y && b1.a.y === b2.a.y && a1.a.x === a2.a.x,
     JSON.stringify({ first: a1.a, second: a2.a }));
+  check("distance picking can distinguish the visually nearest fanned lane",
+    routeDistance(resolved1.find(r => r.route.id === "aaa")!, a1.a)
+      < routeDistance(resolved1.find(r => r.route.id === "bbb")!, a1.a));
 
   // A lone route with nothing to bundle with stays exactly on its own points.
-  const solo: Route = { id: "ccc", discipline: "vent", points: [{ x: 5000, y: 5000 }, { x: 6000, y: 5000 }] };
+  const solo: Route = { id: "ccc", discipline: "vent", points: [{ id: "p0", x: 5000, y: 5000 }, { id: "p1", x: 6000, y: 5000 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]};
   const withSolo = resolveRoutes({ ...f, routes: [solo] });
   const seg = withSolo[0]!.segments[0]!;
   check("a lone route is not nudged off its stored points",
@@ -143,8 +190,8 @@ const route = (over: Partial<Route> = {}): Route =>
   const doc = emptyDoc();
   const f = doc.floors[0]!;
   f.routes = [
-    { id: "e1", discipline: "electrical", points: [{ x: 0, y: 0 }, { x: 2000, y: 0 }] },
-    { id: "w1", discipline: "water", points: [{ x: 0, y: 500 }, { x: 2000, y: 500 }] },
+    { id: "e1", discipline: "electrical", points: [{ id: "p0", x: 0, y: 0 }, { id: "p1", x: 2000, y: 0 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]},
+    { id: "w1", discipline: "water", points: [{ id: "p0", x: 0, y: 500 }, { id: "p1", x: 2000, y: 500 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]},
   ];
   check("a floor's routes read back", routesOf(f).length === 2);
   check("an absent list is not an error", routesOf({ ...f, routes: undefined }).length === 0);
@@ -161,13 +208,15 @@ const route = (over: Partial<Route> = {}): Route =>
   // way every other DXF layer in this file is always declared regardless of
   // whether that kind of object is on the floor.
   const dxf = toDxf(doc) ?? "";
-  check("routes get all three DXF layer names once the floor has routes",
-    dxf.includes("ROUTES-ELECTRICAL") && dxf.includes("ROUTES-WATER") && dxf.includes("ROUTES-VENT"));
+  check("routes get all four DXF layer names once the floor has routes",
+    dxf.includes("ROUTES-ELECTRICAL") && dxf.includes("ROUTES-WATER")
+      && dxf.includes("ROUTES-VENT") && dxf.includes("ROUTES-GAS"));
 
   const noRoutes = emptyDoc();
   const dxfNoRoutes = toDxf(noRoutes) ?? "";
   check("a plan with no routes carries none of the three DXF layer names",
-    !dxfNoRoutes.includes("ROUTES-ELECTRICAL") && !dxfNoRoutes.includes("ROUTES-WATER") && !dxfNoRoutes.includes("ROUTES-VENT"));
+    !dxfNoRoutes.includes("ROUTES-ELECTRICAL") && !dxfNoRoutes.includes("ROUTES-WATER")
+      && !dxfNoRoutes.includes("ROUTES-VENT") && !dxfNoRoutes.includes("ROUTES-GAS"));
 }
 
 /* ── the published format ── */
@@ -176,7 +225,9 @@ const route = (over: Partial<Route> = {}): Route =>
   const schema = planSchema("");
   const doc = emptyDoc();
   doc.floors[0]!.routes = [
-    { id: "r1", discipline: "electrical", points: [{ x: 0, y: 0 }, { x: 1000, y: 0, bulge: 0.2 }, { x: 2000, y: 500 }] },
+    { id: "r1", discipline: "electrical",
+      points: [{ id: "p0", x: 0, y: 0 }, { id: "p1", x: 1000, y: 0 }, { id: "p2", x: 2000, y: 500 }],
+      segments: [{ id: "s0", a: "p0", b: "p1", bulge: 0.2 }, { id: "s1", a: "p1", b: "p2" }] },
   ];
   check("a document with a route validates", validate(schema, doc).length === 0, validate(schema, doc).join(" | "));
 
@@ -187,7 +238,7 @@ const route = (over: Partial<Route> = {}): Route =>
   check("the round-tripped document still validates", validate(schema, again).length === 0);
 
   const badDiscipline = JSON.parse(JSON.stringify(doc));
-  badDiscipline.floors[0].routes[0].discipline = "gas";
+  badDiscipline.floors[0].routes[0].discipline = "steam";
   check("an unknown discipline is rejected", validate(schema, badDiscipline).length > 0);
 
   const missingPoints = JSON.parse(JSON.stringify(doc));
@@ -221,9 +272,9 @@ const route = (over: Partial<Route> = {}): Route =>
   const schema = planSchema("");
   const doc = emptyDoc();
   doc.floors[0]!.routes = [
-    { id: "r2", discipline: "electrical", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }],
+    { id: "r2", discipline: "electrical", points: [{ id: "p0", x: 0, y: 0 }, { id: "p1", x: 1000, y: 0 }], segments: [{ id: "s0", a: "p0", b: "p1" }],
       kind: "power", veins: 4, group: "K1" },
-    { id: "r3", discipline: "electrical", points: [{ x: 0, y: 500 }, { x: 1000, y: 500 }],
+    { id: "r3", discipline: "electrical", points: [{ id: "p0", x: 0, y: 500 }, { id: "p1", x: 1000, y: 500 }], segments: [{ id: "s0", a: "p0", b: "p1" }],
       kind: "utp", spec: "Cat6" },
   ];
   check("a document with the electrical fields validates", validate(schema, doc).length === 0,
@@ -258,12 +309,12 @@ const route = (over: Partial<Route> = {}): Route =>
   f.routes = [
     // Two power runs sharing groep "1", one of them anchoring two devices.
     { id: "p1", discipline: "electrical", group: "1",
-      points: [{ x: 0, y: 0 }, { x: 1000, y: 0, anchor: "s1" }, { x: 1000, y: 1000, anchor: "s2" }] },
+      points: [{ id: "p0", x: 0, y: 0 }, { id: "p1", x: 1000, y: 0, anchor: "s1" }, { id: "p2", x: 1000, y: 1000, anchor: "s2" }] , segments: [{ id: "s0", a: "p0", b: "p1" }, { id: "s1", a: "p1", b: "p2" }]},
     { id: "p2", discipline: "electrical", group: "1", veins: 4,
-      points: [{ x: 0, y: 2000 }, { x: 1000, y: 2000 }] },
+      points: [{ id: "p0", x: 0, y: 2000 }, { id: "p1", x: 1000, y: 2000 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]},
     // A data run, no groep.
     { id: "d1", discipline: "electrical", kind: "utp", spec: "Cat6",
-      points: [{ x: 0, y: 3000 }, { x: 500, y: 3000 }] },
+      points: [{ id: "p0", x: 0, y: 3000 }, { id: "p1", x: 500, y: 3000 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]},
   ];
 
   const groups = routeGroupSummaries(f);
@@ -291,14 +342,17 @@ const route = (over: Partial<Route> = {}): Route =>
   const doc = emptyDoc();
   const f = doc.floors[0]!;
   f.routes = [
-    { id: "power", discipline: "electrical", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }] },
+    { id: "power", discipline: "electrical", tag: "E-01", group: "K1",
+      points: [{ id: "p0", x: 0, y: 0 }, { id: "p1", x: 1000, y: 0 }],
+      segments: [{ id: "s0", a: "p0", b: "p1" }] },
     { id: "data", discipline: "electrical", kind: "utp",
-      points: [{ x: 0, y: 500 }, { x: 1000, y: 500 }] },
+      points: [{ id: "p0", x: 0, y: 500 }, { id: "p1", x: 1000, y: 500 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]},
   ];
 
   const svg = toSvg(doc) ?? "";
   check("the electrical group still carries one id", svg.includes('id="routes-electrical"'));
   check("the SVG carries a dash pattern for the data sub-group", svg.includes("stroke-dasharray"));
+  check("the SVG prints route tags and groups on the plan", svg.includes("E-01") && svg.includes("K1"));
   const beforeDash = svg.split("stroke-dasharray")[0]!;
   check("the power run's geometry is drawn before the dashed sub-group opens",
     beforeDash.includes("routes-electrical"));
@@ -306,10 +360,11 @@ const route = (over: Partial<Route> = {}): Route =>
   const dxfBoth = toDxf(doc) ?? "";
   check("a floor with a data run gets the ROUTES-ELECTRICAL-DATA layer",
     dxfBoth.includes("ROUTES-ELECTRICAL-DATA"));
+  check("the DXF prints route tags and groups", dxfBoth.includes("E-01") && dxfBoth.includes("K1"));
 
   const powerOnly = emptyDoc();
   powerOnly.floors[0]!.routes = [
-    { id: "power", discipline: "electrical", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }] },
+    { id: "power", discipline: "electrical", points: [{ id: "p0", x: 0, y: 0 }, { id: "p1", x: 1000, y: 0 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]},
   ];
   const dxfPowerOnly = toDxf(powerOnly) ?? "";
   check("a floor with only power runs carries no ROUTES-ELECTRICAL-DATA layer",
@@ -320,7 +375,7 @@ const route = (over: Partial<Route> = {}): Route =>
 
 {
   const wroute = (over: Partial<Route> = {}): Route =>
-    ({ id: "w1", discipline: "water", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }], ...over });
+    ({ id: "w1", discipline: "water", points: [{ id: "p0", x: 0, y: 0 }, { id: "p1", x: 1000, y: 0 }], segments: [{ id: "s0", a: "p0", b: "p1" }], ...over });
 
   check("routeWater defaults to koud when absent", routeWater(wroute()) === "koud");
   check("routeWater reads an explicit kind", routeWater(wroute({ water: "warm" })) === "warm");
@@ -340,8 +395,8 @@ const route = (over: Partial<Route> = {}): Route =>
   const schema = planSchema("");
   const doc = emptyDoc();
   doc.floors[0]!.routes = [
-    { id: "w2", discipline: "water", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }], water: "warm", diameter: 22 },
-    { id: "w3", discipline: "water", points: [{ x: 0, y: 500 }, { x: 1000, y: 500 }], water: "afvoer" },
+    { id: "w2", discipline: "water", points: [{ id: "p0", x: 0, y: 0 }, { id: "p1", x: 1000, y: 0 }], segments: [{ id: "s0", a: "p0", b: "p1" }], water: "warm", diameter: 22 },
+    { id: "w3", discipline: "water", points: [{ id: "p0", x: 0, y: 500 }, { id: "p1", x: 1000, y: 500 }], segments: [{ id: "s0", a: "p0", b: "p1" }], water: "afvoer" },
   ];
   check("a document with the water fields validates", validate(schema, doc).length === 0,
     validate(schema, doc).join(" | "));
@@ -372,14 +427,14 @@ const route = (over: Partial<Route> = {}): Route =>
   const f = doc.floors[0]!;
   f.routes = [
     // Two koud runs at the default diameter -- summed into one entry.
-    { id: "k1", discipline: "water", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }] },
-    { id: "k2", discipline: "water", points: [{ x: 0, y: 100 }, { x: 500, y: 100 }] },
+    { id: "k1", discipline: "water", points: [{ id: "p0", x: 0, y: 0 }, { id: "p1", x: 1000, y: 0 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]},
+    { id: "k2", discipline: "water", points: [{ id: "p0", x: 0, y: 100 }, { id: "p1", x: 500, y: 100 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]},
     // A warm run at a non-default diameter.
     { id: "h1", discipline: "water", water: "warm", diameter: 22,
-      points: [{ x: 0, y: 200 }, { x: 2000, y: 200 }] },
+      points: [{ id: "p0", x: 0, y: 200 }, { id: "p1", x: 2000, y: 200 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]},
     // An afvoer run at its own default diameter.
     { id: "a1", discipline: "water", water: "afvoer",
-      points: [{ x: 0, y: 300 }, { x: 1200, y: 300 }] },
+      points: [{ id: "p0", x: 0, y: 300 }, { id: "p1", x: 1200, y: 300 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]},
   ];
 
   const waters = routeWaterSummaries(f);
@@ -401,9 +456,9 @@ const route = (over: Partial<Route> = {}): Route =>
   const doc = emptyDoc();
   const f = doc.floors[0]!;
   f.routes = [
-    { id: "koud", discipline: "water", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }] },
-    { id: "warm", discipline: "water", water: "warm", points: [{ x: 0, y: 500 }, { x: 1000, y: 500 }] },
-    { id: "afvoer", discipline: "water", water: "afvoer", points: [{ x: 0, y: 1000 }, { x: 1000, y: 1000 }] },
+    { id: "koud", discipline: "water", points: [{ id: "p0", x: 0, y: 0 }, { id: "p1", x: 1000, y: 0 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]},
+    { id: "warm", discipline: "water", water: "warm", points: [{ id: "p0", x: 0, y: 500 }, { id: "p1", x: 1000, y: 500 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]},
+    { id: "afvoer", discipline: "water", water: "afvoer", points: [{ id: "p0", x: 0, y: 1000 }, { id: "p1", x: 1000, y: 1000 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]},
   ];
 
   const svg = toSvg(doc) ?? "";
@@ -421,8 +476,8 @@ const route = (over: Partial<Route> = {}): Route =>
 
   const supplyOnly = emptyDoc();
   supplyOnly.floors[0]!.routes = [
-    { id: "koud", discipline: "water", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }] },
-    { id: "warm", discipline: "water", water: "warm", points: [{ x: 0, y: 500 }, { x: 1000, y: 500 }] },
+    { id: "koud", discipline: "water", points: [{ id: "p0", x: 0, y: 0 }, { id: "p1", x: 1000, y: 0 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]},
+    { id: "warm", discipline: "water", water: "warm", points: [{ id: "p0", x: 0, y: 500 }, { id: "p1", x: 1000, y: 500 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]},
   ];
   const dxfSupplyOnly = toDxf(supplyOnly) ?? "";
   check("a floor with only supply runs carries no ROUTES-WATER-AFVOER layer",
@@ -433,7 +488,7 @@ const route = (over: Partial<Route> = {}): Route =>
 
 {
   const vroute = (over: Partial<Route> = {}): Route =>
-    ({ id: "v1", discipline: "vent", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }], ...over });
+    ({ id: "v1", discipline: "vent", points: [{ id: "p0", x: 0, y: 0 }, { id: "p1", x: 1000, y: 0 }], segments: [{ id: "s0", a: "p0", b: "p1" }], ...over });
 
   check("routeVent defaults to toevoer when absent", routeVent(vroute()) === "toevoer");
   check("routeVent reads an explicit kind", routeVent(vroute({ vent: "afvoer" })) === "afvoer");
@@ -453,9 +508,9 @@ const route = (over: Partial<Route> = {}): Route =>
   const schema = planSchema("");
   const doc = emptyDoc();
   doc.floors[0]!.routes = [
-    { id: "v2", discipline: "vent", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }],
+    { id: "v2", discipline: "vent", points: [{ id: "p0", x: 0, y: 0 }, { id: "p1", x: 1000, y: 0 }], segments: [{ id: "s0", a: "p0", b: "p1" }],
       vent: "afvoer", ductDiameter: 160, flow: 90 },
-    { id: "v3", discipline: "vent", points: [{ x: 0, y: 500 }, { x: 1000, y: 500 }] },
+    { id: "v3", discipline: "vent", points: [{ id: "p0", x: 0, y: 500 }, { id: "p1", x: 1000, y: 500 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]},
   ];
   check("a document with the vent fields validates", validate(schema, doc).length === 0,
     validate(schema, doc).join(" | "));
@@ -489,9 +544,9 @@ const route = (over: Partial<Route> = {}): Route =>
   const doc = emptyDoc();
   const f = doc.floors[0]!;
   f.routes = [
-    { id: "toevoer", discipline: "vent", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }] },
-    { id: "afvoer", discipline: "vent", vent: "afvoer", points: [{ x: 0, y: 500 }, { x: 1000, y: 500 }] },
-    { id: "elec", discipline: "electrical", points: [{ x: 0, y: 1000 }, { x: 1000, y: 1000 }] },
+    { id: "toevoer", discipline: "vent", points: [{ id: "p0", x: 0, y: 0 }, { id: "p1", x: 1000, y: 0 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]},
+    { id: "afvoer", discipline: "vent", vent: "afvoer", points: [{ id: "p0", x: 0, y: 500 }, { id: "p1", x: 1000, y: 500 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]},
+    { id: "elec", discipline: "electrical", points: [{ id: "p0", x: 0, y: 1000 }, { id: "p1", x: 1000, y: 1000 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]},
   ];
 
   const svg = toSvg(doc) ?? "";
@@ -517,7 +572,7 @@ const route = (over: Partial<Route> = {}): Route =>
 
   const toevoerOnly = emptyDoc();
   toevoerOnly.floors[0]!.routes = [
-    { id: "toevoer", discipline: "vent", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }] },
+    { id: "toevoer", discipline: "vent", points: [{ id: "p0", x: 0, y: 0 }, { id: "p1", x: 1000, y: 0 }] , segments: [{ id: "s0", a: "p0", b: "p1" }]},
   ];
   const dxfToevoerOnly = toDxf(toevoerOnly) ?? "";
   check("a floor with only toevoer runs carries no ROUTES-VENT-AFVOER layer",
@@ -526,8 +581,30 @@ const route = (over: Partial<Route> = {}): Route =>
 
 /* ── discipline list ── */
 
-check("every discipline is offered", DISCIPLINES.length === 3
-  && DISCIPLINES.includes("electrical") && DISCIPLINES.includes("water") && DISCIPLINES.includes("vent"));
+{
+  const doc = emptyDoc();
+  doc.floors[0]!.routes = [{
+    id: "gas-1", discipline: "gas", tag: "G-01", diameter: 22, installation: "surface", height: 300,
+    points: [
+      { id: "g0", x: 0, y: 0, terminal: "source" },
+      { id: "g1", x: 1000, y: 0, terminal: "capped" },
+    ],
+    segments: [{ id: "gs", a: "g0", b: "g1" }],
+  }];
+  const schema = planSchema("");
+  check("a surface-mounted gas network with explicit endpoints validates",
+    validate(schema, doc).length === 0, validate(schema, doc).join(" | "));
+  check("gas gets its own SVG group", (toSvg(doc) ?? "").includes('id="routes-gas"'));
+  check("gas gets its own DXF layer", (toDxf(doc) ?? "").includes("ROUTES-GAS"));
+
+  const missingSegments = JSON.parse(JSON.stringify(doc));
+  delete missingSegments.floors[0].routes[0].segments;
+  check("a network without explicit graph edges is rejected", validate(schema, missingSegments).length > 0);
+}
+
+check("every discipline is offered", DISCIPLINES.length === 4
+  && DISCIPLINES.includes("electrical") && DISCIPLINES.includes("water")
+  && DISCIPLINES.includes("vent") && DISCIPLINES.includes("gas"));
 
 for (const lng of ["nl", "en"] as const) {
   const panel = ((resources[lng].translation as unknown) as Record<string, Record<string, unknown>>).panel ?? {};

@@ -14,7 +14,10 @@ import { drawVide } from "./vide";
 import { drawCabinet } from "./cabinet";
 import { drawRoute } from "./route";
 import { resolveRoutes, resolveRoutePoints } from "../core/route";
-import { routeWater, type Discipline, type RouteWater } from "../model/route";
+import {
+  routeWater, routeKind, routeVeins, routeDiameter, routeVent, routeDuctDiameter,
+  routeFlow, type Route, type Discipline, type RouteWater,
+} from "../model/route";
 import { ROOM_NAME_PX } from "../model/room";
 import { resolveStair } from "../core/stair";
 import { t } from "../i18n";
@@ -62,15 +65,16 @@ export const COLORS = {
    * override to read through.
    */
   routeElectrical: "#7d4dae",
-  routeWater: "#1a7a6e",
+  routeWater: "#2166ac",
   /**
    * Warm water's own tint within the water ink family -- a warmer, redder
    * hue of the same water green rather than an unrelated colour, so "this is
    * still water" reads at a glance and only the temperature differs. Koud
    * and afvoer stay on COLORS.routeWater; only warm overrides.
    */
-  routeWaterWarm: "#b0602f",
+  routeWaterWarm: "#c33f3f",
   routeVent: "#9c7a1f",
+  routeGas: "#b8860b",
 };
 
 /**
@@ -83,7 +87,29 @@ export function routeInk(d: Discipline, water?: RouteWater): string {
   if (d === "water" && water === "warm") return COLORS.routeWaterWarm;
   return d === "electrical" ? COLORS.routeElectrical
        : d === "water" ? COLORS.routeWater
-       : COLORS.routeVent;
+       : d === "vent" ? COLORS.routeVent
+       : COLORS.routeGas;
+}
+
+/** Compact identifier carried on the plan. Full descriptive names stay in
+ * the property pane; this is intentionally schedule-like to limit clutter. */
+export function routeMapLabel(route: Route): string {
+  const head = route.tag ? [route.tag] : route.name ? [route.name] : [];
+  if (route.discipline === "electrical") {
+    if (route.board || route.group) head.push([route.board, route.group].filter(Boolean).join("/"));
+    if (routeKind(route) === "power") head.push(`${routeVeins(route)}c`);
+    else head.push(`${routeKind(route).toUpperCase()}${route.spec ? ` ${route.spec}` : ""}`);
+  } else if (route.discipline === "water") {
+    const kind = routeWater(route) === "koud" ? "KW" : routeWater(route) === "warm" ? "WW" : "AF";
+    head.push(`${kind} Ø${routeDiameter(route)}`);
+  } else if (route.discipline === "vent") {
+    head.push(`${routeVent(route) === "toevoer" ? "TV" : "AV"} Ø${routeDuctDiameter(route)}`);
+    const flow = routeFlow(route);
+    if (flow !== undefined) head.push(`${flow} m³/h`);
+  } else {
+    head.push(`GAS Ø${route.diameter ?? 15}`);
+  }
+  return head.filter(Boolean).join(" · ");
 }
 
 /**
@@ -317,14 +343,23 @@ export function drawScene(
   // crossing a wall in plan the way it does on an installation drawing, and
   // under the cabinets and symbols that follow so a socket or tap placed on
   // top of a run stays the thing actually read there.
-  for (const rr of resolveRoutes(floor)) {
+  const visibleRoutes = resolveRoutes(floor).filter(rr => extras.showRoutes?.[rr.route.discipline] !== false);
+  for (let routeIndex = 0; routeIndex < visibleRoutes.length; routeIndex++) {
+    const rr = visibleRoutes[routeIndex]!;
     const route = rr.route;
-    if (extras.showRoutes?.[route.discipline] === false) continue;
+    const ink = routeInk(route.discipline, route.discipline === "water" ? routeWater(route) : undefined);
     drawRoute(ctx, rr, route.points, resolveRoutePoints(floor, route), {
-      ink: routeInk(route.discipline, route.discipline === "water" ? routeWater(route) : undefined),
+      ink,
       selected: isSel("route", route.id),
       select: COLORS.select, wash: COLORS.selectWash,
     });
+    const longest = [...rr.segments].sort((a, b) => dist(b.a, b.b) - dist(a.a, a.b))[0];
+    if (longest) {
+      // Stagger labels along parallel lanes so three labels do not form one
+      // unclickable stack at the shared midpoint.
+      const frac = 0.32 + (routeIndex % 3) * 0.18;
+      drawLabel(ctx, vp, add(longest.a, scale(sub(longest.b, longest.a), frac)), routeMapLabel(route), ink);
+    }
   }
 
   // Cabinetry, over the masonry and under the symbols. A unit stands against a

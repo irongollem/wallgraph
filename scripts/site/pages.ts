@@ -66,7 +66,7 @@ function symbolSvg(def: SymbolDef, label: string): string {
   b = grow(b, halfW, def.wallMounted ? def.depth : def.depth / 2);
   return `<svg ${frame(b, W_SYMBOL, 72, 150)} fill="none" stroke="currentColor"` +
     ` stroke-width="${W_SYMBOL}" stroke-linecap="round" stroke-linejoin="round"` +
-    ` role="img" aria-label="${esc(label)}">${prims.map(primSvg).join("")}</svg>`;
+    ` role="img" aria-label="${esc(label)}">${prims.map(p => primSvg(p)).join("")}</svg>`;
 }
 
 /** Render an opening through the production resolution and marking pipeline. */
@@ -93,9 +93,9 @@ function openingSvg(kind: OpeningKind, sashes: Sash[], width: number, label: str
   };
   return `<svg ${frame(box, W_WALL, 132, 300)} role="img" aria-label="${esc(label)}">` +
     `<g fill="${COLORS.wallFill}" stroke="${COLORS.wallStroke}" stroke-width="${W_WALL}">` +
-    solids.map(primSvg).join("") + `</g>` +
+    solids.map(p => primSvg(p)).join("") + `</g>` +
     `<g fill="none" stroke="currentColor" stroke-width="${W_WALL}" stroke-linecap="round">` +
-    marks.map(primSvg).join("") + `</g></svg>`;
+    marks.map(p => primSvg(p)).join("") + `</g></svg>`;
 }
 
 const cap = (s: string): string => s[0]!.toUpperCase() + s.slice(1);

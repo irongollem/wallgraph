@@ -1,12 +1,11 @@
 // A route as the document stores it: a manually drawn run of a building
-// service -- electrical, water, ventilation -- as a switchable layer over the
+// service -- electrical, water, ventilation or gas -- as a switchable layer over the
 // plan.
 //
-// A route is a polyline of waypoints, same DXF bulge convention as a wall
-// (see doc.ts's Wall.bulge): straight by default, one bulge per point for the
-// segment leaving it toward the next. There is no thickness and no material --
-// this is the manual-routing core (issue #25); discipline metadata beyond the
-// three-way split below, and any automatic routing, are follow-up work.
+// A route is one connected service network. Points are terminals and junctions;
+// explicit segments join them, so a shared trunk is stored once and may branch
+// to any number of sockets, taps, drains or air terminals. Segment curves use
+// the same DXF bulge convention as a wall (see doc.ts's Wall.bulge).
 //
 // A waypoint MAY follow a symbol instance (`anchor`) instead of standing on
 // its own stored x/y. The document does not chase the symbol: nothing writes
@@ -22,19 +21,42 @@
 // last stood.
 import type { Id } from "./doc";
 
-export type Discipline = "electrical" | "water" | "vent";
+export type Discipline = "electrical" | "water" | "vent" | "gas";
 
-export const DISCIPLINES: readonly Discipline[] = ["electrical", "water", "vent"];
+export const DISCIPLINES: readonly Discipline[] = ["electrical", "water", "vent", "gas"];
 
 export interface RoutePoint {
+  id: Id;
   /** mm. The point's own position; authoritative unless `anchor` resolves. */
   x: number;
   y: number;
-  /** DXF bulge for the segment leaving THIS point toward the next one. 0 or
-   *  absent is straight. Meaningless on a route's last point. */
-  bulge?: number;
   /** A symbol instance id this point follows. See the file comment. */
   anchor?: Id;
+  /** Wall attachment for concealed or surface-mounted work. `wallT` is the
+   * distance from wall node a; `wallSide` selects a face for surface work. */
+  wallId?: Id;
+  wallT?: number;
+  wallSide?: 1 | -1;
+  /** Explicit state for an unanchored endpoint. Branch points need no state. */
+  terminal?: RouteTerminal;
+}
+
+export interface RouteSegment {
+  id: Id;
+  a: Id;
+  b: Id;
+  /** DXF bulge from a toward b. Absent is straight. */
+  bulge?: number;
+}
+
+export type RouteInstallation = "concealed" | "surface" | "free";
+
+export const ROUTE_INSTALLATIONS: readonly RouteInstallation[] = ["concealed", "surface", "free"];
+
+export type RouteTerminal = "source" | "capped";
+
+export function routeInstallation(r: Route): RouteInstallation {
+  return r.installation ?? "concealed";
 }
 
 /**
@@ -182,6 +204,17 @@ export interface Route {
   id: Id;
   discipline: Discipline;
   points: RoutePoint[];
+  segments: RouteSegment[];
+  /** Short drawing identifier, for example E-01, KW-01 or MV-T1. */
+  tag?: string;
+  /** Optional descriptive name, primarily for schedules and hover text. */
+  name?: string;
+  /** Distribution board identifier for an electrical circuit. */
+  board?: string;
+  /** Where the service is installed relative to the plan geometry. */
+  installation?: RouteInstallation;
+  /** Installation height above finished floor, mm. */
+  height?: number;
   /**
    * Electrical-only: what the run carries. See RouteKind. Meaningful only
    * when discipline is "electrical"; a water or vent route ignores it.
@@ -210,9 +243,8 @@ export interface Route {
    */
   water?: RouteWater;
   /**
-   * Water-only: nominal pipe diameter, mm. Meaningful only when discipline
-   * is "water". Absent defaults per water kind -- 15 for koud/warm, 50 for
-   * afvoer. Read through routeDiameter().
+   * Water/gas nominal pipe diameter, mm. Water defaults per kind -- 15 for
+   * koud/warm and 50 for afvoer; gas defaults to 15.
    */
   diameter?: number;
   /**

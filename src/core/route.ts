@@ -5,9 +5,11 @@
 import { Floor, routesOf } from "../model/doc";
 import {
   Route, RouteKind, routeKind, routeVeins, RouteWater, routeWater, routeDiameter, ROUTE_WATERS,
+  routeInstallation,
 } from "../model/route";
 import { Vec, v, add, sub, scale, cross, dot, dist, perp, distToSeg } from "../geometry/vec";
-import { arcLength, arcFlatten } from "../geometry/arc";
+import { arcLength, arcFlatten, arcPointAt, arcTangentAt } from "../geometry/arc";
+import { wallLength } from "../model/ops";
 
 /**
  * A route's waypoints resolved to world mm: an anchored point reads the
@@ -22,22 +24,48 @@ export function resolveRoutePoints(floor: Floor, route: Route): Vec[] {
       const sym = floor.symbols.find(s => s.id === p.anchor);
       if (sym) return v(sym.x, sym.y);
     }
+    if (p.wallId && p.wallT !== undefined) {
+      const wall = floor.walls.find(w => w.id === p.wallId);
+      if (wall) {
+        const a = floor.nodes.find(n => n.id === wall.a), b = floor.nodes.find(n => n.id === wall.b);
+        if (a && b) {
+          const length = wallLength(floor, wall);
+          const frac = length > 0 ? Math.max(0, Math.min(1, p.wallT / length)) : 0;
+          const A = v(a.x, a.y), B = v(b.x, b.y);
+          const center = arcPointAt(A, B, wall.bulge, frac);
+          if (routeInstallation(route) === "surface") {
+            const normal = perp(arcTangentAt(A, B, wall.bulge, frac));
+            return add(center, scale(normal, (p.wallSide ?? 1) * wall.thickness / 2));
+          }
+          return center;
+        }
+      }
+    }
     return v(p.x, p.y);
   });
+}
+
+function pointMap(route: Route, points: Vec[]): Map<string, Vec> {
+  return new Map(route.points.map((p, i) => [p.id, points[i]!]));
 }
 
 /** Arc-aware total length of a route, mm, following anchored points. */
 export function routeLength(floor: Floor, route: Route): number {
   const pts = resolveRoutePoints(floor, route);
+  const byId = pointMap(route, pts);
   let total = 0;
-  for (let i = 0; i + 1 < pts.length; i++) {
-    total += arcLength(pts[i]!, pts[i + 1]!, route.points[i]?.bulge ?? 0);
+  for (const segment of route.segments) {
+    const a = byId.get(segment.a), b = byId.get(segment.b);
+    if (a && b) total += arcLength(a, b, segment.bulge ?? 0);
   }
   return total;
 }
 
 /** One drawn segment of a resolved route: straight, or a preserved arc. */
 export interface ResolvedRouteSegment {
+  id: string;
+  pointA: string;
+  pointB: string;
   a: Vec;
   b: Vec;
   /** 0 for a straight segment -- possibly nudged sideways for legibility, see
@@ -156,13 +184,16 @@ function laneOffsets(routes: Route[], segs: SegRef[]): Map<string, Vec> {
 export function resolveRoutes(floor: Floor): ResolvedRoute[] {
   const routes = routesOf(floor);
   const resolvedPts = routes.map(r => resolveRoutePoints(floor, r));
+  const resolvedMaps = routes.map((r, i) => pointMap(r, resolvedPts[i]!));
 
   const straightRefs: SegRef[] = [];
   routes.forEach((route, ri) => {
-    const pts = resolvedPts[ri]!;
-    for (let si = 0; si + 1 < pts.length; si++) {
-      if ((route.points[si]?.bulge ?? 0) !== 0) continue; // arcs are not bundled
-      const a = pts[si]!, b = pts[si + 1]!;
+    const pts = resolvedMaps[ri]!;
+    for (let si = 0; si < route.segments.length; si++) {
+      const segment = route.segments[si]!;
+      if ((segment.bulge ?? 0) !== 0) continue; // arcs are not bundled
+      const a = pts.get(segment.a), b = pts.get(segment.b);
+      if (!a || !b) continue;
       const len = dist(a, b);
       if (len < 1) continue;
       straightRefs.push({ ri, si, a, b, dir: scale(sub(b, a), 1 / len), len });
@@ -171,13 +202,18 @@ export function resolveRoutes(floor: Floor): ResolvedRoute[] {
   const offsets = laneOffsets(routes, straightRefs);
 
   return routes.map((route, ri) => {
-    const pts = resolvedPts[ri]!;
+    const pts = resolvedMaps[ri]!;
     const segments: ResolvedRouteSegment[] = [];
-    for (let si = 0; si + 1 < pts.length; si++) {
-      const bulge = route.points[si]?.bulge ?? 0;
-      const a0 = pts[si]!, b0 = pts[si + 1]!;
+    for (let si = 0; si < route.segments.length; si++) {
+      const segment = route.segments[si]!;
+      const bulge = segment.bulge ?? 0;
+      const a0 = pts.get(segment.a), b0 = pts.get(segment.b);
+      if (!a0 || !b0) continue;
       const off = bulge === 0 ? offsets.get(`${ri}:${si}`) : undefined;
-      segments.push(off ? { a: add(a0, off), b: add(b0, off), bulge: 0 } : { a: a0, b: b0, bulge });
+      const base = { id: segment.id, pointA: segment.a, pointB: segment.b };
+      segments.push(off
+        ? { ...base, a: add(a0, off), b: add(b0, off), bulge: 0 }
+        : { ...base, a: a0, b: b0, bulge });
     }
     return { route, segments };
   });
@@ -266,13 +302,32 @@ export function routeWaterSummaries(floor: Floor): RouteWaterSummary[] {
     a.water === b.water ? a.diameter - b.diameter : ROUTE_WATERS.indexOf(a.water) - ROUTE_WATERS.indexOf(b.water));
 }
 
-/** True when `p` (world mm) lands within `margin` of the resolved route. */
-export function routeHit(resolved: ResolvedRoute, p: Vec, margin: number): boolean {
+export interface RouteGasSummary { diameter: number; lengthMm: number }
+
+export function routeGasSummaries(floor: Floor): RouteGasSummary[] {
+  const byDiameter = new Map<number, number>();
+  for (const route of routesOf(floor)) {
+    if (route.discipline !== "gas") continue;
+    const diameter = route.diameter ?? 15;
+    byDiameter.set(diameter, (byDiameter.get(diameter) ?? 0) + routeLength(floor, route));
+  }
+  return [...byDiameter.entries()].map(([diameter, lengthMm]) => ({ diameter, lengthMm }))
+    .sort((a, b) => a.diameter - b.diameter);
+}
+
+/** Shortest world-mm distance from `p` to the resolved route. */
+export function routeDistance(resolved: ResolvedRoute, p: Vec): number {
+  let best = Infinity;
   for (const seg of resolved.segments) {
     const pts = seg.bulge === 0 ? [seg.a, seg.b] : arcFlatten(seg.a, seg.b, seg.bulge, 2);
     for (let i = 0; i + 1 < pts.length; i++) {
-      if (distToSeg(p, pts[i]!, pts[i + 1]!).d <= margin) return true;
+      best = Math.min(best, distToSeg(p, pts[i]!, pts[i + 1]!).d);
     }
   }
-  return false;
+  return best;
+}
+
+/** True when `p` (world mm) lands within `margin` of the resolved route. */
+export function routeHit(resolved: ResolvedRoute, p: Vec, margin: number): boolean {
+  return routeDistance(resolved, p) <= margin;
 }

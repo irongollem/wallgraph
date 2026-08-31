@@ -115,15 +115,44 @@ export function drawRoute(
   strokePath(ctx, resolved.segments);
   if (dashed) ctx.setLineDash([]);
 
+  const degree = new Map<string, number>();
+  for (const s of resolved.route.segments) {
+    degree.set(s.a, (degree.get(s.a) ?? 0) + 1);
+    degree.set(s.b, (degree.get(s.b) ?? 0) + 1);
+  }
   for (let i = 0; i < waypoints.length; i++) {
     const p = waypoints[i]!;
-    if (points[i]?.anchor) {
+    const point = points[i]!;
+    const n = degree.get(point.id) ?? 0;
+    if (n >= 3) {
+      dot(ctx, p.x, p.y, DOT_R_MM + 12);
+    } else if (n === 1 && point.anchor) {
       ctx.beginPath();
       circle(ctx, p.x, p.y, CIRCLE_R_MM);
       ctx.stroke();
-    } else {
-      dot(ctx, p.x, p.y, DOT_R_MM);
+    } else if (n === 1 && point.terminal === "capped") {
+      const segment = resolved.segments.find(s => s.pointA === point.id || s.pointB === point.id);
+      if (segment) {
+        const other = segment.pointA === point.id ? segment.b : segment.a;
+        const d = VecNorm({ x: p.x - other.x, y: p.y - other.y });
+        const q = { x: -d.y * 55, y: d.x * 55 };
+        ctx.beginPath(); ctx.moveTo(p.x - q.x, p.y - q.y); ctx.lineTo(p.x + q.x, p.y + q.y); ctx.stroke();
+      }
+    } else if (n === 1 && point.terminal === "source") {
+      const r = 52;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y - r); ctx.lineTo(p.x + r, p.y); ctx.lineTo(p.x, p.y + r);
+      ctx.lineTo(p.x - r, p.y); ctx.closePath(); ctx.stroke();
+    } else if (n === 1) {
+      // An unclassified loose endpoint remains visibly incomplete until it is
+      // anchored to a device or marked as a source/cap.
+      ctx.beginPath(); circle(ctx, p.x, p.y, CIRCLE_R_MM); ctx.stroke();
     }
   }
   ctx.restore();
+}
+
+function VecNorm(p: Vec): Vec {
+  const length = Math.hypot(p.x, p.y);
+  return length > 0 ? { x: p.x / length, y: p.y / length } : { x: 1, y: 0 };
 }

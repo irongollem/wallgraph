@@ -132,7 +132,7 @@ function boundsOf(pts: readonly Vec[]): { min: Vec; max: Vec } {
   const vide = { id: "vd1", x: 3000, y: 8000, rotation: 0, width: 1200, depth: 2600 };
   f.vides = [vide];
   // One route, three waypoints.
-  f.routes = [{ id: "rt1", discipline: "electrical", points: [{ x: 3000, y: 10500 }, { x: 3200, y: 10500 }, { x: 3200, y: 10700 }] }];
+  f.routes = [{ id: "rt1", discipline: "electrical", points: [{ id: "p0", x: 3000, y: 10500 }, { id: "p1", x: 3200, y: 10500 }, { id: "p2", x: 3200, y: 10700 }] , segments: [{ id: "s0", a: "p0", b: "p1" }, { id: "s1", a: "p1", b: "p2" }]}];
   // Two walls with an opening on the first.
   const n = (x: number, y: number) => { const id = newId("n"); f.nodes.push({ id, x, y }); return id; };
   const wa = n(0, 13000), wb = n(2000, 13000), wc = n(2000, 15000);

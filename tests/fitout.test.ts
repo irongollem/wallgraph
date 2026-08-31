@@ -188,35 +188,35 @@ function docWith(areaMode?: AreaMode): PlanDoc {
   // Ends inside the room, no stated flow -> counted as an unstated toevoer run.
   const toevoerUnstated: Route = {
     id: "toevoer-in", discipline: "vent",
-    points: [{ x: -2000, y: 3000 }, { x: 4000, y: 3000 }],
+    points: [{ id: "p0", x: -2000, y: 3000 }, { id: "p1", x: 4000, y: 3000 }], segments: [{ id: "s0", a: "p0", b: "p1" }],
   };
   // Ends inside the room, stated flow -> summed.
   const toevoerStated: Route = {
     id: "toevoer-in2", discipline: "vent",
-    points: [{ x: -2000, y: 2000 }, { x: 3000, y: 2000 }], flow: 40,
+    points: [{ id: "p0", x: -2000, y: 2000 }, { id: "p1", x: 3000, y: 2000 }], segments: [{ id: "s0", a: "p0", b: "p1" }], flow: 40,
   };
   const afvoerStated: Route = {
     id: "afvoer-in", discipline: "vent", vent: "afvoer",
-    points: [{ x: -2000, y: 4000 }, { x: 5000, y: 4000 }], flow: 60,
+    points: [{ id: "p0", x: -2000, y: 4000 }, { id: "p1", x: 5000, y: 4000 }], segments: [{ id: "s0", a: "p0", b: "p1" }], flow: 60,
   };
   const afvoerUnstated: Route = {
     id: "afvoer-in-unstated", discipline: "vent", vent: "afvoer",
-    points: [{ x: -2000, y: 4500 }, { x: 4500, y: 4500 }],
+    points: [{ id: "p0", x: -2000, y: 4500 }, { id: "p1", x: 4500, y: 4500 }], segments: [{ id: "s0", a: "p0", b: "p1" }],
   };
   // Ends outside the room entirely -- must not contribute, however much it states.
   const outside: Route = {
     id: "toevoer-out", discipline: "vent",
-    points: [{ x: -2000, y: -2000 }, { x: -1000, y: -1000 }], flow: 999,
+    points: [{ id: "p0", x: -2000, y: -2000 }, { id: "p1", x: -1000, y: -1000 }], segments: [{ id: "s0", a: "p0", b: "p1" }], flow: 999,
   };
   // Starts inside the room but ENDS outside it -- passing through, not terminating.
   const passingThrough: Route = {
     id: "toevoer-through", discipline: "vent",
-    points: [{ x: 4000, y: 3000 }, { x: -3000, y: 3000 }], flow: 500,
+    points: [{ id: "p0", x: 4000, y: 3000 }, { id: "p1", x: -3000, y: 3000 }], segments: [{ id: "s0", a: "p0", b: "p1" }], flow: 500,
   };
   // Ends inside the room, but is not a vent route -- must be ignored regardless.
   const otherDiscipline: Route = {
     id: "elec", discipline: "electrical",
-    points: [{ x: -2000, y: 3000 }, { x: 4000, y: 3000 }],
+    points: [{ id: "p0", x: -2000, y: 3000 }, { id: "p1", x: 4000, y: 3000 }], segments: [{ id: "s0", a: "p0", b: "p1" }],
   };
   f.routes = [toevoerUnstated, toevoerStated, afvoerStated, afvoerUnstated, outside, passingThrough, otherDiscipline];
 

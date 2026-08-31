@@ -17,11 +17,12 @@ import {
   Cabinet, CabinetSpec, cabinetDefaults, cabinetPreset, clampCabinet,
 } from "../model/cabinet";
 import {
-  Route, RoutePoint, Discipline, RouteKind, ROUTE_VEINS_DEFAULT, clampRouteVeins,
-  RouteWater, clampRouteDiameter, defaultRouteDiameter,
+  Route, RoutePoint, RouteSegment, Discipline, RouteKind, ROUTE_VEINS_DEFAULT, clampRouteVeins,
+  RouteWater, routeWater, clampRouteDiameter, defaultRouteDiameter,
   RouteVent, VENT_DIAMETER_DEFAULT, clampDuctDiameter, clampRouteFlow,
+  RouteInstallation, routeInstallation,
 } from "../model/route";
-import { resolveRoutePoints, resolveRoutes, routeHit, ResolvedRoute } from "../core/route";
+import { resolveRoutePoints, resolveRoutes, routeDistance, ResolvedRoute } from "../core/route";
 import {
   nodeAt, splitWall, nearestWall, wallOnRay, wallLength, mergeNodes, deleteWall, clampOpening,
   cleanOrphanNodes, insertWall, insertRun, deleteRoomNames, cloneOnFloor, MIN_WALL_MM,
@@ -32,7 +33,7 @@ import {
   WallShape, WALL_SHAPES, ShapeRun, shapeRun, clampSides, POLYGON_DEFAULT_SIDES,
 } from "../model/shape";
 import { Viewport } from "../render/viewport";
-import { Vec, v, add, sub, scale, norm, perp, dist, mid, angleOf, fromAngle, dot, pointInPolygon } from "../geometry/vec";
+import { Vec, v, add, sub, scale, norm, perp, dist, distToSeg, mid, angleOf, fromAngle, dot, pointInPolygon } from "../geometry/vec";
 import { arcInfo, arcPointAt, arcTangentAt, bulgeFromSagitta } from "../geometry/arc";
 import { getSymbol, SymbolDef, SYMBOL_TYPES } from "../render/symbols";
 import { dot as drawDot, circle as drawOpenCircle } from "../render/symbols/defs";
@@ -82,8 +83,6 @@ const ROOM_LABEL_HIT_PX = { x: 52, y: 11 };
  */
 const WALL_SNAP_MIN_MM = 150;
 
-/** How far a route stands off a wall's centerline when it hugs one, mm. */
-const ROUTE_WALL_HUG_MM = 30;
 /** Shortest step the route tool accepts between two waypoints, mm -- same
  *  figure the wall tool uses for the same reason (MIN_WALL_MM). */
 const MIN_ROUTE_STEP_MM = MIN_WALL_MM;
@@ -192,6 +191,7 @@ export class Tools {
    */
   routeWater: RouteWater = "koud";
   routeDiameter: number = defaultRouteDiameter("koud");
+  routeGasDiameter = 15;
   /**
    * Vent-only fields for the next route -- sticky like routeDiscipline, the
    * same way the electrical and water fields above are. `routeFlow` is the
@@ -205,13 +205,18 @@ export class Tools {
   routeVent: RouteVent = "toevoer";
   routeDuctDiameter: number = VENT_DIAMETER_DEFAULT;
   routeFlow: number | undefined = undefined;
+  routeInstallation: RouteInstallation = "concealed";
+  routeHeight = 0;
+  routeTag = "";
+  routeName = "";
+  routeBoard = "";
   /**
    * Per-discipline visibility. Editor state, like snapGrid -- not persisted,
    * no document impact, and no bearing on SVG/DXF exports (those draw every
    * discipline; see io/svg.ts and io/dxf.ts). All true by default: a floor
    * with routes on it opens showing them.
    */
-  showRoutes: Record<Discipline, boolean> = { electrical: true, water: true, vent: true };
+  showRoutes: Record<Discipline, boolean> = { electrical: true, water: true, vent: true, gas: true };
   /** World point the in-progress route chain last placed a point at, or null
    *  when no chain is open. */
   private routeStart: Vec | null = null;
@@ -220,9 +225,16 @@ export class Tools {
    *  see commitRoute(). Unlike the wall tool, nothing reaches the document
    *  until then, which is what makes the whole run one undo step. */
   private routePoints: RoutePoint[] = [];
+  /** Existing network being extended from one of its points. */
+  private routeTargetId: Id | null = null;
+  private routeSplit: { routeId: Id; segmentId: Id; point: RoutePoint } | null = null;
   /** The route tool's own snap: symbols and wall-hugging on top of what
    *  computeSnap already does. Recomputed on every move; see computeRouteSnap. */
-  private routeSnap: { p: Vec; anchor?: Id } | null = null;
+  private routeSnap: {
+    p: Vec; anchor?: Id; wallId?: Id; wallT?: number; wallSide?: 1 | -1;
+    routeId?: Id; routePointId?: Id;
+    routeSegmentId?: Id;
+  } | null = null;
 
   /**
    * The cabinet the tool will place next, and the named preset it came from.
@@ -407,6 +419,10 @@ export class Tools {
 
   setTool(t: ToolName, symbolType?: string): void {
     this.tool = t;
+    if (t === "route" && this.store.sel?.kind === "route") {
+      const route = routesOf(this.floor).find(r => r.id === this.store.sel!.id);
+      if (route) this.routeDiscipline = route.discipline;
+    }
     if (symbolType) this.symbolType = symbolType;
     // Armed with nothing would be a broken symbol tool: fall back to the first
     // palette entry if a type was never chosen.
@@ -537,6 +553,10 @@ export class Tools {
     this.shapeStart = null;
     this.routeStart = null;
     this.routePoints = [];
+    this.routeTargetId = null;
+    this.routeSplit = null;
+    this.routeTag = "";
+    this.routeName = "";
     this.lengthBuffer = "";
     this.drag = null;
     this.calibArmed = false;
@@ -1557,6 +1577,11 @@ export class Tools {
     this.onToolChange();
   }
 
+  setRouteGasDiameter(n: number): void {
+    this.routeGasDiameter = clampRouteDiameter(n);
+    this.onToolChange();
+  }
+
   /** Arm the toevoer/afvoer kind for the next vent run. Sticky, like routeDiscipline. */
   setRouteVent(v: RouteVent): void {
     this.routeVent = v;
@@ -1576,13 +1601,31 @@ export class Tools {
     this.onToolChange();
   }
 
+  setRouteInstallation(value: RouteInstallation): void {
+    this.routeInstallation = value;
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  setRouteHeight(n: number): void {
+    this.routeHeight = Math.max(0, Math.round(n));
+    this.onToolChange();
+  }
+
+  setRouteTag(value: string): void { this.routeTag = value.trim(); this.onToolChange(); }
+  setRouteName(value: string): void { this.routeName = value.trim(); this.onToolChange(); }
+  setRouteBoard(value: string): void { this.routeBoard = value.trim(); this.onToolChange(); }
+
   /**
    * A fixed 30 mm stand-off from the nearest wall's centerline, on the
    * cursor's side -- reusing wallSnap()'s own centerline-projection maths
    * (see its comment) rather than a symbol's half-thickness offset, since a
    * route is not mounted flush to the face the way a symbol is.
    */
-  private routeWallHug(p: Vec): Vec | null {
+  private routeWallHug(p: Vec, installation: RouteInstallation = this.routeInstallation): {
+    p: Vec; wallId: Id; wallT: number; wallSide: 1 | -1;
+  } | null {
+    if (!this.snapWall || installation === "free") return null;
     const f = this.floor;
     const nw = nearestWall(f, p, Math.max(WALL_SNAP_MIN_MM, 30 / this.vp.pxPerMm));
     if (!nw) return null;
@@ -1591,8 +1634,13 @@ export class Tools {
     const frac = Math.max(0, Math.min(1, nw.tMm / L));
     const pOn = arcPointAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, frac);
     const n = perp(arcTangentAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, frac));
-    const side = dot(sub(p, pOn), n) >= 0 ? 1 : -1;
-    return add(pOn, scale(n, ROUTE_WALL_HUG_MM * side));
+    const side: 1 | -1 = dot(sub(p, pOn), n) >= 0 ? 1 : -1;
+    const snapped = installation === "surface"
+      ? add(pOn, scale(n, (nw.wall.thickness / 2) * side))
+      : pOn;
+    return {
+      p: snapped, wallId: nw.wall.id, wallT: Math.round(frac * L), wallSide: side,
+    };
   }
 
   /**
@@ -1603,12 +1651,74 @@ export class Tools {
    * grid/whole-mm placement like every other tool. Ortho/45 lock applies
    * while a chain is open, the same rule computeSnap uses for a wall.
    */
-  private computeRouteSnap(raw: Vec): { p: Vec; anchor?: Id } {
+  private computeRouteSnap(
+    raw: Vec,
+    discipline: Discipline = this.routeDiscipline,
+    waterKind: RouteWater = this.routeWater,
+    installation: RouteInstallation = this.routeInstallation,
+  ): {
+    p: Vec; anchor?: Id; wallId?: Id; wallT?: number; wallSide?: 1 | -1;
+    routeId?: Id; routePointId?: Id;
+    routeSegmentId?: Id;
+  } {
     const f = this.floor;
     const tol = 12 / this.vp.pxPerMm;
 
+    const selected = this.routeTargetId
+      ? routesOf(f).find(r => r.id === this.routeTargetId)
+      : this.store.sel?.kind === "route" ? routesOf(f).find(r => r.id === this.store.sel!.id) : undefined;
+    if (selected && selected.discipline === discipline) {
+      const points = resolveRoutePoints(f, selected);
+      let best = -1, bestDistance = Infinity;
+      for (let i = 0; i < points.length; i++) {
+        const d = dist(points[i]!, raw);
+        if (d <= tol && d < bestDistance) { best = i; bestDistance = d; }
+      }
+      if (best >= 0) return {
+        p: points[best]!, routeId: selected.id, routePointId: selected.points[best]!.id,
+      };
+      const resolved = resolveRoutes(f).find(rr => rr.route.id === selected.id);
+      let bestSegment: {
+        id: Id; p: Vec; d: number; wallId?: Id; wallT?: number; wallSide?: 1 | -1;
+      } | undefined;
+      for (const segment of resolved?.segments ?? []) {
+        if (segment.bulge !== 0) continue;
+        const hit = distToSeg(raw, segment.a, segment.b);
+        if (hit.d <= tol && (!bestSegment || hit.d < bestSegment.d)) {
+          const rawSegment = selected.segments.find(item => item.id === segment.id);
+          const pointA = rawSegment && selected.points.find(point => point.id === rawSegment.a);
+          const pointB = rawSegment && selected.points.find(point => point.id === rawSegment.b);
+          const sameWall = pointA?.wallId && pointA.wallId === pointB?.wallId
+            && pointA.wallT !== undefined && pointB.wallT !== undefined;
+          bestSegment = {
+            id: segment.id, d: hit.d,
+            p: add(segment.a, scale(sub(segment.b, segment.a), hit.t)),
+            ...(sameWall ? {
+              wallId: pointA.wallId,
+              wallT: Math.round(pointA.wallT! + (pointB!.wallT! - pointA.wallT!) * hit.t),
+              wallSide: pointA.wallSide ?? pointB?.wallSide,
+            } : {}),
+          };
+        }
+      }
+      if (bestSegment) return {
+        p: bestSegment.p, routeId: selected.id, routeSegmentId: bestSegment.id,
+        wallId: bestSegment.wallId, wallT: bestSegment.wallT, wallSide: bestSegment.wallSide,
+      };
+    }
+
     let bestSym: SymbolInstance | null = null, bestD = Infinity;
     for (const s of f.symbols) {
+      const def = getSymbol(s.type);
+      const compatible = def && (
+        (discipline === "electrical" && def.category === "electrical")
+        || (discipline === "water" && (waterKind === "afvoer"
+          ? ["sanitary", "kitchen"].includes(def.category)
+          : ["water", "sanitary", "kitchen"].includes(def.category)))
+        || (discipline === "vent" && def.category === "ventilation")
+        || (discipline === "gas" && ["heating", "kitchen"].includes(def.category))
+      );
+      if (!compatible && !this.altKey) continue;
       const d = dist(v(s.x, s.y), raw);
       if (d <= tol && d < bestD) { bestSym = s; bestD = d; }
     }
@@ -1626,8 +1736,8 @@ export class Tools {
       p = add(this.routeStart, scale(dir, dot(d, dir)));
     }
 
-    const hug = this.routeWallHug(p);
-    if (hug) return { p: hug };
+    const hug = this.routeWallHug(p, installation);
+    if (hug) return hug;
 
     const g = this.gridStep;
     return { p: v(Math.round(p.x / g) * g, Math.round(p.y / g) * g) };
@@ -1642,15 +1752,29 @@ export class Tools {
     const snap = this.routeSnap ?? this.computeRouteSnap(this.cursor);
     let target = snap.p;
     let anchor = snap.anchor;
+    let exactLength = false;
     if (this.routeStart && this.lengthBuffer) {
       const mm = parseFloat(this.lengthBuffer);
       if (isFinite(mm) && mm > 0) {
         target = add(this.routeStart, scale(norm(sub(target, this.routeStart)), mm));
         anchor = undefined; // a typed length overrides wherever the pointer landed
+        exactLength = true;
       }
     }
-    const pt: RoutePoint = { x: Math.round(target.x), y: Math.round(target.y) };
+    const pt: RoutePoint = {
+      id: !exactLength && snap.routePointId ? snap.routePointId : newId("rp"),
+      x: Math.round(target.x), y: Math.round(target.y),
+    };
+    if (!this.routeStart && snap.routeId) this.routeTargetId = snap.routeId;
+    if (!this.routeStart && snap.routeId && snap.routeSegmentId) {
+      this.routeSplit = { routeId: snap.routeId, segmentId: snap.routeSegmentId, point: pt };
+    }
     if (anchor) pt.anchor = anchor;
+    if (!exactLength && !anchor && snap.wallId && snap.wallT !== undefined) {
+      pt.wallId = snap.wallId;
+      pt.wallT = snap.wallT;
+      pt.wallSide = snap.wallSide;
+    }
     if (!this.routeStart) {
       this.routePoints = [pt];
     } else {
@@ -1672,7 +1796,19 @@ export class Tools {
    */
   private commitRoute(): void {
     if (this.routePoints.length >= 2) {
-      const route: Route = { id: newId("rt"), discipline: this.routeDiscipline, points: this.routePoints };
+      const segments: RouteSegment[] = [];
+      for (let i = 0; i + 1 < this.routePoints.length; i++) {
+        segments.push({ id: newId("rse"), a: this.routePoints[i]!.id, b: this.routePoints[i + 1]!.id });
+      }
+      const route: Route = {
+        id: newId("rt"), discipline: this.routeDiscipline,
+        points: this.routePoints, segments,
+      };
+      if (this.routeTag) route.tag = this.routeTag;
+      if (this.routeName) route.name = this.routeName;
+      if (this.routeBoard && this.routeDiscipline === "electrical") route.board = this.routeBoard;
+      if (this.routeInstallation !== "concealed") route.installation = this.routeInstallation;
+      if (this.routeHeight > 0) route.height = this.routeHeight;
       // Electrical vocabulary, only when it applies and only when it says
       // something a reader would not already assume -- the armed defaults
       // (power, 3 aders) are left unstated, the way an absent Cabinet.hinge
@@ -1692,27 +1828,64 @@ export class Tools {
         if (this.routeVent !== "toevoer") route.vent = this.routeVent;
         if (this.routeDuctDiameter !== VENT_DIAMETER_DEFAULT) route.ductDiameter = this.routeDuctDiameter;
         if (this.routeFlow !== undefined) route.flow = this.routeFlow;
+      } else if (this.routeDiscipline === "gas") {
+        if (this.routeGasDiameter !== 15) route.diameter = this.routeGasDiameter;
       }
-      this.store.mutate(doc => {
-        (this.store.floorOf(doc).routes ??= []).push(route);
-      });
-      this.store.select({ kind: "route", id: route.id });
+      if (this.routeTargetId) {
+        const targetId = this.routeTargetId;
+        this.store.mutate(doc => {
+          const target = routesOf(this.store.floorOf(doc)).find(r => r.id === targetId);
+          if (!target) return;
+          if (this.routeSplit?.routeId === targetId) {
+            const index = target.segments.findIndex(s => s.id === this.routeSplit!.segmentId);
+            const original = target.segments[index];
+            if (original) {
+              target.segments.splice(index, 1,
+                { id: newId("rse"), a: original.a, b: this.routeSplit.point.id },
+                { id: newId("rse"), a: this.routeSplit.point.id, b: original.b });
+            }
+          }
+          const known = new Set(target.points.map(p => p.id));
+          target.points.push(...route.points.filter(p => !known.has(p.id)));
+          const edgeKeys = new Set(target.segments.map(s => [s.a, s.b].sort().join("|")));
+          target.segments.push(...route.segments.filter(s => !edgeKeys.has([s.a, s.b].sort().join("|"))));
+          const degree = new Map<Id, number>();
+          for (const segment of target.segments) {
+            degree.set(segment.a, (degree.get(segment.a) ?? 0) + 1);
+            degree.set(segment.b, (degree.get(segment.b) ?? 0) + 1);
+          }
+          for (const point of target.points) if ((degree.get(point.id) ?? 0) !== 1) delete point.terminal;
+        });
+        this.store.select({ kind: "route", id: targetId });
+      } else {
+        this.store.mutate(doc => { (this.store.floorOf(doc).routes ??= []).push(route); });
+        this.store.select({ kind: "route", id: route.id });
+      }
     }
     this.routeStart = null;
     this.routePoints = [];
+    this.routeTargetId = null;
+    this.routeSplit = null;
+    this.routeTag = "";
+    this.routeName = "";
     this.lengthBuffer = "";
     this.requestRender();
   }
 
-  /** Topmost route whose resolved line (plus a grab margin) covers `w`. */
+  /** Visually nearest route within the grab margin. Corridor lanes often have
+   * overlapping hit areas, so document order is only a final exact-tie break. */
   private routeAt(w: Vec): { route: Route; resolved: ResolvedRoute } | undefined {
     const all = resolveRoutes(this.floor);
     const tol = Math.max(15, 12 / this.vp.pxPerMm);
+    let best: { route: Route; resolved: ResolvedRoute; distance: number } | undefined;
     for (let i = all.length - 1; i >= 0; i--) {
       const rr = all[i]!;
-      if (routeHit(rr, w, tol)) return { route: rr.route, resolved: rr };
+      const distance = routeDistance(rr, w);
+      if (distance <= tol && (!best || distance < best.distance)) {
+        best = { route: rr.route, resolved: rr, distance };
+      }
     }
-    return undefined;
+    return best;
   }
 
   // ---- cabinets ----
@@ -2361,13 +2534,26 @@ export class Tools {
       }, "drag" + d.id);
     } else if (d.kind === "routeVertex") {
       const idx = d.pointIndex!;
-      const snap = this.computeRouteSnap(w);
+      const currentRoute = routesOf(this.floor).find(route => route.id === d.id);
+      const snap = this.computeRouteSnap(w, currentRoute?.discipline,
+        currentRoute?.discipline === "water" ? routeWater(currentRoute) : this.routeWater,
+        currentRoute ? routeInstallation(currentRoute) : this.routeInstallation);
       this.store.mutate(doc => {
         const route = routesOf(this.store.floorOf(doc)).find(x => x.id === d.id);
         const pt = route?.points[idx];
         if (!pt) return;
         pt.x = Math.round(snap.p.x); pt.y = Math.round(snap.p.y);
-        if (snap.anchor) pt.anchor = snap.anchor; else delete pt.anchor;
+        if (snap.anchor) {
+          pt.anchor = snap.anchor;
+          delete pt.wallId; delete pt.wallT; delete pt.wallSide;
+        } else {
+          delete pt.anchor;
+          if (snap.wallId && snap.wallT !== undefined) {
+            pt.wallId = snap.wallId; pt.wallT = snap.wallT; pt.wallSide = snap.wallSide;
+          } else {
+            delete pt.wallId; delete pt.wallT; delete pt.wallSide;
+          }
+        }
       }, "drag" + d.id + ":" + idx);
     }
   }

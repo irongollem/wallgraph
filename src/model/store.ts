@@ -120,8 +120,9 @@ export class Store {
       // lookup ambiguous and let an edit on one floor hit another.
       const nodeMap = new Map<Id, Id>();
       for (const n of copy.nodes) { const id = newId("n"); nodeMap.set(n.id, id); n.id = id; }
+      const wallMap = new Map<Id, Id>();
       for (const w of copy.walls) {
-        w.id = newId("w");
+        const wallId = newId("w"); wallMap.set(w.id, wallId); w.id = wallId;
         w.a = nodeMap.get(w.a) ?? w.a;
         w.b = nodeMap.get(w.b) ?? w.b;
         for (const o of w.openings) o.id = newId("o");
@@ -139,13 +140,25 @@ export class Store {
       for (const cb of copy.cabinets ?? []) cb.id = newId("k");
       for (const rt of copy.routes ?? []) {
         rt.id = newId("rt");
+        const pointMap = new Map<Id, Id>();
         for (const p of rt.points) {
+          const pointId = newId("rp"); pointMap.set(p.id, pointId); p.id = pointId;
+          if (p.wallId) {
+            const wallId = wallMap.get(p.wallId);
+            if (wallId) p.wallId = wallId;
+            else { delete p.wallId; delete p.wallT; delete p.wallSide; }
+          }
           if (!p.anchor) continue;
           const mapped = symMap.get(p.anchor);
           // A dangling anchor stays dangling rather than pointing at whatever
           // fresh symbol id happens to come next; it falls back to its stored
           // x/y at derive time, same as on the original floor.
           if (mapped) p.anchor = mapped; else delete p.anchor;
+        }
+        for (const segment of rt.segments) {
+          segment.id = newId("rse");
+          segment.a = pointMap.get(segment.a) ?? segment.a;
+          segment.b = pointMap.get(segment.b) ?? segment.b;
         }
       }
       // Room names do not come up with the walls. A name is authored, and it

@@ -14,9 +14,10 @@ import {
   clampRouteDiameter, defaultRouteDiameter,
   RouteVent, ROUTE_VENTS, routeVent, VENT_DIAMETERS, VENT_DIAMETER_DEFAULT,
   routeDuctDiameter, clampDuctDiameter, routeFlow, clampRouteFlow,
+  RouteInstallation, ROUTE_INSTALLATIONS, routeInstallation,
 } from "../model/route";
 import {
-  routeLength, routeGroupSummaries, routeKindSummaries, routeWaterSummaries,
+  routeLength, routeGroupSummaries, routeKindSummaries, routeWaterSummaries, routeGasSummaries,
 } from "../core/route";
 import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
@@ -39,6 +40,32 @@ function waterOptions(): Array<[string, string]> {
 
 function ventOptions(): Array<[string, string]> {
   return ROUTE_VENTS.map(v => [v, t("panel.routeVent" + v[0]!.toUpperCase() + v.slice(1))]);
+}
+
+function installationOptions(): Array<[string, string]> {
+  return ROUTE_INSTALLATIONS.map(value => [value,
+    t("panel.routeInstallation" + value[0]!.toUpperCase() + value.slice(1))]);
+}
+
+interface IdentityFields {
+  tag: string;
+  name: string;
+  board: string;
+  installation: RouteInstallation;
+  height: number;
+}
+
+function identityRows(
+  rows: RouteRows, discipline: Discipline, fields: IdentityFields,
+  commit: (patch: Partial<IdentityFields>) => void,
+): void {
+  rows.textRow(t("panel.routeTag"), fields.tag, tag => commit({ tag: tag.trim() }));
+  rows.textRow(t("panel.routeName"), fields.name, name => commit({ name: name.trim() }));
+  if (discipline === "electrical")
+    rows.textRow(t("panel.routeBoard"), fields.board, board => commit({ board: board.trim() }));
+  rows.selRow(t("panel.routeInstallation"), fields.installation, installationOptions(),
+    value => commit({ installation: value as RouteInstallation }));
+  rows.numRow(t("panel.routeHeight"), fields.height, height => commit({ height: Math.max(0, Math.round(height)) }), 50);
 }
 
 /** The chip row's ordinary options; a typed value reaches further (see
@@ -115,6 +142,11 @@ function waterRows(
   rows.chipRow(t("panel.routeDiameter"), routeDiameterLadder(fields.water), fields.diameter, n => commit({ diameter: n }));
 }
 
+function gasRows(rows: RouteRows, diameter: number, commit: (diameter: number) => void): void {
+  rows.numRow(t("panel.routeDiameter"), diameter, commit, 1);
+  rows.chipRow(t("panel.routeDiameter"), routeDiameterLadder("koud"), diameter, commit);
+}
+
 interface VentFields {
   vent: RouteVent;
   ductDiameter: number;
@@ -157,7 +189,8 @@ function materialsRows(rows: RouteRows, floor: Floor): void {
   const groups = routeGroupSummaries(floor);
   const kinds = routeKindSummaries(floor);
   const waters = routeWaterSummaries(floor);
-  if (groups.length === 0 && kinds.length === 0 && waters.length === 0) return;
+  const gases = routeGasSummaries(floor);
+  if (groups.length === 0 && kinds.length === 0 && waters.length === 0 && gases.length === 0) return;
   rows.noteRow(t("panel.routeMaterialsNote"));
   for (const g of groups) {
     rows.infoRow(t("panel.routeMaterialsGroup", { group: g.group }),
@@ -175,6 +208,30 @@ function materialsRows(rows: RouteRows, floor: Floor): void {
     rows.infoRow(t("panel.routeMaterialsWater", { water: waterLabel, diameter: w.diameter }),
       `${Math.round(w.lengthMm)} mm`);
   }
+  for (const gas of gases)
+    rows.infoRow(t("panel.routeMaterialsGas", { diameter: gas.diameter }), `${Math.round(gas.lengthMm)} mm`);
+}
+
+function endpointRows(rows: RouteRows, store: Store, route: Route): void {
+  const degree = new Map<string, number>();
+  for (const segment of route.segments) {
+    degree.set(segment.a, (degree.get(segment.a) ?? 0) + 1);
+    degree.set(segment.b, (degree.get(segment.b) ?? 0) + 1);
+  }
+  const loose = route.points.filter(point => (degree.get(point.id) ?? 0) === 1 && !point.anchor);
+  for (let index = 0; index < loose.length; index++) {
+    const point = loose[index]!;
+    rows.selRow(t("panel.routeEndpoint", { n: index + 1 }), point.terminal ?? "open", [
+      ["open", t("panel.routeEndpointOpen")],
+      ["source", t("panel.routeEndpointSource")],
+      ["capped", t("panel.routeEndpointCapped")],
+    ], value => store.mutate(doc => {
+      const current = routesOf(store.floorOf(doc)).find(r => r.id === route.id)?.points.find(p => p.id === point.id);
+      if (!current) return;
+      if (value === "open") delete current.terminal;
+      else current.terminal = value as "source" | "capped";
+    }));
+  }
 }
 
 /** The discipline the next run will be drawn in, plus its armed properties. */
@@ -182,6 +239,16 @@ export function renderRouteTool(store: Store, tools: Tools, rows: RouteRows): vo
   rows.secHead(t("panel.newRoute"));
   rows.selRow(t("panel.routeDiscipline"), tools.routeDiscipline, disciplineOptions(),
     d => tools.setRouteDiscipline(d as Discipline));
+  identityRows(rows, tools.routeDiscipline, {
+    tag: tools.routeTag, name: tools.routeName, board: tools.routeBoard,
+    installation: tools.routeInstallation, height: tools.routeHeight,
+  }, patch => {
+    if (patch.tag !== undefined) tools.setRouteTag(patch.tag);
+    if (patch.name !== undefined) tools.setRouteName(patch.name);
+    if (patch.board !== undefined) tools.setRouteBoard(patch.board);
+    if (patch.installation !== undefined) tools.setRouteInstallation(patch.installation);
+    if (patch.height !== undefined) tools.setRouteHeight(patch.height);
+  });
   if (tools.routeDiscipline === "electrical") {
     electricalRows(rows, store.floor, {
       kind: tools.routeKind, veins: tools.routeVeins, group: tools.routeGroup, spec: tools.routeSpec,
@@ -202,6 +269,8 @@ export function renderRouteTool(store: Store, tools: Tools, rows: RouteRows): vo
       if (patch.ductDiameter !== undefined) tools.setRouteDuctDiameter(patch.ductDiameter);
       if ("flow" in patch) tools.setRouteFlow(patch.flow);
     });
+  } else if (tools.routeDiscipline === "gas") {
+    gasRows(rows, tools.routeGasDiameter, diameter => tools.setRouteGasDiameter(diameter));
   }
   rows.noteRow(t("panel.routeNote"));
   materialsRows(rows, store.floor);
@@ -227,9 +296,22 @@ export function renderRouteProps(store: Store, tools: Tools, rows: RouteRows, id
       // discipline -- dropped on the way out, the way a cabinet preset swap
       // rewrites every field the old preset wrote.
       if (r.discipline !== "electrical") { delete r.kind; delete r.veins; delete r.group; delete r.spec; }
-      if (r.discipline !== "water") { delete r.water; delete r.diameter; }
+      if (r.discipline !== "water") delete r.water;
+      if (r.discipline !== "water" && r.discipline !== "gas") delete r.diameter;
       if (r.discipline !== "vent") { delete r.vent; delete r.ductDiameter; delete r.flow; }
     }));
+  identityRows(rows, route.discipline, {
+    tag: route.tag ?? "", name: route.name ?? "", board: route.board ?? "",
+    installation: routeInstallation(route), height: route.height ?? 0,
+  }, patch => mut(r => {
+    if (patch.tag !== undefined) { if (patch.tag) r.tag = patch.tag; else delete r.tag; }
+    if (patch.name !== undefined) { if (patch.name) r.name = patch.name; else delete r.name; }
+    if (patch.board !== undefined) { if (patch.board) r.board = patch.board; else delete r.board; }
+    if (patch.installation !== undefined) {
+      if (patch.installation === "concealed") delete r.installation; else r.installation = patch.installation;
+    }
+    if (patch.height !== undefined) { if (patch.height > 0) r.height = patch.height; else delete r.height; }
+  }));
   if (route.discipline === "electrical") {
     electricalRows(rows, store.floor, {
       kind: routeKind(route), veins: routeVeins(route), group: route.group ?? "", spec: route.spec ?? "",
@@ -281,9 +363,15 @@ export function renderRouteProps(store: Store, tools: Tools, rows: RouteRows, id
         if (patch.flow === undefined) delete r.flow; else r.flow = clampRouteFlow(patch.flow);
       }
     }));
+  } else if (route.discipline === "gas") {
+    gasRows(rows, route.diameter ?? 15, diameter => mut(r => {
+      const d = clampRouteDiameter(diameter);
+      if (d === 15) delete r.diameter; else r.diameter = d;
+    }));
   }
   rows.infoRow(t("panel.routeLength"), `${Math.round(routeLength(store.floor, route))} mm`);
   rows.noteRow(t("panel.routePoints", { n: route.points.length }));
+  endpointRows(rows, store, route);
   materialsRows(rows, store.floor);
   rows.dangerRow(t("panel.deleteOpening"), () => tools.deleteSelected());
 }

@@ -204,7 +204,8 @@ function rectFloor(wallTh = 100) {
   {
     const rf: typeof f = { id: "rf", name: "", nodes: [], walls: [], symbols: [],
       routes: [{ id: "rt1", discipline: "electrical",
-        points: [{ x: 0, y: 0, bulge: 1 }, { x: 4000, y: 0 }] }] };
+        points: [{ id: "p0", x: 0, y: 0 }, { id: "p1", x: 4000, y: 0 }],
+        segments: [{ id: "s0", a: "p0", b: "p1", bulge: 1 }] }] };
     const rb = planBounds(rf, { walls: new Map(), junctions: [] })!;
     // bulge=1 is a full semicircle: sagitta == radius == chord/2 == 2000mm,
     // bowing toward perp((1,0)) = (0,1) -- the +y (down) side.

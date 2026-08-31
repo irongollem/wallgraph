@@ -2,7 +2,9 @@
 // imported from their source, and document objects reject unknown properties.
 import { SYMBOL_TYPES } from "../../src/render/symbols";
 import { STAIR_KINDS } from "../../src/model/stair";
-import { DISCIPLINES, ROUTE_KINDS, ROUTE_WATERS, ROUTE_VENTS } from "../../src/model/route";
+import {
+  DISCIPLINES, ROUTE_KINDS, ROUTE_WATERS, ROUTE_VENTS, ROUTE_INSTALLATIONS,
+} from "../../src/model/route";
 
 export type JsonSchema = Record<string, unknown>;
 
@@ -265,19 +267,28 @@ export function planSchema(siteUrl: string): JsonSchema {
       route: {
         type: "object",
         description:
-          "A manually drawn run of a building service -- electrical, water or " +
-          "ventilation -- as a switchable layer over the plan. Same DXF bulge " +
-          "convention as a wall's centerline: one bulge per point, for the segment " +
-          "leaving it toward the next.",
-        required: ["id", "discipline", "points"],
+          "An authored building-service network -- electrical, water, ventilation or " +
+          "gas -- as a switchable layer over the plan. Explicit point and segment ids " +
+          "form a graph, so shared trunks are stored once and may branch. Segments use " +
+          "the same DXF bulge convention as a wall's centerline.",
+        required: ["id", "discipline", "points", "segments"],
         additionalProperties: false,
         properties: {
           id: { $ref: "#/$defs/id" },
           discipline: { enum: [...DISCIPLINES] },
           points: {
-            type: "array", items: { $ref: "#/$defs/routePoint" },
+            type: "array", minItems: 2, items: { $ref: "#/$defs/routePoint" },
             description: "The run's waypoints, in order.",
           },
+          segments: {
+            type: "array", minItems: 1, items: { $ref: "#/$defs/routeSegment" },
+            description: "Explicit graph edges. Shared trunks occur once and branch at point ids.",
+          },
+          tag: { type: "string", description: "Short identifier printed on the plan." },
+          name: { type: "string", description: "Descriptive route/network name." },
+          board: { type: "string", description: "Electrical distribution board identifier." },
+          installation: { enum: [...ROUTE_INSTALLATIONS] },
+          height: { type: "integer", minimum: 0, description: "Height above finished floor, mm." },
           kind: {
             enum: [...ROUTE_KINDS],
             description:
@@ -312,9 +323,8 @@ export function planSchema(siteUrl: string): JsonSchema {
           diameter: {
             type: "integer", minimum: 8, maximum: 200,
             description:
-              "Water-only: nominal pipe diameter, mm. Meaningful only when discipline " +
-              "is \"water\". Absent defaults per water kind -- 15 for koud/warm, 50 " +
-              "for afvoer.",
+              "Water/gas nominal pipe diameter, mm. Water defaults per kind -- 15 for " +
+              "koud/warm, 50 for afvoer; gas defaults to 15.",
           },
           vent: {
             enum: [...ROUTE_VENTS],
@@ -341,22 +351,31 @@ export function planSchema(siteUrl: string): JsonSchema {
       routePoint: {
         type: "object",
         description:
-          "One waypoint. x/y are authoritative unless `anchor` resolves to a symbol " +
-          "still on the floor, in which case the symbol's own position is read " +
-          "instead at render time -- x/y then stand only as the fallback for a " +
-          "dangling anchor.",
-        required: ["x", "y"],
+          "One network node. x/y are the fallback position. A symbol anchor or wall " +
+          "attachment resolves dynamically, so connected services follow moved devices " +
+          "and walls.",
+        required: ["id", "x", "y"],
         additionalProperties: false,
         properties: {
+          id: { $ref: "#/$defs/id" },
           x: mm("mm."),
           y: mm("mm, positive down."),
-          bulge: {
-            type: "number",
-            description:
-              "DXF bulge for the segment leaving this point toward the next: 0 or " +
-              "absent is straight. Meaningless on a route's last point.",
-          },
           anchor: { $ref: "#/$defs/id", description: "A symbol instance id this point follows." },
+          wallId: { $ref: "#/$defs/id", description: "Wall followed by this point." },
+          wallT: mm("Distance from wall node a, mm."),
+          wallSide: { enum: [-1, 1], description: "Wall face for surface-mounted work." },
+          terminal: { enum: ["source", "capped"], description: "Explicit state of a free endpoint." },
+        },
+      },
+      routeSegment: {
+        type: "object",
+        required: ["id", "a", "b"],
+        additionalProperties: false,
+        properties: {
+          id: { $ref: "#/$defs/id" },
+          a: { $ref: "#/$defs/id" },
+          b: { $ref: "#/$defs/id" },
+          bulge: { type: "number", description: "DXF bulge from point a toward point b." },
         },
       },
       cabinet: {

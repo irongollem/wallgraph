@@ -13,7 +13,7 @@ import { exportPng } from "../io/image";
 import { exportDxf } from "../io/dxf";
 import { exportIfc } from "../io/ifc";
 import { exportSvg } from "../io/svg";
-import { exportPermit } from "../io/permit";
+import { exportPermit, PermitFormat } from "../io/permit";
 import { permitChecklist, PermitCheck } from "../core/permit";
 import { seedDoc } from "../seed";
 import {
@@ -472,10 +472,15 @@ export class Panel {
       : "status.svgFailed"));
   }
 
-  /** The permit sheet. Same shape as savePng: one flash, keys spelled out. */
-  private async savePermit(): Promise<void> {
-    const result = await exportPermit(this.store.doc, this.store.activeFloor);
-    this.flash(t(result === "saved" ? "status.permitSaved"
+  /**
+   * The permit sheet. Same shape as savePng: one flash, keys spelled out. PDF
+   * is what a submission takes and what holds the stated scale on its own; SVG
+   * is for a sheet that goes on into a report or an illustrator.
+   */
+  private async savePermit(format: PermitFormat): Promise<void> {
+    const result = await exportPermit(this.store.doc, this.store.activeFloor, format);
+    const suffix = format === "pdf" ? "Pdf" : "Svg";
+    this.flash(t(result === "saved" ? `status.permitSaved${suffix}`
       : result === "empty" ? "status.permitEmpty"
       : "status.permitFailed"));
   }
@@ -1376,7 +1381,8 @@ export class Panel {
     this.permitChecksEl = el("div");
     inner.append(this.permitChecksEl);
     noteRow(t("panel.permitNote"));
-    btnRow(t("panel.permitExport"), () => { void this.savePermit(); });
+    btnRow(t("panel.permitExport"), () => { void this.savePermit("pdf"); });
+    btnRow(t("panel.permitExportSvg"), () => { void this.savePermit("svg"); });
 
     wrap.append(head, body);
     this.syncPermitChecks();

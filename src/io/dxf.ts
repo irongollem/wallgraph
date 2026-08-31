@@ -33,6 +33,7 @@ import { routePrims } from "./route";
 import { routeKind, routeWater, routeVent, type Discipline } from "../model/route";
 import { saveViaHost, downloadBlob } from "./save";
 import { t } from "../i18n";
+import { routeMapLabel } from "../render/draw";
 
 export type DxfResult = "saved" | "empty" | "failed";
 
@@ -56,7 +57,7 @@ const LAYER = {
  *  all (see toDxf) -- unlike every other layer above, which is always
  *  declared even when its own kind of object is absent from the plan. */
 const ROUTE_LAYER: Record<Discipline, string> = {
-  electrical: "ROUTES-ELECTRICAL", water: "ROUTES-WATER", vent: "ROUTES-VENT",
+  electrical: "ROUTES-ELECTRICAL", water: "ROUTES-WATER", vent: "ROUTES-VENT", gas: "ROUTES-GAS",
 };
 
 /**
@@ -97,7 +98,7 @@ const ROUTE_VENT_AFVOER_LAYER = "ROUTES-VENT-AFVOER";
 const LAYER_COLOR: Record<string, number> = {
   WALLS: 7, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, ROOMS: 8,
   CABINETS: 6, "CABINETS-OVERHEAD": 6,
-  "ROUTES-ELECTRICAL": 1, "ROUTES-WATER": 5, "ROUTES-VENT": 2,
+  "ROUTES-ELECTRICAL": 1, "ROUTES-WATER": 5, "ROUTES-VENT": 2, "ROUTES-GAS": 2,
   "ROUTES-ELECTRICAL-DATA": 1, "ROUTES-WATER-AFVOER": 5, "ROUTES-VENT-AFVOER": 2,
 };
 
@@ -297,6 +298,12 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
           ? ROUTE_VENT_AFVOER_LAYER
           : ROUTE_LAYER[rr.route.discipline];
         emitPrims(w, layer, routePrims(rr));
+        const longest = [...rr.segments].sort((a, b) =>
+          Math.hypot(b.b.x - b.a.x, b.b.y - b.a.y) - Math.hypot(a.b.x - a.a.x, a.b.y - a.a.y))[0];
+        if (longest) {
+          w.text(layer, { x: (longest.a.x + longest.b.x) / 2, y: (longest.a.y + longest.b.y) / 2 },
+            120, routeMapLabel(rr.route));
+        }
       }
     }
 

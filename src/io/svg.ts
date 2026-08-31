@@ -9,15 +9,20 @@
 // millimetres and the viewBox matches them one-to-one, so printing at 100% puts
 // a 4000 mm wall on paper at 4 m. SVG's y axis runs down exactly as the
 // document's does, so — unlike DXF — nothing is flipped.
+//
+// The drawing itself is assembled as a scene (io/scene.ts) rather than as
+// markup, because io/pdf.ts renders the same scene onto the permit sheet.
+// This module is the SVG renderer for it plus the scene the plan makes.
 import { PlanDoc, Floor, areaModeOf, dimModeOf, stairsOf, videsOf, cabinetsOf, roomNamesOf } from "../model/doc";
 import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
-import { COLORS, routeInk, symbolInk } from "../render/draw";
+import { COLORS, routeInk, routeMapLabel, symbolInk } from "../render/draw";
 import { ROUTE_DATA_DASH, ROUTE_AFVOER_DASH, ROUTE_AFVOER_EXTRA_MM, ROUTE_VENT_EXTRA_MM, LINE_WIDTH_MM } from "../render/route";
 import { stairBox } from "../core/stair";
 import { recordSymbol, Prim } from "./record";
+import { Group, Item, Look, ROOT, arcSteps, group, onCircle, poly, resolve, text } from "./scene";
 import { openingMarks } from "./marks";
 import { stairPrims, stairRegionPrims } from "./stair";
 import { videPrims } from "./vide";
@@ -42,7 +47,21 @@ const W_WALL = 12;
 const W_OPENING = 12;
 const W_SYMBOL = 16;
 
+/** Label size in mm: about 12 px at the zoom the editor opens on, and still
+ *  legible when the drawing is printed small. */
+const LABEL_MM = 220;
+const SIZE_LABEL_MM = 200;
+
+const LABEL_FONT = "system-ui, sans-serif";
+
 const n = (v: number): string => (Math.round(v * 100) / 100).toString();
+
+/**
+ * Two decimals is a hundredth of a millimetre on a coordinate, and 0 at a
+ * sheet's scale factor: 1/200 would round to 1/100 and draw the plan at twice
+ * its stated scale. A transform's multiplier gets its own precision.
+ */
+const nk = (v: number): string => Number(v.toFixed(9)).toString();
 
 /** &, < and > would otherwise end the attribute or open a tag. */
 export function esc(s: string): string {
@@ -68,18 +87,19 @@ function polyPath(pts: Vec[], closed: boolean): string {
 /**
  * An arc as an SVG path. SVG's A command takes an endpoint plus flags rather
  * than angles: large-arc says whether to take the long way, and sweep says
- * which direction. Both fall out of the signed sweep the marks carry.
+ * which direction. Both fall out of the signed sweep the marks carry. The
+ * sweep is cut into half turns first, because a full circle's endpoints
+ * coincide and a single A between them draws nothing at all.
  */
 function arcPath(c: Vec, r: number, startDeg: number, sweepDeg: number): string {
-  const rad = (d: number): number => (d * Math.PI) / 180;
-  const from: Vec = { x: c.x + Math.cos(rad(startDeg)) * r, y: c.y + Math.sin(rad(startDeg)) * r };
-  const to: Vec = {
-    x: c.x + Math.cos(rad(startDeg + sweepDeg)) * r,
-    y: c.y + Math.sin(rad(startDeg + sweepDeg)) * r,
-  };
-  const large = Math.abs(sweepDeg) > 180 ? 1 : 0;
-  const sweep = sweepDeg >= 0 ? 1 : 0;
-  return `M${n(from.x)} ${n(from.y)} A${n(r)} ${n(r)} 0 ${large} ${sweep} ${n(to.x)} ${n(to.y)}`;
+  const steps = arcSteps(startDeg, sweepDeg, 180);
+  const first = onCircle(c, r, startDeg);
+  let d = `M${n(first.x)} ${n(first.y)}`;
+  for (const s of steps) {
+    const to = onCircle(c, r, s.from + s.sweep);
+    d += ` A${n(r)} ${n(r)} 0 0 ${s.sweep >= 0 ? 1 : 0} ${n(to.x)} ${n(to.y)}`;
+  }
+  return d;
 }
 
 function primPath(p: Prim): string {
@@ -89,219 +109,263 @@ function primPath(p: Prim): string {
   return "";
 }
 
+/** Text takes the pen's colour, falling back to the fill where there is no pen
+ *  — a room label carries no stroke, only a fill. */
+export function textInk(look: Look): string {
+  return look.ink !== "none" ? look.ink : look.fill;
+}
+
+/** What `primSvg` draws text with when no look is supplied: colour from
+ *  `currentColor`, so a caller sets it once on a wrapping element. */
+const STANDALONE: Look = { ...ROOT, ink: "currentColor", anchor: "middle", baseline: "central" };
+
 /**
  * One primitive as SVG. Exported because the site's symbol pages draw the same
  * library the same way — a page listing the symbols has to show what the editor
  * actually draws, and a second, hand-kept copy of that would be wrong within a
- * release. Colour comes from `currentColor`, so a caller sets it once on a
- * wrapping element.
+ * release.
  */
-export function primSvg(p: Prim): string {
+export function primSvg(p: Prim, look: Look = STANDALONE): string {
   if (p.kind === "text") {
+    const rot = look.rotate === 0 ? ""
+      : ` transform="rotate(${n(look.rotate)} ${n(p.at.x)} ${n(p.at.y)})"`;
     return `<text x="${n(p.at.x)}" y="${n(p.at.y)}" font-size="${n(p.size)}"` +
-      ` text-anchor="middle" dominant-baseline="central" fill="currentColor" stroke="none">${esc(p.text)}</text>`;
+      (look.family === "" ? "" : ` font-family="${look.family}"`) +
+      (look.bold ? ` font-weight="600"` : "") +
+      ` text-anchor="${look.anchor}"` +
+      ` dominant-baseline="${look.baseline === "central" ? "central" : "auto"}"` +
+      ` fill="${textInk(look)}" stroke="none"${rot}>${esc(p.text)}</text>`;
   }
   return `<path d="${primPath(p)}"/>`;
 }
 
+/** A group's own attributes: what it states, not what it inherited. */
+function groupAttrs(g: Group): string {
+  let a = "";
+  if (g.id !== undefined) a += ` id="${g.id}"`;
+  const tf = g.transform;
+  if (tf) {
+    a += tf.kind === "place"
+      ? ` transform="translate(${n(tf.tx)} ${n(tf.ty)}) scale(${nk(tf.k)})"`
+      : ` transform="rotate(${n(tf.deg)} ${n(tf.cx)} ${n(tf.cy)})"`;
+  }
+  const s = g.style;
+  if (s) {
+    if (s.fill !== undefined) a += ` fill="${s.fill}"`;
+    if (s.ink !== undefined) a += ` stroke="${s.ink}"`;
+    if (s.width !== undefined) a += ` stroke-width="${n(s.width)}"`;
+    if (s.dash !== undefined && s.dash.length > 0)
+      a += ` stroke-dasharray="${s.dash.map(n).join(" ")}"`;
+    if (s.cap !== undefined) a += ` stroke-linecap="${s.cap}"`;
+    if (s.join !== undefined) a += ` stroke-linejoin="${s.join}"`;
+  }
+  return a;
+}
+
+/** A scene as SVG markup, one string per element. */
+export function sceneSvg(items: readonly Item[], look: Look = ROOT): string[] {
+  const parts: string[] = [];
+  for (const it of items) {
+    if (it.kind === "group") {
+      parts.push(`<g${groupAttrs(it)}>`);
+      parts.push(...sceneSvg(it.items, resolve(look, it.style)));
+      parts.push(`</g>`);
+    } else {
+      parts.push(primSvg(it, look));
+    }
+  }
+  return parts;
+}
+
 /**
  * The drawing itself — every group from the room tint up to the labels, in
- * world millimetres, without the enclosing <svg> element. `toSvg` wraps it in
- * a document at true scale; the permit sheet embeds it in a scaled group on a
- * paper-sized page. One emitter, so the two cannot draw a different plan.
+ * world millimetres. `toSvg` wraps it in a document at true scale; the permit
+ * sheet places it in a scaled group on a paper-sized page and renders it to
+ * PDF. One scene, so the three cannot draw a different plan.
  */
-export function planSvgParts(doc: PlanDoc, floor: Floor, resolved: ReturnType<typeof resolveFloor>): string[] {
-  const parts: string[] = [];
+export function planScene(doc: PlanDoc, floor: Floor, resolved: ReturnType<typeof resolveFloor>): Group[] {
+  const out: Group[] = [];
 
   // Rooms beneath everything, as the editor draws them.
   const net = areaModeOf(doc) === "net";
   const dim = dimModeOf(doc);
   const rooms = detectRooms(floor);
-  if (rooms.length > 0) {
-    parts.push(`<g id="rooms" fill="${COLORS.roomFill}">`);
-    for (const r of rooms) parts.push(`<path d="${polyPath(r.poly, true)}"/>`);
-    parts.push(`</g>`);
-  }
+  if (rooms.length > 0)
+    out.push(group(rooms.map(r => poly(r.poly, true)), { fill: COLORS.roomFill }, "rooms"));
 
   // Vides cut the room tint and are drawn under the walls, as on the canvas.
-  if (videsOf(floor).length > 0) {
-    parts.push(`<g id="vides" fill="none" stroke-width="${W_SYMBOL}" stroke-linecap="round">`);
-    for (const vd of videsOf(floor)) {
-      const ink = symbolInk(vd);
-      parts.push(`<path d="${polyPath(boxPoly(videBox(vd), vd), true)}" fill="${COLORS.bg}" stroke="none"/>`);
-      parts.push(`<g color="${ink}" stroke="${ink}">`);
-      for (const p of videPrims(vd, t("vide.label"))) parts.push(primSvg(p));
-      parts.push(`</g>`);
+  const vides = videsOf(floor);
+  if (vides.length > 0) {
+    const items: Item[] = [];
+    for (const vd of vides) {
+      items.push(group([poly(boxPoly(videBox(vd), vd), true)], { fill: COLORS.bg, ink: "none" }));
+      items.push(group(videPrims(vd, t("vide.label")), { ink: symbolInk(vd) }));
     }
-    parts.push(`</g>`);
+    out.push(group(items, { fill: "none", width: W_SYMBOL, cap: "round" }, "vides"));
   }
 
   // Walls: filled outlines, so an opening is a real gap in the masonry.
-  parts.push(`<g id="walls" fill="${COLORS.wallFill}" stroke="${COLORS.wallStroke}" stroke-width="${W_WALL}">`);
+  const walls: Item[] = [];
   for (const rw of resolved.walls.values())
-    for (const piece of rw.pieces) parts.push(`<path d="${polyPath(piece.poly, true)}"/>`);
+    for (const piece of rw.pieces) walls.push(poly(piece.poly, true));
   // Junction fill closes the wedge a T-junction leaves; no stroke, its edges are
   // interior to the masonry.
-  for (const j of resolved.junctions) parts.push(`<path d="${polyPath(j.poly, true)}" stroke="none"/>`);
-  parts.push(`</g>`);
+  if (resolved.junctions.length > 0)
+    walls.push(group(resolved.junctions.map(j => poly(j.poly, true)), { ink: "none" }));
+  out.push(group(walls, { fill: COLORS.wallFill, ink: COLORS.wallStroke, width: W_WALL }, "walls"));
 
-  parts.push(`<g id="openings" color="${COLORS.opening}" fill="none" stroke="${COLORS.opening}" stroke-width="${W_OPENING}" stroke-linecap="round">`);
-  for (const rw of resolved.walls.values())
-    for (const p of openingMarks(rw)) parts.push(primSvg(p));
-  parts.push(`</g>`);
+  const marks: Item[] = [];
+  for (const rw of resolved.walls.values()) marks.push(...openingMarks(rw));
+  out.push(group(marks,
+    { fill: "none", ink: COLORS.opening, width: W_OPENING, cap: "round" }, "openings"));
 
   // Cabinetry between the masonry and the symbols, as on the canvas. A wall
   // unit is dashed here rather than in its recorded geometry: the recorder
   // discards dash patterns, so the group carries it (see io/cabinet.ts).
-  if (cabinetsOf(floor).length > 0) {
-    parts.push(`<g id="cabinets" fill="none" stroke-width="${W_SYMBOL}" stroke-linecap="round" stroke-linejoin="round">`);
-    for (const c of cabinetsOf(floor)) {
-      const ink = symbolInk(c);
-      const dash = cabinetOverhead(c) ? ` stroke-dasharray="90 60"` : "";
-      parts.push(`<g color="${ink}" stroke="${ink}"${dash}>`);
-      for (const p of cabinetPrims(c)) parts.push(primSvg(p));
-      parts.push(`</g>`);
-    }
-    parts.push(`</g>`);
+  const cabinets = cabinetsOf(floor);
+  if (cabinets.length > 0) {
+    const items = cabinets.map(c => group(cabinetPrims(c), {
+      ink: symbolInk(c),
+      ...(cabinetOverhead(c) ? { dash: [90, 60] } : {}),
+    }));
+    out.push(group(items,
+      { fill: "none", width: W_SYMBOL, cap: "round", join: "round" }, "cabinets"));
   }
 
-  parts.push(`<g id="symbols" fill="none" stroke-width="${W_SYMBOL}" stroke-linecap="round" stroke-linejoin="round">`);
+  const symbols: Item[] = [];
   for (const s of floor.symbols) {
     const def = getSymbol(s.type);
     if (!def) continue;
-    const ink = symbolInk(s);
-    parts.push(`<g color="${ink}" stroke="${ink}">`);
-    for (const p of recordSymbol(def, s.x, s.y, s.rotation, s.mirrored === true)) parts.push(primSvg(p));
-    parts.push(`</g>`);
+    symbols.push(group(recordSymbol(def, s.x, s.y, s.rotation, s.mirrored === true),
+      { ink: symbolInk(s) }));
   }
-  parts.push(`</g>`);
+  out.push(group(symbols,
+    { fill: "none", width: W_SYMBOL, cap: "round", join: "round" }, "symbols"));
 
   // Stairs last, over the symbols, each behind its own wash — the order the
   // editor draws them in, and for the same reason.
-  parts.push(`<g id="stairs" fill="none" stroke-width="${W_SYMBOL}" stroke-linecap="round" stroke-linejoin="round">`);
+  const stairs: Item[] = [];
   for (const st of stairsOf(floor)) {
     const stair = resolveStair(floor, st);
-    const ink = symbolInk(st);
     const region = stairRegionPrims(stair);
-    parts.push(`<g fill="${COLORS.stairWash}" stroke="none">`);
-    if (region.length > 0) for (const p of region) parts.push(primSvg(p));
-    else {
-      const b = stairBox(stair);
-      parts.push(`<path d="${polyPath(boxPoly(b, stair), true)}"/>`);
-    }
-    parts.push(`</g>`);
-    parts.push(`<g color="${ink}" stroke="${ink}">`);
-    for (const p of stairPrims(stair)) parts.push(primSvg(p));
-    parts.push(`</g>`);
+    stairs.push(group(
+      region.length > 0 ? region : [poly(boxPoly(stairBox(stair), stair), true)],
+      { fill: COLORS.stairWash, ink: "none" }));
+    stairs.push(group(stairPrims(stair), { ink: symbolInk(st) }));
   }
-  parts.push(`</g>`);
+  out.push(group(stairs,
+    { fill: "none", width: W_SYMBOL, cap: "round", join: "round" }, "stairs"));
 
   if (rooms.length > 0 || roomNamesOf(floor).length > 0) {
-    // Label size in mm: 220 is about 12 px at the zoom the editor opens on, and
-    // stays legible when the drawing is printed small.
-    parts.push(`<g id="labels" fill="${COLORS.roomLabel}" font-family="system-ui, sans-serif" font-size="220" text-anchor="middle">`);
+    const items: Item[] = [];
     for (const r of rooms) {
       const mm2 = net ? r.netAreaMm2 : r.areaMm2;
-      const area = `${esc((mm2 / 1e6).toFixed(1))} m²`;
+      const area = `${(mm2 / 1e6).toFixed(1)} m²`;
       // Name over area over clear size, the way the canvas stacks them. The
       // 150 mm offsets are the screen-space 8 px at the same 220 mm label size,
       // and a third line spreads the stack to twice that.
       const size = roomSize(r, dim);
-      const x = n(r.centroid.x);
-      const y = (dy: number): string => n(r.centroid.y + dy);
+      const at = (dy: number): Vec => ({ x: r.centroid.x, y: r.centroid.y + dy });
       if (r.name !== undefined)
-        parts.push(`<text x="${x}" y="${y(size ? -300 : -150)}" font-weight="600">${esc(r.name)}</text>`);
-      parts.push(`<text x="${x}" y="${y(r.name === undefined ? (size ? -150 : 0) : (size ? 0 : 150))}">${area}</text>`);
+        items.push(group([text(at(size ? -300 : -150), LABEL_MM, r.name)], { bold: true }));
+      items.push(text(at(r.name === undefined ? (size ? -150 : 0) : (size ? 0 : 150)), LABEL_MM, area));
       if (size)
-        parts.push(`<text x="${x}" y="${y(r.name === undefined ? 150 : 300)}" fill="${COLORS.dimension}" font-size="200">${esc(sizeLabel(size))}</text>`);
+        items.push(group([text(at(r.name === undefined ? 150 : 300), SIZE_LABEL_MM, sizeLabel(size))],
+          { fill: COLORS.dimension }));
     }
     // Names that landed in no detected room still carry onto the sheet.
-    for (const rn of looseRoomNames(floor, rooms)) {
-      parts.push(`<text x="${n(rn.x)}" y="${n(rn.y)}" font-weight="600">${esc(rn.name)}</text>`);
-    }
-    parts.push(`</g>`);
+    for (const rn of looseRoomNames(floor, rooms))
+      items.push(group([text({ x: rn.x, y: rn.y }, LABEL_MM, rn.name)], { bold: true }));
+    out.push(group(items, {
+      fill: COLORS.roomLabel, ink: "none", family: LABEL_FONT,
+      anchor: "middle", baseline: "alphabetic",
+    }, "labels"));
   }
 
-  return parts;
+  return out;
 }
 
 /** Route line weight in mm -- same figure render/route.ts draws with. */
 const W_ROUTE = LINE_WIDTH_MM;
 
 /**
- * Routes as SVG, one group per discipline (`id="routes-electrical"` etc.), in
- * the discipline's own ink. Kept OUTSIDE planSvgParts deliberately: that
+ * Routes as a scene, one group per discipline (`id="routes-electrical"` etc.),
+ * in the discipline's own ink. Kept OUTSIDE planScene deliberately: that
  * function also composes the permit sheet (io/permit.ts), and a bouwkundige
  * permit sheet carries no services -- see the module comment on io/permit.ts.
  * Called only from toSvg below, so the permit path never reaches it.
  */
-export function routeSvgParts(floor: Floor): string[] {
-  const parts: string[] = [];
+export function routeScene(floor: Floor): Group[] {
+  const out: Group[] = [];
   const resolved = resolveRoutes(floor);
   for (const discipline of DISCIPLINES) {
-    const group = resolved.filter(r => r.route.discipline === discipline);
-    if (group.length === 0) continue;
-    const ink = routeInk(discipline);
-    parts.push(`<g id="routes-${discipline}" fill="none" stroke="${ink}" stroke-width="${W_ROUTE}" stroke-linecap="round">`);
+    const all = resolved.filter(r => r.route.discipline === discipline);
+    if (all.length === 0) continue;
+    const prims = (rs: typeof all): Prim[] => rs.flatMap(routePrims);
+    const items: Item[] = [];
     if (discipline === "electrical") {
       // A data run (utp/coax) is dashed here rather than in its recorded
       // geometry: the recorder discards dash patterns, so the group carries
       // it -- the same reasoning a wall cabinet's dash is carried by its own
-      // SVG group (see the cabinets group in planSvgParts, and io/cabinet.ts).
-      // A power run is the plain, undashed sub-group, matching every other
-      // discipline's markup.
-      const power = group.filter(r => routeKind(r.route) === "power");
-      const data = group.filter(r => routeKind(r.route) !== "power");
-      for (const rr of power) for (const p of routePrims(rr)) parts.push(primSvg(p));
-      if (data.length > 0) {
-        parts.push(`<g stroke-dasharray="${ROUTE_DATA_DASH.join(" ")}">`);
-        for (const rr of data) for (const p of routePrims(rr)) parts.push(primSvg(p));
-        parts.push(`</g>`);
-      }
+      // group (see the cabinets group in planScene, and io/cabinet.ts).
+      // A power run is the plain, undashed sub-group.
+      const data = all.filter(r => routeKind(r.route) !== "power");
+      items.push(...prims(all.filter(r => routeKind(r.route) === "power")));
+      if (data.length > 0) items.push(group(prims(data), { dash: ROUTE_DATA_DASH }));
     } else if (discipline === "water") {
       // koud stays the plain outer group -- solid, the ordinary water ink,
-      // matching every other discipline's markup. warm is a colour-override
-      // sub-group (its own tint within the water ink family, see
-      // render/draw.ts's COLORS.routeWaterWarm); afvoer is a dashed, wider
-      // sub-group -- the recorder/prims path this feeds cannot carry a dash
-      // or a widened stroke, so the SVG group carries them, the same
-      // reasoning io/dxf.ts documents for CABINETS-OVERHEAD and this
-      // function's own electrical data sub-group above.
-      const koud = group.filter(r => routeWater(r.route) === "koud");
-      const warm = group.filter(r => routeWater(r.route) === "warm");
-      const afvoer = group.filter(r => routeWater(r.route) === "afvoer");
-      for (const rr of koud) for (const p of routePrims(rr)) parts.push(primSvg(p));
-      if (warm.length > 0) {
-        parts.push(`<g stroke="${routeInk("water", "warm")}">`);
-        for (const rr of warm) for (const p of routePrims(rr)) parts.push(primSvg(p));
-        parts.push(`</g>`);
-      }
-      if (afvoer.length > 0) {
-        parts.push(`<g stroke-width="${W_ROUTE + ROUTE_AFVOER_EXTRA_MM}" stroke-dasharray="${ROUTE_AFVOER_DASH.join(" ")}">`);
-        for (const rr of afvoer) for (const p of routePrims(rr)) parts.push(primSvg(p));
-        parts.push(`</g>`);
-      }
+      // matching every other discipline. warm is a colour-override sub-group
+      // (its own tint within the water ink family, see render/draw.ts's
+      // COLORS.routeWaterWarm); afvoer is a dashed, wider sub-group -- the
+      // prims path this feeds cannot carry a dash or a widened stroke, so the
+      // group carries them, the same reasoning io/dxf.ts documents for
+      // CABINETS-OVERHEAD and the electrical data sub-group above.
+      const warm = all.filter(r => routeWater(r.route) === "warm");
+      const afvoer = all.filter(r => routeWater(r.route) === "afvoer");
+      items.push(...prims(all.filter(r => routeWater(r.route) === "koud")));
+      if (warm.length > 0) items.push(group(prims(warm), { ink: routeInk("water", "warm") }));
+      if (afvoer.length > 0)
+        items.push(group(prims(afvoer),
+          { width: W_ROUTE + ROUTE_AFVOER_EXTRA_MM, dash: ROUTE_AFVOER_DASH }));
     } else if (discipline === "vent") {
       // Every vent run draws wider than the other disciplines, toevoer and
       // afvoer alike -- a duct is a spatial object even in plan (see
-      // render/route.ts's ROUTE_VENT_EXTRA_MM) -- so the widened stroke
-      // wraps both sub-groups here rather than only the dashed one. afvoer
-      // is additionally dashed on its own sub-group, the same
-      // recorder-drops-dashes reasoning as the water afvoer split above.
-      const toevoer = group.filter(r => routeVent(r.route) !== "afvoer");
-      const afvoer = group.filter(r => routeVent(r.route) === "afvoer");
-      parts.push(`<g stroke-width="${W_ROUTE + ROUTE_VENT_EXTRA_MM}">`);
-      for (const rr of toevoer) for (const p of routePrims(rr)) parts.push(primSvg(p));
-      if (afvoer.length > 0) {
-        parts.push(`<g stroke-dasharray="${ROUTE_AFVOER_DASH.join(" ")}">`);
-        for (const rr of afvoer) for (const p of routePrims(rr)) parts.push(primSvg(p));
-        parts.push(`</g>`);
-      }
-      parts.push(`</g>`);
+      // render/route.ts's ROUTE_VENT_EXTRA_MM) -- so the widened stroke wraps
+      // both sub-groups rather than only the dashed one. afvoer is
+      // additionally dashed on its own sub-group.
+      const afvoer = all.filter(r => routeVent(r.route) === "afvoer");
+      const inner: Item[] = [...prims(all.filter(r => routeVent(r.route) !== "afvoer"))];
+      if (afvoer.length > 0) inner.push(group(prims(afvoer), { dash: ROUTE_AFVOER_DASH }));
+      items.push(group(inner, { width: W_ROUTE + ROUTE_VENT_EXTRA_MM }));
+    } else {
+      items.push(...prims(all));
     }
-    parts.push(`</g>`);
+    for (let index = 0; index < all.length; index++) {
+      const rr = all[index]!;
+      const longest = [...rr.segments].sort((a, b) =>
+        Math.hypot(b.b.x - b.a.x, b.b.y - b.a.y) - Math.hypot(a.b.x - a.a.x, a.b.y - a.a.y))[0];
+      if (!longest) continue;
+      const frac = 0.32 + (index % 3) * 0.18;
+      const at = {
+        x: longest.a.x + (longest.b.x - longest.a.x) * frac,
+        y: longest.a.y + (longest.b.y - longest.a.y) * frac,
+      };
+      const labelInk = routeInk(rr.route.discipline,
+        rr.route.discipline === "water" ? routeWater(rr.route) : undefined);
+      items.push(group([text(at, 150, routeMapLabel(rr.route))], {
+        fill: labelInk, ink: "none", family: LABEL_FONT, anchor: "middle", baseline: "central",
+      }));
+    }
+    out.push(group(items, {
+      fill: "none", ink: routeInk(discipline), width: W_ROUTE, cap: "round",
+    }, `routes-${discipline}`));
   }
-  return parts;
+  return out;
+}
+
+/** Routes as SVG markup. */
+export function routeSvgParts(floor: Floor): string[] {
+  return sceneSvg(routeScene(floor));
 }
 
 /** The plan of one storey as an SVG document. */
@@ -324,8 +388,7 @@ export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
     ` viewBox="${n(minX)} ${n(minY)} ${n(w)} ${n(h)}">`,
   );
   parts.push(`<rect x="${n(minX)}" y="${n(minY)}" width="${n(w)}" height="${n(h)}" fill="${COLORS.bg}"/>`);
-  parts.push(...planSvgParts(doc, floor, resolved));
-  parts.push(...routeSvgParts(floor));
+  parts.push(...sceneSvg([...planScene(doc, floor, resolved), ...routeScene(floor)]));
   parts.push(`</svg>`);
   return parts.join("\n") + "\n";
 }
@@ -333,9 +396,9 @@ export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
 const FILENAME = "floorplan.svg";
 
 export async function exportSvg(doc: PlanDoc, floorIndex = 0): Promise<SvgResult> {
-  const text = toSvg(doc, floorIndex);
-  if (!text) return "empty";
-  if (await saveViaHost(FILENAME, () => text)) return "saved";
-  if (downloadBlob(FILENAME, new Blob([text], { type: "image/svg+xml" }))) return "saved";
+  const body = toSvg(doc, floorIndex);
+  if (!body) return "empty";
+  if (await saveViaHost(FILENAME, () => body)) return "saved";
+  if (downloadBlob(FILENAME, new Blob([body], { type: "image/svg+xml" }))) return "saved";
   return "failed";
 }
