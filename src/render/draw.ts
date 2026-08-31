@@ -1,7 +1,7 @@
 // Full scene render. Immediate mode: redraw everything on change (documents at
 // this scale render in well under a frame). Layers: grid, rooms, walls,
 // opening decorations, symbols, selection, labels (labels in screen space).
-import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, videsOf, cabinetsOf, fireLabel } from "../model/doc";
+import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, videsOf, cabinetsOf, fireLabel, Underlay } from "../model/doc";
 import { Resolved, OpeningGeom } from "../core/resolve";
 import { Room, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
 import { Selection } from "../model/store";
@@ -86,17 +86,22 @@ export function symbolInk(s: { color?: string }): string {
 /**
  * The storey below, drawn faintly beneath the active one: its resolved walls,
  * to line storeys up, and the floor itself for the flight that climbs out of
- * it. Never hit-tested or selectable, so an underlay can't be edited by
- * accident, and it carries no room names — those name the rooms below.
+ * it. Never hit-tested or selectable, so a ghost can't be edited by accident,
+ * and it carries no room names — those name the rooms below.
+ *
+ * Not to be confused with `Underlay` (model/doc.ts): that is the per-floor
+ * trace-over image a visitor loads and draws over, an authored document
+ * field. This is wholly derived — the floor below, resolved the same way the
+ * active one is — and exists only for this one render call.
  */
-export interface Underlay {
+export interface GhostFloor {
   floor: Floor;
   resolved: Resolved;
 }
 
 export interface DrawExtras {
   hoverSnap?: Vec | null;
-  ghost?: Underlay | null;
+  ghost?: GhostFloor | null;
   /**
    * Selected alongside `sel`, by id and of its kind — the cabinets a
    * shift-click has added to the one the property pane edits. Every one of
@@ -106,7 +111,63 @@ export interface DrawExtras {
   selMore?: readonly string[];
   /** False for exports: no grid, and no legend describing one. */
   showGrid?: boolean;
+  /**
+   * True to draw the floor's trace-over image (Tools.showUnderlay, the
+   * editor's own visibility toggle). Absent/false excludes it -- the default
+   * is OFF rather than mirroring showGrid's "on unless told otherwise",
+   * because every export (PNG here; SVG/DXF/IFC/permit never read
+   * Floor.underlay at all) must exclude the underlay unconditionally, and an
+   * export that forgot to pass a `false` would otherwise leak it. io/image.ts's
+   * PNG path simply never sets this.
+   */
+  showUnderlay?: boolean;
+  /**
+   * Called once when a cached underlay image finishes decoding, so the host
+   * can redraw with it visible. Unused, and safe to omit, wherever
+   * showUnderlay is never true (every offscreen/export render).
+   */
+  requestRedraw?: () => void;
   preview?: ((ctx: CanvasRenderingContext2D, vp: Viewport) => void) | null;
+}
+
+/**
+ * One decoded HTMLImageElement per underlay dataUrl, so a data URL of a few
+ * hundred KB is decoded once rather than on every frame. Keyed by the dataUrl
+ * itself rather than by floor id, so a changed dataUrl (a reloaded image)
+ * naturally gets a fresh entry instead of needing an explicit invalidation
+ * step; the old entry is simply never looked up again. Unbounded, but a
+ * session touches at most a handful of underlay images.
+ */
+const underlayImageCache = new Map<string, HTMLImageElement>();
+
+function getUnderlayImage(dataUrl: string, requestRedraw?: () => void): HTMLImageElement {
+  let img = underlayImageCache.get(dataUrl);
+  if (!img) {
+    img = new Image();
+    img.onload = () => requestRedraw?.();
+    img.src = dataUrl;
+    underlayImageCache.set(dataUrl, img);
+  }
+  return img;
+}
+
+/**
+ * The trace-over image, in world space: `u.x`/`u.y` is its top-left corner
+ * and `u.mmPerPixel` sizes it, both mm. Drawn with its own save/scale/
+ * translate rather than inside drawScene's world-space block, because it has
+ * to land BEFORE the grid (see the call site) while the world-space block
+ * opens after it.
+ */
+function drawUnderlayImage(ctx: CanvasRenderingContext2D, vp: Viewport, u: Underlay, requestRedraw?: () => void): void {
+  const img = getUnderlayImage(u.dataUrl, requestRedraw);
+  if (!img.complete || img.naturalWidth === 0) return; // still decoding; onload above redraws once it lands
+  const w = img.naturalWidth * u.mmPerPixel, h = img.naturalHeight * u.mmPerPixel;
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, Math.min(1, u.opacity));
+  ctx.scale(vp.pxPerMm, vp.pxPerMm);
+  ctx.translate(-vp.origin.x, -vp.origin.y);
+  ctx.drawImage(img, u.x, u.y, w, h);
+  ctx.restore();
 }
 
 export function drawScene(
@@ -117,6 +178,14 @@ export function drawScene(
   ctx.save();
   ctx.fillStyle = COLORS.bg;
   ctx.fillRect(0, 0, canvasW, canvasH);
+
+  // Tracing aid, drawn UNDER the grid but OVER the paper: under the grid so
+  // the grid stays visible for tracing (drawing it under the paper would hide
+  // it entirely; drawing it over the grid would bury the grid under a scan),
+  // and under the whole drawing below. See DrawExtras.showUnderlay.
+  if (extras.showUnderlay && floor.underlay) {
+    drawUnderlayImage(ctx, vp, floor.underlay, extras.requestRedraw);
+  }
 
   const steps = extras.showGrid === false ? null : drawGrid(ctx, vp, canvasW, canvasH, gridMm);
 

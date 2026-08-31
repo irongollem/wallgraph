@@ -32,9 +32,24 @@ function toBinary(bytes: Uint8Array): string {
   return out;
 }
 
-/** A document as a base64url payload, without the `plan=` key. */
+/**
+ * A document as a base64url payload, without the `plan=` key.
+ *
+ * Every floor's `underlay` is stripped first: it is a tracing aid carrying a
+ * downscaled but still multi-hundred-KB data URL, and the fragment is the one
+ * channel with a real size limit -- browsers and chat clients alike start
+ * truncating or rejecting a URL well under a megabyte. A share link carries
+ * the drawing, not the scan; JSON export/import keeps it (see io/json.ts).
+ */
 export function encodePlan(doc: PlanDoc): string {
-  const bytes = new TextEncoder().encode(JSON.stringify(doc));
+  const stripped: PlanDoc = doc.floors.some(f => f.underlay)
+    ? { ...doc, floors: doc.floors.map(f => {
+        if (!f.underlay) return f;
+        const { underlay: _drop, ...rest } = f;
+        return rest;
+      }) }
+    : doc;
+  const bytes = new TextEncoder().encode(JSON.stringify(stripped));
   return btoa(toBinary(bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 

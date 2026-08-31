@@ -82,6 +82,9 @@ function renderPlan(doc: PlanDoc, floorIndex = 0): HTMLCanvasElement | null {
   vp.dpr = SCALE;
   vp.origin = v(bounds.min.x - MARGIN_MM, bounds.min.y - MARGIN_MM);
 
+  // extras carries no `showUnderlay` -- the trace-over image is a drawing
+  // aid, not part of the drawing, so a PNG excludes it unconditionally rather
+  // than following whatever Tools.showUnderlay happens to be set to.
   drawScene(ctx, vp, lw, lh, floor, resolved, detectRooms(floor), null, { showGrid: false }, doc.gridMm, areaModeOf(doc), dimModeOf(doc));
   drawScaleBar(ctx, pxPerMm, lw, lh);
   return cv;

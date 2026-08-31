@@ -95,6 +95,10 @@ export class Store {
       // is a keuken and a woonkamer that have to be deleted one by one before
       // the storey can be named at all.
       copy.roomNames = [];
+      // Nor does the trace-over image: a scan is a fact about the floor it was
+      // made from, not the one being started, and carrying its (potentially
+      // large) dataUrl into the copy would double the document for nothing.
+      delete copy.underlay;
       d.floors.splice(this.activeFloor + 1, 0, copy);
     });
     this.activeFloor = Math.min(this.activeFloor + 1, this.doc.floors.length - 1);

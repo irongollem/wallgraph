@@ -131,12 +131,48 @@ export interface SymbolInstance {
   color?: string;
 }
 
+/**
+ * A raster image traced over while drawing a storey -- a scanned or
+ * photographed existing plan, placed and scaled so the walls can be drawn
+ * over it. A tracing aid, not part of the drawing: it never appears in an
+ * export (io/image.ts's PNG path never sets DrawExtras.showUnderlay; SVG,
+ * DXF, IFC and the permit sheet never read Floor.underlay at all) and never
+ * travels in a share link (io/link.ts's encodePlan strips it from every
+ * floor before encoding -- a multi-hundred-KB data URL would break the URL
+ * fragment, and a share link carries the drawing, not the scan).
+ */
+export interface Underlay {
+  /** The image, downscaled and re-encoded on import (see io/underlay.ts). */
+  dataUrl: string;
+  /** mm. Top-left corner of the image in world space. */
+  x: number;
+  /** mm, positive down. Top-left corner of the image in world space. */
+  y: number;
+  /**
+   * World mm per image pixel. A ratio, not a length or a coordinate, so a
+   * float here is consistent with invariant 1 (integer mm) rather than a
+   * violation of it -- nothing about "integer millimetres" constrains a
+   * scale factor. Set imprecisely on import and corrected by calibration.
+   */
+  mmPerPixel: number;
+  /** 0 (invisible) to 1 (opaque). */
+  opacity: number;
+}
+
 export interface Floor {
   id: Id;
   name: string;
   nodes: PlanNode[];
   walls: Wall[];
   symbols: SymbolInstance[];
+  /**
+   * Trace-over image for this storey, absent until one is loaded. Per floor,
+   * because each storey traces its own scan: Store.duplicateFloor() drops it
+   * from the copy for the same reason it resets `roomNames` rather than
+   * carrying them up -- a scan of this floor is not a fact about the next
+   * one, and duplicating it would double the document's size for nothing.
+   */
+  underlay?: Underlay;
   /**
    * Placed stairs. Optional because a plan drawn before stairs existed simply
    * has none, the way `areaMode` is optional — read it through stairsOf().

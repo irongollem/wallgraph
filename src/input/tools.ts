@@ -17,6 +17,7 @@ import {
 import {
   nodeAt, splitWall, nearestWall, wallOnRay, wallLength, mergeNodes, deleteWall, clampOpening,
   cleanOrphanNodes, insertWall, insertRun, deleteRoomNames, cloneOnFloor, MIN_WALL_MM,
+  calibrateUnderlay,
   type PlacedKind,
 } from "../model/ops";
 import {
@@ -177,6 +178,12 @@ export class Tools {
    * off means a free position to the millimetre.
    */
   snapWall = true;
+  /**
+   * Whether the active floor's trace-over image is drawn. Editor state, like
+   * snapGrid — not persisted, no document impact. An export excludes the
+   * underlay unconditionally regardless of this flag (see DrawExtras.showUnderlay).
+   */
+  showUnderlay = true;
   /** Shift, as the last pointer or key event reported it. */
   private shiftKey = false;
   /** Alt at the last press: a drag that starts under it copies rather than moves. */
@@ -190,6 +197,21 @@ export class Tools {
   private dimRects: Array<{ x: number; y: number; w: number; h: number; wallId: string }> = [];
   private dimInput: HTMLInputElement | null = null;
   hint = "";
+
+  /**
+   * Scale-calibration capture, armed from the Underlay panel section. NOT a
+   * rail tool: it captures on top of whichever tool is active (see onDown/
+   * onMove/onTap/onKey, each of which checks `calibArmed` before anything
+   * tool-specific) and hands control straight back once it commits or is
+   * cancelled — the point of calibrating is to keep tracing with the tool you
+   * were already using. `calibP0`/`calibP1` are world mm, captured through the
+   * same snap the active tool already computes. Once both are down,
+   * `lengthBuffer` (shared with the wall tool's typed length, so the keypad
+   * and Enter work unchanged) holds the typed real-world distance.
+   */
+  private calibArmed = false;
+  private calibP0: Vec | null = null;
+  private calibP1: Vec | null = null;
 
   /**
    * How much of the canvas the chrome covers, in CSS px, or null when it covers
@@ -389,7 +411,85 @@ export class Tools {
     this.shapeStart = null;
     this.lengthBuffer = "";
     this.drag = null;
+    this.calibArmed = false;
+    this.calibP0 = null;
+    this.calibP1 = null;
     if (render) this.requestRender();
+  }
+
+  /** True while a scale-calibration capture is armed, at any of its stages. */
+  get calibrating(): boolean { return this.calibArmed; }
+
+  /** True once both calibration points are down and a distance is being typed. */
+  private get calibratingDistance(): boolean { return this.calibArmed && this.calibP1 !== null; }
+
+  /**
+   * Arm scale calibration from the panel: the next two clicks/taps on the
+   * canvas mark a known distance, then the real length is typed. See the
+   * `calibArmed` field comment for what this is and is not.
+   */
+  startCalibration(): void {
+    if (!this.floor.underlay) return;
+    this.calibArmed = true;
+    this.calibP0 = null;
+    this.calibP1 = null;
+    this.lengthBuffer = "";
+    this.updateHint();
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /** Cancel an armed calibration capture: Esc, or the panel's own control. */
+  cancelCalibration(): void {
+    this.cancel();
+    this.updateHint();
+    this.onToolChange();
+  }
+
+  /**
+   * One of calibration's two points landing — from the mouse path in onDown,
+   * or from a tap via onTap. Uses whatever the active tool's own snap already
+   * computed, so calibrating against a wall's known length snaps exactly the
+   * way placing a door on that wall would.
+   */
+  private calibClick(): void {
+    const snap = this.snap ?? this.computeSnap(this.cursor, false);
+    if (!this.calibP0) {
+      this.calibP0 = snap.p;
+    } else if (!this.calibP1) {
+      if (dist(snap.p, this.calibP0) < 1) return; // degenerate: the same point twice
+      this.calibP1 = snap.p;
+    }
+    this.updateHint();
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /**
+   * Commit the typed real-world distance: rescale the underlay so the two
+   * marked points read as that distance, keeping the first one fixed on
+   * screen. The actual arithmetic is calibrateUnderlay() in model/ops.ts —
+   * pure and unit-tested there, since Tools itself needs a live canvas to
+   * construct.
+   */
+  private applyCalibration(): void {
+    const p0 = this.calibP0, p1 = this.calibP1;
+    const mm = parseFloat(this.lengthBuffer);
+    this.calibArmed = false;
+    this.calibP0 = null;
+    this.calibP1 = null;
+    this.lengthBuffer = "";
+    if (p0 && p1) {
+      this.store.mutate(doc => {
+        const f = this.store.floorOf(doc);
+        if (!f.underlay) return;
+        const next = calibrateUnderlay(f.underlay, p0, p1, mm);
+        if (next) f.underlay = next;
+      });
+    }
+    this.updateHint();
+    this.onToolChange();
+    this.requestRender();
   }
 
   /** True while a wall chain is open, so the host can offer a way to close it. */
@@ -428,7 +528,8 @@ export class Tools {
    * appears for.
    */
   get typingLength(): boolean {
-    return (this.tool === "wall" && this.chainStart !== null)
+    return this.calibratingDistance
+        || (this.tool === "wall" && this.chainStart !== null)
         || (this.tool === "select" && this.store.sel?.kind === "wall");
   }
 
@@ -455,9 +556,11 @@ export class Tools {
     this.afterTyping();
   }
 
-  /** Act on the typed length: place the next chain point, or resize the wall. */
+  /** Act on the typed length: commit a calibration, place the next chain
+   *  point, or resize the wall. */
   commitLength(): void {
     if (!this.lengthBuffer) return;
+    if (this.calibratingDistance) { this.applyCalibration(); return; }
     if (this.tool === "wall" && this.chainStart) { this.wallClick(); return; }
     if (this.tool === "select" && this.store.sel?.kind === "wall") this.applyTypedLength();
   }
@@ -553,6 +656,16 @@ export class Tools {
   }
 
   getSnap(): Vec | null { return this.snap?.p ?? null; }
+
+  /**
+   * World-mm point at the centre of the visible canvas — where a freshly
+   * imported underlay should land (io/underlay.ts's initialUnderlay), and
+   * generally "the middle of what the visitor is looking at".
+   */
+  viewportCenterWorld(): Vec {
+    const { w, h } = this.canvasSize();
+    return this.vp.toWorld(v(w / 2, h / 2));
+  }
 
   /**
    * Shift went down or came up without the pointer moving. A shape only needs
@@ -747,6 +860,7 @@ export class Tools {
    * lifting. Select is the exception — it acts on contact so a drag can start.
    */
   private onTap(time: number): void {
+    if (this.calibArmed) { this.calibClick(); return; }
     if (this.tool === "select") {
       // Double tap on empty paper frames the plan. BOTH taps have to have hit
       // nothing: testing only the second one turns an ordinary tap-a-wall then
@@ -807,6 +921,23 @@ export class Tools {
     }
     if (this.pointers.size > 2) return;
 
+    // Scale calibration captures on top of whatever tool is armed, so it is
+    // checked before any of the tool-specific handling below -- including the
+    // dimension-value click just after this, which would otherwise fire first
+    // when calibrating from the select tool.
+    if (this.calibArmed) {
+      this.cursor = w;
+      this.snap = this.computeSnap(w, false);
+      if (e.pointerType !== "mouse") {
+        this.tapStart = { screen: s, time: e.timeStamp };
+        this.requestRender();
+        return;
+      }
+      if (e.button !== 0) return;
+      this.calibClick();
+      return;
+    }
+
     // A dimension value opens for editing however it was pressed. This sat in
     // the mouse path only, which left the touch hint ("tik de mm-waarde om te
     // bewerken") promising something a finger could not do.
@@ -863,6 +994,12 @@ export class Tools {
     this.cursor = w;
 
     if (this.drag) { this.dragMove(s, w); return; }
+
+    if (this.calibArmed) {
+      this.snap = this.computeSnap(w, false);
+      this.requestRender();
+      return;
+    }
 
     // What is this thing? A placed symbol is a bare line drawing, so name the
     // one under the cursor (see drawPreview).
@@ -1680,6 +1817,19 @@ export class Tools {
       this.shiftChanged();
     }
 
+    // A calibration capture is modal: every key it does not itself use is
+    // swallowed rather than falling through to a tool shortcut, so "typing 6
+    // 0 0" while calibrating never also arms the cabinet tool via "c".
+    if (this.calibArmed) {
+      if (this.calibratingDistance) {
+        if (/^[0-9.]$/.test(e.key)) { this.typeLength(e.key); return; }
+        if (e.key === "Backspace" && this.lengthBuffer) { this.backspaceLength(); return; }
+        if (e.key === "Enter" && this.lengthBuffer) { this.commitLength(); return; }
+      }
+      if (e.key === "Escape") { this.cancelCalibration(); return; }
+      return;
+    }
+
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
       e.preventDefault();
       if (e.shiftKey) this.store.redo(); else this.store.undo();
@@ -1954,6 +2104,14 @@ export class Tools {
 
   updateHint(): void {
     const h = (base: string, vars?: Record<string, string | number>): string => t(this.hintKey(base), vars);
+    // Calibration overrides whatever the active tool would say: it captures
+    // on top of it, so its own next-step instruction has to win.
+    if (this.calibArmed) {
+      this.hint = this.calibratingDistance
+        ? h("calibrateDistance", { length: this.lengthBuffer || "0" })
+        : this.calibP0 ? h("calibrateSecond") : h("calibrateFirst");
+      return;
+    }
     switch (this.tool) {
       case "wall": {
         if (this.wallShape !== "line") {
@@ -2281,9 +2439,40 @@ export class Tools {
    * `dimRects` alone, or the rects end up in that viewport's space and tapping
    * a dimension to type a length hits nothing.
    */
+  /** The marker + live line a calibration capture draws over the plan. */
+  private drawCalibrationPreview(ctx: CanvasRenderingContext2D, vp: Viewport, px: number): void {
+    const p0 = this.calibP0!;
+    const p1 = this.calibP1 ?? this.snap?.p ?? this.cursor;
+    ctx.save();
+    ctx.strokeStyle = COLORS.select;
+    ctx.lineWidth = 1.5 * px;
+    // Solid once the second point is down and fixed; dashed while it is still
+    // tracking the cursor, the same "not committed yet" convention the wall
+    // preview uses.
+    ctx.setLineDash(this.calibP1 ? [] : [40, 40]);
+    ctx.beginPath();
+    ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = COLORS.select;
+    for (const p of this.calibP1 ? [p0, p1] : [p0]) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 5 * px, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    const L = Math.round(dist(p0, p1));
+    drawLabel(ctx, vp, scale(add(p0, p1), 0.5), this.lengthBuffer ? `${this.lengthBuffer}▎mm` : `${L} mm`, COLORS.select);
+  }
+
   drawPreview(ctx: CanvasRenderingContext2D, vp: Viewport, collectHits = true): void {
     const px = 1 / vp.pxPerMm;
     const f = this.floor;
+
+    // Scale-calibration capture: a marker on the first point, a live (dashed,
+    // while still following the cursor) line to the second, drawn regardless
+    // of the active tool since calibration sits on top of it.
+    if (this.calibArmed && this.calibP0) this.drawCalibrationPreview(ctx, vp, px);
 
     // Node handles in select mode.
     if (this.tool === "select") {

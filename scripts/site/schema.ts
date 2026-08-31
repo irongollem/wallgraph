@@ -133,6 +133,14 @@ export function planSchema(siteUrl: string): JsonSchema {
               "What the rooms are called. Rooms themselves are derived from the wall " +
               "graph, so only the name and the point it was written at are stored.",
           },
+          underlay: {
+            $ref: "#/$defs/underlay",
+            description:
+              "A trace-over image for this floor. Absent means none loaded. Stripped " +
+              "from every floor before a document is encoded into a share-link URL " +
+              "fragment (see io/link.ts's encodePlan) -- a share link carries the " +
+              "drawing, not the scan. JSON export/import keeps it verbatim.",
+          },
         },
       },
       node: {
@@ -302,6 +310,28 @@ export function planSchema(siteUrl: string): JsonSchema {
           },
         },
       },
+      underlay: {
+        type: "object",
+        description:
+          "A raster image traced over while drawing this floor. mmPerPixel is a " +
+          "ratio, not a length -- kept as a number rather than an integer, unlike " +
+          "every stored coordinate elsewhere in this document.",
+        required: ["dataUrl", "x", "y", "mmPerPixel", "opacity"],
+        additionalProperties: false,
+        properties: {
+          dataUrl: {
+            type: "string", pattern: "^data:image/",
+            description: "The image, downscaled and re-encoded on import.",
+          },
+          x: mm("mm. Top-left corner of the image in world space."),
+          y: mm("mm, positive down. Top-left corner of the image in world space."),
+          mmPerPixel: {
+            type: "number", exclusiveMinimum: 0,
+            description: "World mm per image pixel.",
+          },
+          opacity: { type: "number", minimum: 0, maximum: 1, description: "0 (invisible) to 1 (opaque)." },
+        },
+      },
       roomName: {
         type: "object",
         description:
@@ -437,6 +467,10 @@ function check(schema: JsonSchema, value: unknown, path: string, ctx: Ctx, out: 
   }
   if (typeof value === "number") {
     if (typeof schema.minimum === "number" && value < schema.minimum) bad(`must be >= ${schema.minimum}`);
+    if (typeof schema.maximum === "number" && value > schema.maximum) bad(`must be <= ${schema.maximum}`);
+    if (typeof schema.exclusiveMinimum === "number" && value <= schema.exclusiveMinimum) {
+      bad(`must be > ${schema.exclusiveMinimum}`);
+    }
   }
   if (typeof value === "string") {
     if (typeof schema.minLength === "number" && value.length < schema.minLength) bad("is empty");

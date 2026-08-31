@@ -7,6 +7,7 @@ import type { SymbolDef } from "../render/symbols";
 import { sagittaFromBulge, bulgeFromSagitta } from "../geometry/arc";
 import { v, norm, sub, add, scale } from "../geometry/vec";
 import { exportJson, copyJson, importJsonFile, parseDoc, clearAutosave } from "../io/json";
+import { pickUnderlayImage, prepareUnderlayImage, initialUnderlay, imageFromClipboard } from "../io/underlay";
 import { exportPng } from "../io/image";
 import { exportDxf } from "../io/dxf";
 import { exportIfc } from "../io/ifc";
@@ -75,12 +76,14 @@ export class Panel {
   private props: HTMLElement;
   private storeyEl: HTMLElement;
   private planEl: HTMLElement;
+  private underlayEl: HTMLElement;
   private permitEl: HTMLElement;
   /** Everything the pane's structure depends on; a change rebuilds it. */
   private lastPaneSig = "";
   /** Selection alone — drives the fade, so a grid tweak does not flash. */
   private lastSelSig = "";
   private planOpen = false;
+  private underlayOpen = false;
   private permitOpen = false;
   /** The permit checklist's container; repopulated in place while open. */
   private permitChecksEl: HTMLElement | null = null;
@@ -127,6 +130,7 @@ export class Panel {
     this.paneScroll = el("div", "pane-scroll");
     this.paneScroll.append(this.paneBody, this.palette.el);
     this.planEl = this.buildPlanSection();
+    this.underlayEl = this.buildUnderlaySection();
     this.permitEl = this.buildPermitSection();
 
     this.mode = watchLayout(next => {
@@ -144,6 +148,17 @@ export class Panel {
     this.refreshToolbar();
     store.onChange(() => this.refreshToolbar());
     onI18n("languageChanged", () => { this.palette.refresh(); this.renderFoot(); this.refreshToolbar(); });
+    // Paste-an-image is the underlay section's second import path, alongside
+    // the file picker. Scoped to while that section is open, and skipped over
+    // a text field, so an ordinary Ctrl+V into the permit's project-name field
+    // (or anywhere else) is never hijacked into loading an underlay.
+    window.addEventListener("paste", e => {
+      if (!this.underlayOpen) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+      const file = imageFromClipboard(e);
+      if (file) { e.preventDefault(); void this.loadUnderlayFile(file); }
+    });
   }
 
   /**
@@ -172,7 +187,7 @@ export class Panel {
         el("div", "rail-spacer"), this.historyEl);
       const sideBody = el("div", "side-body");
       sideBody.append(this.rail, this.pane);
-      this.pane.replaceChildren(this.storeyEl, this.paneScroll, this.planEl, this.permitEl);
+      this.pane.replaceChildren(this.storeyEl, this.paneScroll, this.planEl, this.underlayEl, this.permitEl);
       this.root.replaceChildren(this.head, sideBody, this.status, this.foot);
       return;
     }
@@ -195,7 +210,7 @@ export class Panel {
     this.keypadEl = null;
     this.chainBar = null;
     this.chainBarSig = "";
-    sheet.body.replaceChildren(this.paneScroll, this.planEl, this.permitEl, this.foot);
+    sheet.body.replaceChildren(this.paneScroll, this.planEl, this.underlayEl, this.permitEl, this.foot);
     this.root.replaceChildren(top, modes, sheet.el);
   }
 
@@ -509,6 +524,7 @@ export class Panel {
     const paneSig = [this.store.activeFloor, d.floors.map(fl => fl.name).join("\u0001"),
       d.gridMm, areaModeOf(d), floorHeight(this.store.floor), d.groundMm ?? "", this.tools.lastThickness,
       JSON.stringify(d.project ?? null), d.northDeg ?? "",
+      this.store.floor.underlay ? "u1" : "u0", this.tools.calibrating ? "c1" : "c0",
       selSig].join("|");
 
     if (paneSig !== this.lastPaneSig) {
@@ -522,6 +538,9 @@ export class Panel {
       const plan = this.buildPlanSection();
       this.planEl.replaceWith(plan);
       this.planEl = plan;
+      const underlay = this.buildUnderlaySection();
+      this.underlayEl.replaceWith(underlay);
+      this.underlayEl = underlay;
       const permit = this.buildPermitSection();
       this.permitEl.replaceWith(permit);
       this.permitEl = permit;
@@ -1120,6 +1139,74 @@ export class Panel {
 
     wrap.append(head, body);
     return wrap;
+  }
+
+  /**
+   * The trace-over image: load it, calibrate its scale, and control how it
+   * shows while drawing. Its own section under Plan, with the same fold
+   * behaviour -- present in both layouts, rebuilt (not patched) on the plan
+   * pane's signature the way buildPlanSection/buildPermitSection are. Only
+   * the load/paste affordances show until an underlay actually exists.
+   */
+  private buildUnderlaySection(): HTMLElement {
+    const open = this.underlayOpen;
+    const wrap = el("div", "plan-sec");
+    const head = el("button", "plan-head") as HTMLButtonElement;
+    head.type = "button";
+    head.setAttribute("aria-expanded", String(open));
+    const chev = el("span", "chev");
+    chev.append(icon("chevron", 14));
+    head.append(chev, Object.assign(el("span", "sec-label"), { textContent: t("panel.underlay") }));
+    const body = el("div", "plan-body" + (open ? " is-open" : ""));
+    const inner = el("div", "plan-rows");
+    body.append(inner);
+    head.onclick = () => {
+      const next = !body.classList.contains("is-open");
+      this.underlayOpen = next;
+      body.classList.toggle("is-open", next);
+      head.setAttribute("aria-expanded", String(next));
+    };
+
+    const { numRow, btnRow, noteRow, checkRow } = this.rowKit(inner);
+    const underlay = this.store.floor.underlay;
+
+    btnRow(t("panel.underlayLoad"), () => pickUnderlayImage(file => { void this.loadUnderlayFile(file); }));
+    noteRow(t("panel.underlayPasteHint"));
+
+    if (underlay) {
+      if (this.tools.calibrating) {
+        btnRow(t("panel.underlayCalibrateCancel"), () => this.tools.cancelCalibration());
+        noteRow(t("panel.underlayCalibrateNote"));
+      } else {
+        btnRow(t("panel.underlayCalibrate"), () => this.tools.startCalibration());
+      }
+      numRow(t("panel.underlayOpacity"), Math.round(underlay.opacity * 100), n =>
+        this.store.mutate(d => {
+          const u = this.store.floorOf(d).underlay;
+          if (u) u.opacity = Math.max(0, Math.min(100, Math.round(n))) / 100;
+        }), 5);
+      checkRow(t("panel.underlayShow"), this.tools.showUnderlay, on => {
+        this.tools.showUnderlay = on;
+        this.tools.refresh();
+      });
+      btnRow(t("panel.underlayRemove"), () => {
+        this.tools.cancelCalibration();
+        this.store.mutate(d => { delete this.store.floorOf(d).underlay; });
+      });
+    }
+
+    wrap.append(head, body);
+    return wrap;
+  }
+
+  /** Downscale, place and store a freshly picked or pasted underlay image. */
+  private async loadUnderlayFile(file: File): Promise<void> {
+    const prepared = await prepareUnderlayImage(file);
+    if (!prepared) { this.flash(t("status.underlayFailed")); return; }
+    const center = this.tools.viewportCenterWorld();
+    const underlay = initialUnderlay(prepared.dataUrl, prepared.width, prepared.height, center);
+    this.store.mutate(d => { this.store.floorOf(d).underlay = underlay; });
+    this.refreshToolbar();
   }
 
   /**

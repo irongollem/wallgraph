@@ -1,7 +1,7 @@
 // Graph-maintenance operations shared by tools: node reuse, wall splitting,
 // welded wall insertion, opening placement bounds, orphan cleanup. All take the
 // floor mutably; callers wrap them in store.mutate().
-import { Floor, PlanNode, Wall, Opening, Id, newId, roomNamesOf } from "./doc";
+import { Floor, PlanNode, Wall, Opening, Id, newId, roomNamesOf, Underlay } from "./doc";
 import { Vec, dist, distToSeg, v, add, sub, scale, dot, cross, norm, perp, lineIntersect } from "../geometry/vec";
 import { arcLength, arcPointAt, arcFlatten } from "../geometry/arc";
 
@@ -381,4 +381,36 @@ export function cloneOnFloor(f: Floor, kind: PlacedKind, ids: readonly Id[]): Ma
   else if (kind === "stair") copyInto((f.stairs ??= []), "t");
   else copyInto((f.vides ??= []), "v");
   return made;
+}
+
+/**
+ * Scale calibration: `p0` and `p1` are two points the user marked (world mm,
+ * as clicked -- against the CURRENT placement of `u`), and `realMm` is the
+ * true distance they typed for that span. Rescales `u` so that span now reads
+ * as `realMm`, keeping `p0` fixed on screen -- the pixel of the image that
+ * was under the first click stays there, so `x`/`y` move to compensate for
+ * the change in `mmPerPixel` rather than the image appearing to slide.
+ *
+ * Pure and DOM-free on purpose: this is the one piece of the calibration
+ * gesture (Tools.applyCalibration) that is worth unit testing, and Tools
+ * itself needs a live canvas to construct.
+ *
+ * Returns null when there is nothing sensible to compute: a degenerate
+ * (zero-length) measurement, or a non-positive typed distance.
+ */
+export function calibrateUnderlay(u: Underlay, p0: Vec, p1: Vec, realMm: number): Underlay | null {
+  const measuredMm = dist(p0, p1);
+  if (!(measuredMm > 0) || !isFinite(realMm) || !(realMm > 0)) return null;
+  const factor = realMm / measuredMm;
+  // Offset of p0 from the image's top-left, in image pixels -- invariant
+  // under the rescale, which is what "p0 stays put" means.
+  const relX = (p0.x - u.x) / u.mmPerPixel;
+  const relY = (p0.y - u.y) / u.mmPerPixel;
+  const mmPerPixel = u.mmPerPixel * factor;
+  return {
+    ...u,
+    mmPerPixel,
+    x: Math.round(p0.x - relX * mmPerPixel),
+    y: Math.round(p0.y - relY * mmPerPixel),
+  };
 }
