@@ -6,7 +6,7 @@
 // there is no box, and a route can run the whole diagonal of a plan, where a
 // frame around its bounds would highlight everything between its ends.
 import { ResolvedRoute, ResolvedRouteSegment } from "../core/route";
-import { RoutePoint, routeKind, routeWater } from "../model/route";
+import { RoutePoint, routeKind, routeWater, routeVent } from "../model/route";
 import { Vec } from "../geometry/vec";
 import { arcInfo } from "../geometry/arc";
 import { dot, circle } from "./symbols/defs";
@@ -32,6 +32,16 @@ export const ROUTE_AFVOER_DASH: readonly [number, number] = [140, 80];
  *  so the SVG export can widen its own afvoer sub-group by the same figure
  *  (see io/svg.ts). */
 export const ROUTE_AFVOER_EXTRA_MM = 15;
+
+/**
+ * How much wider than LINE_WIDTH_MM every vent run draws, toevoer and afvoer
+ * alike -- a duct is a spatial object even in plan, unlike a cable or a pipe,
+ * so its line reads as one from the start rather than only once it happens to
+ * be dashed. Exported so the SVG export widens its own vent group by the same
+ * figure (see io/svg.ts); DXF carries no line-width concept for a LINE
+ * entity, so this has no DXF counterpart.
+ */
+export const ROUTE_VENT_EXTRA_MM = 20;
 
 export interface RoutePaint {
   ink: string;
@@ -83,14 +93,22 @@ export function drawRoute(
   ctx.strokeStyle = ink;
   ctx.fillStyle = ink;
   // A data run (utp/coax) draws dashed; a power run and every non-electrical
-  // discipline stay solid, except afvoer, which is always dashed AND heavier
-  // -- it is a larger pipe under the floor. The wash above is deliberately
-  // left undashed/un-widened -- it is a highlight glow, not part of the run's
-  // own line.
-  const isAfvoer = resolved.route.discipline === "water" && routeWater(resolved.route) === "afvoer";
-  const dashed = isAfvoer || (resolved.route.discipline === "electrical" && routeKind(resolved.route) !== "power");
-  ctx.lineWidth = isAfvoer ? LINE_WIDTH_MM + ROUTE_AFVOER_EXTRA_MM : LINE_WIDTH_MM;
-  if (dashed) ctx.setLineDash([...(isAfvoer ? ROUTE_AFVOER_DASH : ROUTE_DATA_DASH)]);
+  // discipline stay solid, except afvoer (water's drain, vent's extract),
+  // which is always dashed. A vent run also draws wider than the rest,
+  // toevoer and afvoer alike -- a duct is a spatial object even in plan (see
+  // ROUTE_VENT_EXTRA_MM); water's afvoer widens only on its own, being a
+  // physically larger pipe than the supply legs. The wash above is
+  // deliberately left undashed/un-widened -- it is a highlight glow, not
+  // part of the run's own line.
+  const isVent = resolved.route.discipline === "vent";
+  const isWaterAfvoer = resolved.route.discipline === "water" && routeWater(resolved.route) === "afvoer";
+  const isVentAfvoer = isVent && routeVent(resolved.route) === "afvoer";
+  const dashed = isWaterAfvoer || isVentAfvoer
+    || (resolved.route.discipline === "electrical" && routeKind(resolved.route) !== "power");
+  ctx.lineWidth = isWaterAfvoer ? LINE_WIDTH_MM + ROUTE_AFVOER_EXTRA_MM
+    : isVent ? LINE_WIDTH_MM + ROUTE_VENT_EXTRA_MM
+    : LINE_WIDTH_MM;
+  if (dashed) ctx.setLineDash([...(isWaterAfvoer || isVentAfvoer ? ROUTE_AFVOER_DASH : ROUTE_DATA_DASH)]);
   strokePath(ctx, resolved.segments);
   if (dashed) ctx.setLineDash([]);
 

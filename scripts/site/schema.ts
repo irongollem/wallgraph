@@ -2,7 +2,7 @@
 // imported from their source, and document objects reject unknown properties.
 import { SYMBOL_TYPES } from "../../src/render/symbols";
 import { STAIR_KINDS } from "../../src/model/stair";
-import { DISCIPLINES, ROUTE_KINDS, ROUTE_WATERS } from "../../src/model/route";
+import { DISCIPLINES, ROUTE_KINDS, ROUTE_WATERS, ROUTE_VENTS } from "../../src/model/route";
 
 export type JsonSchema = Record<string, unknown>;
 
@@ -315,6 +315,26 @@ export function planSchema(siteUrl: string): JsonSchema {
               "Water-only: nominal pipe diameter, mm. Meaningful only when discipline " +
               "is \"water\". Absent defaults per water kind -- 15 for koud/warm, 50 " +
               "for afvoer.",
+          },
+          vent: {
+            enum: [...ROUTE_VENTS],
+            description:
+              "Vent-only: toevoer/afvoer. Meaningful only when discipline is \"vent\"; " +
+              "an electrical or water route ignores it. Absent means \"toevoer\" " +
+              "(supply air).",
+          },
+          ductDiameter: {
+            type: "integer", minimum: 63, maximum: 400,
+            description:
+              "Vent-only: nominal duct diameter, mm. Meaningful only when discipline " +
+              "is \"vent\". Absent means 125.",
+          },
+          flow: {
+            type: "integer", minimum: 1,
+            description:
+              "Vent-only: design flow for this run, m3/h. Meaningful only when " +
+              "discipline is \"vent\". Absent means not stated -- there is no default, " +
+              "unlike every other optional field on a route.",
           },
         },
       },

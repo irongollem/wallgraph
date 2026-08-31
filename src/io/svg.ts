@@ -15,7 +15,7 @@ import { resolveFloor } from "../core/resolve";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
 import { COLORS, routeInk, symbolInk } from "../render/draw";
-import { ROUTE_DATA_DASH, ROUTE_AFVOER_DASH, ROUTE_AFVOER_EXTRA_MM } from "../render/route";
+import { ROUTE_DATA_DASH, ROUTE_AFVOER_DASH, ROUTE_AFVOER_EXTRA_MM, ROUTE_VENT_EXTRA_MM } from "../render/route";
 import { stairBox } from "../core/stair";
 import { recordSymbol, Prim } from "./record";
 import { openingMarks } from "./marks";
@@ -27,7 +27,7 @@ import { videBox } from "../core/vide";
 import { resolveStair } from "../core/stair";
 import { resolveRoutes } from "../core/route";
 import { routePrims } from "./route";
-import { DISCIPLINES, routeKind, routeWater } from "../model/route";
+import { DISCIPLINES, routeKind, routeWater, routeVent } from "../model/route";
 import { planBounds } from "../core/bounds";
 import { saveViaHost, downloadBlob } from "./save";
 import { t } from "../i18n";
@@ -281,6 +281,23 @@ export function routeSvgParts(floor: Floor): string[] {
         for (const rr of afvoer) for (const p of routePrims(rr)) parts.push(primSvg(p));
         parts.push(`</g>`);
       }
+    } else if (discipline === "vent") {
+      // Every vent run draws wider than the other disciplines, toevoer and
+      // afvoer alike -- a duct is a spatial object even in plan (see
+      // render/route.ts's ROUTE_VENT_EXTRA_MM) -- so the widened stroke
+      // wraps both sub-groups here rather than only the dashed one. afvoer
+      // is additionally dashed on its own sub-group, the same
+      // recorder-drops-dashes reasoning as the water afvoer split above.
+      const toevoer = group.filter(r => routeVent(r.route) !== "afvoer");
+      const afvoer = group.filter(r => routeVent(r.route) === "afvoer");
+      parts.push(`<g stroke-width="${W_ROUTE + ROUTE_VENT_EXTRA_MM}">`);
+      for (const rr of toevoer) for (const p of routePrims(rr)) parts.push(primSvg(p));
+      if (afvoer.length > 0) {
+        parts.push(`<g stroke-dasharray="${ROUTE_AFVOER_DASH.join(" ")}">`);
+        for (const rr of afvoer) for (const p of routePrims(rr)) parts.push(primSvg(p));
+        parts.push(`</g>`);
+      }
+      parts.push(`</g>`);
     } else {
       for (const rr of group) for (const p of routePrims(rr)) parts.push(primSvg(p));
     }

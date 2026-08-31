@@ -117,6 +117,67 @@ export function clampRouteDiameter(n: number): number {
   return Math.max(8, Math.min(200, Math.round(isFinite(n) ? n : defaultRouteDiameter("koud"))));
 }
 
+/**
+ * What a vent run carries. Meaningless outside discipline "vent" -- an
+ * electrical or water route ignores it entirely. Absent = "toevoer" (supply
+ * air, the ordinary case); "afvoer" is extract. Reuses water's own Dutch word
+ * for the drain/extract side -- it is the correct term for extract air, the
+ * same way "afvoer" already names drainage on a water run -- but the two
+ * stay unambiguous everywhere else: i18n keys are routeVentToevoer/
+ * routeVentAfvoer (never bare routeAfvoer*), and the DXF layer is
+ * ROUTES-VENT-AFVOER, distinct from water's ROUTES-WATER-AFVOER. Read
+ * through routeVent(), never r.vent directly, so a route that predates this
+ * field reads as an ordinary supply run.
+ */
+export type RouteVent = "toevoer" | "afvoer";
+
+export const ROUTE_VENTS: readonly RouteVent[] = ["toevoer", "afvoer"];
+
+/** The run's vent kind, defaulted. See RouteVent. */
+export function routeVent(r: Route): RouteVent {
+  return r.vent ?? "toevoer";
+}
+
+/**
+ * Nominal duct diameter, mm, offered in steps -- the same "offered set, not
+ * a continuum" reasoning as a water route's pipe diameter, but its own
+ * ladder: round spiro duct sizes rather than copper/PEX or PVC drain sizes.
+ */
+export const VENT_DIAMETERS: readonly number[] = [100, 125, 150, 160, 180, 200];
+
+/** The ordinary duct size absent a stated one. */
+export const VENT_DIAMETER_DEFAULT = 125;
+
+/** The run's nominal duct diameter, mm, defaulted. Vent-only -- see
+ *  Route.ductDiameter. */
+export function routeDuctDiameter(r: Route): number {
+  return r.ductDiameter ?? VENT_DIAMETER_DEFAULT;
+}
+
+/** Whole mm, within what the schema allows (63-400) -- the chip row offers
+ *  VENT_DIAMETERS; this is the wider bound a typed value can still reach. */
+export function clampDuctDiameter(n: number): number {
+  return Math.max(63, Math.min(400, Math.round(isFinite(n) ? n : VENT_DIAMETER_DEFAULT)));
+}
+
+/**
+ * The run's stated design flow, m3/h, or undefined when nobody entered one.
+ * Vent-only, and unlike every other optional field on Route this has NO
+ * default to fall back to: a flow figure is a fact someone measured or
+ * designed to, not something that can be assumed for a run that never stated
+ * one. core/fitout.ts's roomVentRouted() relies on that distinction to keep
+ * its summed figure honest about what it excludes.
+ */
+export function routeFlow(r: Route): number | undefined {
+  return r.flow;
+}
+
+/** Whole m3/h, at least 1 (the schema's own minimum) -- never called with a
+ *  value meant to clear the field; that is 0/empty, handled by the caller. */
+export function clampRouteFlow(n: number): number {
+  return Math.max(1, Math.round(n));
+}
+
 export interface Route {
   id: Id;
   discipline: Discipline;
@@ -154,4 +215,20 @@ export interface Route {
    * afvoer. Read through routeDiameter().
    */
   diameter?: number;
+  /**
+   * Vent-only: toevoer/afvoer. See RouteVent. Meaningful only when
+   * discipline is "vent"; an electrical or water route ignores it.
+   */
+  vent?: RouteVent;
+  /**
+   * Vent-only: nominal duct diameter, mm. Meaningful only when discipline is
+   * "vent". Absent means 125. Read through routeDuctDiameter().
+   */
+  ductDiameter?: number;
+  /**
+   * Vent-only: design flow for this run, m3/h, integer. Meaningful only when
+   * discipline is "vent". Absent means not stated -- there is no default (see
+   * routeFlow()), unlike every other optional field on this type.
+   */
+  flow?: number;
 }

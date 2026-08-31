@@ -7,9 +7,12 @@
 // from a stair's stored parameters: stated, flagged against an ordinary
 // guideline value, never enforced. Wallgraph draws what it is given and makes
 // no compliance claim (see the disclaimer).
-import { Floor, PlanDoc, areaModeOf, findWall, openingHeight, roomNamesOf } from "../model/doc";
+import { Floor, PlanDoc, areaModeOf, findWall, openingHeight, roomNamesOf, routesOf } from "../model/doc";
 import type { Room } from "./rooms";
 import type { RoomUse } from "../model/room";
+import { routeVent, routeFlow } from "../model/route";
+import { resolveRoutePoints } from "./route";
+import { pointInPolygon } from "../geometry/vec";
 
 /**
  * NEN 1824's commonly applied working figure for an office workstation: the
@@ -100,4 +103,52 @@ function glazingArea(floor: Floor, room: Room): number {
     }
   }
   return total;
+}
+
+/** Routed ventilation ending in one room, per vent kind. See roomVentRouted(). */
+export interface RoomVentRouted {
+  /** Summed stated design flow, m3/h, of vent routes ending in this room. */
+  toevoer: number;
+  afvoer: number;
+  /**
+   * Count of routes ending in this room that carry no stated flow (see
+   * routeFlow() in model/route.ts) -- excluded from the sums above rather
+   * than assumed to be zero or any other figure, so the total is never
+   * mistaken for the true routed air change.
+   */
+  toevoerUnstated: number;
+  afvoerUnstated: number;
+}
+
+/**
+ * Routed ventilation ending in `room`, read off the floor's manually drawn
+ * vent routes (model/route.ts) -- reported beside roomFigures()'s indicative
+ * demand, never reconciled against it (this pairs the two, it does not check
+ * one against the other). A route "ends" in a room when its LAST resolved
+ * waypoint -- the terminating grille or valve, ordinarily -- falls inside the
+ * room's net boundary; a route only passing through, or ending elsewhere,
+ * does not count, and neither does a route whose discipline is not "vent".
+ *
+ * A route with no stated flow contributes nothing to the summed figure and
+ * is counted in the matching *Unstated field instead, so the total this
+ * returns never claims a number nobody entered.
+ */
+export function roomVentRouted(floor: Floor, room: Room): RoomVentRouted {
+  const out: RoomVentRouted = { toevoer: 0, afvoer: 0, toevoerUnstated: 0, afvoerUnstated: 0 };
+  for (const r of routesOf(floor)) {
+    if (r.discipline !== "vent") continue;
+    const pts = resolveRoutePoints(floor, r);
+    const last = pts[pts.length - 1];
+    if (!last || !pointInPolygon(last, room.netPoly)) continue;
+    const kind = routeVent(r);
+    const flow = routeFlow(r);
+    if (flow === undefined) {
+      if (kind === "afvoer") out.afvoerUnstated++; else out.toevoerUnstated++;
+    } else if (kind === "afvoer") {
+      out.afvoer += flow;
+    } else {
+      out.toevoer += flow;
+    }
+  }
+  return out;
 }

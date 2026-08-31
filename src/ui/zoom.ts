@@ -15,7 +15,7 @@ import { Tools } from "../input/tools";
 import { Room, roomKey, unattachedRoomNames } from "../core/rooms";
 import { ROOM_NAMES, ROOM_USES, type RoomName, type RoomUse } from "../model/room";
 import { areaModeOf, roomNamesOf } from "../model/doc";
-import { roomFigures } from "../core/fitout";
+import { roomFigures, roomVentRouted, type RoomFigures, type RoomVentRouted } from "../core/fitout";
 import { icon } from "./icons";
 import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
@@ -132,7 +132,7 @@ function roomItem(tools: Tools, edit: RoomEdit, store: Store, r: Room, area: str
   const item = el("div", "zone-item");
   item.append(zoneRow(tools, edit, r, area));
   const figures = roomFigures(store.floor, r, store.doc);
-  if (figures) item.append(figuresBlock(figures));
+  if (figures) item.append(figuresBlock(figures, roomVentRouted(store.floor, r)));
   return item;
 }
 
@@ -230,17 +230,32 @@ function useRow(tools: Tools, rn: RoomName): HTMLElement {
   return row;
 }
 
-/** Compact fit-out figures for a verblijfsruimte: one line each, the
- *  workplaceNone flag in the warning colour the way a stair issue is. */
-function figuresBlock(figures: ReturnType<typeof roomFigures>): HTMLElement {
+/**
+ * Compact fit-out figures for a verblijfsruimte: one line each, the
+ * workplaceNone flag in the warning colour the way a stair issue is. When any
+ * vent route (issue #28) ends in the room, the routed supply/extract is
+ * stated beside the indicative demand -- two figures side by side, both
+ * explicitly indicative, with no compliance claim (the same stance as every
+ * other figure here). A routed supply below the indicative demand gets a
+ * neutral note, not a warning: this pairs the two figures, it does not check
+ * one against the other.
+ */
+function figuresBlock(figures: RoomFigures, routed: RoomVentRouted): HTMLElement {
   const box = el("div", "zone-figures");
-  if (!figures) return box;
   const line = (text: string, warn = false): void => {
     box.append(Object.assign(el("div", "zone-figure" + (warn ? " is-warn" : "")), { textContent: text }));
   };
   line(t("fitout.workstations", { n: figures.workstations }));
   line(t("fitout.daylight", { pct: (figures.daylightRatio * 100).toFixed(1) }));
   line(t("fitout.ventilation", { m3h: Math.round(figures.ventilationM3h) }));
+  const anyRouted = routed.toevoer > 0 || routed.afvoer > 0
+    || routed.toevoerUnstated > 0 || routed.afvoerUnstated > 0;
+  if (anyRouted) {
+    line(t("fitout.ventRouted", { toevoer: Math.round(routed.toevoer), afvoer: Math.round(routed.afvoer) }));
+    if (routed.toevoer < figures.ventilationM3h) line(t("fitout.ventRoutedBelow"));
+    const unstated = routed.toevoerUnstated + routed.afvoerUnstated;
+    if (unstated > 0) line(t("fitout.ventRoutedUnstated", { n: unstated }));
+  }
   for (const issue of figures.issues) {
     line(t("fitoutIssue." + issue.code, { value: issue.value.toFixed(1), limit: issue.limit }), true);
   }

@@ -30,7 +30,7 @@ import { cabinetOverhead } from "../model/cabinet";
 import { resolveStair } from "../core/stair";
 import { resolveRoutes } from "../core/route";
 import { routePrims } from "./route";
-import { routeKind, routeWater, type Discipline } from "../model/route";
+import { routeKind, routeWater, routeVent, type Discipline } from "../model/route";
 import { saveViaHost, downloadBlob } from "./save";
 import { t } from "../i18n";
 
@@ -82,12 +82,23 @@ const ROUTE_DATA_LAYER = "ROUTES-ELECTRICAL-DATA";
  */
 const ROUTE_AFVOER_LAYER = "ROUTES-WATER-AFVOER";
 
+/**
+ * A vent afvoer (extract) run gets its own layer for the same reason
+ * ROUTE_AFVOER_LAYER does: its dash (see render/route.ts) cannot survive the
+ * recorder/prims path this feeds, so the distinction has to live in the
+ * layer instead. Registered only when the floor actually has an extract run
+ * (see toDxf); toevoer stays on ROUTE_LAYER.vent. Named distinctly from
+ * ROUTE_AFVOER_LAYER above so the two disciplines' drain/extract layers
+ * never collide on a CAD package's layer list.
+ */
+const ROUTE_VENT_AFVOER_LAYER = "ROUTES-VENT-AFVOER";
+
 /** ACI colour indices — 7 is "by background", i.e. black on white paper. */
 const LAYER_COLOR: Record<string, number> = {
   WALLS: 7, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, ROOMS: 8,
   CABINETS: 6, "CABINETS-OVERHEAD": 6,
   "ROUTES-ELECTRICAL": 1, "ROUTES-WATER": 5, "ROUTES-VENT": 2,
-  "ROUTES-ELECTRICAL-DATA": 1, "ROUTES-WATER-AFVOER": 5,
+  "ROUTES-ELECTRICAL-DATA": 1, "ROUTES-WATER-AFVOER": 5, "ROUTES-VENT-AFVOER": 2,
 };
 
 class DxfWriter {
@@ -253,6 +264,7 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
   const hasRoutes = routesOf(floor).length > 0;
   const hasElectricalData = routesOf(floor).some(r => r.discipline === "electrical" && routeKind(r) !== "power");
   const hasAfvoer = routesOf(floor).some(r => r.discipline === "water" && routeWater(r) === "afvoer");
+  const hasVentAfvoer = routesOf(floor).some(r => r.discipline === "vent" && routeVent(r) === "afvoer");
   const resolved = resolveFloor(floor);
   const w = new DxfWriter();
   w.header();
@@ -261,6 +273,7 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
     ...(hasRoutes ? Object.values(ROUTE_LAYER) : []),
     ...(hasElectricalData ? [ROUTE_DATA_LAYER] : []),
     ...(hasAfvoer ? [ROUTE_AFVOER_LAYER] : []),
+    ...(hasVentAfvoer ? [ROUTE_VENT_AFVOER_LAYER] : []),
   ]);
   w.section("ENTITIES", () => {
     // Walls: each solid piece as a closed outline, so openings are real gaps
@@ -280,6 +293,8 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
           ? ROUTE_DATA_LAYER
           : rr.route.discipline === "water" && routeWater(rr.route) === "afvoer"
           ? ROUTE_AFVOER_LAYER
+          : rr.route.discipline === "vent" && routeVent(rr.route) === "afvoer"
+          ? ROUTE_VENT_AFVOER_LAYER
           : ROUTE_LAYER[rr.route.discipline];
         emitPrims(w, layer, routePrims(rr));
       }

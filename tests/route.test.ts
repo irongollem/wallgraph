@@ -6,6 +6,7 @@ import { emptyDoc, routesOf } from "../src/model/doc";
 import {
   Route, DISCIPLINES, ROUTE_KINDS, routeKind, routeVeins,
   ROUTE_WATERS, routeWater, routeDiameter, WATER_SUPPLY_DIAMETERS, WATER_DRAIN_DIAMETERS,
+  ROUTE_VENTS, routeVent, routeDuctDiameter, routeFlow, VENT_DIAMETERS,
 } from "../src/model/route";
 import {
   resolveRoutePoints, routeLength, resolveRoutes, routeGroupSummaries, routeKindSummaries,
@@ -14,7 +15,7 @@ import {
 import { arcLength } from "../src/geometry/arc";
 import { unanchorRoutePoints } from "../src/model/ops";
 import { toDxf } from "../src/io/dxf";
-import { toSvg } from "../src/io/svg";
+import { toSvg, routeSvgParts } from "../src/io/svg";
 import { permitSvg } from "../src/io/permit";
 import { planSchema, validate } from "../scripts/site/schema";
 import { resources } from "../src/i18n";
@@ -428,6 +429,101 @@ const route = (over: Partial<Route> = {}): Route =>
     !dxfSupplyOnly.includes("ROUTES-WATER-AFVOER"));
 }
 
+/* ── vent vocabulary: accessors ── */
+
+{
+  const vroute = (over: Partial<Route> = {}): Route =>
+    ({ id: "v1", discipline: "vent", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }], ...over });
+
+  check("routeVent defaults to toevoer when absent", routeVent(vroute()) === "toevoer");
+  check("routeVent reads an explicit kind", routeVent(vroute({ vent: "afvoer" })) === "afvoer");
+  check("routeDuctDiameter defaults to 125", routeDuctDiameter(vroute()) === 125);
+  check("routeDuctDiameter reads an explicit value", routeDuctDiameter(vroute({ ductDiameter: 160 })) === 160);
+  check("routeFlow is undefined when absent -- no default", routeFlow(vroute()) === undefined);
+  check("routeFlow reads an explicit value", routeFlow(vroute({ flow: 90 })) === 90);
+  check("every vent kind is offered", ROUTE_VENTS.length === 2
+    && ROUTE_VENTS.includes("toevoer") && ROUTE_VENTS.includes("afvoer"));
+  check("the duct diameter ladder is ordered in steps",
+    VENT_DIAMETERS.join(",") === "100,125,150,160,180,200");
+}
+
+/* ── vent vocabulary: the schema ── */
+
+{
+  const schema = planSchema("");
+  const doc = emptyDoc();
+  doc.floors[0]!.routes = [
+    { id: "v2", discipline: "vent", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }],
+      vent: "afvoer", ductDiameter: 160, flow: 90 },
+    { id: "v3", discipline: "vent", points: [{ x: 0, y: 500 }, { x: 1000, y: 500 }] },
+  ];
+  check("a document with the vent fields validates", validate(schema, doc).length === 0,
+    validate(schema, doc).join(" | "));
+
+  const lowDiameter = JSON.parse(JSON.stringify(doc));
+  lowDiameter.floors[0].routes[0].ductDiameter = 62;
+  check("duct diameter below the schema minimum is rejected", validate(schema, lowDiameter).length > 0);
+
+  const highDiameter = JSON.parse(JSON.stringify(doc));
+  highDiameter.floors[0].routes[0].ductDiameter = 401;
+  check("duct diameter above the schema maximum is rejected", validate(schema, highDiameter).length > 0);
+
+  const badFlow = JSON.parse(JSON.stringify(doc));
+  badFlow.floors[0].routes[0].flow = 0;
+  check("flow below the schema minimum is rejected", validate(schema, badFlow).length > 0);
+
+  const badVent = JSON.parse(JSON.stringify(doc));
+  badVent.floors[0].routes[0].vent = "gas";
+  check("an unknown vent kind is rejected", validate(schema, badVent).length > 0);
+
+  // JSON round-trip.
+  const again = JSON.parse(JSON.stringify(doc));
+  check("vent fields round-trip through JSON",
+    JSON.stringify(again.floors[0].routes) === JSON.stringify(doc.floors[0]!.routes));
+  check("the round-tripped document still validates", validate(schema, again).length === 0);
+}
+
+/* ── vent vocabulary: SVG dash/width and DXF layer ── */
+
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.routes = [
+    { id: "toevoer", discipline: "vent", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }] },
+    { id: "afvoer", discipline: "vent", vent: "afvoer", points: [{ x: 0, y: 500 }, { x: 1000, y: 500 }] },
+    { id: "elec", discipline: "electrical", points: [{ x: 0, y: 1000 }, { x: 1000, y: 1000 }] },
+  ];
+
+  const svg = toSvg(doc) ?? "";
+  check("the vent group carries one id", svg.includes('id="routes-vent"'));
+  check("the SVG carries a dash pattern for the vent afvoer sub-group", svg.includes("stroke-dasharray"));
+
+  // Each discipline's markup is self-contained (routeSvgParts nests its own
+  // <g>...</g> per discipline before moving to the next), so splitting right
+  // before each "<g id=\"routes-..." isolates one discipline's own tags --
+  // unlike splitting the full document string, which would also catch every
+  // sub-group after it.
+  const segments = routeSvgParts(f).join("\n").split(/(?=<g id="routes-)/);
+  const ventSeg = segments.find(s => s.startsWith('<g id="routes-vent"')) ?? "";
+  const electricalSeg = segments.find(s => s.startsWith('<g id="routes-electrical"')) ?? "";
+  const maxWidth = (seg: string): number =>
+    Math.max(0, ...[...seg.matchAll(/stroke-width="(\d+(?:\.\d+)?)"/g)].map(m => Number(m[1])));
+  check("vent runs draw wider than electrical runs",
+    maxWidth(ventSeg) > maxWidth(electricalSeg), `${maxWidth(ventSeg)} vs ${maxWidth(electricalSeg)}`);
+
+  const dxfBoth = toDxf(doc) ?? "";
+  check("a floor with an afvoer vent run gets the ROUTES-VENT-AFVOER layer",
+    dxfBoth.includes("ROUTES-VENT-AFVOER"));
+
+  const toevoerOnly = emptyDoc();
+  toevoerOnly.floors[0]!.routes = [
+    { id: "toevoer", discipline: "vent", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }] },
+  ];
+  const dxfToevoerOnly = toDxf(toevoerOnly) ?? "";
+  check("a floor with only toevoer runs carries no ROUTES-VENT-AFVOER layer",
+    !dxfToevoerOnly.includes("ROUTES-VENT-AFVOER"));
+}
+
 /* ── discipline list ── */
 
 check("every discipline is offered", DISCIPLINES.length === 3
@@ -447,6 +543,11 @@ for (const lng of ["nl", "en"] as const) {
     const key = "routeWater" + w[0]!.toUpperCase() + w.slice(1);
     check(`${lng} names water kind "${w}"`, typeof panel[key] === "string", key);
   }
+  for (const v of ROUTE_VENTS) {
+    const key = "routeVent" + v[0]!.toUpperCase() + v.slice(1);
+    check(`${lng} names vent kind "${v}"`, typeof panel[key] === "string", key);
+  }
+  check(`${lng} names the flow field`, typeof panel.routeFlow === "string");
 }
 
 console.log(failures === 0 ? "ALL ROUTE TESTS PASSED" : `${failures} FAILURES`);

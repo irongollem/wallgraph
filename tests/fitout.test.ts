@@ -4,8 +4,9 @@ import {
   emptyDoc, newId, WINDOW_HEIGHT_DEFAULT, type Wall, type Opening, type PlanDoc, type Floor, type AreaMode,
 } from "../src/model/doc";
 import { detectRooms } from "../src/core/rooms";
-import { roomFigures, WORKPLACE_MIN_M2, VENT_DM3S_PER_PERSON } from "../src/core/fitout";
+import { roomFigures, roomVentRouted, WORKPLACE_MIN_M2, VENT_DM3S_PER_PERSON } from "../src/core/fitout";
 import type { RoomUse } from "../src/model/room";
+import type { Route } from "../src/model/route";
 import { v } from "../src/geometry/vec";
 import { planSchema, validate } from "../scripts/site/schema";
 import { t, resources } from "../src/i18n";
@@ -167,6 +168,69 @@ function docWith(areaMode?: AreaMode): PlanDoc {
   check("an unknown use value is rejected", validate(schema, bad).length > 0);
 }
 
+// --- roomVentRouted: no vent routes at all -> everything zero ---
+{
+  const f = rectFloor(8000, 6000, 100);
+  nameRoom(f, 4000, 3000, "Kantoor", "verblijf");
+  const r = detectRooms(f)[0]!;
+  const routed = roomVentRouted(f, r);
+  check("no routes -> zero toevoer/afvoer and zero unstated counts",
+    routed.toevoer === 0 && routed.afvoer === 0 && routed.toevoerUnstated === 0 && routed.afvoerUnstated === 0,
+    JSON.stringify(routed));
+}
+
+// --- roomVentRouted: sums stated flow of vent routes ending in the room, per kind ---
+{
+  const f = rectFloor(8000, 6000, 100);
+  nameRoom(f, 4000, 3000, "Kantoor", "verblijf");
+  const r = detectRooms(f)[0]!;
+
+  // Ends inside the room, no stated flow -> counted as an unstated toevoer run.
+  const toevoerUnstated: Route = {
+    id: "toevoer-in", discipline: "vent",
+    points: [{ x: -2000, y: 3000 }, { x: 4000, y: 3000 }],
+  };
+  // Ends inside the room, stated flow -> summed.
+  const toevoerStated: Route = {
+    id: "toevoer-in2", discipline: "vent",
+    points: [{ x: -2000, y: 2000 }, { x: 3000, y: 2000 }], flow: 40,
+  };
+  const afvoerStated: Route = {
+    id: "afvoer-in", discipline: "vent", vent: "afvoer",
+    points: [{ x: -2000, y: 4000 }, { x: 5000, y: 4000 }], flow: 60,
+  };
+  const afvoerUnstated: Route = {
+    id: "afvoer-in-unstated", discipline: "vent", vent: "afvoer",
+    points: [{ x: -2000, y: 4500 }, { x: 4500, y: 4500 }],
+  };
+  // Ends outside the room entirely -- must not contribute, however much it states.
+  const outside: Route = {
+    id: "toevoer-out", discipline: "vent",
+    points: [{ x: -2000, y: -2000 }, { x: -1000, y: -1000 }], flow: 999,
+  };
+  // Starts inside the room but ENDS outside it -- passing through, not terminating.
+  const passingThrough: Route = {
+    id: "toevoer-through", discipline: "vent",
+    points: [{ x: 4000, y: 3000 }, { x: -3000, y: 3000 }], flow: 500,
+  };
+  // Ends inside the room, but is not a vent route -- must be ignored regardless.
+  const otherDiscipline: Route = {
+    id: "elec", discipline: "electrical",
+    points: [{ x: -2000, y: 3000 }, { x: 4000, y: 3000 }],
+  };
+  f.routes = [toevoerUnstated, toevoerStated, afvoerStated, afvoerUnstated, outside, passingThrough, otherDiscipline];
+
+  const routed = roomVentRouted(f, r);
+  check("toevoer sums only the stated-flow run ending in the room",
+    routed.toevoer === 40, JSON.stringify(routed));
+  check("afvoer sums only the stated-flow run ending in the room",
+    routed.afvoer === 60, JSON.stringify(routed));
+  check("the unstated toevoer run is counted, not summed as zero",
+    routed.toevoerUnstated === 1, JSON.stringify(routed));
+  check("the unstated afvoer run is counted, not summed as zero",
+    routed.afvoerUnstated === 1, JSON.stringify(routed));
+}
+
 // --- i18n: every new string exists in both languages ---
 {
   for (const lng of ["nl", "en"] as const) {
@@ -177,7 +241,8 @@ function docWith(areaMode?: AreaMode): PlanDoc {
     check(`${lng} has all roomUse keys`,
       ["none", "verblijf", "verkeer", "sanitair", "techniek"].every(k => typeof roomUse[k] === "string"));
     check(`${lng} has all fitout keys`,
-      ["workstations", "daylight", "ventilation"].every(k => typeof fitout[k] === "string"));
+      ["workstations", "daylight", "ventilation", "ventRouted", "ventRoutedBelow", "ventRoutedUnstated"]
+        .every(k => typeof fitout[k] === "string"));
     check(`${lng} has fitoutIssue.workplaceNone`, typeof fitoutIssue.workplaceNone === "string");
     check(`${lng} has panel.roomUse`, typeof (dict.panel as Record<string, unknown> | undefined)?.roomUse === "string");
   }
@@ -185,6 +250,9 @@ function docWith(areaMode?: AreaMode): PlanDoc {
   // this checks the indicative figures actually say so, not only that they exist.
   check("workstation figure states it is indicative", /indicatief/i.test(t("fitout.workstations", { n: 1 })));
   check("ventilation figure states it is indicative", /indicatief/i.test(t("fitout.ventilation", { m3h: 1 })));
+  check("routed vent figure states it is indicative too", /indicatief|indicative/i.test(t("fitout.ventRouted", { toevoer: 1, afvoer: 1 })));
+  check("routed-below-demand note carries no compliance claim",
+    !/voldoet|compliant|toets(en|ing)?\b/i.test(t("fitout.ventRoutedBelow")));
   check("daylight figure is named a ratio, not a compliance check",
     /verhouding/i.test(t("fitout.daylight", { pct: 1 })) && !/toets(en|ing)?\b.*ok|voldoet/i.test(t("fitout.daylight", { pct: 1 })));
 }

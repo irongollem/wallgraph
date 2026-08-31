@@ -18,6 +18,7 @@ import {
 import {
   Route, RoutePoint, Discipline, RouteKind, ROUTE_VEINS_DEFAULT, clampRouteVeins,
   RouteWater, clampRouteDiameter, defaultRouteDiameter,
+  RouteVent, VENT_DIAMETER_DEFAULT, clampDuctDiameter, clampRouteFlow,
 } from "../model/route";
 import { resolveRoutePoints, resolveRoutes, routeHit, ResolvedRoute } from "../core/route";
 import {
@@ -44,6 +45,7 @@ import { drawCabinetGhost } from "../render/cabinet";
 import { planBounds, polyBounds, Bounds } from "../core/bounds";
 import { Room, roomAnchor, orphanedRoomNames } from "../core/rooms";
 import { drawLabel, COLORS, symbolInk, routeInk } from "../render/draw";
+import { ROUTE_VENT_EXTRA_MM } from "../render/route";
 import { Resolved, ResolvedWall } from "../core/resolve";
 import { dimensionChains, DimChain } from "../core/dimensions";
 import { t } from "../i18n";
@@ -177,6 +179,19 @@ export class Tools {
    */
   routeWater: RouteWater = "koud";
   routeDiameter: number = defaultRouteDiameter("koud");
+  /**
+   * Vent-only fields for the next route -- sticky like routeDiscipline, the
+   * same way the electrical and water fields above are. `routeFlow` is the
+   * one exception among every sticky route field: it stays `undefined` by
+   * default and armed rather than reset after each run, because a flow
+   * figure is specific to the one run it was designed for, not a plan-wide
+   * choice the way a groep or a diameter is -- but once a person has typed
+   * one, the next run is very often at the same figure (a row of identical
+   * grilles), so it stays armed until changed rather than clearing itself.
+   */
+  routeVent: RouteVent = "toevoer";
+  routeDuctDiameter: number = VENT_DIAMETER_DEFAULT;
+  routeFlow: number | undefined = undefined;
   /**
    * Per-discipline visibility. Editor state, like snapGrid -- not persisted,
    * no document impact, and no bearing on SVG/DXF exports (those draw every
@@ -1482,6 +1497,25 @@ export class Tools {
     this.onToolChange();
   }
 
+  /** Arm the toevoer/afvoer kind for the next vent run. Sticky, like routeDiscipline. */
+  setRouteVent(v: RouteVent): void {
+    this.routeVent = v;
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /** Arm the nominal duct diameter for the next vent run. */
+  setRouteDuctDiameter(n: number): void {
+    this.routeDuctDiameter = clampDuctDiameter(n);
+    this.onToolChange();
+  }
+
+  /** Arm the design flow for the next vent run, or clear it back to unstated. */
+  setRouteFlow(n: number | undefined): void {
+    this.routeFlow = n === undefined ? undefined : clampRouteFlow(n);
+    this.onToolChange();
+  }
+
   /**
    * A fixed 30 mm stand-off from the nearest wall's centerline, on the
    * cursor's side -- reusing wallSnap()'s own centerline-projection maths
@@ -1594,6 +1628,10 @@ export class Tools {
       } else if (this.routeDiscipline === "water") {
         if (this.routeWater !== "koud") route.water = this.routeWater;
         if (this.routeDiameter !== defaultRouteDiameter(this.routeWater)) route.diameter = this.routeDiameter;
+      } else if (this.routeDiscipline === "vent") {
+        if (this.routeVent !== "toevoer") route.vent = this.routeVent;
+        if (this.routeDuctDiameter !== VENT_DIAMETER_DEFAULT) route.ductDiameter = this.routeDuctDiameter;
+        if (this.routeFlow !== undefined) route.flow = this.routeFlow;
       }
       this.store.mutate(doc => {
         (this.store.floorOf(doc).routes ??= []).push(route);
@@ -2987,7 +3025,7 @@ export class Tools {
       ctx.save();
       ctx.strokeStyle = ink;
       ctx.fillStyle = ink;
-      ctx.lineWidth = 25;
+      ctx.lineWidth = this.routeDiscipline === "vent" ? 25 + ROUTE_VENT_EXTRA_MM : 25;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       ctx.beginPath();
