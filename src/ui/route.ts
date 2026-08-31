@@ -6,7 +6,7 @@
 // parallel system per discipline.
 import { Store } from "../model/store";
 import { Tools } from "../input/tools";
-import { Floor, routesOf } from "../model/doc";
+import { Floor, Id, routesOf } from "../model/doc";
 import {
   Route, Discipline, DISCIPLINES, RouteKind, ROUTE_KINDS, ROUTE_VEINS_DEFAULT,
   routeKind, routeVeins, clampRouteVeins,
@@ -285,5 +285,68 @@ export function renderRouteProps(store: Store, tools: Tools, rows: RouteRows, id
   rows.infoRow(t("panel.routeLength"), `${Math.round(routeLength(store.floor, route))} mm`);
   rows.noteRow(t("panel.routePoints", { n: route.points.length }));
   materialsRows(rows, store.floor);
+  rows.dangerRow(t("panel.deleteOpening"), () => tools.deleteSelected());
+}
+
+/**
+ * Properties of every selected route at once: the same discipline-specific
+ * rows renderRouteProps shows for one, driven by the PRIMARY route's
+ * discipline (the pane states one run's numbers, the one clicked last, the
+ * way the cabinet pane does for a group) and committed to every selected
+ * member in one mutation -- re-groeping ten power runs, or re-sizing ten
+ * water branches, in a single edit. A selected group is same-kind ("route")
+ * but not necessarily same-discipline; writing an electrical patch field to
+ * a water run in the group is harmless (an unused stored field) rather than
+ * validated against, which is the deliberate simplification here -- no
+ * mixed-value indication per field, unlike the other kinds' bulk panes.
+ */
+export function renderRouteBulk(store: Store, tools: Tools, rows: RouteRows, ids: readonly Id[]): void {
+  const floor = store.floor;
+  const routes = routesOf(floor).filter(r => ids.includes(r.id));
+  const primary = routes[0];
+  if (!primary) return;
+
+  const mutAll = (fn: (r: Route) => void): void => {
+    store.mutate(d => {
+      for (const r of routesOf(store.floorOf(d))) if (ids.includes(r.id)) fn(r);
+    });
+  };
+
+  rows.secHead(t("panel.selectionHeader", { n: routes.length, label: t("panel.route") }), { sel: true, mode: true });
+  if (primary.discipline === "electrical") {
+    electricalRows(rows, floor, {
+      kind: routeKind(primary), veins: routeVeins(primary), group: primary.group ?? "", spec: primary.spec ?? "",
+    }, patch => mutAll(r => {
+      if (patch.kind !== undefined) { if (patch.kind === "power") delete r.kind; else r.kind = patch.kind; }
+      if (patch.veins !== undefined) {
+        const v = clampRouteVeins(patch.veins);
+        if (v === ROUTE_VEINS_DEFAULT) delete r.veins; else r.veins = v;
+      }
+      if (patch.group !== undefined) { if (patch.group) r.group = patch.group; else delete r.group; }
+      if (patch.spec !== undefined) { if (patch.spec) r.spec = patch.spec; else delete r.spec; }
+    }));
+  } else if (primary.discipline === "water") {
+    waterRows(rows, { water: routeWater(primary), diameter: routeDiameter(primary) }, patch => mutAll(r => {
+      if (patch.water !== undefined) { if (patch.water === "koud") delete r.water; else r.water = patch.water; }
+      if (patch.diameter !== undefined) {
+        const d = clampRouteDiameter(patch.diameter);
+        if (d === defaultRouteDiameter(routeWater(r))) delete r.diameter; else r.diameter = d;
+      }
+    }));
+  } else if (primary.discipline === "vent") {
+    ventRows(rows, {
+      vent: routeVent(primary), ductDiameter: routeDuctDiameter(primary), flow: routeFlow(primary),
+    }, patch => mutAll(r => {
+      if (patch.vent !== undefined) { if (patch.vent === "toevoer") delete r.vent; else r.vent = patch.vent; }
+      if (patch.ductDiameter !== undefined) {
+        const d = clampDuctDiameter(patch.ductDiameter);
+        if (d === VENT_DIAMETER_DEFAULT) delete r.ductDiameter; else r.ductDiameter = d;
+      }
+      if ("flow" in patch) {
+        if (patch.flow === undefined) delete r.flow; else r.flow = clampRouteFlow(patch.flow);
+      }
+    }));
+  }
+  materialsRows(rows, floor);
   rows.dangerRow(t("panel.deleteOpening"), () => tools.deleteSelected());
 }

@@ -1,6 +1,7 @@
 // Rail, storey/palette/property pane, and status bar. Plain DOM.
 import { Store, type Selection } from "../model/store";
 import { roomKey, orphanedRoomNames, type Room } from "../core/rooms";
+import { isMixed } from "../core/mixed";
 import { Tools, ToolName } from "../input/tools";
 import { clampOpening, wallLength, deleteWall, deleteRoomNames } from "../model/ops";
 import type { SymbolDef } from "../render/symbols";
@@ -21,7 +22,7 @@ import {
   doorKindOf, DOOR_KINDS, widthsFor, DOOR_WIDTHS_DOUBLE, FIRE_KINDS, FIRE_MINUTES,
   FIRE_MINUTES_DEFAULT, routesOf,
   type AreaMode, type DimMode, type Sash, type HingeEdge, type Opening, type Wall, type Floor, type FireKind,
-  type ProjectMeta,
+  type ProjectMeta, type Id,
 } from "../model/doc";
 import { DISCIPLINES } from "../model/route";
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
@@ -30,17 +31,24 @@ import { icon, type IconName } from "./icons";
 import { docHref, DOC_IDS } from "../links";
 import { openMenu, type MenuEntry } from "./menu";
 import { Palette } from "./palette";
-import { renderStairTool, renderStairProps, type PaneRows } from "./stairs";
+import { renderStairTool, renderStairProps, renderStairBulk, type PaneRows } from "./stairs";
 import { renderCabinetTool, renderCabinetProps } from "./cabinets";
 import { renderZoomTool, type RoomEdit } from "./zoom";
 import { renderOpeningTool } from "./openings";
 import { renderWallTool } from "./walls";
-import { renderVideTool, renderVideProps } from "./vide";
-import { renderRouteTool, renderRouteProps } from "./route";
+import { renderVideTool, renderVideProps, renderVideBulk } from "./vide";
+import { renderRouteTool, renderRouteProps, renderRouteBulk } from "./route";
 import { scrubbable } from "./scrub";
 import { watchLayout, isTouchPrimary, type LayoutMode } from "./layout";
 import { Sheet } from "./sheet";
 import { buildKeypad } from "./keypad";
+
+/**
+ * selRow's mixed marker: an option value no real field ever uses, so it can
+ * never collide with a legitimate "" value (loadBearing's unknown, a fire
+ * rating's none) the way a plain "" sentinel would.
+ */
+const MIXED_SENTINEL = "__mixed__";
 
 export class Panel {
   private rail: HTMLElement;
@@ -68,6 +76,10 @@ export class Panel {
   private chainBar: HTMLElement | null = null;
   /** What the bar over the sheet currently says; "" when there is no bar. */
   private chainBarSig = "";
+  /** The compact layout's pinned "Done (n)" pill while the select tool's
+   *  long-press mode is live -- same precedent as chainBar above. */
+  private modeBar: HTMLElement | null = null;
+  private modeBarSig = "";
   private actionsEl: HTMLElement | null = null;
   /** Told when the shell changes, so the host can re-frame the plan. */
   onLayoutChange: (() => void) | null = null;
@@ -208,10 +220,12 @@ export class Panel {
     // changes height with its detent, so nothing floating above it has a
     // position CSS can know.
     sheet.foot.replaceChildren(this.status, toolbar);
-    // Both are re-added by renderTyping, which runs at the end of every refresh.
+    // All three are re-added by renderTyping, which runs at the end of every refresh.
     this.keypadEl = null;
     this.chainBar = null;
     this.chainBarSig = "";
+    this.modeBar = null;
+    this.modeBarSig = "";
     sheet.body.replaceChildren(this.paneScroll, this.planEl, this.underlayEl, this.permitEl, this.foot);
     this.root.replaceChildren(top, modes, sheet.el);
   }
@@ -493,12 +507,19 @@ export class Panel {
       if (i === this.store.activeFloor) o.selected = true;
       select.append(o);
     }
-    select.onchange = () => this.store.setActiveFloor(Number(select.value));
+    // A selection on another storey means nothing here (Store.setActiveFloor
+    // already clears it) -- the select tool's long-press mode has to follow,
+    // or a stale "Klaar" pill would sit over a pane with nothing left to
+    // land in.
+    select.onchange = () => { this.store.setActiveFloor(Number(select.value)); this.tools.exitSelectMode(); };
     const addBtn = el("button", "storey-add") as HTMLButtonElement;
     addBtn.type = "button";
     addBtn.title = t("panel.floorAdd");
     addBtn.append(icon("plus", 14));
-    addBtn.onclick = () => this.store.addFloor(t("panel.floorNewName", { n: floors.length + 1 }));
+    addBtn.onclick = () => {
+      this.store.addFloor(t("panel.floorNewName", { n: floors.length + 1 }));
+      this.tools.exitSelectMode();
+    };
     row.append(select, addBtn);
     return row;
   }
@@ -522,7 +543,12 @@ export class Panel {
       + (this.tools.tool === "wall"
         ? `wall:${this.tools.wallShape}:${this.tools.polygonSides}:${this.tools.squareLock}:${this.tools.canCloseChain}|`
         : "")
-      + (sel ? `${sel.kind}:${sel.id}` : "none");
+      // selMore (count + ids) so the pane rebuilds when the group changes --
+      // a shift-click, a marquee catch, or a mode toggle -- not only when the
+      // primary selection itself changes. selectMode rides along too, since
+      // entering/leaving it changes what the header offers (the Done button).
+      + (sel ? `${sel.kind}:${sel.id}:${this.store.selMore.length}:${this.store.selMore.join(",")}` : "none")
+      + (this.tools.selectMode ? "|mode" : "");
     // Plan rows and the storey picker read from the document, so they have to
     // rebuild when an undo changes a value under them -- but not on every
     // store change, or placing a symbol would yank focus out of an open field.
@@ -630,6 +656,31 @@ export class Panel {
       }
     }
 
+    // The compact layout's "Done (n)" pill: the wide layout gets its Done
+    // button beside the selection count header instead (see secHead's `mode`
+    // option), but that header can scroll out of view under a peeking sheet
+    // -- so it is pinned here too, same precedent as chainBar above.
+    const n = this.store.selMore.length + 1;
+    const modeSig = this.tools.selectMode && this.store.selMore.length > 0 ? String(n) : "";
+    if (modeSig !== this.modeBarSig) {
+      this.modeBarSig = modeSig;
+      this.modeBar?.remove();
+      this.modeBar = null;
+      if (modeSig) {
+        const bar = el("div", "wg-chain");
+        const label = el("span", "sec-label");
+        label.textContent = String(n);
+        bar.append(label, el("div", "sec-rule"));
+        const done = el("button", "wg-done") as HTMLButtonElement;
+        done.type = "button";
+        done.textContent = t("panel.selectModeDone", { n });
+        done.onclick = () => this.tools.exitSelectMode();
+        bar.append(done);
+        sheet.body.prepend(bar);
+        this.modeBar = bar;
+      }
+    }
+
     if (this.tools.typingLength && !this.keypadEl) {
       const wrap = el("div", "wg-keypad");
       const read = el("div", "wg-typed");
@@ -662,9 +713,13 @@ export class Panel {
     const floors = this.store.doc.floors;
     textRow(t("panel.floorRename"), this.store.floor.name, n => this.store.renameFloor(n));
     if (this.store.floorBelow) noteRow(t("panel.floorGhost"));
-    btnRow(t("panel.floorDuplicate"), () =>
-      this.store.duplicateFloor(t("panel.floorNewName", { n: floors.length + 1 })));
-    if (floors.length > 1) btnRow(t("panel.floorDelete"), () => this.store.deleteFloor());
+    btnRow(t("panel.floorDuplicate"), () => {
+      this.store.duplicateFloor(t("panel.floorNewName", { n: floors.length + 1 }));
+      this.tools.exitSelectMode();
+    });
+    if (floors.length > 1) {
+      btnRow(t("panel.floorDelete"), () => { this.store.deleteFloor(); this.tools.exitSelectMode(); });
+    }
   }
 
   /** Sash editor. An opening is one hole; the sashes divide it. */
@@ -945,7 +1000,12 @@ export class Panel {
       if (extra.title) row.title = extra.title;
       row.append(Object.assign(el("span"), { textContent: label }));
       const input = el("input") as HTMLInputElement;
-      input.type = "number"; input.value = String(Math.round(value)); input.step = String(step);
+      input.type = "number"; input.step = String(step);
+      // Mixed: a bulk pane's field where the selected objects disagree. Left
+      // blank with a placeholder rather than showing one member's value as if
+      // it applied to all -- typing (or scrubbing) still commits to every
+      // member, same as an ordinary field.
+      if (extra.mixed) input.placeholder = "—"; else input.value = String(Math.round(value));
       input.onchange = () => { const n = parseFloat(input.value); if (isFinite(n)) onCommit(n); };
       scrubbable(input, {
         step,
@@ -957,28 +1017,43 @@ export class Panel {
       row.append(input);
       p.append(row);
     };
-    const selRow = (label: string, value: string, options: Array<[string, string]>, onCommit: (s: string) => void): void => {
+    const selRow = (
+      label: string, value: string, options: Array<[string, string]>, onCommit: (s: string) => void,
+      opts: { mixed?: boolean } = {},
+    ): void => {
       const row = el("label", "prop-row");
       row.append(Object.assign(el("span"), { textContent: label }));
       const sl = el("select") as HTMLSelectElement;
-      for (const [val, lab] of options) {
+      // Mixed: a leading "—" option that commits nothing, selected until the
+      // visitor actually picks one of the real options -- picking the mixed
+      // marker back is not offered, since there is no value it would mean.
+      if (opts.mixed) {
         const o = el("option") as HTMLOptionElement;
-        o.value = val; o.textContent = lab; if (val === value) o.selected = true;
+        o.value = MIXED_SENTINEL; o.textContent = "—"; o.selected = true;
         sl.append(o);
       }
-      sl.onchange = () => onCommit(sl.value);
+      for (const [val, lab] of options) {
+        const o = el("option") as HTMLOptionElement;
+        o.value = val; o.textContent = lab; if (!opts.mixed && val === value) o.selected = true;
+        sl.append(o);
+      }
+      sl.onchange = () => { if (sl.value !== MIXED_SENTINEL) onCommit(sl.value); };
       row.append(sl);
       p.append(row);
     };
     // `allowEmpty` is for fields where clearing means "unset" (the title-block
     // fields); elsewhere an emptied field keeps its old value, since a floor
     // with no name at all has nothing to show in the storey picker.
-    const textRow = (label: string, value: string, onCommit: (s: string) => void, allowEmpty = false): void => {
+    const textRow = (
+      label: string, value: string, onCommit: (s: string) => void,
+      opts: { allowEmpty?: boolean; mixed?: boolean } = {},
+    ): void => {
       const row = el("label", "prop-row");
       row.append(Object.assign(el("span"), { textContent: label }));
       const input = el("input") as HTMLInputElement;
-      input.type = "text"; input.value = value;
-      input.onchange = () => { const t2 = input.value.trim(); if (t2 || allowEmpty) onCommit(t2); };
+      input.type = "text";
+      if (opts.mixed) { input.value = ""; input.placeholder = "—"; } else input.value = value;
+      input.onchange = () => { const t2 = input.value.trim(); if (t2 || opts.allowEmpty) onCommit(t2); };
       row.append(input);
       p.append(row);
     };
@@ -995,7 +1070,10 @@ export class Panel {
      * dropdown puts a word between the user and the thing they are choosing.
      * `null` is the default ink and is stored as no colour at all.
      */
-    const colorRow = (label: string, value: string | null, onCommit: (hex: string | null) => void): void => {
+    const colorRow = (
+      label: string, value: string | null, onCommit: (hex: string | null) => void,
+      opts: { mixed?: boolean } = {},
+    ): void => {
       const row = el("div", "prop-row");
       row.append(Object.assign(el("span"), { textContent: label }));
       const chips = el("div", "ink-row");
@@ -1005,7 +1083,9 @@ export class Panel {
         const name = t("panel.ink" + ink.id[0]!.toUpperCase() + ink.id.slice(1));
         b.title = name;
         b.setAttribute("aria-label", name);
-        const on = ink.hex === value;
+        // Mixed: no swatch reads as "the" current colour, since there isn't
+        // one -- picking any of them still commits it to every member.
+        const on = !opts.mixed && ink.hex === value;
         b.setAttribute("aria-pressed", String(on));
         if (on) b.classList.add("is-on");
         b.style.background = ink.hex ?? COLORS.symbol;
@@ -1020,7 +1100,7 @@ export class Panel {
       custom.value = value ?? COLORS.symbol;
       custom.title = t("panel.inkCustom");
       custom.setAttribute("aria-label", t("panel.inkCustom"));
-      if (value !== null && !INKS.some(i => i.hex === value)) custom.classList.add("is-on");
+      if (!opts.mixed && value !== null && !INKS.some(i => i.hex === value)) custom.classList.add("is-on");
       // Same guard a number scrub needs, for the same reason: every commit
       // notifies the store, and a pane rebuild would swap this input out from
       // under an open picker -- after which its remaining events go nowhere.
@@ -1072,11 +1152,18 @@ export class Panel {
       }
       p.append(row);
     };
-    const checkRow = (label: string, value: boolean, onCommit: (b: boolean) => void): void => {
+    const checkRow = (
+      label: string, value: boolean, onCommit: (b: boolean) => void,
+      opts: { mixed?: boolean } = {},
+    ): void => {
       const row = el("label", "prop-row");
       row.append(Object.assign(el("span"), { textContent: label }));
       const cb = el("input") as HTMLInputElement;
       cb.type = "checkbox"; cb.checked = value;
+      // Mixed: the DOM indeterminate state (a dash rather than a tick/blank),
+      // cleared the moment the visitor actually clicks it -- native checkbox
+      // behaviour, so nothing here has to reset it by hand.
+      if (opts.mixed) cb.indeterminate = true;
       cb.onchange = () => onCommit(cb.checked);
       row.append(cb);
       p.append(row);
@@ -1265,11 +1352,11 @@ export class Panel {
         if (value === "") delete p[key]; else p[key] = value;
         if (Object.keys(p).length === 0) delete d.project;
       });
-    textRow(t("panel.permitProject"), meta.name ?? "", setMeta("name"), true);
-    textRow(t("panel.permitAddress"), meta.address ?? "", setMeta("address"), true);
-    textRow(t("panel.permitAuthor"), meta.author ?? "", setMeta("author"), true);
-    textRow(t("panel.permitNumber"), meta.number ?? "", setMeta("number"), true);
-    textRow(t("panel.permitDate"), meta.date ?? "", setMeta("date"), true);
+    textRow(t("panel.permitProject"), meta.name ?? "", setMeta("name"), { allowEmpty: true });
+    textRow(t("panel.permitAddress"), meta.address ?? "", setMeta("address"), { allowEmpty: true });
+    textRow(t("panel.permitAuthor"), meta.author ?? "", setMeta("author"), { allowEmpty: true });
+    textRow(t("panel.permitNumber"), meta.number ?? "", setMeta("number"), { allowEmpty: true });
+    textRow(t("panel.permitDate"), meta.date ?? "", setMeta("date"), { allowEmpty: true });
     noteRow(t("panel.permitDateHelp"));
     // Set/unset rather than a bare number: an absent direction draws no arrow,
     // because a guessed north would be a false statement on the sheet.
@@ -1308,24 +1395,164 @@ export class Panel {
     }
   }
 
+  /**
+   * Properties of every selected wall at once: thickness, own-height,
+   * load-bearing and fire rating -- the fields a bulk edit is actually
+   * reached for ("make this whole run 200mm", "mark it load-bearing").
+   * Length and the bow handle stay single-wall only; there is no group
+   * reading of "the length" of several different walls.
+   */
+  private renderWallBulk(rows: PaneRows, group: readonly Id[]): void {
+    const f = this.store.floor;
+    const walls = f.walls.filter(w => group.includes(w.id));
+    const first = walls[0];
+    if (!first) return;
+    rows.secHead(t("panel.selectionHeader", { n: walls.length, label: t("panel.wall") }), { sel: true, mode: true });
+    const mutAll = (fn: (w: Wall) => void): void => {
+      this.store.mutate(d => {
+        for (const w of this.store.floorOf(d).walls) if (group.includes(w.id)) fn(w);
+      });
+    };
+    const thickMixed = isMixed(walls, w => w.thickness);
+    rows.numRow(t("panel.thickness"), first.thickness, n => {
+      this.tools.lastThickness = Math.max(20, n);
+      mutAll(w => { w.thickness = Math.max(20, n); });
+    }, 10, { mixed: thickMixed });
+
+    const ownHeightMixed = isMixed(walls, w => w.height !== undefined);
+    rows.checkRow(t("panel.wallOwnHeight"), first.height !== undefined, on => mutAll(w => {
+      if (on) w.height = floorHeight(f); else delete w.height;
+    }), { mixed: ownHeightMixed });
+    if (!ownHeightMixed && first.height !== undefined) {
+      const heightMixed = isMixed(walls, w => wallHeight(f, w));
+      rows.numRow(t("panel.wallHeight"), wallHeight(f, first), n => mutAll(w => {
+        w.height = Math.max(100, Math.round(n));
+      }), 50, { mixed: heightMixed });
+    }
+    const lbMixed = isMixed(walls, w => w.loadBearing);
+    rows.selRow(t("panel.loadBearing"), first.loadBearing === undefined ? "" : first.loadBearing ? "yes" : "no",
+      [["", t("panel.loadBearingUnknown")], ["yes", t("panel.loadBearingYes")], ["no", t("panel.loadBearingNo")]],
+      v => mutAll(w => { w.loadBearing = v === "" ? undefined : v === "yes"; }), { mixed: lbMixed });
+    const fkMixed = isMixed(walls, w => w.fireRating?.kind ?? "");
+    rows.selRow(t("panel.fireRating"), first.fireRating?.kind ?? "",
+      [["", t("panel.fireNone")], ...FIRE_KINDS.map(k => [k, t("panel.fire_" + k)] as [string, string])],
+      value => mutAll(w => {
+        w.fireRating = value
+          ? { kind: value as FireKind, minutes: w.fireRating?.minutes ?? FIRE_MINUTES_DEFAULT }
+          : undefined;
+      }), { mixed: fkMixed });
+    if (walls.some(w => w.fireRating)) {
+      rows.noteRow(t("panel.fireHelp"));
+      const withRating = walls.find(w => w.fireRating)!;
+      rows.chipRow(t("panel.fireMinutes"), FIRE_MINUTES, withRating.fireRating!.minutes,
+        n => mutAll(w => { if (w.fireRating) w.fireRating.minutes = n; }));
+    }
+    rows.dangerRow(t("panel.deleteWall"), () => this.tools.deleteSelected());
+  }
+
+  /**
+   * Properties of every selected opening at once: width, fire rating and
+   * self-closing. The primary opening's kind (door/window/passage) picks the
+   * width chip ladder shown -- a group is same-kind ("opening") but can in
+   * principle mix door/window/passage, the same simplification renderRouteBulk
+   * (route.ts) documents for discipline.
+   */
+  private renderOpeningBulk(rows: PaneRows, group: readonly Id[]): void {
+    const f = this.store.floor;
+    const hits: Opening[] = [];
+    for (const w of f.walls) for (const o of w.openings) if (group.includes(o.id)) hits.push(o);
+    const primary = hits[0];
+    if (!primary) return;
+    rows.secHead(t("panel.selectionHeader", {
+      n: hits.length,
+      label: primary.kind === "door" ? t("panel.door") : primary.kind === "window" ? t("panel.window") : t("panel.passage"),
+    }), { sel: true, mode: true });
+
+    const mutAll = (fn: (o2: Opening) => void): void => {
+      this.store.mutate(d => {
+        const fl = this.store.floorOf(d);
+        for (const w of fl.walls) for (const o2 of w.openings) {
+          if (group.includes(o2.id)) { fn(o2); clampOpening(fl, w, o2); }
+        }
+      });
+    };
+    const setWidth = (n: number): void => mutAll(o2 => { o2.width = Math.max(50, Math.round(n)); });
+    const widthMixed = isMixed(hits, o => o.width);
+    rows.numRow(t("panel.width"), primary.width, setWidth, 10, { mixed: widthMixed });
+    rows.chipRow(t("panel.width"), widthsFor(primary.kind), primary.width, setWidth);
+
+    const fkMixed = isMixed(hits, o => o.fireRating?.kind ?? "");
+    rows.selRow(t("panel.fireRating"), primary.fireRating?.kind ?? "",
+      [["", t("panel.fireNone")], ...FIRE_KINDS.map(k => [k, t("panel.fire_" + k)] as [string, string])],
+      value => mutAll(o2 => {
+        o2.fireRating = value
+          ? { kind: value as FireKind, minutes: o2.fireRating?.minutes ?? FIRE_MINUTES_DEFAULT }
+          : undefined;
+        if (value) o2.selfClosing = true;
+      }), { mixed: fkMixed });
+    if (hits.some(o => o.fireRating)) {
+      rows.noteRow(t("panel.fireHelp"));
+      const withRating = hits.find(o => o.fireRating)!;
+      rows.chipRow(t("panel.fireMinutes"), FIRE_MINUTES, withRating.fireRating!.minutes,
+        n => mutAll(o2 => { if (o2.fireRating) o2.fireRating.minutes = n; }));
+    }
+    const scMixed = isMixed(hits, o => o.selfClosing ?? false);
+    rows.checkRow(t("panel.selfClosing"), primary.selfClosing ?? false,
+      b => mutAll(o2 => { o2.selfClosing = b || undefined; }), { mixed: scMixed });
+    rows.dangerRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());
+  }
+
+  /** Properties of every selected symbol at once: colour, the one field a
+   *  bulk edit is reached for ("recolour twenty sockets red"). */
+  private renderSymbolBulk(rows: PaneRows, group: readonly Id[]): void {
+    const f = this.store.floor;
+    const syms = f.symbols.filter(s => group.includes(s.id));
+    const first = syms[0];
+    if (!first) return;
+    rows.secHead(t("panel.selectionHeader", { n: syms.length, label: t("panel.symbolPlain") }), { sel: true, mode: true });
+    const mixed = isMixed(syms, s => s.color ?? "");
+    rows.colorRow(t("panel.color"), first.color ?? null, hex => {
+      this.tools.symbolColor = hex;
+      this.store.mutate(d => {
+        for (const s of this.store.floorOf(d).symbols) if (group.includes(s.id)) { if (hex) s.color = hex; else delete s.color; }
+      }, "color:" + group.join(","));
+    }, { mixed });
+    rows.dangerRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());
+  }
+
   private renderProps(p: HTMLElement): void {
     p.replaceChildren();
     const sel = this.store.sel;
     const f = this.store.floor;
     const { numRow, selRow, textRow, noteRow, warnRow, btnRow, colorRow, chipRow, checkRow } = this.rowKit(p);
 
-    const secHead = (label: string, opts: { sel?: boolean; later?: boolean } = {}): void => {
+    const secHead = (label: string, opts: { sel?: boolean; later?: boolean; mode?: boolean } = {}): void => {
       const wrap = el("div", "sec" + (opts.later ? " sec-later" : ""));
       const lbl = el("span", "sec-label" + (opts.sel ? " is-sel" : ""));
       lbl.textContent = label;
       wrap.append(lbl, el("div", "sec-rule"));
+      // The "Done" affordance: only while the select tool's long-press mode
+      // is actually live AND there is a group to land the visitor in (a lone
+      // selection never enters the mode in the first place, but the flag
+      // could in principle outlive it -- see Tools.exitSelectMode). Beside
+      // the close button in the wide layout; the compact layout's pinned
+      // pill (renderTyping()) is the same affordance for when this header is
+      // scrolled out of view under the sheet.
+      if (opts.mode && this.tools.selectMode && this.store.selMore.length > 0 && this.mode !== "compact") {
+        const done = el("button", "sec-done") as HTMLButtonElement;
+        done.type = "button";
+        const n = this.store.selMore.length + 1;
+        done.textContent = t("panel.selectModeDone", { n });
+        done.onclick = () => this.tools.exitSelectMode();
+        wrap.append(done);
+      }
       if (opts.sel) {
         const close = el("button", "sec-close") as HTMLButtonElement;
         close.type = "button";
         close.title = t("panel.close");
         close.setAttribute("aria-label", t("panel.close"));
         close.append(icon("close", 14));
-        close.onclick = () => this.store.select(null);
+        close.onclick = () => { this.store.select(null); this.tools.exitSelectMode(); };
         wrap.append(close);
       }
       p.append(wrap);
@@ -1385,31 +1612,46 @@ export class Panel {
     // The opening tools state what the next opening is placed with, above the
     // properties of whichever one was just placed.
     if (this.tools.tool === "door" || this.tools.tool === "window" || this.tools.tool === "passage") {
-      if (sel?.kind === "opening") this.renderOpeningProps(sel, rows);
+      if (sel?.kind === "opening") {
+        const group = this.store.selectedOf("opening");
+        if (group.length > 1) this.renderOpeningBulk(rows, group); else this.renderOpeningProps(sel, rows);
+      }
       renderOpeningTool(this.store, this.tools, rows, this.tools.tool);
       return;
     }
 
     // The vide tool, like the stair tool, keeps its fields in the property area.
     if (this.tools.tool === "vide") {
-      if (sel?.kind === "vide") renderVideProps(this.store, this.tools, rows, sel.id);
+      if (sel?.kind === "vide") {
+        const group = this.store.selectedOf("vide");
+        if (group.length > 1) renderVideBulk(this.store, this.tools, rows, group);
+        else renderVideProps(this.store, this.tools, rows, sel.id);
+      }
       renderVideTool(this.store, this.tools, rows);
       return;
     }
     if (sel?.kind === "vide") {
-      renderVideProps(this.store, this.tools, rows, sel.id);
+      const group = this.store.selectedOf("vide");
+      if (group.length > 1) renderVideBulk(this.store, this.tools, rows, group);
+      else renderVideProps(this.store, this.tools, rows, sel.id);
       return;
     }
 
     // The route tool, like the stair and vide tools, keeps its fields in the
     // property area.
     if (this.tools.tool === "route") {
-      if (sel?.kind === "route") renderRouteProps(this.store, this.tools, rows, sel.id);
+      if (sel?.kind === "route") {
+        const group = this.store.selectedOf("route");
+        if (group.length > 1) renderRouteBulk(this.store, this.tools, rows, group);
+        else renderRouteProps(this.store, this.tools, rows, sel.id);
+      }
       renderRouteTool(this.store, this.tools, rows);
       return;
     }
     if (sel?.kind === "route") {
-      renderRouteProps(this.store, this.tools, rows, sel.id);
+      const group = this.store.selectedOf("route");
+      if (group.length > 1) renderRouteBulk(this.store, this.tools, rows, group);
+      else renderRouteProps(this.store, this.tools, rows, sel.id);
       return;
     }
 
@@ -1417,7 +1659,11 @@ export class Panel {
     // palette does: placing a stair selects it, so the next kind has to be
     // reachable without deselecting first.
     if (this.tools.tool === "stair") {
-      if (sel?.kind === "stair") renderStairProps(this.store, this.tools, rows, sel.id);
+      if (sel?.kind === "stair") {
+        const group = this.store.selectedOf("stair");
+        if (group.length > 1) renderStairBulk(this.store, this.tools, rows, group);
+        else renderStairProps(this.store, this.tools, rows, sel.id);
+      }
       renderStairTool(p, this.store, this.tools, rows, () => this.refreshToolbar());
       return;
     }
@@ -1426,11 +1672,15 @@ export class Panel {
     if (!sel) return;
 
     if (sel.kind === "stair") {
-      renderStairProps(this.store, this.tools, rows, sel.id);
+      const group = this.store.selectedOf("stair");
+      if (group.length > 1) renderStairBulk(this.store, this.tools, rows, group);
+      else renderStairProps(this.store, this.tools, rows, sel.id);
       return;
     }
 
     if (sel.kind === "wall") {
+      const group = this.store.selectedOf("wall");
+      if (group.length > 1) { this.renderWallBulk(rows, group); return; }
       const w = f.walls.find(x => x.id === sel.id);
       if (!w) return;
       secHead(t("panel.wall"), { sel: true });
@@ -1527,11 +1777,15 @@ export class Panel {
     }
 
     if (sel.kind === "opening") {
-      this.renderOpeningProps(sel, rows);
+      const group = this.store.selectedOf("opening");
+      if (group.length > 1) this.renderOpeningBulk(rows, group);
+      else this.renderOpeningProps(sel, rows);
       return;
     }
 
     if (sel.kind === "symbol") {
+      const group = this.store.selectedOf("symbol");
+      if (group.length > 1) { this.renderSymbolBulk(rows, group); return; }
       const s = f.symbols.find(x => x.id === sel.id);
       if (!s) return;
       secHead(t("panel.symbol", { type: t("symbol." + s.type) }), { sel: true });
@@ -1586,6 +1840,8 @@ export function matches(def: SymbolDef, q: string): boolean {
 export interface NumRowExtra {
   title?: string;
   snap?: (value: number) => number;
+  /** Bulk pane only: the selected objects disagree on this field. */
+  mixed?: boolean;
 }
 
 function dist2(a: { x: number; y: number }, b: { x: number; y: number }): number {

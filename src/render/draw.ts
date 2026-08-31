@@ -218,6 +218,14 @@ export function drawScene(
   floor: Floor, resolved: Resolved, rooms: Room[], sel: Selection | null,
   extras: DrawExtras, gridMm: number, areaMode: AreaMode, dimMode: DimMode,
 ): void {
+  // True for the primary selection AND every member `extras.selMore` carries
+  // alongside it -- a shift-click, a touch hold, or a marquee's catch all
+  // draw the same frame, not just the one clicked or picked last. One helper
+  // so every kind below routes selection highlighting through the same
+  // check, the way the cabinet path already did before this generalised it.
+  const isSel = (kind: Selection["kind"], id: string): boolean =>
+    sel?.kind === kind && (sel.id === id || extras.selMore?.includes(id) === true);
+
   ctx.save();
   ctx.fillStyle = COLORS.bg;
   ctx.fillRect(0, 0, canvasW, canvasH);
@@ -251,7 +259,7 @@ export function drawScene(
   for (const vd of videsOf(floor)) {
     drawVide(ctx, vd, {
       px, ink: symbolInk(vd), fallbackLabel: t("vide.label"), cut: COLORS.bg,
-      selected: sel?.kind === "vide" && sel.id === vd.id,
+      selected: isSel("vide", vd.id),
       select: COLORS.select, wash: COLORS.selectWash,
     });
   }
@@ -282,17 +290,17 @@ export function drawScene(
 
   // Walls.
   for (const rw of resolved.walls.values()) {
-    const isSel = sel?.kind === "wall" && sel.id === rw.wall.id;
+    const wallSel = isSel("wall", rw.wall.id);
     for (const piece of rw.pieces) {
       ctx.beginPath();
       tracePoly(ctx, piece.poly);
-      ctx.fillStyle = isSel ? "#5a4638" : COLORS.wallFill;
+      ctx.fillStyle = wallSel ? "#5a4638" : COLORS.wallFill;
       ctx.fill();
-      ctx.strokeStyle = isSel ? COLORS.select : COLORS.wallStroke;
-      ctx.lineWidth = (isSel ? 2 : 1) * px;
+      ctx.strokeStyle = wallSel ? COLORS.select : COLORS.wallStroke;
+      ctx.lineWidth = (wallSel ? 2 : 1) * px;
       ctx.stroke();
     }
-    for (const og of rw.openings) drawOpening(ctx, og, px, sel);
+    for (const og of rw.openings) drawOpening(ctx, og, px, isSel("opening", og.opening.id));
   }
 
   // Junction fill goes on top of the wall pieces: it closes the wedge a T-shaped
@@ -314,7 +322,7 @@ export function drawScene(
     if (extras.showRoutes?.[route.discipline] === false) continue;
     drawRoute(ctx, rr, route.points, resolveRoutePoints(floor, route), {
       ink: routeInk(route.discipline, route.discipline === "water" ? routeWater(route) : undefined),
-      selected: sel?.kind === "route" && sel.id === route.id,
+      selected: isSel("route", route.id),
       select: COLORS.select, wash: COLORS.selectWash,
     });
   }
@@ -325,14 +333,13 @@ export function drawScene(
   for (const c of cabinetsOf(floor)) {
     drawCabinet(ctx, c, {
       px, ink: symbolInk(c),
-      selected: sel?.kind === "cabinet"
-        && (sel.id === c.id || extras.selMore?.includes(c.id) === true),
+      selected: isSel("cabinet", c.id),
       select: COLORS.select, wash: COLORS.selectWash,
     });
   }
 
   // Symbols.
-  for (const s of floor.symbols) drawSymbol(ctx, s, px, sel?.kind === "symbol" && sel.id === s.id);
+  for (const s of floor.symbols) drawSymbol(ctx, s, px, isSel("symbol", s.id));
 
   // Stairs last, over the symbols. Their own wash goes down first, so whatever
   // a flight crosses -- walls, a room tint, a symbol beneath it -- recedes
@@ -340,7 +347,7 @@ export function drawScene(
   for (const st of stairsOf(floor)) {
     drawStair(ctx, resolveStair(floor, st), {
       px, ink: symbolInk(st),
-      selected: sel?.kind === "stair" && sel.id === st.id,
+      selected: isSel("stair", st.id),
       select: COLORS.select, wash: COLORS.selectWash,
       backing: COLORS.stairWash, warn: COLORS.stairWarn,
     });
@@ -463,9 +470,8 @@ function fmtMm(mm: number): string {
   return mm >= 1000 ? `${+(mm / 1000).toFixed(2)} m` : `${mm} mm`;
 }
 
-function drawOpening(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number, sel: Selection | null): void {
+function drawOpening(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number, isSel: boolean): void {
   const o = og.opening;
-  const isSel = sel?.kind === "opening" && sel.id === o.id;
   const color = isSel ? COLORS.select : COLORS.opening;
   ctx.strokeStyle = color;
   ctx.lineWidth = (isSel ? 2 : 1.2) * px;

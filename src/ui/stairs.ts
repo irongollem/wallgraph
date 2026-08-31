@@ -17,6 +17,7 @@ import {
   stairBox, stairMetrics, gradient, resolveStair, stairIssues, STAIR_LIMITS,
 } from "../core/stair";
 import { turnAbout } from "../core/placed";
+import { isMixed } from "../core/mixed";
 import { getStair } from "../render/stairs";
 import { COLORS } from "../render/draw";
 import { t } from "../i18n";
@@ -29,20 +30,37 @@ import { t } from "../i18n";
  * render through these, so all of them keep one appearance.
  */
 export interface PaneRows {
-  secHead(label: string, opts?: { sel?: boolean; later?: boolean }): void;
+  /**
+   * `mode: true` (on a `sel` header) adds the "Done" affordance beside the
+   * close button while the select tool's long-press mode is live and several
+   * objects are gathered -- see Tools.selectMode. Every kind's pane gets it
+   * for free by passing `mode: true` on its own group header; nothing else
+   * about secHead changes.
+   */
+  secHead(label: string, opts?: { sel?: boolean; later?: boolean; mode?: boolean }): void;
+  /**
+   * `mixed: true` on any of these five renders the field as indeterminate --
+   * an em-dash placeholder, an unchecked-but-indeterminate box, a leading "—"
+   * option that commits nothing, or no ink swatch marked active -- until the
+   * visitor actually types or picks a value. Used only by a bulk pane (see
+   * panel.ts's per-kind Bulk renderers): a single selection never passes it,
+   * so a lone object's pane is unaffected.
+   */
   numRow(label: string, value: number, onCommit: (n: number) => void, step?: number,
-         extra?: { title?: string; snap?: (n: number) => number }): void;
-  selRow(label: string, value: string, options: Array<[string, string]>, onCommit: (s: string) => void): void;
-  textRow(label: string, value: string, onCommit: (s: string) => void): void;
+         extra?: { title?: string; snap?: (n: number) => number; mixed?: boolean }): void;
+  selRow(label: string, value: string, options: Array<[string, string]>, onCommit: (s: string) => void,
+         opts?: { mixed?: boolean }): void;
+  textRow(label: string, value: string, onCommit: (s: string) => void, opts?: { mixed?: boolean }): void;
   infoRow(label: string, text: string, title?: string): void;
   noteRow(text: string): void;
   warnRow(text: string): void;
-  colorRow(label: string, value: string | null, onCommit: (hex: string | null) => void): void;
+  colorRow(label: string, value: string | null, onCommit: (hex: string | null) => void,
+            opts?: { mixed?: boolean }): void;
   /** `key` is drawn beside the label where there is a keyboard, `title`
    *  explains the button; the label reads the same without either. */
   btnRow(label: string, fn: () => void, title?: string, key?: string): void;
   dangerRow(label: string, fn: () => void): void;
-  checkRow(label: string, value: boolean, onCommit: (b: boolean) => void): void;
+  checkRow(label: string, value: boolean, onCommit: (b: boolean) => void, opts?: { mixed?: boolean }): void;
   /**
    * A row of standard values beside a typed field -- number chips beside a
    * numRow (cabinetry and doors are ordered in steps rather than measured, so
@@ -191,6 +209,28 @@ export function renderStairProps(store: Store, tools: Tools, rows: PaneRows, id:
   turnRows(rows, stair, mut);
   metricRows(rows, stair);
   rows.noteRow(t("panel.stairNote"));
+  rows.dangerRow(t("panel.deleteOpening"), () => tools.deleteSelected());
+}
+
+/**
+ * Properties of every selected stair at once: colour is the one field a
+ * bulk edit is reached for -- turning, mirroring and deleting a group already
+ * apply to every member through the ordinary R/M/Del paths (see Tools), and
+ * a stair's other parameters (kind, going, treads, rise) have no shared
+ * reading across a mixed group the way a wall's thickness does.
+ */
+export function renderStairBulk(store: Store, tools: Tools, rows: PaneRows, ids: readonly string[]): void {
+  const stairs = stairsOf(store.floor).filter(s => ids.includes(s.id));
+  const first = stairs[0];
+  if (!first) return;
+  rows.secHead(t("panel.selectionHeader", { n: stairs.length, label: t("panel.stairPlain") }), { sel: true, mode: true });
+  const mixed = isMixed(stairs, s => s.color ?? "");
+  rows.colorRow(t("panel.color"), first.color ?? null, hex => {
+    tools.symbolColor = hex;
+    store.mutate(d => {
+      for (const s of stairsOf(store.floorOf(d))) if (ids.includes(s.id)) { if (hex) s.color = hex; else delete s.color; }
+    }, "color:" + ids.join(","));
+  }, { mixed });
   rows.dangerRow(t("panel.deleteOpening"), () => tools.deleteSelected());
 }
 

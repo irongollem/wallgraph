@@ -3,7 +3,24 @@
 import { PlanDoc, emptyDoc, Floor, Id, newId } from "./doc";
 
 export type SelKind = "wall" | "node" | "opening" | "symbol" | "stair" | "vide" | "cabinet" | "route";
+/**
+ * One picked object. `sel` plus `selMore` below is the WHOLE selection, and it
+ * is always same-kind: a mixed bag of a wall and a cabinet has no field in
+ * common to show in the property pane, and every group gesture (drag,
+ * alt-copy, delete, bulk edit) means one thing for every member only because
+ * they are all the same kind. `node` is deliberately never grouped -- a node
+ * is a graph junction, not an object a plan bulk-edits, so the select tool's
+ * shift-click and marquee paths both skip it (see input/tools.ts).
+ */
 export interface Selection { kind: SelKind; id: Id; wallId?: Id } // opening carries wallId
+
+/**
+ * The kinds a multi-select gesture (shift-click, touch hold, marquee) may
+ * gather into a group. Every SelKind except "node" -- see the comment on
+ * Selection above.
+ */
+export const MULTI_SELECT_KINDS: ReadonlySet<SelKind> =
+  new Set(["wall", "opening", "symbol", "stair", "vide", "cabinet", "route"]);
 
 type Listener = () => void;
 

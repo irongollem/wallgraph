@@ -1,6 +1,7 @@
 // Tool state machine + snapping + typed-mm input. Owns pointer/keyboard handling
 // for the canvas; rendering of previews goes through getPreview()/getSnap().
-import { Store } from "../model/store";
+import { Store, MULTI_SELECT_KINDS, type Selection } from "../model/store";
+import { marqueePick, type MarqueeRect } from "./marquee";
 import {
   Floor, Wall, Opening, PlanNode, SymbolInstance, Id, newId, stairsOf, videsOf, cabinetsOf,
   routesOf, roomNamesOf, floorHeight, DOOR_DEFAULT_WIDTH, WINDOW_DEFAULT_WIDTH, PASSAGE_DEFAULT_WIDTH,
@@ -91,7 +92,7 @@ export interface SnapResult { p: Vec; kind: "node" | "wall" | "grid" | "free"; w
 
 interface DragState {
   kind: "node" | "wall" | "symbol" | "stair" | "vide" | "cabinet"
-      | "bow" | "opening" | "pan" | "zoomBox" | "routeVertex";
+      | "bow" | "opening" | "pan" | "zoomBox" | "routeVertex" | "marquee";
   id?: string;
   wallId?: string;
   /** routeVertex only: which point in the route's own array is being moved. */
@@ -316,6 +317,31 @@ export class Tools {
    */
   touchUi = false;
 
+  /**
+   * The iOS-style "edit mode" a long-press (mouse or touch, see
+   * selectDownHold() below) drops the select tool into: a plain tap toggles
+   * an object's membership through selectAlso() instead of replacing it, and a
+   * tap on empty paper is a no-op rather than a deselect -- so a many-item
+   * gather is never lost to a stray tap. Editor state, never the document;
+   * setTool()/cancel() and a floor switch (see Panel's storey controls) all
+   * exit it, same as any other armed gesture.
+   */
+  selectMode = false;
+  /** Screen point of a press that might still become a long-press hold; null
+   *  once the hold is no longer live (fired, cancelled, or released). */
+  private longPressFrom: Vec | null = null;
+  private longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * What the hold would toggle, and the selection to toggle it against.
+   * selectDown() below always runs its ordinary replace-and-maybe-drag first
+   * -- that is what makes a plain tap/click and a tap/click-then-drag work
+   * completely unchanged -- so the selection from BEFORE that replace is
+   * snapshotted here. Firing hands both to selectAlso(), which reproduces a
+   * real shift-click instead of toggling the object against itself.
+   */
+  private longPressTarget: Selection | null = null;
+  private longPressBase: { sel: Selection | null; selMore: string[] } | null = null;
+
   constructor(
     private store: Store,
     private vp: Viewport,
@@ -497,6 +523,10 @@ export class Tools {
     this.calibArmed = false;
     this.calibP0 = null;
     this.calibP1 = null;
+    // setTool() runs this on every switch, and Escape runs it directly -- both
+    // are named exits from selectMode (see the field comment).
+    this.selectMode = false;
+    this.cancelLongPress();
     if (render) this.requestRender();
   }
 
@@ -951,6 +981,7 @@ export class Tools {
     if (this.pointers.size === 0) this.navigated = false;
     this.tapStart = null;
     this.drag = null;
+    this.cancelLongPress();
     this.requestRender();
   }
 
@@ -1017,6 +1048,7 @@ export class Tools {
       this.drag = null;
       if (held && held.kind !== "zoomBox") this.finishDrag(held);
       this.tapStart = null;
+      this.cancelLongPress();
       this.pinch = this.pinchState();
       this.requestRender();
       return;
@@ -1062,7 +1094,7 @@ export class Tools {
       // drag can start, and zoom, so the window can be dragged out. Neither has
       // changed the document by the time a second finger could arrive, so both
       // are safe to abandon mid-gesture.
-      if (this.tool === "select") this.selectDown(s, w);
+      if (this.tool === "select") this.selectDownHold(s, w);
       else if (this.tool === "zoom") this.zoomDown(s, w);
       this.requestRender();
       return;
@@ -1084,7 +1116,7 @@ export class Tools {
       case "cabinet": this.placeCabinet(); break;
       case "route": this.routeClick(); break;
       case "zoom": this.zoomDown(s, w); return;
-      case "select": this.selectDown(s, w); break;
+      case "select": this.selectDownHold(s, w); break;
     }
   }
 
@@ -1096,6 +1128,11 @@ export class Tools {
     if (this.pointers.has(e.pointerId)) this.pointers.set(e.pointerId, s);
     if (this.pointers.size >= 2) { this.pinchMove(); return; }
     this.cursor = w;
+
+    // Movement past the drag threshold cancels a pending long-press hold
+    // (see selectDownHold()) -- whatever selectDown() already started (a
+    // drag, or nothing) proceeds exactly as it does today.
+    if (this.longPressFrom && dist(s, this.longPressFrom) > TAP_SLOP_PX) this.cancelLongPress();
 
     if (this.drag) { this.dragMove(s, w); return; }
 
@@ -1118,6 +1155,9 @@ export class Tools {
   private onUp(e: PointerEvent): void {
     this.pointers.delete(e.pointerId);
     if (this.pointers.size < 2) this.pinch = null;
+    // A release before the delay is a plain tap/click, however brief --
+    // never a fire, so the hold has nothing left to do.
+    this.cancelLongPress();
 
     // The fingers of a pinch lift one at a time; neither is a tap.
     if (this.navigated) {
@@ -1155,6 +1195,7 @@ export class Tools {
     const d = this.drag;
     this.drag = null;
     if (d.kind === "zoomBox") { this.zoomUp(d); this.requestRender(); return; }
+    if (d.kind === "marquee") { this.marqueeUp(d); this.requestRender(); return; }
     // `moved` is set by the first pointermove, which a mouse emits for a pixel
     // of jitter, so travel is what decides: a press that stayed put opened the
     // room's row, one that went somewhere panned.
@@ -1828,6 +1869,29 @@ export class Tools {
   }
 
   // ---- select tool ----
+  /**
+   * True when a press on a selectable object should build the selection
+   * rather than replace it -- the desktop shift-click, or a touch/mouse hold
+   * that has already dropped the tool into selectMode (see selectDownHold()).
+   * One flag, so every kind below picks through the same helper instead of
+   * cabinet alone special-casing shift the way it used to.
+   */
+  private get multiPick(): boolean { return this.shiftKey || this.selectMode; }
+
+  /**
+   * Picks `sel`: builds the group (selectAlso) under multiPick, otherwise
+   * replaces it -- but keeps an already-grouped member selected rather than
+   * collapsing to just this one, or a group could never be taken hold of to
+   * drag. Returns whether the caller may still start a drag: multiPick never
+   * does (building a group is the whole gesture, the way shift-click never
+   * used to drag a cabinet), a plain pick always does.
+   */
+  private pick(sel: Selection): boolean {
+    if (this.multiPick) { this.store.selectAlso(sel); this.requestRender(); return false; }
+    if (!this.store.isSelected(sel.kind, sel.id)) this.store.select(sel);
+    return true;
+  }
+
   private selectDown(s: Vec, w: Vec): void {
     this.lengthBuffer = "";
     this.closeDimInput();
@@ -1862,7 +1926,10 @@ export class Tools {
       }
     }
 
-    // Nodes.
+    // Nodes. Never multi-picked: a node is a graph junction, not an object a
+    // plan bulk-edits (see the comment on Selection in model/store.ts), so it
+    // always replaces the selection and always starts its own drag, even
+    // under multiPick.
     for (const n of f.nodes) {
       if (dist(v(n.x, n.y), w) <= tol) {
         this.store.select({ kind: "node", id: n.id });
@@ -1875,57 +1942,60 @@ export class Tools {
     // reach past it to something underneath.
     const stairPick = this.stairAt(w);
     if (stairPick) {
-      this.store.select({ kind: "stair", id: stairPick.id });
-      this.drag = { kind: "stair", id: stairPick.id, startWorld: w, moved: false, clone: this.altKey };
+      if (this.pick({ kind: "stair", id: stairPick.id })) {
+        this.drag = { kind: "stair", id: stairPick.id, startWorld: w, moved: false, clone: this.altKey };
+      }
       return;
     }
     const symHit = this.symbolAt(w);
     if (symHit) {
-      this.store.select({ kind: "symbol", id: symHit.id });
-      this.drag = { kind: "symbol", id: symHit.id, startWorld: w, moved: false, clone: this.altKey };
+      if (this.pick({ kind: "symbol", id: symHit.id })) {
+        this.drag = { kind: "symbol", id: symHit.id, startWorld: w, moved: false, clone: this.altKey };
+      }
       return;
     }
     // Cabinetry after the symbols it holds: a socket drawn on a unit's front
     // has to stay clickable, and a carcass is the larger target underneath.
     const cabPick = this.cabinetAt(w);
     if (cabPick) {
-      // Shift builds a selection instead of starting a drag: a run is
-      // rearranged by picking out the units that move and then dragging any
-      // one of them. A plain press on a unit already in the selection keeps
-      // that selection, or the group could never be taken hold of.
-      if (this.shiftKey) {
-        this.store.selectAlso({ kind: "cabinet", id: cabPick.id });
-        this.requestRender();
-        return;
+      if (this.pick({ kind: "cabinet", id: cabPick.id })) {
+        this.drag = { kind: "cabinet", id: cabPick.id, startWorld: w, moved: false, clone: this.altKey };
       }
-      if (!this.store.isSelected("cabinet", cabPick.id)) {
-        this.store.select({ kind: "cabinet", id: cabPick.id });
-      }
-      this.drag = { kind: "cabinet", id: cabPick.id, startWorld: w, moved: false, clone: this.altKey };
       return;
     }
     // Routes, over the masonry and under whatever stands on them -- the same
-    // order they draw in (see render/draw.ts).
+    // order they draw in (see render/draw.ts). Never draggable from a plain
+    // press (see routeVertex above), grouped or not -- an anchored point
+    // would fight a whole-route translation, so v1 leaves routes out of group
+    // drag entirely.
     const routePick = this.routeAt(w);
     if (routePick) {
-      this.store.select({ kind: "route", id: routePick.route.id });
+      this.pick({ kind: "route", id: routePick.route.id });
       return;
     }
-    // Openings (near their centerline center).
+    // Openings (near their centerline center). Not group-draggable: an
+    // opening lives on its wall (t = distance from node a), so "move the
+    // group" has no meaning independent of the walls underneath -- a press on
+    // one still moves only that one, even with several selected.
     for (const rw of res.walls.values()) {
       for (const og of rw.openings) {
         if (dist(og.center, w) <= Math.max(og.opening.width / 2, tol)) {
-          this.store.select({ kind: "opening", id: og.opening.id, wallId: rw.wall.id });
-          this.drag = { kind: "opening", id: og.opening.id, wallId: rw.wall.id, startWorld: w, moved: false };
+          if (this.pick({ kind: "opening", id: og.opening.id, wallId: rw.wall.id })) {
+            this.drag = { kind: "opening", id: og.opening.id, wallId: rw.wall.id, startWorld: w, moved: false };
+          }
           return;
         }
       }
     }
-    // Walls (point in outline).
+    // Walls (point in outline). Not group-draggable either: a wall is two
+    // shared nodes, and translating every selected wall independently would
+    // tear the graph apart at whichever corners they share with a wall that
+    // was not selected -- a press still moves only the one under the pointer.
     for (const rw of res.walls.values()) {
       if (pointInPolygon(w, rw.outline)) {
-        this.store.select({ kind: "wall", id: rw.wall.id });
-        this.drag = { kind: "wall", id: rw.wall.id, startWorld: w, moved: false };
+        if (this.pick({ kind: "wall", id: rw.wall.id })) {
+          this.drag = { kind: "wall", id: rw.wall.id, startWorld: w, moved: false };
+        }
         return;
       }
     }
@@ -1933,19 +2003,111 @@ export class Tools {
     // click, and its own area is otherwise empty.
     const videPick = this.videAt(w);
     if (videPick) {
-      this.store.select({ kind: "vide", id: videPick.id });
-      this.drag = { kind: "vide", id: videPick.id, startWorld: w, moved: false, clone: this.altKey };
+      if (this.pick({ kind: "vide", id: videPick.id })) {
+        this.drag = { kind: "vide", id: videPick.id, startWorld: w, moved: false, clone: this.altKey };
+      }
       return;
     }
-    // Nothing drawn is under the pointer. The one thing still worth a press
-    // here is the area figure, and the name over it when there is one: it opens
-    // that room's row in the zoom pane, which is where a name is written. Held
+    // Nothing drawn is under the pointer.
+    if (this.shiftKey) {
+      // A rubber-band marquee: world-space corners, so it tracks correctly
+      // through a pan/zoom mid-drag. Resolved to a selection on release --
+      // see marqueeUp(). Plain empty-space drag stays pan; this only takes
+      // over once shift says "select a region" rather than "look around".
+      this.drag = { kind: "marquee", startWorld: w, boxEnd: w, moved: false };
+      return;
+    }
+    // In selectMode a tap on empty paper is a no-op, not a deselect -- losing
+    // a many-item gather to a stray tap is exactly the failure mode the mode
+    // exists to avoid. The one thing still worth a press here otherwise is
+    // the area figure, and the name over it when there is one: it opens that
+    // room's row in the zoom pane, which is where a name is written. Held
     // until the release so a pan that starts over a label is still a pan.
-    this.store.select(null);
+    if (!this.selectMode) this.store.select(null);
     this.drag = {
       kind: "pan", startWorld: w, moved: false, lastScreen: s, startScreen: s,
       labelRoom: this.roomLabelAt(s),
     };
+  }
+
+  /**
+   * selectDown() plus the long-press hold: enters selectMode ~500ms into a
+   * press that has not moved, on a selectable (non-node) object -- mouse or
+   * touch, one code path either way (a held mouse button doing this too is
+   * harmless, and simpler than telling the two apart). selectDown() always
+   * runs first and unchanged, so an ordinary tap/click and a tap/click-then-
+   * drag are exactly what they were before; only a press that STAYS still for
+   * the whole delay does anything extra.
+   */
+  private selectDownHold(s: Vec, w: Vec): void {
+    // Already in the mode: every tap already toggles (see pick()), so a
+    // second hold has nothing to add.
+    if (this.selectMode) { this.selectDown(s, w); return; }
+    const base = { sel: this.store.sel, selMore: [...this.store.selMore] };
+    this.selectDown(s, w);
+    const target = this.store.sel;
+    if (!target || !MULTI_SELECT_KINDS.has(target.kind)) return;
+    this.longPressFrom = s;
+    this.longPressBase = base;
+    this.longPressTarget = target;
+    this.longPressTimer = setTimeout(() => this.fireLongPress(), TAP_MS);
+  }
+
+  /** The hold fired: drop into selectMode with the pressed object toggled
+   *  into whatever was selected before the press replaced it. */
+  private fireLongPress(): void {
+    this.longPressTimer = null;
+    const target = this.longPressTarget, base = this.longPressBase;
+    this.longPressFrom = null;
+    this.longPressTarget = null;
+    this.longPressBase = null;
+    if (!target || !base) return;
+    // A drag selectDown() may have started (e.g. a cabinet's re-pose) is
+    // abandoned, not finished -- the hold means "start selecting", not "move
+    // this" -- and this pointer's later movement must not resume one.
+    this.drag = null;
+    this.tapStart = null;
+    this.store.sel = base.sel;
+    this.store.selMore = base.selMore;
+    this.store.selectAlso(target);
+    this.selectMode = true;
+    this.updateHint();
+    this.requestRender();
+  }
+
+  /** Movement past the drag threshold, or a release, before the hold fires:
+   *  falls through to today's drag/tap behavior, already under way. */
+  private cancelLongPress(): void {
+    if (this.longPressTimer !== null) { clearTimeout(this.longPressTimer); this.longPressTimer = null; }
+    this.longPressFrom = null;
+    this.longPressTarget = null;
+    this.longPressBase = null;
+  }
+
+  /** The "Done" affordance: leaves selectMode with the selection intact, so
+   *  the visitor lands directly in its bulk-edit pane. */
+  exitSelectMode(): void {
+    if (!this.selectMode) return;
+    this.selectMode = false;
+    this.updateHint();
+    this.onToolChange();
+  }
+
+  /**
+   * The rubber-band marquee's release: everything of the dominant kind fully
+   * inside the dragged rect (see marquee.ts) replaces the selection outright.
+   * A tiny drag (a shift-click that barely moved) resolves against a
+   * zero-area rect, which simply catches nothing.
+   */
+  private marqueeUp(d: DragState): void {
+    const end = d.boxEnd ?? d.startWorld;
+    const rect: MarqueeRect = {
+      min: v(Math.min(d.startWorld.x, end.x), Math.min(d.startWorld.y, end.y)),
+      max: v(Math.max(d.startWorld.x, end.x), Math.max(d.startWorld.y, end.y)),
+    };
+    const picked = marqueePick(this.floor, rect);
+    if (picked) this.store.selectMany(picked.kind, picked.ids);
+    else this.store.select(null);
   }
 
   /**
@@ -2027,6 +2189,44 @@ export class Tools {
     return dragId;
   }
 
+  /**
+   * Group drag for the translatable placed kinds (symbol, cabinet, stair,
+   * vide): several move by the same grid-quantised delta rather than each
+   * taking its own snap, or a run/arrangement would pull itself apart under
+   * the drag. Walls, nodes, openings and routes never call this -- see the
+   * comments in selectDown() for why each is excluded.
+   *
+   * `always` is true for stair and vide, whose single-item drag was already a
+   * delta nudge with no snap of its own -- one code path covers one selected
+   * or several. It is false for symbol and cabinet, whose single-item drag
+   * re-poses under the cursor (wall snap, run snap): with one selected this
+   * returns false so the caller runs that logic unchanged, exactly as before
+   * this generalised the cabinet-only group branch to every translatable
+   * kind. Returns whether it handled the move.
+   */
+  private groupTranslate(
+    d: DragState, w: Vec, g: number, group: readonly Id[],
+    kind: "symbol" | "cabinet" | "stair" | "vide", always = false,
+  ): boolean {
+    const grouped = group.length > 1;
+    if (!always && !grouped) return false;
+    const delta = sub(w, d.startWorld);
+    const dx = Math.round(delta.x / g) * g, dy = Math.round(delta.y / g) * g;
+    if (dx === 0 && dy === 0) return true;
+    d.startWorld = add(d.startWorld, v(dx, dy));
+    const targets = grouped ? group : [d.id!];
+    this.store.mutate(doc => {
+      const f = this.store.floorOf(doc);
+      const list: Array<{ id: Id; x: number; y: number }> =
+        kind === "symbol" ? f.symbols
+        : kind === "cabinet" ? cabinetsOf(f)
+        : kind === "stair" ? stairsOf(f)
+        : videsOf(f);
+      for (const item of list) if (targets.includes(item.id)) { item.x += dx; item.y += dy; }
+    }, "drag" + d.id);
+    return true;
+  }
+
   private dragMove(s: Vec, w: Vec): void {
     const d = this.drag!;
     d.moved = true;
@@ -2068,6 +2268,8 @@ export class Tools {
         }, "drag" + d.id);
       }
     } else if (d.kind === "symbol") {
+      const group = this.store.selectedOf("symbol");
+      if (this.groupTranslate(d, w, g, group, "symbol")) return;
       this.store.mutate(doc => {
         const sym = this.store.floorOf(doc).symbols.find(x => x.id === d.id);
         if (!sym) return;
@@ -2084,45 +2286,14 @@ export class Tools {
       }, "drag" + d.id);
     } else if (d.kind === "stair") {
       // Moved by a quantised delta rather than re-posed under the cursor: the
-      // anchor of a stair is the foot of the flight, not the point grabbed.
-      const delta = sub(w, d.startWorld);
-      const dx = Math.round(delta.x / g) * g, dy = Math.round(delta.y / g) * g;
-      if (dx !== 0 || dy !== 0) {
-        d.startWorld = add(d.startWorld, v(dx, dy));
-        this.store.mutate(doc => {
-          const st = stairsOf(this.store.floorOf(doc)).find(x => x.id === d.id);
-          if (st) { st.x += dx; st.y += dy; }
-        }, "drag" + d.id);
-      }
+      // anchor of a stair is the foot of the flight, not the point grabbed --
+      // true of one stair or several, so groupTranslate() covers both.
+      this.groupTranslate(d, w, g, this.store.selectedOf("stair"), "stair", true);
     } else if (d.kind === "vide") {
-      const delta = sub(w, d.startWorld);
-      const dx = Math.round(delta.x / g) * g, dy = Math.round(delta.y / g) * g;
-      if (dx !== 0 || dy !== 0) {
-        d.startWorld = add(d.startWorld, v(dx, dy));
-        this.store.mutate(doc => {
-          const vd = videsOf(this.store.floorOf(doc)).find(x => x.id === d.id);
-          if (vd) { vd.x += dx; vd.y += dy; }
-        }, "drag" + d.id);
-      }
+      this.groupTranslate(d, w, g, this.store.selectedOf("vide"), "vide", true);
     } else if (d.kind === "cabinet") {
       const group = this.store.selectedOf("cabinet");
-      if (group.length > 1) {
-        // Several at once move by the delta the cursor travelled, and take no
-        // snap: a snap is worked out for one unit against one wall, and
-        // applying it to each member in turn would pull the group apart. What
-        // was arranged stays arranged, and lands on whole grid steps.
-        const delta = sub(w, d.startWorld);
-        const dx = Math.round(delta.x / g) * g, dy = Math.round(delta.y / g) * g;
-        if (dx === 0 && dy === 0) return;
-        d.startWorld = add(d.startWorld, v(dx, dy));
-        this.store.mutate(doc => {
-          const f = this.store.floorOf(doc);
-          for (const c of cabinetsOf(f)) {
-            if (group.includes(c.id)) { c.x += dx; c.y += dy; }
-          }
-        }, "drag" + d.id);
-        return;
-      }
+      if (this.groupTranslate(d, w, g, group, "cabinet")) return;
       // One on its own is re-posed under the cursor rather than nudged by a
       // delta: a cabinet snaps to walls and to its neighbours, and a dragged
       // one has to take those snaps or a run cannot be rearranged once built.
@@ -2135,7 +2306,7 @@ export class Tools {
           : { x: Math.round(w.x / g) * g, y: Math.round(w.y / g) * g, rotation: c.rotation };
         Object.assign(c, base, this.runSnap(base, c.width, c.id) ?? {});
       }, "drag" + d.id);
-    } else if (d.kind === "zoomBox") {
+    } else if (d.kind === "zoomBox" || d.kind === "marquee") {
       d.boxEnd = w;
       this.requestRender();
     } else if (d.kind === "bow") {
@@ -2440,9 +2611,16 @@ export class Tools {
     });
   }
 
+  /**
+   * Removes every selected member -- the whole group when several are
+   * selected, one object otherwise -- through each kind's own delete path, in
+   * ONE mutation, so undo restores the lot in a single step. Node is
+   * intentionally not grouped (see selectDown()), so it always deletes alone.
+   */
   deleteSelected(): void {
     const sel = this.store.sel;
     if (!sel) return;
+    const group = this.store.selectedOf(sel.kind);
     // The rooms as they stand, for the names a merge is about to orphan: taking
     // a wall out joins two rooms, and the smaller one's name has nothing left
     // to name. Read before the mutation, since afterwards it is gone.
@@ -2450,28 +2628,27 @@ export class Tools {
     this.store.mutate(doc => {
       const f = this.store.floorOf(doc);
       if (sel.kind === "wall") {
-        deleteWall(f, sel.id);
+        for (const id of group) deleteWall(f, id);
         deleteRoomNames(f, orphanedRoomNames(f, before));
       } else if (sel.kind === "node") {
         f.walls = f.walls.filter(w => w.a !== sel.id && w.b !== sel.id);
         cleanOrphanNodes(f);
         deleteRoomNames(f, orphanedRoomNames(f, before));
       } else if (sel.kind === "symbol") {
-        // Un-anchor every route point that was following this symbol, in the
-        // SAME mutation that removes it -- see unanchorRoutePoints().
-        const sym = f.symbols.find(s => s.id === sel.id);
-        if (sym) unanchorRoutePoints(f, sym);
-        f.symbols = f.symbols.filter(s => s.id !== sel.id);
+        // Un-anchor every route point following any of these symbols, in the
+        // SAME mutation that removes them -- see unanchorRoutePoints().
+        for (const id of group) {
+          const sym = f.symbols.find(s => s.id === id);
+          if (sym) unanchorRoutePoints(f, sym);
+        }
+        f.symbols = f.symbols.filter(s => !group.includes(s.id));
       }
-      else if (sel.kind === "stair") f.stairs = stairsOf(f).filter(s => s.id !== sel.id);
-      else if (sel.kind === "vide") f.vides = videsOf(f).filter(s => s.id !== sel.id);
-      else if (sel.kind === "route") f.routes = routesOf(f).filter(r => r.id !== sel.id);
-      else if (sel.kind === "cabinet") {
-        const group = this.store.selectedOf("cabinet");
-        f.cabinets = cabinetsOf(f).filter(c => !group.includes(c.id));
-      }
+      else if (sel.kind === "stair") f.stairs = stairsOf(f).filter(s => !group.includes(s.id));
+      else if (sel.kind === "vide") f.vides = videsOf(f).filter(s => !group.includes(s.id));
+      else if (sel.kind === "route") f.routes = routesOf(f).filter(r => !group.includes(r.id));
+      else if (sel.kind === "cabinet") f.cabinets = cabinetsOf(f).filter(c => !group.includes(c.id));
       else if (sel.kind === "opening") {
-        for (const w of f.walls) w.openings = w.openings.filter(o => o.id !== sel.id);
+        for (const w of f.walls) w.openings = w.openings.filter(o => !group.includes(o.id));
       }
     });
     this.store.select(null);
@@ -2513,7 +2690,9 @@ export class Tools {
         break;
       }
       case "select":
-        this.hint = this.store.sel?.kind === "wall"
+        this.hint = this.selectMode
+          ? h("selectMode", { n: this.store.sel ? this.store.selectedOf(this.store.sel.kind).length : 0 })
+          : this.store.sel?.kind === "wall"
           ? (this.lengthBuffer
             ? h("selectWallTyped", { length: this.lengthBuffer })
             : h("selectWall"))
@@ -3102,6 +3281,19 @@ export class Tools {
       ctx.fillStyle = COLORS.selectWash;
       ctx.lineWidth = 1.5 * px;
       ctx.setLineDash([30, 30]);
+      ctx.fillRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+      ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+      ctx.restore();
+    }
+
+    // Marquee rect (shift+drag from empty space). Same screen-space idiom as
+    // the zoom window above, undashed so the two read as distinct gestures.
+    if (this.drag?.kind === "marquee" && this.drag.boxEnd) {
+      const a = this.drag.startWorld, b = this.drag.boxEnd;
+      ctx.save();
+      ctx.strokeStyle = COLORS.select;
+      ctx.fillStyle = COLORS.selectWash;
+      ctx.lineWidth = 1.5 * px;
       ctx.fillRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
       ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
       ctx.restore();

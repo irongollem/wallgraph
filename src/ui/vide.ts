@@ -6,6 +6,7 @@ import { Tools } from "../input/tools";
 import { videsOf } from "../model/doc";
 import { Vide, clampVide, VIDE_DEFAULT } from "../model/vide";
 import { stairAngle } from "../model/stair";
+import { isMixed } from "../core/mixed";
 import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
 
@@ -47,6 +48,24 @@ export function renderVideProps(store: Store, tools: Tools, rows: VideRows, id: 
   });
   rows.infoRow(t("panel.videArea"), `${((vide.width * vide.depth) / 1e6).toFixed(2)} m²`);
   rows.noteRow(t("panel.videNote"));
+  rows.dangerRow(t("panel.deleteOpening"), () => tools.deleteSelected());
+}
+
+/** Properties of every selected vide at once: colour, for the same reason
+ *  renderStairBulk (stairs.ts) offers only colour -- size and label have no
+ *  single reading across a mixed group. */
+export function renderVideBulk(store: Store, tools: Tools, rows: VideRows, ids: readonly string[]): void {
+  const vides = videsOf(store.floor).filter(v => ids.includes(v.id));
+  const first = vides[0];
+  if (!first) return;
+  rows.secHead(t("panel.selectionHeader", { n: vides.length, label: t("panel.vide") }), { sel: true, mode: true });
+  const mixed = isMixed(vides, v => v.color ?? "");
+  rows.colorRow(t("panel.color"), first.color ?? null, hex => {
+    tools.symbolColor = hex;
+    store.mutate(d => {
+      for (const v of videsOf(store.floorOf(d))) if (ids.includes(v.id)) { if (hex) v.color = hex; else delete v.color; }
+    }, "color:" + ids.join(","));
+  }, { mixed });
   rows.dangerRow(t("panel.deleteOpening"), () => tools.deleteSelected());
 }
 
