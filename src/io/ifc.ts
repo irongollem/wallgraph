@@ -13,7 +13,14 @@
 // walls, and one IFCOPENINGELEMENT (IFCRELVOIDSELEMENT'd to the slab) per
 // vide — a vide is already stored as a hole in this floor's slab (see
 // model/vide.ts), so the export needs no new geometry beyond what
-// floorSolids() already returns as SlabSolid.
+// floorSolids() already returns as SlabSolid. This is BIM 7, which reaches
+// the remaining document objects: one IFCSTAIR (aggregating one
+// IFCSTAIRFLIGHT, which carries the run's numbers) per stair, one
+// IFCFURNITURE per cabinet, and one element per symbol instance, its IFC
+// class taken from the symbol registry's category. All three get simple box
+// geometry — extruded footprints, not modelled construction — because the
+// point of this export is where things are and what they are, not how they
+// are built; see the per-kind comments below for exactly what is left out.
 //
 // Geometry comes from core/solids.floorSolids() for walls/openings, and from
 // core/rooms.detectRooms() directly for spaces — floorSolids() already calls
@@ -49,12 +56,18 @@
 // cannot collide with that element's own id.
 import {
   PlanDoc, Floor, projectOf, floorElevation, floorHeight, areaModeOf, dimModeOf, DimMode, Sash, sashSpecsOf,
-  openingHeight, videsOf,
+  openingHeight, videsOf, stairsOf, cabinetsOf, SymbolInstance,
 } from "../model/doc";
 import { ifcGuid } from "../model/guid";
 import { floorSolids } from "../core/solids";
 import { detectRooms, roomSize, sizeLabel, Room } from "../core/rooms";
-import { Vec, add, sub, scale, norm, perp, len, mid } from "../geometry/vec";
+import { resolveStair, stairBox } from "../core/stair";
+import { StairKind, stairParams } from "../model/stair";
+import { cabinetHeight } from "../model/cabinet";
+import { cabinetBox } from "../core/cabinet";
+import { getSymbol, SymbolDef, SymbolCategory } from "../render/symbols";
+import { Placed, LocalBox, worldPoint } from "../core/placed";
+import { Vec, v, add, sub, scale, norm, perp, len, mid } from "../geometry/vec";
 import { saveViaHost, downloadBlob } from "./save";
 
 export type IfcResult = "saved" | "failed";
@@ -225,6 +238,147 @@ function windowPartitioningType(sashCount: number): string {
   }
 }
 
+// ── stair predefined type ───────────────────────────────────────────────────
+
+/**
+ * IfcStairTypeEnum literal for a document StairKind, only where IFC4 names
+ * the shape exactly. STRAIGHT_RUN_STAIR covers a plain flight and its
+ * variations that read the same in plan (stacked over each other, raking
+ * treads, wheeling gutters down the sides) — none of those turn. QUARTER_ and
+ * HALF_TURN_STAIR match a single quarter of winders and a landing between two
+ * flights respectively. SPIRAL_STAIR is IFC's own definition of a stair
+ * wound around a newel, which is exactly spiltrap-recht/-rond; wenteltrap
+ * winds with no newel to speak of (see model/stair.ts), so it reads as
+ * CURVED_RUN_STAIR instead. Every other kind — a quarter at each end (whose
+ * two turns can even oppose each other), an escalator, a loft ladder,
+ * climbing irons, a ramp — has no honest single-word match among these five,
+ * so it states .NOTDEFINED. rather than borrowing a name that overstates
+ * what the plan shows.
+ */
+function stairPredefinedType(kind: StairKind): string {
+  switch (kind) {
+    case "steektrap":
+    case "steektrap-boven-elkaar":
+    case "steektrap-scheluw":
+    case "rijstroken":
+      return "STRAIGHT_RUN_STAIR";
+    case "bovenkwart":
+    case "onderkwart":
+      return "QUARTER_TURN_STAIR";
+    case "bordestrap":
+      return "HALF_TURN_STAIR";
+    case "spiltrap-recht":
+    case "spiltrap-rond":
+      return "SPIRAL_STAIR";
+    case "wenteltrap":
+      return "CURVED_RUN_STAIR";
+    default:
+      return "NOTDEFINED"; // onder-bovenkwart, roltrap, vlizotrap, klimijzers, hellingbaan
+  }
+}
+
+// ── symbol IFC class ─────────────────────────────────────────────────────────
+//
+// A symbol's IFC class follows its registry category, with per-type
+// overrides where the category default is visibly wrong for one symbol — a
+// wall light is not an electrical outlet, a switch is not an alarm.
+
+/** Whether the mapped class carries PredefinedType as its ninth (and last)
+ *  constructor argument. Every class below does except IFCFLOWTERMINAL,
+ *  which IFC4 declares with no PredefinedType attribute at all — not even one
+ *  a caller could leave unset. */
+interface SymbolIfcClass { entity: string; hasPredefinedType: boolean }
+
+const cls = (entity: string, hasPredefinedType = true): SymbolIfcClass => ({ entity, hasPredefinedType });
+
+/**
+ * One class per registry category — the fallback when no type-id override
+ * below applies. Every SymbolCategory (see render/symbols/defs.ts) must have
+ * an entry; ifc.test.ts checks that directly against SYMBOLS so a new
+ * category cannot silently export as IFCBUILDINGELEMENTPROXY.
+ *
+ * `ventilation` is the one category the brief for this export left
+ * unstated: its own items — exhaust/supply points, the MV unit, the WTW
+ * recovery unit — are air terminals in IFC4's HVAC vocabulary, so
+ * IFCAIRTERMINAL is the default for the same reason IFCSANITARYTERMINAL is
+ * sanitary's.
+ */
+const CATEGORY_DEFAULTS: Record<SymbolCategory, SymbolIfcClass> = {
+  electrical: cls("IFCOUTLET"),
+  water: cls("IFCFLOWTERMINAL", false),
+  sanitary: cls("IFCSANITARYTERMINAL"),
+  heating: cls("IFCSPACEHEATER"),
+  ventilation: cls("IFCAIRTERMINAL"),
+  safety: cls("IFCALARM"),
+  kitchen: cls("IFCFURNITURE"),
+  furniture: cls("IFCFURNITURE"),
+};
+
+/**
+ * Overrides keyed by the exact type id, so a future symbol with a similar
+ * name never picks one up by accident. Lights and switches read wrong as
+ * electrical's IFCOUTLET default; smoke and CO detectors read wrong as
+ * safety's IFCALARM default — an alarm sounds, a sensor detects.
+ */
+const TYPE_OVERRIDES: Record<string, SymbolIfcClass> = {
+  "light-point": cls("IFCLIGHTFIXTURE"),
+  "light-wall": cls("IFCLIGHTFIXTURE"),
+  "light-fluor": cls("IFCLIGHTFIXTURE"),
+  "light-spot": cls("IFCLIGHTFIXTURE"),
+  "light-emergency": cls("IFCLIGHTFIXTURE"),
+  "switch-single": cls("IFCSWITCHINGDEVICE"),
+  "switch-double": cls("IFCSWITCHINGDEVICE"),
+  "switch-series": cls("IFCSWITCHINGDEVICE"),
+  "switch-two-way": cls("IFCSWITCHINGDEVICE"),
+  "switch-cross": cls("IFCSWITCHINGDEVICE"),
+  "switch-pull": cls("IFCSWITCHINGDEVICE"),
+  "smoke-detector": cls("IFCSENSOR"),
+  "co-detector": cls("IFCSENSOR"),
+};
+
+/** Unreachable while CATEGORY_DEFAULTS covers every SymbolCategory — kept as
+ *  the honest fallback for a category the registry adds later without this
+ *  file being updated in step. */
+const PROXY_CLASS = cls("IFCBUILDINGELEMENTPROXY");
+
+function symbolIfcClass(def: SymbolDef): SymbolIfcClass {
+  return TYPE_OVERRIDES[def.type] ?? CATEGORY_DEFAULTS[def.category] ?? PROXY_CLASS;
+}
+
+// ── box-shaped footprints ───────────────────────────────────────────────────
+
+/**
+ * A LocalBox's four corners walked as a simple rectangle (x0,y0 -> x1,y0 ->
+ * x1,y1 -> x0,y1), mapped into world mm through worldPoint(). NOT
+ * boxCorners() from core/placed.ts: that function pairs corners for a
+ * bounding-box scan ((x0,y0),(x0,y1),(x1,y0),(x1,y1)), which self-intersects
+ * if walked as a polygon boundary. Shared by every box-shaped document
+ * object this export gives simple geometry to — a stair, a cabinet, a
+ * symbol's footprint.
+ */
+function boxQuad(p: Placed, b: LocalBox): Vec[] {
+  return [
+    worldPoint(p, v(b.x0, b.y0)),
+    worldPoint(p, v(b.x1, b.y0)),
+    worldPoint(p, v(b.x1, b.y1)),
+    worldPoint(p, v(b.x0, b.y1)),
+  ];
+}
+
+/**
+ * A symbol instance's footprint quad, per the draw(ctx) contract in
+ * render/symbols/defs.ts: wall-mounted runs y in [0, depth], free-standing in
+ * [-depth/2, depth/2], x always in [-width/2, width/2] either way. Mirroring
+ * a symbol reflects that box about its own axis, so the corner set — and so
+ * this quad — is unchanged; worldPoint() still takes `mirrored` so a rotated
+ * *and* mirrored instance keeps a well-formed rectangle either way.
+ */
+function symbolFootprint(def: SymbolDef, s: SymbolInstance): Vec[] {
+  const y0 = def.wallMounted ? 0 : -def.depth / 2;
+  const box: LocalBox = { x0: -def.width / 2, y0, x1: def.width / 2, y1: y0 + def.depth };
+  return boxQuad(s, box);
+}
+
 // ── the spine ────────────────────────────────────────────────────────────────
 
 /**
@@ -327,6 +481,16 @@ export function toIfc(doc: PlanDoc): string {
   /** 50 mm — deep enough to read as a leaf in a viewer, not a claim about a
    *  real door or window's actual thickness (out of scope for this export). */
   const FILLER_DEPTH_MM = 50;
+
+  /** Where a wall cabinet's carcass starts, mm above the floor — the ordinary
+   *  underside of a bovenkast hung over a worktop. Cabinets carry no stored
+   *  mounting height (see model/cabinet.ts); out of scope to make this one
+   *  authored rather than a constant. */
+  const WALL_CABINET_Z0_MM = 1400;
+
+  /** Nominal box height for a symbol's placeholder extrusion, mm. States
+   *  where a symbol sits, not a manufacturer's actual product height. */
+  const SYMBOL_NOMINAL_HEIGHT_MM = 500;
 
   /**
    * One IFCEXTRUDEDAREASOLID from a plan-space polygon (mm, y-down, as
@@ -495,6 +659,71 @@ export function toIfc(doc: PlanDoc): string {
           [str(ifcGuid(seed, `${vide.id}:void`)), ref(ownerHistory), UNSET, UNSET,
             ref(slabEntity), ref(openingEntity)]);
       });
+    }
+
+    // ── stairs: one IFCSTAIR aggregating one IFCSTAIRFLIGHT ─────────────────
+    //
+    // The stair carries identity, kind and containment; the flight carries
+    // the run's numbers and its geometry, which is why the flight — not the
+    // stair — is what floorSolids-style extrusion below is built for. Simple
+    // box geometry only: the footprint stairBox() already derives for the
+    // hit-test and the DXF export, extruded from the floor to the resolved
+    // rise. No treads, stringers or a landing are modelled.
+    for (const st of stairsOf(floor)) {
+      const resolved = resolveStair(floor, st);
+      const params = stairParams(resolved);
+      const risers = params.treads + 1;
+      const riserHeight = params.rise / risers;
+
+      const stairEntity = w.entity("IFCSTAIR",
+        [str(ifcGuid(seed, resolved.id)), ref(ownerHistory), str(resolved.kind), UNSET, UNSET,
+          ref(levelPlacement), UNSET, UNSET, enumv(stairPredefinedType(resolved.kind))]);
+      contained.push(stairEntity);
+
+      const flightShape = bodyShape([extrudedSolid(boxQuad(resolved, stairBox(resolved)), 0, resolved.rise)]);
+      const flightEntity = w.entity("IFCSTAIRFLIGHT",
+        [str(ifcGuid(seed, `${resolved.id}:flight`)), ref(ownerHistory), UNSET, UNSET, UNSET,
+          ref(levelPlacement), flightShape, UNSET, int(risers), int(params.treads), real(riserHeight),
+          real(params.going), UNSET]);
+
+      w.entity("IFCRELAGGREGATES",
+        [str(ifcGuid(seed, `${resolved.id}:parts`)), ref(ownerHistory), UNSET, UNSET,
+          ref(stairEntity), list(ref(flightEntity))]);
+    }
+
+    // ── cabinets: one IFCFURNITURE each ──────────────────────────────────────
+    //
+    // Box geometry over the unit's own vertical range: a base or tall unit
+    // stands on the floor, a wall unit hangs at WALL_CABINET_Z0_MM. No
+    // carcass, front, worktop or hinge is modelled — this states where the
+    // unit is and how tall it stands, the way core/cabinet.ts's own
+    // cabinetBox() does for the plan drawing.
+    for (const c of cabinetsOf(floor)) {
+      const z0 = c.kind === "wall" ? WALL_CABINET_Z0_MM : 0;
+      const shape = bodyShape([extrudedSolid(boxQuad(c, cabinetBox(c)), z0, z0 + cabinetHeight(c))]);
+      const cabinetEntity = w.entity("IFCFURNITURE",
+        [str(ifcGuid(seed, c.id)), ref(ownerHistory), str(c.label ?? c.kind), UNSET, UNSET,
+          ref(levelPlacement), shape, UNSET, enumv("NOTDEFINED")]);
+      contained.push(cabinetEntity);
+    }
+
+    // ── symbols: one element per instance, class from the registry category ─
+    //
+    // Box geometry only, extruded a nominal SYMBOL_NOMINAL_HEIGHT_MM: this
+    // states a symbol's placement and its IFC class, not a manufacturer's
+    // product model. A type this document draws but that has since dropped
+    // out of the registry (getSymbol() returns undefined) is skipped rather
+    // than guessed at, the same way the DXF exporter and the palette treat it.
+    for (const s of floor.symbols) {
+      const def = getSymbol(s.type);
+      if (!def) continue;
+      const ifcClass = symbolIfcClass(def);
+      const shape = bodyShape([extrudedSolid(symbolFootprint(def, s), 0, SYMBOL_NOMINAL_HEIGHT_MM)]);
+      const args: IfcArg[] = [str(ifcGuid(seed, s.id)), ref(ownerHistory), str(s.type), UNSET, UNSET,
+        ref(levelPlacement), shape, UNSET];
+      if (ifcClass.hasPredefinedType) args.push(enumv("NOTDEFINED"));
+      const symbolEntity = w.entity(ifcClass.entity, args);
+      contained.push(symbolEntity);
     }
 
     if (contained.length > 0) {

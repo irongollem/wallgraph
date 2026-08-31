@@ -3,7 +3,7 @@
 // rules are checked here rather than eyeballed.
 import {
   emptyDoc, newId, floorElevation, DOOR_HEIGHT_DEFAULT, WINDOW_HEIGHT_DEFAULT,
-  type Floor, type Wall, type Opening, type Id,
+  type Floor, type Wall, type Opening, type Id, type SymbolInstance,
 } from "../src/model/doc";
 import { toIfc } from "../src/io/ifc";
 import { detectRooms } from "../src/core/rooms";
@@ -12,6 +12,9 @@ import { ifcGuid } from "../src/model/guid";
 import { v } from "../src/geometry/vec";
 import { bulgeFromSagitta } from "../src/geometry/arc";
 import type { Vide } from "../src/model/vide";
+import type { Stair } from "../src/model/stair";
+import type { Cabinet } from "../src/model/cabinet";
+import { SYMBOLS } from "../src/render/symbols";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ""): void {
@@ -582,6 +585,222 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
 {
   const bare = toIfc(emptyDoc());
   check("an empty document has no slab", !bare.includes("=IFCSLAB("));
+}
+
+// ── BIM 7: stairs, cabinets and symbols ─────────────────────────────────────
+//
+// A closed room (addSquare() from the BIM 6 block above; still in scope --
+// this file's blocks share top-level declarations) so floorSolids() returns
+// non-null and the per-floor loop actually runs, carrying one straight
+// stair, a base and a wall cabinet, and two symbols.
+{
+  /** Every ref (`#n`) an entity's OWN argument list carries. */
+  function refsIn7(line: string): number[] {
+    return [...line.slice(line.indexOf("=") + 1).matchAll(/#(\d+)/g)].map(m => Number(m[1]));
+  }
+  /** The bare integer id an entity line defines. */
+  function idOf7(line: string): number {
+    return Number(/^#(\d+)=/.exec(line)![1]);
+  }
+  /** The `#n` ref in argument slot `index` (0-based, GlobalId first) of an
+   *  entity line, for a slot that is never itself a multi-item list -- true
+   *  for Representation and every link this chases down to it below. */
+  function refAt7(line: string, index: number): number | undefined {
+    const body = line.slice(line.indexOf("(") + 1, line.length - 2);
+    const token = body.split(",")[index];
+    const m = token ? /#(\d+)/.exec(token) : undefined;
+    return m ? Number(m[1]) : undefined;
+  }
+  /** z of an IFCCARTESIANPOINT entity (its last coordinate). */
+  function pointZ7(entities: string[], ptId: number): number | undefined {
+    const line = entities.find(l => l.startsWith(`#${ptId}=IFCCARTESIANPOINT(`));
+    const m = line ? /,(-?\d+\.?\d*(?:E[+-]?\d+)?)\)\)/.exec(line) : null;
+    return m ? Number(m[1]) : undefined;
+  }
+  /**
+   * z0 of the single extrusion behind a product's Representation (arg slot
+   * 6, the same slot for every element this export gives box geometry --
+   * GlobalId, OwnerHistory, Name, Description, ObjectType, ObjectPlacement,
+   * Representation, ...): Representation -> IFCPRODUCTDEFINITIONSHAPE ->
+   * IFCSHAPEREPRESENTATION -> IFCEXTRUDEDAREASOLID -> its Position ->
+   * IFCCARTESIANPOINT.
+   */
+  function extrusionZ07(entities: string[], entityLine: string): number | undefined {
+    const repId = refAt7(entityLine, 6);
+    if (repId === undefined) return undefined;
+    const pdsLine = entities.find(l => l.startsWith(`#${repId}=IFCPRODUCTDEFINITIONSHAPE(`));
+    const shapeRepId = pdsLine ? refAt7(pdsLine, 2) : undefined;
+    if (shapeRepId === undefined) return undefined;
+    const shapeRepLine = entities.find(l => l.startsWith(`#${shapeRepId}=IFCSHAPEREPRESENTATION(`));
+    const solidId = shapeRepLine ? refAt7(shapeRepLine, 3) : undefined;
+    if (solidId === undefined) return undefined;
+    const solidLine = entities.find(l => l.startsWith(`#${solidId}=IFCEXTRUDEDAREASOLID(`));
+    const posId = solidLine ? refAt7(solidLine, 1) : undefined;
+    if (posId === undefined) return undefined;
+    const posLine = entities.find(l => l.startsWith(`#${posId}=IFCAXIS2PLACEMENT3D(`));
+    const ptId = posLine ? refAt7(posLine, 0) : undefined;
+    return ptId === undefined ? undefined : pointZ7(entities, ptId);
+  }
+
+  const doc7 = emptyDoc();
+  const floor7 = doc7.floors[0]!;
+  floor7.name = "Begane grond";
+  addSquare(floor7, 0, 6000);
+
+  const stair: Stair = {
+    id: newId("st"), kind: "steektrap", x: 3000, y: 500, rotation: 0,
+    width: 900, going: 220, treads: 15, rise: 2800,
+  };
+  floor7.stairs = [stair];
+
+  const baseCabinet: Cabinet = {
+    id: newId("cab"), kind: "base", x: 500, y: 500, rotation: 0,
+    width: 600, depth: 600, front: "door",
+  };
+  const wallCabinet: Cabinet = {
+    id: newId("cab"), kind: "wall", x: 500, y: 5500, rotation: 0,
+    width: 600, depth: 350, front: "door", label: "Bovenkast",
+  };
+  floor7.cabinets = [baseCabinet, wallCabinet];
+
+  const socket: SymbolInstance = { id: newId("sym"), type: "socket-single", x: 100, y: 100, rotation: 0 };
+  const toilet: SymbolInstance = { id: newId("sym"), type: "toilet", x: 200, y: 200, rotation: 0 };
+  floor7.symbols = [socket, toilet];
+
+  const text7 = toIfc(doc7);
+  const ents7 = text7.split("\n").filter(l => l.startsWith("#"));
+  const seed7 = doc7.guid ?? "";
+  const countOf7 = (t: string): number => ents7.filter(l => l.includes(`=${t}(`)).length;
+
+  // ── stair: one IFCSTAIR aggregating one IFCSTAIRFLIGHT ───────────────────
+  check("exactly one IFCSTAIR for the placed stair", countOf7("IFCSTAIR") === 1, String(countOf7("IFCSTAIR")));
+  check("exactly one IFCSTAIRFLIGHT aggregated to it",
+    countOf7("IFCSTAIRFLIGHT") === 1, String(countOf7("IFCSTAIRFLIGHT")));
+
+  const stairGuid = ifcGuid(seed7, stair.id);
+  const flightGuid = ifcGuid(seed7, `${stair.id}:flight`);
+  const partsGuid = ifcGuid(seed7, `${stair.id}:parts`);
+  const stairLine = ents7.find(l => l.includes(`=IFCSTAIR('${stairGuid}'`));
+  const flightLine = ents7.find(l => l.includes(`=IFCSTAIRFLIGHT('${flightGuid}'`));
+  const partsLine = ents7.find(l => l.includes(`=IFCRELAGGREGATES('${partsGuid}'`));
+  check("the stair's GlobalId is ifcGuid(seed, stair.id)", stairLine !== undefined);
+  check("the flight's GlobalId is ifcGuid(seed, stair.id + ':flight')", flightLine !== undefined);
+  check("the stair-parts aggregation's GlobalId is ifcGuid(seed, stair.id + ':parts')", partsLine !== undefined);
+  check("the stair carries .STRAIGHT_RUN_STAIR. (steektrap)",
+    !!stairLine && stairLine.includes(".STRAIGHT_RUN_STAIR."), stairLine);
+
+  const expectedRisers = stair.treads + 1;
+  const expectedRiserHeight = stair.rise! / expectedRisers;
+  check("the flight's NumberOfRisers/NumberOfTreads/RiserHeight/TreadLength match the resolved figures",
+    !!flightLine
+      && flightLine.includes(`,${expectedRisers},${stair.treads},${expectedRiserHeight}.,${stair.going}.,$)`),
+    flightLine);
+
+  if (stairLine && flightLine && partsLine) {
+    const stairId = idOf7(stairLine), flightId = idOf7(flightLine);
+    const partsRefs = refsIn7(partsLine); // [OwnerHistory, RelatingObject, ...RelatedObjects]
+    check("the aggregation's RelatingObject is the stair", partsRefs[1] === stairId, partsLine);
+    check("the aggregation's RelatedObjects is exactly the flight",
+      partsRefs.slice(2).length === 1 && partsRefs[2] === flightId, partsLine);
+
+    const containmentLines7 = ents7.filter(l => l.includes("=IFCRELCONTAINEDINSPATIALSTRUCTURE("));
+    check("the stair (not the flight) is contained in the storey",
+      containmentLines7.some(l => refsIn7(l).includes(stairId))
+        && containmentLines7.every(l => !refsIn7(l).includes(flightId)));
+  }
+
+  // ── cabinets: one IFCFURNITURE each, wall unit hung at z0 = 1400 ────────
+  check("exactly two IFCFURNITURE for the two cabinets", countOf7("IFCFURNITURE") === 2, String(countOf7("IFCFURNITURE")));
+  const baseLine = ents7.find(l => l.includes(`=IFCFURNITURE('${ifcGuid(seed7, baseCabinet.id)}'`));
+  const wallLine = ents7.find(l => l.includes(`=IFCFURNITURE('${ifcGuid(seed7, wallCabinet.id)}'`));
+  check("the base cabinet's own IFCFURNITURE is found", baseLine !== undefined);
+  check("the wall cabinet's own IFCFURNITURE is found", wallLine !== undefined);
+  check("the wall cabinet's Name is its label", !!wallLine && wallLine.includes("'Bovenkast'"), wallLine);
+  check("the base cabinet's Name falls back to its kind (no label)",
+    !!baseLine && baseLine.includes("'base'"), baseLine);
+  check("the base cabinet's extrusion sits at z0 = 0",
+    baseLine !== undefined && extrusionZ07(ents7, baseLine) === 0, String(baseLine && extrusionZ07(ents7, baseLine)));
+  check("the wall cabinet's extrusion sits at z0 = 1400",
+    wallLine !== undefined && extrusionZ07(ents7, wallLine) === 1400,
+    String(wallLine && extrusionZ07(ents7, wallLine)));
+
+  // ── symbols: class from the registry mapping ─────────────────────────────
+  const socketLine = ents7.find(l => l.includes(`'${ifcGuid(seed7, socket.id)}'`));
+  const toiletLine = ents7.find(l => l.includes(`'${ifcGuid(seed7, toilet.id)}'`));
+  check("the electrical socket symbol maps to IFCOUTLET (the electrical category default)",
+    !!socketLine && socketLine.includes("=IFCOUTLET("), socketLine);
+  check("the sanitary symbol maps to IFCSANITARYTERMINAL",
+    !!toiletLine && toiletLine.includes("=IFCSANITARYTERMINAL("), toiletLine);
+  check("both mapped symbols carry .NOTDEFINED. as their trailing PredefinedType",
+    !!socketLine && socketLine.trimEnd().endsWith(".NOTDEFINED.);")
+      && !!toiletLine && toiletLine.trimEnd().endsWith(".NOTDEFINED.);"),
+    `${socketLine} | ${toiletLine}`);
+
+  // ── whole-file integrity over this plan ───────────────────────────────────
+  {
+    const defined = new Set<number>();
+    for (const l of ents7) { const m = /^#(\d+)=/.exec(l); if (m) defined.add(Number(m[1])); }
+    const referenced = new Set<number>();
+    for (const l of ents7) for (const r of refsIn7(l)) referenced.add(r);
+    const dangling = [...referenced].filter(id => !defined.has(id));
+    check("every #n referenced is defined (BIM7 plan)", dangling.length === 0, dangling.join(","));
+  }
+  check("no NaN in the BIM7 plan", !text7.includes("NaN"));
+  check("no byte over 126 in the BIM7 plan", [...text7].every(ch => ch.codePointAt(0)! <= 126));
+  {
+    const guids: string[] = [];
+    for (const l of ents7) { const m = /^#\d+=\w+\('([0-9A-Za-z_$]{22})'/.exec(l); if (m) guids.push(m[1]!); }
+    check("all GlobalIds in the BIM7 plan are unique", new Set(guids).size === guids.length, String(guids.length));
+  }
+  {
+    const again7 = toIfc(doc7);
+    const a = text7.split("\n"), b = again7.split("\n");
+    const diffLines = a.length === b.length
+      ? a.map((l, i) => l === b[i] || l.startsWith("FILE_NAME(") ? null : i).filter((i): i is number => i !== null)
+      : [-1];
+    check("BIM7 export is byte-identical across re-export apart from FILE_NAME's timestamp",
+      diffLines.length === 0, diffLines.join(","));
+  }
+}
+
+// ── registry completeness: every SYMBOLS category has a real IFC class ─────
+//
+// Not IFCBUILDINGELEMENTPROXY for anything the registry actually defines --
+// a new category added to render/symbols/index.ts without a matching entry
+// in io/ifc.ts's CATEGORY_DEFAULTS must fail here, not export silently.
+{
+  const categories = [...new Set(SYMBOLS.map(s => s.category))];
+  const catDoc = emptyDoc();
+  const catFloor = catDoc.floors[0]!;
+  catFloor.name = "Begane grond";
+  addSquare(catFloor, 0, 6000);
+  const placed: Array<{ id: Id; category: string; type: string }> = [];
+  for (const category of categories) {
+    const def = SYMBOLS.find(s => s.category === category)!;
+    const id = newId("sym");
+    catFloor.symbols.push({ id, type: def.type, x: 100, y: 100, rotation: 0 });
+    placed.push({ id, category, type: def.type });
+  }
+  const catSeed = catDoc.guid ?? "";
+  const catText = toIfc(catDoc);
+  const catEnts = catText.split("\n").filter(l => l.startsWith("#"));
+  check(`every SYMBOLS category was exercised (${categories.length} categories)`,
+    placed.length === categories.length);
+  for (const p of placed) {
+    const line = catEnts.find(l => l.includes(`'${ifcGuid(catSeed, p.id)}'`));
+    check(`category "${p.category}" (type ${p.type}) has a mapping entry, not the proxy fallback`,
+      !!line && !line.includes("=IFCBUILDINGELEMENTPROXY("), line);
+  }
+}
+
+// ── an empty document emits none of BIM 7's element kinds ──────────────────
+{
+  const bare = toIfc(emptyDoc());
+  check("an empty document has no stairs", !bare.includes("=IFCSTAIR(") && !bare.includes("=IFCSTAIRFLIGHT("));
+  check("an empty document has no cabinets", !bare.includes("=IFCFURNITURE("));
+  check("an empty document has no symbol elements",
+    !bare.includes("=IFCOUTLET(") && !bare.includes("=IFCSANITARYTERMINAL(")
+      && !bare.includes("=IFCBUILDINGELEMENTPROXY("));
 }
 
 console.log(failures === 0 ? "ALL IFC TESTS PASSED" : `${failures} FAILURES`);
