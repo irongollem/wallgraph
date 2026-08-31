@@ -198,6 +198,22 @@ function rectFloor(wallTh = 100) {
   check("empty floor has no bounds",
     planBounds({ id: "f", name: "", nodes: [], walls: [], symbols: [] }, { walls: new Map(), junctions: [] }) === null);
 
+  // A bulged route segment bows well past its own chord -- planBounds has to
+  // flatten the arc (arcFlatten), not just grow around the two endpoints, or
+  // the SVG/PNG crop and zoom-all clip the bow (see the module comment).
+  {
+    const rf: typeof f = { id: "rf", name: "", nodes: [], walls: [], symbols: [],
+      routes: [{ id: "rt1", discipline: "electrical",
+        points: [{ x: 0, y: 0, bulge: 1 }, { x: 4000, y: 0 }] }] };
+    const rb = planBounds(rf, { walls: new Map(), junctions: [] })!;
+    // bulge=1 is a full semicircle: sagitta == radius == chord/2 == 2000mm,
+    // bowing toward perp((1,0)) = (0,1) -- the +y (down) side.
+    check("route arc bow extends ~2000mm past the chord",
+      near(rb.max.y, 2000, 5) && near(rb.min.y, 0, 1), JSON.stringify(rb));
+    check("route arc bow does not widen the chord's own x-span",
+      near(rb.min.x, 0, 1) && near(rb.max.x, 4000, 1), JSON.stringify(rb));
+  }
+
   // The bar is a round metric length that stays inside a quarter of the image.
   for (const [pxPerMm, w] of [[0.12, 1200], [0.02, 1200], [0.5, 800]] as const) {
     const mm = scaleBarMm(pxPerMm, w);

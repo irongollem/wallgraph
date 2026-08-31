@@ -67,7 +67,7 @@ import { StairKind, stairParams } from "../model/stair";
 import { cabinetHeight } from "../model/cabinet";
 import { cabinetBox } from "../core/cabinet";
 import { getSymbol, SymbolDef, SymbolCategory } from "../render/symbols";
-import { Placed, LocalBox, worldPoint } from "../core/placed";
+import { Placed, LocalBox, worldPoint, symbolFootprintCorners } from "../core/placed";
 import { Vec, v, add, sub, scale, norm, perp, len, mid, pointInPolygon } from "../geometry/vec";
 import { saveViaHost, downloadBlob } from "./save";
 
@@ -92,15 +92,15 @@ export type IfcArg =
   | { k: "list"; v: IfcArg[] }
   | { k: "typed"; t: string; v: IfcArg[] };
 
-export const UNSET: IfcArg = { k: "unset" };
-export const DERIVED: IfcArg = { k: "derived" };
-export const ref = (id: number): IfcArg => ({ k: "ref", id });
-export const str = (v: string): IfcArg => ({ k: "str", v });
-export const real = (v: number): IfcArg => ({ k: "real", v });
-export const int = (v: number): IfcArg => ({ k: "int", v });
-export const enumv = (v: string): IfcArg => ({ k: "enum", v });
-export const list = (...v: IfcArg[]): IfcArg => ({ k: "list", v });
-export const typed = (t: string, ...v: IfcArg[]): IfcArg => ({ k: "typed", t, v });
+const UNSET: IfcArg = { k: "unset" };
+const DERIVED: IfcArg = { k: "derived" };
+const ref = (id: number): IfcArg => ({ k: "ref", id });
+const str = (v: string): IfcArg => ({ k: "str", v });
+const real = (v: number): IfcArg => ({ k: "real", v });
+const int = (v: number): IfcArg => ({ k: "int", v });
+const enumv = (v: string): IfcArg => ({ k: "enum", v });
+const list = (...v: IfcArg[]): IfcArg => ({ k: "list", v });
+const typed = (t: string, ...v: IfcArg[]): IfcArg => ({ k: "typed", t, v });
 
 /**
  * ISO 10303-21 string encoding: `'` doubles, `\` doubles, and any code point
@@ -368,16 +368,14 @@ function boxQuad(p: Placed, b: LocalBox): Vec[] {
 
 /**
  * A symbol instance's footprint quad, per the draw(ctx) contract in
- * render/symbols/defs.ts: wall-mounted runs y in [0, depth], free-standing in
- * [-depth/2, depth/2], x always in [-width/2, width/2] either way. Mirroring
- * a symbol reflects that box about its own axis, so the corner set — and so
- * this quad — is unchanged; worldPoint() still takes `mirrored` so a rotated
- * *and* mirrored instance keeps a well-formed rectangle either way.
+ * render/symbols/defs.ts. Mirroring a symbol reflects that box about its own
+ * axis, so the corner set is unchanged; symbolFootprintCorners() still takes
+ * `mirrored` (via worldPoint) so a rotated *and* mirrored instance keeps a
+ * well-formed rectangle either way. Shared with core/bounds.ts and
+ * input/marquee.ts via core/placed.ts.
  */
 function symbolFootprint(def: SymbolDef, s: SymbolInstance): Vec[] {
-  const y0 = def.wallMounted ? 0 : -def.depth / 2;
-  const box: LocalBox = { x0: -def.width / 2, y0, x1: def.width / 2, y1: y0 + def.depth };
-  return boxQuad(s, box);
+  return symbolFootprintCorners(def, s);
 }
 
 // ── wall side classification ────────────────────────────────────────────────
@@ -663,8 +661,14 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
 
   for (let i = 0; i < doc.floors.length; i++) {
     const floor = doc.floors[i]!;
+    // floorSolids() returns null when this storey has no walls at all (see
+    // core/solids.ts) — but a wall-less storey can still hold stairs,
+    // cabinets, symbols and detected rooms (a storey with only freestanding
+    // furniture, say), so only the wall/slab geometry below is gated on `fs`;
+    // everything else in the loop runs regardless.
     const fs = floorSolids(doc, i);
-    if (!fs) continue; // no walls on this storey at all — nothing to place
+    const wallSolids = fs?.walls ?? [];
+    const slab = fs?.slab ?? null;
 
     // Computed once per floor and reused below: the wall-side probe (Pset
     // IsExternal) and the space loop further down both need the same room
@@ -678,7 +682,7 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
     const levelPlacement = w.entity("IFCLOCALPLACEMENT", [ref(storeyPlacements[i]!), ref(worldPlacement)]);
     const contained: number[] = []; // walls + door/window fillers; NOT openings
 
-    for (const ws of fs.walls) {
+    for (const ws of wallSolids) {
       const wall = floor.walls.find(x => x.id === ws.wallId)!;
       const bodyIds = ws.body.map(p => extrudedSolid(p.poly, p.z0, p.z1));
       const wallEntity = w.entity("IFCWALL",
@@ -753,12 +757,12 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
 
     // ── slab and vide voids ─────────────────────────────────────────────────
     //
-    // fs.slab is null exactly when the wall graph has no closed outer
-    // boundary (see outerBoundary() in core/rooms.ts) — an open chain or an
-    // empty floor. Nothing is emitted for that storey's plate in that case;
-    // the walls (and their own openings) above are unaffected.
-    if (fs.slab) {
-      const slab = fs.slab;
+    // `slab` is null exactly when there is no `fs` at all, or the wall graph
+    // has no closed outer boundary (see outerBoundary() in core/rooms.ts) —
+    // an open chain or an empty floor. Nothing is emitted for that storey's
+    // plate in that case; the walls (and their own openings) above are
+    // unaffected.
+    if (slab) {
       const slabEntity = w.entity("IFCSLAB",
         [str(ifcGuid(seed, `${floor.id}:slab`)), ref(ownerHistory), str("Slab"), UNSET, UNSET,
           ref(levelPlacement), bodyShape([extrudedSolid(slab.outline, slab.z0, slab.z1)]), UNSET,

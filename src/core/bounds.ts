@@ -12,6 +12,8 @@ import { stairCorners, resolveStair } from "./stair";
 import { videCorners } from "./vide";
 import { cabinetCorners } from "./cabinet";
 import { resolveRoutes } from "./route";
+import { symbolFootprintCorners } from "./placed";
+import { arcFlatten } from "../geometry/arc";
 import { Vec, v } from "../geometry/vec";
 
 export interface Bounds { min: Vec; max: Vec }
@@ -31,11 +33,7 @@ export function planBounds(floor: Floor, resolved: Resolved): Bounds | null {
     // y in [0, depth] on one side only, so a box would pad the frame with
     // empty paper outside the building. Mirroring is a no-op here — the
     // footprint is symmetric in x. See the draw(ctx) contract in defs.ts.
-    const y0 = def.wallMounted ? 0 : -def.depth / 2;
-    const cos = Math.cos(s.rotation), sin = Math.sin(s.rotation);
-    for (const lx of [-def.width / 2, def.width / 2])
-      for (const ly of [y0, y0 + def.depth])
-        b.add(s.x + lx * cos - ly * sin, s.y + lx * sin + ly * cos);
+    for (const c of symbolFootprintCorners(def, s)) b.add(c.x, c.y);
   }
   // A stair's footprint depends on its parameters, so the corners come from the
   // same derived box the hit-test and the selection frame use.
@@ -44,7 +42,11 @@ export function planBounds(floor: Floor, resolved: Resolved): Bounds | null {
   for (const cb of cabinetsOf(floor)) for (const c of cabinetCorners(cb)) b.add(c.x, c.y);
   // Resolved, so a run following a moved symbol crops where it is actually
   // drawn, and the corridor fan (core/route.ts) never crops off a lane.
-  for (const rr of resolveRoutes(floor)) for (const s of rr.segments) { b.add(s.a.x, s.a.y); b.add(s.b.x, s.b.y); }
+  // Bulged segments are flattened so the arc's bow past the chord is
+  // included — the endpoints alone would let a curved route cross the crop.
+  for (const rr of resolveRoutes(floor)) for (const s of rr.segments) {
+    for (const p of arcFlatten(s.a, s.b, s.bulge, 2)) b.add(p.x, p.y);
+  }
   // A room name is a point, and a plan that is nothing but names still has to
   // frame somewhere rather than reporting itself empty.
   for (const rn of roomNamesOf(floor)) b.add(rn.x, rn.y);

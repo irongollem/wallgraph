@@ -998,6 +998,51 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
   }
 }
 
+// ── a storey with NO walls still exports its stairs, symbols and their
+//    containment rel — floorSolids() returns null for a wall-less floor (see
+//    core/solids.ts), but that must gate only the wall/slab geometry, not the
+//    whole storey (see the loop comment in io/ifc.ts) ─────────────────────────
+{
+  const docNW = emptyDoc();
+  docNW.floors[0]!.name = "Begane grond";
+  addSquare(docNW.floors[0]!, 0);
+
+  const stairNW: Stair = {
+    id: newId("st"), kind: "steektrap", x: 1000, y: 1000, rotation: 0,
+    width: 900, going: 220, treads: 15, rise: 2800,
+  };
+  const socketNW: SymbolInstance = { id: newId("sym"), type: "socket-single", x: 500, y: 500, rotation: 0 };
+  const upperNW: Floor = {
+    id: newId("f"), name: "Zolder", nodes: [], walls: [], symbols: [socketNW],
+    stairs: [stairNW], vides: [], cabinets: [], roomNames: [],
+  };
+  docNW.floors.push(upperNW);
+
+  const textNW = toIfc(docNW);
+  const entsNW = textNW.split("\n").filter(l => l.startsWith("#"));
+  const seedNW = docNW.guid ?? "";
+
+  check("the wall-less storey still gets an IFCBUILDINGSTOREY",
+    entsNW.filter(l => l.includes("=IFCBUILDINGSTOREY(")).length === docNW.floors.length);
+  check("its stair still becomes an IFCSTAIR",
+    entsNW.some(l => l.includes(`=IFCSTAIR('${ifcGuid(seedNW, stairNW.id)}'`)));
+  check("its symbol still becomes an IFCOUTLET (socket-single's class)",
+    entsNW.some(l => l.includes(`=IFCOUTLET('${ifcGuid(seedNW, socketNW.id)}'`)));
+  check("no IFCSLAB is emitted for the wall-less storey (no closed boundary)",
+    !entsNW.some(l => l.includes(`=IFCSLAB('${ifcGuid(seedNW, `${upperNW.id}:slab`)}'`)));
+
+  // The containment rel for the wall-less storey carries both the stair and
+  // the symbol -- there is exactly one rel whose contained-set holds both.
+  const idOfNW = (l: string): number => Number(/^#(\d+)=/.exec(l)![1]);
+  const argsOfNW = (l: string): number[] => [...l.matchAll(/#(\d+)/g)].map(m => Number(m[1]!));
+  const stairIdNW = idOfNW(entsNW.find(l => l.includes(`=IFCSTAIR('${ifcGuid(seedNW, stairNW.id)}'`))!);
+  const outletIdNW = idOfNW(entsNW.find(l => l.includes(`=IFCOUTLET('${ifcGuid(seedNW, socketNW.id)}'`))!);
+  const containmentNW = entsNW.filter(l => l.includes("=IFCRELCONTAINEDINSPATIALSTRUCTURE("));
+  check("exactly one containment rel holds the wall-less storey's stair AND symbol",
+    containmentNW.filter(l => argsOfNW(l).includes(stairIdNW) && argsOfNW(l).includes(outletIdNW)).length === 1,
+    containmentNW.join("\n"));
+}
+
 // ── an empty plan, and a wall with no rooms to derive IsExternal from,
 //    emit no property sets ──────────────────────────────────────────────────
 {

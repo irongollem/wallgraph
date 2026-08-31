@@ -15,7 +15,7 @@ import { resolveFloor } from "../core/resolve";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
 import { COLORS, routeInk, symbolInk } from "../render/draw";
-import { ROUTE_DATA_DASH, ROUTE_AFVOER_DASH, ROUTE_AFVOER_EXTRA_MM, ROUTE_VENT_EXTRA_MM } from "../render/route";
+import { ROUTE_DATA_DASH, ROUTE_AFVOER_DASH, ROUTE_AFVOER_EXTRA_MM, ROUTE_VENT_EXTRA_MM, LINE_WIDTH_MM } from "../render/route";
 import { stairBox } from "../core/stair";
 import { recordSymbol, Prim } from "./record";
 import { openingMarks } from "./marks";
@@ -225,8 +225,8 @@ export function planSvgParts(doc: PlanDoc, floor: Floor, resolved: ReturnType<ty
   return parts;
 }
 
-/** Route line weight in mm. */
-const W_ROUTE = 25;
+/** Route line weight in mm -- same figure render/route.ts draws with. */
+const W_ROUTE = LINE_WIDTH_MM;
 
 /**
  * Routes as SVG, one group per discipline (`id="routes-electrical"` etc.), in
@@ -298,8 +298,6 @@ export function routeSvgParts(floor: Floor): string[] {
         parts.push(`</g>`);
       }
       parts.push(`</g>`);
-    } else {
-      for (const rr of group) for (const p of routePrims(rr)) parts.push(primSvg(p));
     }
     parts.push(`</g>`);
   }

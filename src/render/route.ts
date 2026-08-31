@@ -11,8 +11,11 @@ import { Vec } from "../geometry/vec";
 import { arcInfo } from "../geometry/arc";
 import { dot, circle } from "./symbols/defs";
 
-/** World mm. Matches a symbol's own stroke weight (defs.ts sets lineWidth=20). */
-const LINE_WIDTH_MM = 25;
+/** World mm. Matches a symbol's own stroke weight (defs.ts sets lineWidth=20).
+ *  Exported so io/svg.ts and input/tools.ts draw the same base width rather
+ *  than each restating the figure (see ROUTE_AFVOER_EXTRA_MM and
+ *  ROUTE_VENT_EXTRA_MM just below for the same reasoning). */
+export const LINE_WIDTH_MM = 25;
 const DOT_R_MM = 40;
 const CIRCLE_R_MM = 45;
 

@@ -46,7 +46,7 @@ import { drawCabinetGhost } from "../render/cabinet";
 import { planBounds, polyBounds, Bounds } from "../core/bounds";
 import { Room, roomAnchor, orphanedRoomNames } from "../core/rooms";
 import { drawLabel, COLORS, symbolInk, routeInk } from "../render/draw";
-import { ROUTE_VENT_EXTRA_MM } from "../render/route";
+import { ROUTE_VENT_EXTRA_MM, LINE_WIDTH_MM } from "../render/route";
 import { Resolved, ResolvedWall } from "../core/resolve";
 import { dimensionChains, DimChain } from "../core/dimensions";
 import { t } from "../i18n";
@@ -110,6 +110,18 @@ interface DragState {
   /** Where the press started on screen. A pan moves the world under a fixed
    *  cursor, so startWorld cannot answer "did this travel?". */
   startScreen?: Vec;
+}
+
+/**
+ * Whether a drag kind is a handle on the currently selected object -- a
+ * route's waypoint or a wall's bow handle -- rather than picking the object
+ * up fresh. selectDownHold() uses this to skip arming the long-press hold:
+ * the object (route/wall) stays `sel`, which IS in MULTI_SELECT_KINDS, so
+ * without the check a still press aiming a handle would fire the hold timer
+ * mid-aim. Exported for testing as a pure predicate, without faking timers.
+ */
+export function isHandleDrag(kind: DragState["kind"]): boolean {
+  return kind === "routeVertex" || kind === "bow";
 }
 
 export class Tools {
@@ -383,6 +395,13 @@ export class Tools {
       if (e.key !== "Shift") return;
       this.shiftKey = false;
       this.shiftChanged();
+    });
+    // undo()/redo()/replace() can empty the selection directly (not through
+    // exitSelectMode()) -- e.g. undoing back past the object that was being
+    // bulk-edited. Notice it here so the compact layout's "Done (n)" pill
+    // does not linger over an empty selection.
+    store.onChange(() => {
+      if (this.selectMode && !this.store.sel) this.exitSelectMode();
     });
   }
 
@@ -2045,6 +2064,13 @@ export class Tools {
     if (this.selectMode) { this.selectDown(s, w); return; }
     const base = { sel: this.store.sel, selMore: [...this.store.selMore] };
     this.selectDown(s, w);
+    // A press that landed on a handle -- a selected route's waypoint or a
+    // selected wall's bow handle -- is aiming that handle, not picking the
+    // object up fresh; its owning object (route/wall) is still `sel` and IS
+    // in MULTI_SELECT_KINDS, so without this guard the hold would fire
+    // mid-aim, null the drag and toggle the selection out from under it (see
+    // isHandleDrag() below).
+    if (this.drag && isHandleDrag(this.drag.kind)) return;
     const target = this.store.sel;
     if (!target || !MULTI_SELECT_KINDS.has(target.kind)) return;
     this.longPressFrom = s;
@@ -3204,7 +3230,7 @@ export class Tools {
       ctx.save();
       ctx.strokeStyle = ink;
       ctx.fillStyle = ink;
-      ctx.lineWidth = this.routeDiscipline === "vent" ? 25 + ROUTE_VENT_EXTRA_MM : 25;
+      ctx.lineWidth = this.routeDiscipline === "vent" ? LINE_WIDTH_MM + ROUTE_VENT_EXTRA_MM : LINE_WIDTH_MM;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       ctx.beginPath();

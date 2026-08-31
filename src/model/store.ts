@@ -42,6 +42,29 @@ export class Store {
   private lastMutateAt = 0;
 
   /**
+   * Undo-snapshot storage for Floor.underlay images.
+   *
+   * A snapshot is JSON.stringify(doc), taken on every non-coalesced mutate()
+   * — several hundred per session — and Floor.underlay.dataUrl is a several-
+   * hundred-KB data URL. Embedding it in every snapshot on the 200-entry
+   * stack retains up to ~100 MB and re-stringifies the image on every
+   * discrete edit, for a single image that rarely changes.
+   *
+   * Instead, snapshotDoc() below replaces a floor's real dataUrl with a
+   * content-keyed token (`underlay:<hash>`, never a valid data: URI prefix)
+   * before stringifying, and stores the real dataUrl here under that token.
+   * restoreDoc() reverses it on undo/redo. Keying by content hash means
+   * repeated snapshots of the SAME image (the common case — most edits don't
+   * touch the underlay) collapse onto one stored copy rather than one per
+   * snapshot. purgeUnderlayStore() drops entries no stack entry references
+   * any more, after every push/pop/clear of either stack.
+   *
+   * The LIVE document (`this.doc`) always carries the real dataUrl directly;
+   * only strings pushed onto undoStack/redoStack are tokenized.
+   */
+  private underlayStore = new Map<string, string>();
+
+  /**
    * Index of the floor being edited. floors[0] is the lowest storey, so the
    * ghost underlay is always the entry below this one.
    *
@@ -163,6 +186,61 @@ export class Store {
   onChange(fn: Listener): void { this.listeners.push(fn); }
   private notify(): void { this.revision++; for (const l of this.listeners) l(); }
 
+  /** Cheap 32-bit content hash (FNV-1a), hex-encoded — not cryptographic,
+   *  just enough to key an undo-snapshot side table (see underlayStore). */
+  private static hashToken(s: string): string {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return `underlay:${(h >>> 0).toString(16)}`;
+  }
+
+  /** JSON.stringify(doc), except every floor's underlay.dataUrl (if any) is
+   *  replaced by a token into underlayStore rather than embedded — see the
+   *  field comment on underlayStore for why. */
+  private snapshotDoc(doc: PlanDoc): string {
+    if (!doc.floors.some(f => f.underlay)) return JSON.stringify(doc);
+    const floors = doc.floors.map(f => {
+      if (!f.underlay) return f;
+      const token = Store.hashToken(f.underlay.dataUrl);
+      if (!this.underlayStore.has(token)) this.underlayStore.set(token, f.underlay.dataUrl);
+      return { ...f, underlay: { ...f.underlay, dataUrl: token } };
+    });
+    return JSON.stringify({ ...doc, floors });
+  }
+
+  /** Reverses snapshotDoc(): re-attaches each floor's real dataUrl from
+   *  underlayStore. A token missing from the store (purged, or a corrupt
+   *  snapshot) drops that floor's underlay rather than surfacing the raw
+   *  token as if it were image data. */
+  private restoreDoc(json: string): PlanDoc {
+    const doc = JSON.parse(json) as PlanDoc;
+    for (const f of doc.floors) {
+      if (!f.underlay) continue;
+      const real = this.underlayStore.get(f.underlay.dataUrl);
+      if (real) f.underlay.dataUrl = real; else delete f.underlay;
+    }
+    return doc;
+  }
+
+  /** Drops any underlayStore entry no longer referenced by either stack.
+   *  Call after every push, pop, or clear of undoStack/redoStack. */
+  private purgeUnderlayStore(): void {
+    if (this.underlayStore.size === 0) return;
+    const referenced = new Set<string>();
+    const re = /underlay:[0-9a-f]+/g;
+    for (const s of this.undoStack) for (const m of s.matchAll(re)) referenced.add(m[0]);
+    for (const s of this.redoStack) for (const m of s.matchAll(re)) referenced.add(m[0]);
+    for (const token of this.underlayStore.keys()) if (!referenced.has(token)) this.underlayStore.delete(token);
+  }
+
+  /** Test-support only: the raw undo/redo snapshot strings, to assert they
+   *  never embed image bytes (see underlayStore above). Not read by any
+   *  production code path. */
+  debugSnapshots(): readonly string[] { return [...this.undoStack, ...this.redoStack]; }
+
   /** Apply a mutation with undo. Same coalesceKey within 900ms merges into one undo step. */
   /**
    * Group a continuous gesture -- a scrubbed number field, a drag -- into ONE
@@ -178,9 +256,10 @@ export class Store {
     const key = this.gestureKey ?? coalesceKey;
     const coalesce = key !== undefined && key === this.lastCoalesceKey && now - this.lastMutateAt < 900;
     if (!coalesce) {
-      this.undoStack.push(JSON.stringify(this.doc));
+      this.undoStack.push(this.snapshotDoc(this.doc));
       if (this.undoStack.length > 200) this.undoStack.shift();
       this.redoStack.length = 0;
+      this.purgeUnderlayStore();
     }
     this.lastCoalesceKey = key ?? null;
     this.lastMutateAt = now;
@@ -193,7 +272,7 @@ export class Store {
    * unavailable in sandboxed hosting anyway). */
   replace(doc: PlanDoc, undoable = false): void {
     if (undoable) {
-      this.undoStack.push(JSON.stringify(this.doc));
+      this.undoStack.push(this.snapshotDoc(this.doc));
       this.redoStack.length = 0;
     } else {
       this.undoStack.length = 0;
@@ -202,7 +281,9 @@ export class Store {
     this.doc = doc;
     this.clampFloor();
     this.sel = null;
+    this.selMore = [];
     this.lastCoalesceKey = null;
+    this.purgeUnderlayStore();
     this.notify();
   }
 
@@ -253,21 +334,25 @@ export class Store {
   undo(): void {
     const prev = this.undoStack.pop();
     if (prev === undefined) return;
-    this.redoStack.push(JSON.stringify(this.doc));
-    this.doc = JSON.parse(prev) as PlanDoc;
+    this.redoStack.push(this.snapshotDoc(this.doc));
+    this.doc = this.restoreDoc(prev);
     this.clampFloor();
     this.sel = null;
+    this.selMore = [];
     this.lastCoalesceKey = null;
+    this.purgeUnderlayStore();
     this.notify();
   }
 
   redo(): void {
     const next = this.redoStack.pop();
     if (next === undefined) return;
-    this.undoStack.push(JSON.stringify(this.doc));
-    this.doc = JSON.parse(next) as PlanDoc;
+    this.undoStack.push(this.snapshotDoc(this.doc));
+    this.doc = this.restoreDoc(next);
     this.clampFloor();
     this.sel = null;
+    this.selMore = [];
+    this.purgeUnderlayStore();
     this.notify();
   }
 

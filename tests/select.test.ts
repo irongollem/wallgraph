@@ -14,6 +14,8 @@ import { cabinetBox } from "../src/core/cabinet";
 import { videBox } from "../src/core/vide";
 import { Vec, v } from "../src/geometry/vec";
 import { resources } from "../src/i18n";
+import { isHandleDrag } from "../src/input/tools";
+import { resolveFloor } from "../src/core/resolve";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ""): void {
@@ -37,6 +39,78 @@ function boundsOf(pts: readonly Vec[]): { min: Vec; max: Vec } {
   check("node is not a multi-select kind", !MULTI_SELECT_KINDS.has("node"));
   const rest: SelKind[] = ["wall", "opening", "symbol", "stair", "vide", "cabinet", "route"];
   check("every other kind is", rest.every(k => MULTI_SELECT_KINDS.has(k)));
+}
+
+// --- isHandleDrag: selectDownHold()'s guard against arming the long-press
+// hold on a press that landed on a handle (a selected route's waypoint, a
+// selected wall's bow handle) rather than picking the object up fresh. Both
+// own kinds ("route", "wall") ARE in MULTI_SELECT_KINDS, so without this
+// guard the hold would still arm and fire mid-aim. Pure predicate -- no DOM,
+// no fake timers; the timer wiring itself needs a live canvas (see
+// tests/mobile.test.ts's note on that boundary). ---
+{
+  check("routeVertex is a handle drag", isHandleDrag("routeVertex"));
+  check("bow is a handle drag", isHandleDrag("bow"));
+  check("node is not a handle drag", !isHandleDrag("node"));
+  check("wall is not a handle drag", !isHandleDrag("wall"));
+  check("symbol is not a handle drag", !isHandleDrag("symbol"));
+  check("pan is not a handle drag", !isHandleDrag("pan"));
+}
+
+// --- store: undo()/redo()/replace() clear selMore alongside sel -- "sel plus
+// selMore is the whole selection" must hold even right after one of these,
+// or the compact layout keeps showing a stale "Done (n)" pill with nothing
+// selected (see model/store.ts's Selection comment). ---
+{
+  const mkDoc = () => {
+    const doc = emptyDoc();
+    const f = doc.floors[0]!;
+    const mkWall = (x: number): string => {
+      const a = { id: newId("n"), x, y: 0 }, b = { id: newId("n"), x, y: 1000 };
+      f.nodes.push(a, b);
+      const w: Wall = { id: newId("w"), a: a.id, b: b.id, thickness: 100, bulge: 0, openings: [] };
+      f.walls.push(w);
+      return w.id;
+    };
+    return { doc, ids: [mkWall(0), mkWall(1000), mkWall(2000)] };
+  };
+
+  // undo()
+  {
+    const { doc, ids } = mkDoc();
+    const st = new Store();
+    st.replace(doc);
+    st.selectMany("wall", ids);
+    st.mutate(d => { st.floorOf(d).walls[0]!.thickness = 250; });
+    check("group still selected right before undo", st.selMore.length === 2);
+    st.undo();
+    check("undo clears sel", st.sel === null);
+    check("undo clears selMore too", st.selMore.length === 0, String(st.selMore.length));
+  }
+  // redo()
+  {
+    const { doc, ids } = mkDoc();
+    const st = new Store();
+    st.replace(doc);
+    st.selectMany("wall", ids);
+    st.mutate(d => { st.floorOf(d).walls[0]!.thickness = 250; });
+    st.undo();
+    st.selectMany("wall", ids); // reselect, as a visitor would after the undo
+    st.redo();
+    check("redo clears sel", st.sel === null);
+    check("redo clears selMore too", st.selMore.length === 0, String(st.selMore.length));
+  }
+  // replace()
+  {
+    const { doc, ids } = mkDoc();
+    const st = new Store();
+    st.replace(doc);
+    st.selectMany("wall", ids);
+    check("group selected before replace", st.selMore.length === 2);
+    st.replace(emptyDoc(), true);
+    check("replace clears sel", st.sel === null);
+    check("replace clears selMore too", st.selMore.length === 0, String(st.selMore.length));
+  }
 }
 
 // --- marqueePick: per-kind containment and dominant-kind resolution ---
@@ -106,10 +180,15 @@ function boundsOf(pts: readonly Vec[]): { min: Vec; max: Vec } {
   {
     // wall2 (no opening on it), so the rect catches only the wall -- wall1
     // would also catch its door's jambs, which is its own containment test
-    // just below.
-    const bb = boundsOf([v(2000, 13000), v(2000, 15000)]);
+    // just below. Bounds come from the wall's own RESOLVED outline (offset by
+    // half-thickness, mitered at the shared node with wall1), not just its
+    // two centerline endpoints -- a rect that tight would exclude the outline
+    // itself now that marqueePick tests the full footprint (see the bulged-
+    // wall test further down).
+    const rw2 = resolveFloor(f).walls.get("w2")!;
+    const bb = boundsOf(rw2.outline);
     const picked = marqueePick(f, growRect(bb.min, bb.max, 10));
-    check("a rect around one wall's endpoints picks only it", picked?.kind === "wall" && picked.ids.join() === "w2",
+    check("a rect around one wall's outline picks only it", picked?.kind === "wall" && picked.ids.join() === "w2",
       JSON.stringify(picked));
   }
   {
@@ -174,6 +253,40 @@ function boundsOf(pts: readonly Vec[]): { min: Vec; max: Vec } {
     const picked = marqueePick(f, { min: v(-1e6, -1e6), max: v(1e6, 1e6) });
     check("the dominant kind is never node", picked !== null && (picked.kind as string) !== "node", JSON.stringify(picked));
   }
+}
+
+// --- marqueePick: a bulged wall's arc must count against "fully inside" --
+// resolveFloor() (called two lines up in candidatesByKind) already carries
+// each wall's flattened outline; testing only the two centerline endpoints
+// let a wall bowing well outside a tightly-drawn rect count as caught. ---
+{
+  const f = emptyDoc().floors[0]!;
+  const a = { id: newId("n"), x: 0, y: 0 };
+  const b = { id: newId("n"), x: 4000, y: 0 };
+  f.nodes.push(a, b);
+  // bulge=1 is a full semicircle: sagitta == radius == chord/2 == 2000mm,
+  // bowing toward perp((1,0)) = (0,1) -- +y (down), per the DXF bulge
+  // convention (geometry/arc.ts).
+  const wall: Wall = { id: newId("w"), a: a.id, b: b.id, thickness: 100, bulge: 1, openings: [] };
+  f.walls.push(wall);
+  check("resolveFloor's outline actually reaches past the endpoint rect", (() => {
+    const rw = [...resolveFloor(f).walls.values()][0]!;
+    return rw.outline.some(p => p.y > 200);
+  })());
+
+  // Tight around the two centerline endpoints plus a little for half-
+  // thickness -- nowhere near the arc's ~2000mm bow.
+  const tightRect: MarqueeRect = { min: v(-10, -110), max: v(4010, 110) };
+  check("a rect tight around a bulged wall's endpoints does not catch it",
+    marqueePick(f, tightRect) === null, JSON.stringify(marqueePick(f, tightRect)));
+
+  // Sanity check: a rect grown to the wall's own resolved outline (bow
+  // included) DOES catch it.
+  const rw = [...resolveFloor(f).walls.values()][0]!;
+  const outlineBounds = boundsOf(rw.outline);
+  const picked = marqueePick(f, growRect(outlineBounds.min, outlineBounds.max, 10));
+  check("a rect grown to cover the bow catches the wall",
+    picked?.kind === "wall" && picked.ids.join() === wall.id, JSON.stringify(picked));
 }
 
 // --- bulk mutation writes every member in ONE undo step ---

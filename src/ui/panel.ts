@@ -14,7 +14,7 @@ import { exportDxf } from "../io/dxf";
 import { exportIfc } from "../io/ifc";
 import { exportSvg } from "../io/svg";
 import { exportPermit } from "../io/permit";
-import { permitChecklist } from "../core/permit";
+import { permitChecklist, PermitCheck } from "../core/permit";
 import { seedDoc } from "../seed";
 import {
   emptyDoc, areaModeOf, dimModeOf, floorHeight, wallHeight, openingSill, openingHeight, projectOf,
@@ -101,6 +101,13 @@ export class Panel {
   private permitOpen = false;
   /** The permit checklist's container; repopulated in place while open. */
   private permitChecksEl: HTMLElement | null = null;
+  /** permitChecklist() cache, keyed on store.revision -- it runs resolveFloor,
+   *  planBounds, dimensionChains and detectRooms itself (see core/permit.ts),
+   *  so recomputing it on every store notification would repeat that work per
+   *  mutation during a drag while the permit section happens to be open. Same
+   *  pattern as derived() in main.ts. */
+  private permitCacheRev = -1;
+  private permitCacheItems: PermitCheck[] = [];
   /** Which room's name field is open in the zoom pane; see RoomEdit. */
   private roomEditKey: string | null = null;
   /** True mid drag-scrub: the pane must not rebuild and yank the input out
@@ -1383,7 +1390,11 @@ export class Panel {
   private syncPermitChecks(): void {
     const box = this.permitChecksEl;
     if (!box || !this.permitOpen) return;
-    const items = permitChecklist(this.store.doc, this.store.activeFloor);
+    if (this.store.revision !== this.permitCacheRev) {
+      this.permitCacheRev = this.store.revision;
+      this.permitCacheItems = permitChecklist(this.store.doc, this.store.activeFloor);
+    }
+    const items = this.permitCacheItems;
     const sig = items.map(i => `${i.id}:${i.ok}`).join("|");
     if (sig === box.dataset.sig) return;
     box.dataset.sig = sig;

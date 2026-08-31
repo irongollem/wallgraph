@@ -3,13 +3,14 @@
 // world mm and hands it here; the result feeds store.selectMany().
 import { Floor, Id, stairsOf, videsOf, cabinetsOf, routesOf } from "../model/doc";
 import type { SelKind } from "../model/store";
-import { Vec, v } from "../geometry/vec";
+import { Vec } from "../geometry/vec";
 import { getSymbol } from "../render/symbols";
 import { resolveFloor } from "../core/resolve";
 import { stairCorners, resolveStair } from "../core/stair";
 import { videCorners } from "../core/vide";
 import { cabinetCorners } from "../core/cabinet";
 import { resolveRoutePoints } from "../core/route";
+import { symbolFootprintCorners } from "../core/placed";
 
 export interface MarqueeRect { min: Vec; max: Vec }
 
@@ -32,19 +33,11 @@ function allIn(r: MarqueeRect, pts: readonly Vec[]): boolean {
   return pts.length > 0 && pts.every(p => inRect(r, p));
 }
 
-/** The rotated footprint corners of a placed symbol -- the same shape
- *  planBounds() (core/bounds.ts) walks, duplicated rather than shared because
- *  that helper returns a growing box, not a point list. */
-function symbolFootprint(s: { x: number; y: number; rotation: number; type: string }): Vec[] {
+/** The rotated footprint corners of a placed symbol, shared with
+ *  core/bounds.ts and io/ifc.ts via core/placed.ts. */
+function symbolFootprint(s: { x: number; y: number; rotation: number; mirrored?: boolean; type: string }): Vec[] {
   const def = getSymbol(s.type);
-  if (!def) return [];
-  const y0 = def.wallMounted ? 0 : -def.depth / 2;
-  const cos = Math.cos(s.rotation), sin = Math.sin(s.rotation);
-  const pts: Vec[] = [];
-  for (const lx of [-def.width / 2, def.width / 2])
-    for (const ly of [y0, y0 + def.depth])
-      pts.push(v(s.x + lx * cos - ly * sin, s.y + lx * sin + ly * cos));
-  return pts;
+  return def ? symbolFootprintCorners(def, s) : [];
 }
 
 /** Every object of every multi-select-eligible kind fully inside `rect`. */
@@ -61,13 +54,15 @@ function candidatesByKind(floor: Floor, rect: MarqueeRect): Map<SelKind, Id[]> {
   for (const vd of videsOf(floor)) if (allIn(rect, videCorners(vd))) add("vide", vd.id);
   for (const rt of routesOf(floor)) if (allIn(rect, resolveRoutePoints(floor, rt))) add("route", rt.id);
 
-  // Walls and openings share resolveFloor()'s work: a wall's both endpoints,
-  // an opening's two jambs (the centerline points resolveFloor already
-  // carries for carving the wall around it).
+  // Walls and openings share resolveFloor()'s work: an opening's two jambs
+  // (the centerline points resolveFloor already carries for carving the wall
+  // around it), and for a wall its full resolved outline -- not just the two
+  // centerline endpoints, which a bulged wall can bow well outside of while
+  // both ends stay inside the rect.
   const resolved = resolveFloor(floor);
   for (const rw of resolved.walls.values()) {
     for (const og of rw.openings) if (allIn(rect, [og.p0, og.p1])) add("opening", og.opening.id);
-    if (allIn(rect, [rw.a, rw.b])) add("wall", rw.wall.id);
+    if (allIn(rect, rw.outline)) add("wall", rw.wall.id);
   }
   return out;
 }

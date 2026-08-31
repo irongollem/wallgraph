@@ -93,6 +93,71 @@ const sampleUnderlay = (): Underlay => ({
     store.doc.floors[0]!.underlay !== undefined);
 }
 
+/* ── undo-snapshot side table (model/store.ts's underlayStore): snapshots
+ *  never embed the underlay's data URL, and undo/redo of ADD/REMOVE/
+ *  CALIBRATE still restore the real image ── */
+{
+  // ADD, then undo removes it; redo brings the same dataUrl back.
+  {
+    const store = new Store();
+    store.replace(emptyDoc());
+    const u = sampleUnderlay();
+    store.mutate(d => { d.floors[0]!.underlay = u; });
+    check("underlay is present after adding", store.doc.floors[0]!.underlay?.dataUrl === u.dataUrl);
+    store.undo();
+    check("undo after adding removes the underlay", store.doc.floors[0]!.underlay === undefined);
+    store.redo();
+    check("redo brings back the same dataUrl", store.doc.floors[0]!.underlay?.dataUrl === u.dataUrl);
+  }
+
+  // REMOVE, then undo restores the same dataUrl.
+  {
+    const store = new Store();
+    store.replace(emptyDoc());
+    const u = sampleUnderlay();
+    store.mutate(d => { d.floors[0]!.underlay = u; });
+    store.mutate(d => { delete d.floors[0]!.underlay; });
+    check("underlay is gone after removing", store.doc.floors[0]!.underlay === undefined);
+    store.undo();
+    check("undo after removing restores the same dataUrl",
+      store.doc.floors[0]!.underlay?.dataUrl === u.dataUrl, JSON.stringify(store.doc.floors[0]!.underlay));
+  }
+
+  // CALIBRATE, then undo restores the old mmPerPixel with the image intact.
+  {
+    const store = new Store();
+    store.replace(emptyDoc());
+    const u = sampleUnderlay();
+    store.mutate(d => { d.floors[0]!.underlay = u; });
+    store.mutate(d => {
+      const f = d.floors[0]!;
+      const next = calibrateUnderlay(f.underlay!, v(1200, 2100), v(1800, 2100), 1000);
+      if (next) f.underlay = next;
+    });
+    const calibrated = store.doc.floors[0]!.underlay!;
+    check("calibration changed mmPerPixel", calibrated.mmPerPixel !== u.mmPerPixel);
+    store.undo();
+    const restored = store.doc.floors[0]!.underlay;
+    check("undo after calibrating restores the old mmPerPixel",
+      restored?.mmPerPixel === u.mmPerPixel, String(restored?.mmPerPixel));
+    check("undo after calibrating keeps the image intact",
+      restored?.dataUrl === u.dataUrl);
+  }
+
+  // The snapshot strings themselves never carry the raw data URL.
+  {
+    const store = new Store();
+    store.replace(emptyDoc());
+    store.mutate(d => { d.floors[0]!.underlay = sampleUnderlay(); });
+    store.mutate(d => { d.floors[0]!.underlay!.opacity = 0.5; });
+    store.mutate(d => { delete d.floors[0]!.underlay; });
+    const snapshots = store.debugSnapshots();
+    check("at least one snapshot was recorded", snapshots.length > 0);
+    check("no undo/redo snapshot string embeds the data URL",
+      snapshots.every(s => !s.includes("data:image")), snapshots.join(" | "));
+  }
+}
+
 /* ── link stripping (io/link.ts's encodePlan) ── */
 {
   const doc = emptyDoc();
