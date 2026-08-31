@@ -7,7 +7,13 @@
 // kinds — a passage stays a bare voided hole. This is BIM 5, which adds one
 // IFCSPACE per detected room, IFCRELAGGREGATES'd (not contained — a space is
 // a spatial element, not a building element) under its storey, each carrying
-// a Qto_SpaceBaseQuantities with the document's own area figure.
+// a Qto_SpaceBaseQuantities with the document's own area figure. This is
+// BIM 6, which adds the floor plate itself: one IFCSLAB per storey whose
+// outer boundary closes, IFCRELCONTAINEDINSPATIALSTRUCTURE'd alongside the
+// walls, and one IFCOPENINGELEMENT (IFCRELVOIDSELEMENT'd to the slab) per
+// vide — a vide is already stored as a hole in this floor's slab (see
+// model/vide.ts), so the export needs no new geometry beyond what
+// floorSolids() already returns as SlabSolid.
 //
 // Geometry comes from core/solids.floorSolids() for walls/openings, and from
 // core/rooms.detectRooms() directly for spaces — floorSolids() already calls
@@ -43,7 +49,7 @@
 // cannot collide with that element's own id.
 import {
   PlanDoc, Floor, projectOf, floorElevation, floorHeight, areaModeOf, dimModeOf, DimMode, Sash, sashSpecsOf,
-  openingHeight,
+  openingHeight, videsOf,
 } from "../model/doc";
 import { ifcGuid } from "../model/guid";
 import { floorSolids } from "../core/solids";
@@ -458,6 +464,37 @@ export function toIfc(doc: PlanDoc): string {
           contained.push(fillEntity);
         }
       }
+    }
+
+    // ── slab and vide voids ─────────────────────────────────────────────────
+    //
+    // fs.slab is null exactly when the wall graph has no closed outer
+    // boundary (see outerBoundary() in core/rooms.ts) — an open chain or an
+    // empty floor. Nothing is emitted for that storey's plate in that case;
+    // the walls (and their own openings) above are unaffected.
+    if (fs.slab) {
+      const slab = fs.slab;
+      const slabEntity = w.entity("IFCSLAB",
+        [str(ifcGuid(seed, `${floor.id}:slab`)), ref(ownerHistory), str("Slab"), UNSET, UNSET,
+          ref(levelPlacement), bodyShape([extrudedSolid(slab.outline, slab.z0, slab.z1)]), UNSET,
+          enumv("FLOOR")]);
+      contained.push(slabEntity);
+
+      // floorSolids() builds slab.holes as videsOf(f).map(videHole), so the
+      // two arrays are index-aligned one hole per vide, in order — relied on
+      // here to key each opening off the vide's own stored id rather than a
+      // derived one, so it survives a re-export the way a wall opening's id
+      // does.
+      const vides = videsOf(floor);
+      slab.holes.forEach((hole, holeIndex) => {
+        const vide = vides[holeIndex]!;
+        const openingEntity = w.entity("IFCOPENINGELEMENT",
+          [str(ifcGuid(seed, vide.id)), ref(ownerHistory), str("Vide"), UNSET, UNSET, ref(levelPlacement),
+            bodyShape([extrudedSolid(hole, slab.z0, slab.z1)]), UNSET, UNSET]);
+        w.entity("IFCRELVOIDSELEMENT",
+          [str(ifcGuid(seed, `${vide.id}:void`)), ref(ownerHistory), UNSET, UNSET,
+            ref(slabEntity), ref(openingEntity)]);
+      });
     }
 
     if (contained.length > 0) {

@@ -7,9 +7,11 @@ import {
 } from "../src/model/doc";
 import { toIfc } from "../src/io/ifc";
 import { detectRooms } from "../src/core/rooms";
+import { SLAB_DEFAULT_MM } from "../src/core/solids";
 import { ifcGuid } from "../src/model/guid";
 import { v } from "../src/geometry/vec";
 import { bulgeFromSagitta } from "../src/geometry/arc";
+import type { Vide } from "../src/model/vide";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ""): void {
@@ -432,6 +434,154 @@ check("one IFCBUILDINGSTOREY per floor", countOf("IFCBUILDINGSTOREY") === doc.fl
         actualCenterline !== undefined && Math.abs(actualCenterline - named.netAreaMm2 / 1e6) > 1e-3);
     }
   }
+}
+
+// ── BIM 6: derived slabs and vides ──────────────────────────────────────────
+
+/** A closed square, offset so a second call on the same floor doesn't overlap
+ *  the first — same shape addRect() uses in the BIM 4 block above, but this
+ *  file's blocks don't share scope. */
+function addSquare(f: Floor, offset: number, size = 4000): void {
+  const pts = [v(0, 0), v(size, 0), v(size, size), v(0, size)];
+  const ids = pts.map(p => {
+    const id = newId("n");
+    f.nodes.push({ id, x: p.x + offset, y: p.y + offset });
+    return id;
+  });
+  for (let i = 0; i < 4; i++) {
+    f.walls.push({ id: newId("w"), a: ids[i]!, b: ids[(i + 1) % 4]!, thickness: 300, bulge: 0, openings: [] });
+  }
+}
+
+// ── a closed rectangle on each of two storeys: one IFCSLAB per storey ──────
+{
+  const doc2 = emptyDoc();
+  doc2.floors[0]!.name = "Begane grond";
+  addSquare(doc2.floors[0]!, 0);
+  const upper: Floor = {
+    id: newId("f"), name: "Verdieping", nodes: [], walls: [], symbols: [],
+    stairs: [], vides: [], cabinets: [], roomNames: [],
+  };
+  addSquare(upper, 0);
+  doc2.floors.push(upper);
+
+  const out = toIfc(doc2);
+  const ents = out.split("\n").filter(l => l.startsWith("#"));
+  const slabLines = ents.filter(l => l.includes("=IFCSLAB("));
+
+  check("one IFCSLAB per storey", slabLines.length === doc2.floors.length, String(slabLines.length));
+  check("every slab carries .FLOOR.", slabLines.every(l => l.includes(".FLOOR.")), slabLines.join("|"));
+
+  const guidOf = (l: string): string => /^#\d+=IFCSLAB\('([^']*)'/.exec(l)![1]!;
+  const idOf = (l: string): number => Number(/^#(\d+)=/.exec(l)![1]);
+  for (let i = 0; i < doc2.floors.length; i++) {
+    const floor = doc2.floors[i]!;
+    const expected = ifcGuid(doc2.guid ?? "", `${floor.id}:slab`);
+    check(`slab GlobalId for storey ${i} matches ifcGuid(seed, floor.id + ':slab')`,
+      slabLines.some(l => guidOf(l) === expected), slabLines.map(guidOf).join(","));
+  }
+
+  const containmentLines = ents.filter(l => l.includes("=IFCRELCONTAINEDINSPATIALSTRUCTURE("));
+  const slabIds = slabLines.map(idOf);
+  check("every slab appears in exactly one storey's containment rel",
+    slabIds.every(id => containmentLines.filter(l => new RegExp(`#${id}(?!\\d)`).test(l)).length === 1));
+
+  // ── extrusion sits at the negative z0, extrudes a positive depth ─────────
+  {
+    const extrusions = ents.filter(l => l.includes("=IFCEXTRUDEDAREASOLID("));
+    const positions = new Set<number>();
+    for (const l of extrusions) {
+      const m = /^#\d+=IFCEXTRUDEDAREASOLID\(#\d+,#(\d+),#\d+,(-?\d+\.?\d*(?:E[+-]?\d+)?)\);$/.exec(l);
+      if (m) { positions.add(Number(m[1])); check("extrusion depth is positive", Number(m[2]) > 0, l); }
+    }
+    const posPoints = ents.filter(l => positions.has(idOf(l)) && l.includes("=IFCAXIS2PLACEMENT3D("));
+    const zOf = (placementLine: string): number | undefined => {
+      const ptId = /^#\d+=IFCAXIS2PLACEMENT3D\(#(\d+)/.exec(placementLine)?.[1];
+      const ptLine = ents.find(l => l.startsWith(`#${ptId}=IFCCARTESIANPOINT(`));
+      const m = ptLine ? /,(-?\d+\.?\d*(?:E[+-]?\d+)?)\)\)/.exec(ptLine) : null;
+      return m ? Number(m[1]) : undefined;
+    };
+    const zValues = posPoints.map(zOf);
+    check(`at least one extrusion sits at z0 = -${SLAB_DEFAULT_MM} (the slab)`,
+      zValues.some(z => z === -SLAB_DEFAULT_MM), zValues.join(","));
+  }
+
+  // ── byte-stable re-export ─────────────────────────────────────────────────
+  {
+    const again = toIfc(doc2);
+    const a = out.split("\n"), b = again.split("\n");
+    const diffLines = a.length === b.length
+      ? a.map((l, i) => l === b[i] || l.startsWith("FILE_NAME(") ? null : i).filter((i): i is number => i !== null)
+      : [-1];
+    check("slab export is byte-identical across re-export apart from FILE_NAME's timestamp",
+      diffLines.length === 0, diffLines.join(","));
+  }
+}
+
+// ── a vide cuts a real void in its storey's slab ────────────────────────────
+{
+  const doc3 = emptyDoc();
+  const floor = doc3.floors[0]!;
+  floor.name = "Begane grond";
+  addSquare(floor, 0, 6000);
+  const vide: Vide = { id: newId("v"), x: 3000, y: 3000, rotation: 0, width: 1200, depth: 2600 };
+  floor.vides = [vide];
+
+  const out = toIfc(doc3);
+  const ents = out.split("\n").filter(l => l.startsWith("#"));
+  const seed = doc3.guid ?? "";
+
+  const expectedOpeningGuid = ifcGuid(seed, vide.id);
+  const expectedVoidGuid = ifcGuid(seed, `${vide.id}:void`);
+
+  const openingLines = ents.filter(l => l.includes("=IFCOPENINGELEMENT(") && l.includes(`'${expectedOpeningGuid}'`));
+  const voidLines = ents.filter(l => l.includes("=IFCRELVOIDSELEMENT(") && l.includes(`'${expectedVoidGuid}'`));
+  check("exactly one slab-void IFCOPENINGELEMENT for the vide", openingLines.length === 1, openingLines.join("|"));
+  check("exactly one IFCRELVOIDSELEMENT pairing it with the slab", voidLines.length === 1, voidLines.join("|"));
+
+  const slabLine = ents.find(l => l.includes("=IFCSLAB("));
+  const slabId = slabLine ? Number(/^#(\d+)=/.exec(slabLine)![1]) : undefined;
+  check("the void rel's RelatingBuildingElement is the slab, not a wall",
+    slabId !== undefined && voidLines.some(l => new RegExp(`#${slabId}(?!\\d)`).test(l)), voidLines.join("|"));
+
+  const containmentLines = ents.filter(l => l.includes("=IFCRELCONTAINEDINSPATIALSTRUCTURE("));
+  const openingId = openingLines.length === 1 ? Number(/^#(\d+)=/.exec(openingLines[0]!)![1]) : undefined;
+  check("the vide's opening element is not contained anywhere",
+    openingId !== undefined && containmentLines.every(l => !new RegExp(`#${openingId}(?!\\d)`).test(l)));
+
+  // ── GlobalId stability across a re-export ─────────────────────────────────
+  {
+    const again = toIfc(doc3);
+    const stillOpening = again.includes("=IFCOPENINGELEMENT(") && again.includes(`'${expectedOpeningGuid}'`);
+    const stillVoid = again.includes(`'${expectedVoidGuid}'`);
+    check("the vide's opening GlobalId is stable across a re-export", stillOpening);
+    check("the vide's void-rel GlobalId is stable across a re-export", stillVoid);
+  }
+}
+
+// ── an open chain (two walls, nothing enclosed) has walls but no slab ──────
+{
+  const doc4 = emptyDoc();
+  const floor = doc4.floors[0]!;
+  floor.name = "Begane grond";
+  const n0 = newId("n"), n1 = newId("n"), n2 = newId("n");
+  floor.nodes.push({ id: n0, x: 0, y: 0 }, { id: n1, x: 4000, y: 0 }, { id: n2, x: 4000, y: 3000 });
+  floor.walls.push(
+    { id: newId("w"), a: n0, b: n1, thickness: 300, bulge: 0, openings: [] },
+    { id: newId("w"), a: n1, b: n2, thickness: 300, bulge: 0, openings: [] },
+  );
+
+  const out = toIfc(doc4);
+  check("an open chain still emits its IFCWALLs", (out.match(/=IFCWALL\(/g) ?? []).length === 2);
+  check("an open chain emits no IFCSLAB", !out.includes("=IFCSLAB("));
+  check("an open chain emits no slab-related void rel",
+    !out.includes("=IFCRELVOIDSELEMENT(") || (out.match(/=IFCOPENINGELEMENT\(/g) ?? []).length === 0);
+}
+
+// ── the empty document has no slab either ───────────────────────────────────
+{
+  const bare = toIfc(emptyDoc());
+  check("an empty document has no slab", !bare.includes("=IFCSLAB("));
 }
 
 console.log(failures === 0 ? "ALL IFC TESTS PASSED" : `${failures} FAILURES`);
