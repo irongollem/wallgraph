@@ -14,7 +14,8 @@ import { exportPermit } from "../io/permit";
 import { permitChecklist } from "../core/permit";
 import { seedDoc } from "../seed";
 import {
-  emptyDoc, areaModeOf, dimModeOf, floorHeight, projectOf, sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS,
+  emptyDoc, areaModeOf, dimModeOf, floorHeight, wallHeight, openingSill, openingHeight, projectOf,
+  sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS,
   doorKindOf, DOOR_KINDS, widthsFor, DOOR_WIDTHS_DOUBLE, FIRE_KINDS, FIRE_MINUTES,
   FIRE_MINUTES_DEFAULT,
   type AreaMode, type DimMode, type Sash, type HingeEdge, type Opening, type Wall, type Floor, type FireKind,
@@ -497,7 +498,7 @@ export class Panel {
     // rebuild when an undo changes a value under them -- but not on every
     // store change, or placing a symbol would yank focus out of an open field.
     const paneSig = [this.store.activeFloor, d.floors.map(fl => fl.name).join("\u0001"),
-      d.gridMm, areaModeOf(d), floorHeight(this.store.floor), this.tools.lastThickness,
+      d.gridMm, areaModeOf(d), floorHeight(this.store.floor), d.groundMm ?? "", this.tools.lastThickness,
       JSON.stringify(d.project ?? null), d.northDeg ?? "",
       selSig].join("|");
 
@@ -744,6 +745,15 @@ export class Panel {
     }
     rows.numRow(t("panel.fromCorner"), o.t - o.width / 2,
       n => mutOpening(o2 => { o2.t = n + o2.width / 2; }));
+
+    // Vertical placement. Only a window has a sill worth stating; a door or
+    // passage reaches the floor.
+    if (o.kind === "window") {
+      rows.numRow(t("panel.sillHeight"), openingSill(o),
+        n => mutOpening(o2 => { o2.sillHeight = Math.max(0, Math.round(n)); }), 50);
+    }
+    rows.numRow(t("panel.openingHeight"), openingHeight(o),
+      n => mutOpening(o2 => { o2.height = Math.max(100, Math.round(n)); }), 50);
 
     if (o.kind === "door") this.renderLeaves(o, mutOpening, rows.selRow, rows.numRow, rows.noteRow);
     if (o.kind === "window") {
@@ -1076,6 +1086,11 @@ export class Panel {
       // one placed would carry the old height as an override of the new one.
       this.tools.followStoreyHeight(h);
     }, 100, { title: t("panel.floorHeightHelp") });
+    // Ground floor's elevation above project zero (Peil). Plan-wide, not
+    // per-floor, so it sits beside the storey height rather than in renderFloors.
+    numRow(t("panel.groundMm"), this.store.doc.groundMm ?? 0,
+      n => this.store.mutate(d => { d.groundMm = Math.round(n); }), 100,
+      { title: t("panel.groundMmHelp") });
     numRow(t("panel.newWallThickness"), this.tools.lastThickness, n => { this.tools.lastThickness = Math.max(20, n); }, 10);
     // Editor state like the grid snap rather than part of the document: it
     // decides whether a cabinet or a wall-mounted symbol takes the nearest wall
@@ -1312,6 +1327,51 @@ export class Panel {
           if (wall) wall.thickness = Math.max(20, n);
         });
       });
+      // Set/unset rather than a bare number: absent means "follows the
+      // storey", not a stated height that happens to match it.
+      checkRow(t("panel.wallOwnHeight"), w.height !== undefined, on => this.store.mutate(d => {
+        const fl = this.store.floorOf(d);
+        const wall = fl.walls.find(x => x.id === sel.id);
+        if (!wall) return;
+        if (on) wall.height = floorHeight(fl); else delete wall.height;
+      }));
+      if (w.height !== undefined) {
+        numRow(t("panel.wallHeight"), wallHeight(f, w), n => this.store.mutate(d => {
+          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+          if (wall) wall.height = Math.max(100, Math.round(n));
+        }), 50);
+      }
+      // Tri-state: "" is not stated, not the same fact as "no" for IFC.
+      selRow(t("panel.loadBearing"), w.loadBearing === undefined ? "" : w.loadBearing ? "yes" : "no",
+        [["", t("panel.loadBearingUnknown")], ["yes", t("panel.loadBearingYes")], ["no", t("panel.loadBearingNo")]],
+        v => this.store.mutate(d => {
+          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+          if (!wall) return;
+          wall.loadBearing = v === "" ? undefined : v === "yes";
+        }));
+      selRow(t("panel.fireRating"), w.fireRating?.kind ?? "",
+        [["", t("panel.fireNone")],
+          ...FIRE_KINDS.map(k => [k, t("panel.fire_" + k)] as [string, string])],
+        value => this.store.mutate(d => {
+          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+          if (!wall) return;
+          wall.fireRating = value
+            ? { kind: value as FireKind, minutes: wall.fireRating?.minutes ?? FIRE_MINUTES_DEFAULT }
+            : undefined;
+        }));
+      if (w.fireRating) {
+        noteRow(t("panel.fireHelp"));
+        chipRow(t("panel.fireMinutes"), FIRE_MINUTES, w.fireRating.minutes,
+          n => this.store.mutate(d => {
+            const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+            if (wall?.fireRating) wall.fireRating.minutes = n;
+          }));
+        numRow(t("panel.fireMinutes"), w.fireRating.minutes,
+          n => this.store.mutate(d => {
+            const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+            if (wall?.fireRating) wall.fireRating.minutes = Math.max(0, Math.round(n));
+          }), 15);
+      }
       const a = f.nodes.find(x => x.id === w.a)!, b = f.nodes.find(x => x.id === w.b)!;
       numRow(t("panel.sagitta"), sagittaFromBulge(v(a.x, a.y), v(b.x, b.y), w.bulge), n => {
         this.store.mutate(d => {

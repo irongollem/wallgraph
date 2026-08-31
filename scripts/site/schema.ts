@@ -63,6 +63,19 @@ export function planSchema(siteUrl: string): JsonSchema {
           "Where north points: degrees clockwise from screen-up. Absent means the " +
           "direction has not been stated and no north arrow is drawn.",
       },
+      guid: {
+        type: "string", pattern: "^[0-9a-f]{32}$",
+        description:
+          "Per-document seed for IFC GlobalIds: combined with each element's own id, " +
+          "it keeps identities stable across re-exports and keeps two documents from " +
+          "colliding. Absent on documents written before this existed.",
+      },
+      groundMm: {
+        type: "integer",
+        description:
+          "Elevation of the ground floor (floors[0]) above project zero (Peil), mm. " +
+          "May be negative. Absent means 0.",
+      },
       floors: {
         type: "array", minItems: 1, items: { $ref: "#/$defs/floor" },
         description: "Storeys, lowest first. The floor below draws as a tracing underlay.",
@@ -70,6 +83,22 @@ export function planSchema(siteUrl: string): JsonSchema {
     },
     $defs: {
       id: { type: "string", minLength: 1, description: "Unique within the document." },
+      fireRating: {
+        type: "object",
+        required: ["kind", "minutes"],
+        additionalProperties: false,
+        description: "A Dutch fire-resistance rating.",
+        properties: {
+          kind: {
+            enum: ["wbdbo", "wbd", "wrd"],
+            description:
+              "wbdbo: weerstand tegen branddoorslag en brandoverslag, the Bouwbesluit " +
+              "figure for a door in a compartment wall. wbd: branddoorslag alone. " +
+              "wrd: weerstand tegen rookdoorgang.",
+          },
+          minutes: { type: "integer", minimum: 0 },
+        },
+      },
       floor: {
         type: "object",
         required: ["id", "name", "nodes", "walls", "symbols"],
@@ -135,6 +164,16 @@ export function planSchema(siteUrl: string): JsonSchema {
               "does not mean straight, it means the arc maths sees NaN.",
           },
           openings: { type: "array", items: { $ref: "#/$defs/opening" } },
+          height: {
+            type: "integer", minimum: 1,
+            description: "mm, floor to floor. Absent means the storey height.",
+          },
+          loadBearing: {
+            type: "boolean",
+            description:
+              "Authored and tri-state: absent means not stated, distinct from false.",
+          },
+          fireRating: { $ref: "#/$defs/fireRating", description: "A fire compartment wall's rating." },
         },
       },
       opening: {
@@ -156,23 +195,15 @@ export function planSchema(siteUrl: string): JsonSchema {
           glazed: { type: "boolean", description: "Glazed leaf — drawn as a thin double line." },
           powered: { type: "boolean", description: "Electrically operated." },
           selfClosing: { type: "boolean", description: "Self-closing, as a fire door must be." },
-          fireRating: {
-            type: "object",
-            required: ["kind", "minutes"],
-            additionalProperties: false,
-            properties: {
-              kind: {
-                enum: ["wbdbo", "wbd", "wrd"],
-                description:
-                  "wbdbo: weerstand tegen branddoorslag en brandoverslag, the Bouwbesluit " +
-                  "figure for a door in a compartment wall. wbd: branddoorslag alone. " +
-                  "wrd: weerstand tegen rookdoorgang.",
-              },
-              minutes: { type: "integer", minimum: 0 },
-            },
-          },
-          sillHeight: mm("mm above floor. Reserved for elevations and 3D."),
-          height: mm("mm. Reserved for elevations and 3D."),
+          fireRating: { $ref: "#/$defs/fireRating", description: "A double door has one rating, not two." },
+          sillHeight: mm(
+            "mm above the floor. Only meaningful for a window; absent means 900 " +
+            "(borstwering) for a window, 0 for a door or passage.",
+          ),
+          height: mm(
+            "mm. Absent means the kind's default: 2315 for a door or passage " +
+            "(binnendeurkozijn dagmaat), 1415 for a window.",
+          ),
         },
       },
       sash: {

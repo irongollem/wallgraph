@@ -4,6 +4,7 @@ import type { Stair } from "./stair";
 import type { Vide } from "./vide";
 import type { Cabinet } from "./cabinet";
 import type { RoomName } from "./room";
+import { newDocGuid } from "./guid";
 
 export type Id = string;
 
@@ -86,7 +87,9 @@ export interface Opening {
    * sash — a double door has one rating, not two. See FireKind.
    */
   fireRating?: FireRating;
+  /** mm above the floor. Windows default to WINDOW_SILL_DEFAULT; read via openingSill(). */
   sillHeight?: number;
+  /** mm. Absent means the kind's default; read via openingHeight(). */
   height?: number;
 }
 
@@ -97,6 +100,16 @@ export interface Wall {
   thickness: number; // mm
   bulge: number;     // 0 = straight
   openings: Opening[];
+  /** mm, floor to floor. Absent means the storey height; read via wallHeight(). */
+  height?: number;
+  /**
+   * Authored, and deliberately tri-state: absent means "not stated", which is
+   * a different fact from `false` for IFC (Pset_WallCommon.LoadBearing has no
+   * "unknown" of its own otherwise). Never collapsed by an accessor.
+   */
+  loadBearing?: boolean;
+  /** Same FireRating an opening carries — a fire compartment wall has one. */
+  fireRating?: FireRating;
 }
 
 export interface SymbolInstance {
@@ -173,6 +186,9 @@ export function roomNamesOf(f: Floor): RoomName[] { return f.roomNames ?? []; }
 export const FLOOR_HEIGHT_DEFAULT = 2800;
 export const floorHeight = (f: Floor): number => f.height ?? FLOOR_HEIGHT_DEFAULT;
 
+/** A wall's own height, mm. Absent means the storey height it stands on. */
+export const wallHeight = (f: Floor, w: Wall): number => w.height ?? floorHeight(f);
+
 /**
  * How reported areas are measured. Plans are dimensioned both ways in practice
  * and the gap is large — a 4x3 m room with 300 mm walls is 12 m² centerline but
@@ -229,11 +245,35 @@ export interface PlanDoc {
    * a guessed arrow would be a false statement on a sheet.
    */
   northDeg?: number;
+  /**
+   * Per-document seed for IFC GlobalIds (32 lowercase hex chars). Combined
+   * with each element's own id by ifcGuid() in guid.ts, so a re-export keeps
+   * every element's identity and two documents cannot collide. Absent on
+   * documents written before this existed.
+   */
+  guid?: string;
+  /**
+   * Elevation of the ground floor (floors[0]) above project zero (Peil), mm,
+   * may be negative. Absent means 0. See floorElevation().
+   */
+  groundMm?: number;
+  /** Storeys, lowest first: floors[0] is the ground floor, the storey picker
+   *  and floorElevation() both rely on that order. */
   floors: Floor[];
 }
 
 /** Title-block data. Absent fields read as empty, not as an error. */
 export const projectOf = (d: PlanDoc): ProjectMeta => d.project ?? {};
+
+/**
+ * Elevation of floor `index` above project zero (Peil), mm: the ground
+ * floor's own elevation plus the storey height of every floor below it.
+ */
+export function floorElevation(d: PlanDoc, index: number): number {
+  let z = d.groundMm ?? 0;
+  for (let i = 0; i < index; i++) z += floorHeight(d.floors[i]!);
+  return z;
+}
 
 export const AREA_MODE_DEFAULT: AreaMode = "net";
 export const areaModeOf = (d: PlanDoc): AreaMode => d.areaMode ?? AREA_MODE_DEFAULT;
@@ -250,7 +290,7 @@ export const GRID_DEFAULT_MM = 100;
 
 export function emptyDoc(): PlanDoc {
   return {
-    version: 1, unit: "mm", gridMm: GRID_DEFAULT_MM,
+    version: 1, unit: "mm", gridMm: GRID_DEFAULT_MM, guid: newDocGuid(),
     floors: [{
       id: newId("f"), name: "Floor 1",
       nodes: [], walls: [], symbols: [], stairs: [], vides: [], cabinets: [], roomNames: [],
@@ -322,6 +362,31 @@ export function widthsFor(kind: OpeningKind): readonly number[] {
   return kind === "door" ? DOOR_WIDTHS
        : kind === "window" ? WINDOW_WIDTHS
        : PASSAGE_WIDTHS;
+}
+
+/**
+ * Default opening heights, mm, dagmaat (the standard NL binnendeurkozijn head
+ * height). A door or open passage reaches the same head; a window's is lower
+ * because it sits on a borstwering rather than the floor.
+ */
+export const DOOR_HEIGHT_DEFAULT = 2315;
+export const PASSAGE_HEIGHT_DEFAULT = 2315;
+export const WINDOW_HEIGHT_DEFAULT = 1415;
+/** Default sill height, mm: the ordinary borstwering under a window. */
+export const WINDOW_SILL_DEFAULT = 900;
+
+/** An opening's sill height, mm above the floor. Only a window has one that
+ *  is not the floor itself. */
+export function openingSill(o: Opening): number {
+  return o.kind === "window" ? o.sillHeight ?? WINDOW_SILL_DEFAULT : o.sillHeight ?? 0;
+}
+
+/** An opening's height, mm, defaulted per kind when not stated. */
+export function openingHeight(o: Opening): number {
+  if (o.height !== undefined) return o.height;
+  return o.kind === "window" ? WINDOW_HEIGHT_DEFAULT
+       : o.kind === "door" ? DOOR_HEIGHT_DEFAULT
+       : PASSAGE_HEIGHT_DEFAULT;
 }
 
 /**
