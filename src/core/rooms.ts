@@ -41,7 +41,20 @@ export interface Room {
 
 interface HalfEdge { from: number; to: number; visited: boolean; half: number }
 
-export function detectRooms(f: Floor): Room[] {
+/** One traced face of the flattened wall graph, before it is classified as a
+ *  room or the outer boundary. */
+interface Face { poly: Vec[]; halves: number[]; area: number }
+
+/**
+ * Walk every face of the flattened wall graph by the sharpest-left turn rule:
+ * the bounded rooms AND the one unbounded outer face, undifferentiated. Faces
+ * trace with positive shoelace area when bounded, negative when unbounded
+ * (see the module comment) — callers tell them apart by sign.
+ *
+ * Shared by detectRooms() (keeps positive-area faces above the sliver
+ * threshold) and outerBoundary() (keeps the unbounded one).
+ */
+function walkFaces(f: Floor): Face[] {
   // Collect flattened vertices with dedup (quantize to 1mm).
   const verts: Vec[] = [];
   const vmap = new Map<string, number>();
@@ -87,7 +100,7 @@ export function detectRooms(f: Floor): Room[] {
 
   const twin = (i: number): number => (i % 2 === 0 ? i + 1 : i - 1);
 
-  const rooms: Room[] = [];
+  const faces: Face[] = [];
   for (let start = 0; start < halfEdges.length; start++) {
     if (halfEdges[start]!.visited) continue;
     const polyIdx: number[] = [];
@@ -110,20 +123,48 @@ export function detectRooms(f: Floor): Room[] {
     }
     if (polyIdx.length < 3) continue;
     const poly = polyIdx.map(i => verts[i]!);
-    const area = polygonArea(poly);
+    faces.push({ poly, halves, area: polygonArea(poly) });
+  }
+  return faces;
+}
+
+export function detectRooms(f: Floor): Room[] {
+  const rooms: Room[] = [];
+  for (const face of walkFaces(f)) {
     // With this turn rule (y-down), bounded faces trace with positive shoelace
     // area; the unbounded outer face is negative. Verified by tests/core.test.ts.
-    if (area <= 1e4) continue; // rejects outer face and <0.01 m² slivers
-    const netPoly = insetPolygon(poly, halves);
+    if (face.area <= 1e4) continue; // rejects outer face and <0.01 m² slivers
+    const netPoly = insetPolygon(face.poly, face.halves);
     const netArea = Math.max(0, polygonArea(netPoly));
     rooms.push({
-      poly, areaMm2: area,
+      poly: face.poly, areaMm2: face.area,
       netPoly, netAreaMm2: netArea,
-      centroid: polygonCentroid(poly),
+      centroid: polygonCentroid(face.poly),
     });
   }
   attachNames(f, rooms);
   return rooms;
+}
+
+/**
+ * The outer boundary of the wall graph: centerline vertices, like `Room.poly`
+ * — not offset to the outer wall faces. This is the unbounded face the same
+ * half-edge walk visits and detectRooms() discards, so it is the most
+ * negative-area face rather than the positive ones. Null when the graph
+ * encloses nothing (no walls, or an open chain — walking a tree-shaped graph
+ * retraces every edge and cancels to near-zero area either way).
+ *
+ * Assumes one connected wall graph, which is what a single storey's slab is;
+ * several disjoint closed loops on one floor would each contribute their own
+ * negative-area face and only the largest is reported.
+ */
+export function outerBoundary(f: Floor): Vec[] | null {
+  let best: Face | null = null;
+  for (const face of walkFaces(f)) {
+    if (best === null || face.area < best.area) best = face;
+  }
+  if (!best || best.area >= -1e4) return null;
+  return best.poly;
 }
 
 /** Corners count as square within about two degrees. */
