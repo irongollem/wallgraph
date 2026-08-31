@@ -425,11 +425,15 @@ function wallIsExternal(floor: Floor, wall: Wall, roomPolys: readonly Vec[][]): 
  * Always succeeds — every document has at least one floor (see emptyDoc()),
  * so there is no "empty" export result the way DXF has for a floor with no
  * geometry.
+ *
+ * `nowMs` is the file's creation time, reaching both the FILE_NAME header and
+ * IFCOWNERHISTORY. A parameter rather than an internal Date.now() so a caller
+ * comparing two exports can hold the clock still — everything else about the
+ * output is deterministic per document.
  */
-export function toIfc(doc: PlanDoc): string {
+export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
   const seed = doc.guid ?? "";
   const meta = projectOf(doc);
-  const nowMs = Date.now();
   const w = new IfcWriter();
 
   // World origin, shared by every placement below until an element states

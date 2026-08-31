@@ -103,13 +103,13 @@ check("one IFCBUILDINGSTOREY per floor", countOf("IFCBUILDINGSTOREY") === doc.fl
 // ── GlobalId stability ───────────────────────────────────────────────────────
 
 {
-  const again = toIfc(doc);
-  const a = text.split("\n"), b = again.split("\n");
-  const diffLines = a.length === b.length
-    ? a.map((l, i) => l === b[i] || l.startsWith("FILE_NAME(") ? null : i).filter((i): i is number => i !== null)
-    : [-1];
-  check("two exports are byte-identical apart from FILE_NAME's timestamp",
-    diffLines.length === 0, diffLines.join(","));
+  // Same document, same clock: nothing else may vary. The clock is a
+  // parameter precisely so this comparison can be exact — the timestamp
+  // reaches FILE_NAME and IFCOWNERHISTORY, and tolerating "the timestamp
+  // lines" by pattern is how a real difference slips through.
+  const clock = Date.UTC(2026, 0, 1);
+  check("two exports under one clock are byte-identical",
+    toIfc(doc, clock) === toIfc(doc, clock));
 }
 
 // ── non-ASCII round-trip ─────────────────────────────────────────────────────
@@ -260,13 +260,9 @@ check("one IFCBUILDINGSTOREY per floor", countOf("IFCBUILDINGSTOREY") === doc.fl
   check("no NaN in the rich plan", !richText.includes("NaN"));
   check("no byte over 126 in the rich plan", [...richText].every(ch => ch.codePointAt(0)! <= 126));
   {
-    const again = toIfc(rich);
-    const a = richText.split("\n"), b = again.split("\n");
-    const diffLines = a.length === b.length
-      ? a.map((l, i) => l === b[i] || l.startsWith("FILE_NAME(") ? null : i).filter((i): i is number => i !== null)
-      : [-1];
-    check("two rich exports are byte-identical apart from FILE_NAME's timestamp",
-      diffLines.length === 0, diffLines.join(","));
+    const clock = Date.UTC(2026, 0, 1);
+    check("two rich exports under one clock are byte-identical",
+      toIfc(rich, clock) === toIfc(rich, clock));
   }
 
   // ── containment scoping ────────────────────────────────────────────────
@@ -412,13 +408,9 @@ check("one IFCBUILDINGSTOREY per floor", countOf("IFCBUILDINGSTOREY") === doc.fl
 
   // ── GlobalId stability across a re-export ─────────────────────────────────
   {
-    const again = toIfc(two);
-    const a = twoText.split("\n"), b = again.split("\n");
-    const diffLines = a.length === b.length
-      ? a.map((l, i) => l === b[i] || l.startsWith("FILE_NAME(") ? null : i).filter((i): i is number => i !== null)
-      : [-1];
-    check("two exports of the two-room plan are byte-identical apart from FILE_NAME's timestamp",
-      diffLines.length === 0, diffLines.join(","));
+    const clock = Date.UTC(2026, 0, 1);
+    check("two exports of the two-room plan under one clock are byte-identical",
+      toIfc(two, clock) === toIfc(two, clock));
   }
 
   // ── flipping areaMode changes the reported figure ─────────────────────────
@@ -512,13 +504,9 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
 
   // ── byte-stable re-export ─────────────────────────────────────────────────
   {
-    const again = toIfc(doc2);
-    const a = out.split("\n"), b = again.split("\n");
-    const diffLines = a.length === b.length
-      ? a.map((l, i) => l === b[i] || l.startsWith("FILE_NAME(") ? null : i).filter((i): i is number => i !== null)
-      : [-1];
-    check("slab export is byte-identical across re-export apart from FILE_NAME's timestamp",
-      diffLines.length === 0, diffLines.join(","));
+    const clock = Date.UTC(2026, 0, 1);
+    check("slab export under one clock is byte-identical across re-export",
+      toIfc(doc2, clock) === toIfc(doc2, clock));
   }
 }
 
@@ -754,13 +742,9 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
     check("all GlobalIds in the BIM7 plan are unique", new Set(guids).size === guids.length, String(guids.length));
   }
   {
-    const again7 = toIfc(doc7);
-    const a = text7.split("\n"), b = again7.split("\n");
-    const diffLines = a.length === b.length
-      ? a.map((l, i) => l === b[i] || l.startsWith("FILE_NAME(") ? null : i).filter((i): i is number => i !== null)
-      : [-1];
-    check("BIM7 export is byte-identical across re-export apart from FILE_NAME's timestamp",
-      diffLines.length === 0, diffLines.join(","));
+    const clock = Date.UTC(2026, 0, 1);
+    check("BIM7 export under one clock is byte-identical across re-export",
+      toIfc(doc7, clock) === toIfc(doc7, clock));
   }
 }
 
@@ -975,13 +959,9 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
 
   // ── byte-stable re-export ────────────────────────────────────────────────
   {
-    const again8 = toIfc(doc8);
-    const a = text8.split("\n"), b = again8.split("\n");
-    const diffLines = a.length === b.length
-      ? a.map((l, i) => l === b[i] || l.startsWith("FILE_NAME(") ? null : i).filter((i): i is number => i !== null)
-      : [-1];
-    check("BIM8 export is byte-identical across re-export apart from FILE_NAME's timestamp",
-      diffLines.length === 0, diffLines.join(","));
+    const clock = Date.UTC(2026, 0, 1);
+    check("BIM8 export under one clock is byte-identical across re-export",
+      toIfc(doc8, clock) === toIfc(doc8, clock));
   }
 
   // ── whole-file integrity ─────────────────────────────────────────────────
