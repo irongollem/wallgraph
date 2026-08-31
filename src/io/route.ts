@@ -3,7 +3,10 @@
 // (the corridor fan in core/route.ts only ever offsets straight segments, so
 // every arc reaching here is exactly as drawn). No dash pattern and no
 // waypoint marks -- those are canvas-only reading aids, not part of the
-// service run's geometry.
+// service run's geometry. An electrical data run (utp/coax) is drawn dashed,
+// but not here: the recorder/prims path this feeds cannot carry a dash (the
+// same reasoning io/dxf.ts documents for CABINETS-OVERHEAD), so io/svg.ts
+// carries it on the SVG group and io/dxf.ts on its own DXF layer instead.
 import { ResolvedRoute } from "../core/route";
 import { arcInfo, sweepOf } from "../geometry/arc";
 import { Prim } from "./record";

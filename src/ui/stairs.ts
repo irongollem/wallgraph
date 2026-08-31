@@ -44,11 +44,16 @@ export interface PaneRows {
   dangerRow(label: string, fn: () => void): void;
   checkRow(label: string, value: boolean, onCommit: (b: boolean) => void): void;
   /**
-   * A row of standard values beside a typed field. Cabinetry and doors are
-   * ordered in steps rather than measured, so the steps have to be one click
-   * away; the number field beside them keeps anything else reachable.
+   * A row of standard values beside a typed field -- number chips beside a
+   * numRow (cabinetry and doors are ordered in steps rather than measured, so
+   * the steps have to be one click away), or string chips beside a textRow
+   * (recently used groep labels, offered so wiring one circuit is repeated
+   * clicks rather than repeated typing). Either way the typed field beside
+   * them keeps anything else reachable.
    */
-  chipRow(label: string, values: readonly number[], value: number, onCommit: (n: number) => void): void;
+  chipRow<T extends string | number>(
+    label: string, values: readonly T[], value: T, onCommit: (v: T) => void,
+  ): void;
 }
 
 /**

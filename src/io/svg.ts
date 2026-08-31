@@ -15,6 +15,7 @@ import { resolveFloor } from "../core/resolve";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
 import { COLORS, routeInk, symbolInk } from "../render/draw";
+import { ROUTE_DATA_DASH } from "../render/route";
 import { stairBox } from "../core/stair";
 import { recordSymbol, Prim } from "./record";
 import { openingMarks } from "./marks";
@@ -26,7 +27,7 @@ import { videBox } from "../core/vide";
 import { resolveStair } from "../core/stair";
 import { resolveRoutes } from "../core/route";
 import { routePrims } from "./route";
-import { DISCIPLINES } from "../model/route";
+import { DISCIPLINES, routeKind } from "../model/route";
 import { planBounds } from "../core/bounds";
 import { saveViaHost, downloadBlob } from "./save";
 import { t } from "../i18n";
@@ -242,7 +243,24 @@ export function routeSvgParts(floor: Floor): string[] {
     if (group.length === 0) continue;
     const ink = routeInk(discipline);
     parts.push(`<g id="routes-${discipline}" fill="none" stroke="${ink}" stroke-width="${W_ROUTE}" stroke-linecap="round">`);
-    for (const rr of group) for (const p of routePrims(rr)) parts.push(primSvg(p));
+    if (discipline === "electrical") {
+      // A data run (utp/coax) is dashed here rather than in its recorded
+      // geometry: the recorder discards dash patterns, so the group carries
+      // it -- the same reasoning a wall cabinet's dash is carried by its own
+      // SVG group (see the cabinets group in planSvgParts, and io/cabinet.ts).
+      // A power run is the plain, undashed sub-group, matching every other
+      // discipline's markup.
+      const power = group.filter(r => routeKind(r.route) === "power");
+      const data = group.filter(r => routeKind(r.route) !== "power");
+      for (const rr of power) for (const p of routePrims(rr)) parts.push(primSvg(p));
+      if (data.length > 0) {
+        parts.push(`<g stroke-dasharray="${ROUTE_DATA_DASH.join(" ")}">`);
+        for (const rr of data) for (const p of routePrims(rr)) parts.push(primSvg(p));
+        parts.push(`</g>`);
+      }
+    } else {
+      for (const rr of group) for (const p of routePrims(rr)) parts.push(primSvg(p));
+    }
     parts.push(`</g>`);
   }
   return parts;

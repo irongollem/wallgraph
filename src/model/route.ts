@@ -37,8 +37,62 @@ export interface RoutePoint {
   anchor?: Id;
 }
 
+/**
+ * What an electrical run carries. Meaningless outside discipline "electrical"
+ * -- a water or vent route ignores it entirely. Absent = "power", the
+ * ordinary case (a socket or switch circuit); "utp"/"coax" are data runs.
+ * Read through routeKind(), never r.kind directly, so a route that predates
+ * this field reads as an ordinary power run.
+ */
+export type RouteKind = "power" | "utp" | "coax";
+
+export const ROUTE_KINDS: readonly RouteKind[] = ["power", "utp", "coax"];
+
+/** The run's kind, defaulted. See RouteKind. */
+export function routeKind(r: Route): RouteKind {
+  return r.kind ?? "power";
+}
+
+/** Aders on the ordinary geschakelde/wandcontactdoos run. */
+export const ROUTE_VEINS_DEFAULT = 3;
+
+/** Aantal aders, defaulted. Power runs only -- see Route.veins. */
+export function routeVeins(r: Route): number {
+  return r.veins ?? ROUTE_VEINS_DEFAULT;
+}
+
+/**
+ * Whole aders, within what the schema allows. The chip row offers [2,3,4,5]
+ * as the ordinary set; this is the wider bound a typed value can still reach.
+ */
+export function clampRouteVeins(n: number): number {
+  return Math.max(2, Math.min(8, Math.round(isFinite(n) ? n : ROUTE_VEINS_DEFAULT)));
+}
+
 export interface Route {
   id: Id;
   discipline: Discipline;
   points: RoutePoint[];
+  /**
+   * Electrical-only: what the run carries. See RouteKind. Meaningful only
+   * when discipline is "electrical"; a water or vent route ignores it.
+   */
+  kind?: RouteKind;
+  /**
+   * Aantal aders (conductor count). Meaningful for power runs only (kind is
+   * "power" or absent) -- a data run's pairs follow from `spec` instead.
+   * Absent means 3, the ordinary geschakelde/wandcontactdoos run. Read
+   * through routeVeins().
+   */
+  veins?: number;
+  /**
+   * Groep, as the meterkast labels it ("1", "2", "K1"). Free text, short.
+   * Meaningful for power runs; a data run does not belong to a groep.
+   */
+  group?: string;
+  /**
+   * Data-cable spec ("Cat6"). Meaningful for kind "utp" or "coax"; a power
+   * run ignores it.
+   */
+  spec?: string;
 }

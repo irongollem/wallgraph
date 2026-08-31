@@ -15,7 +15,9 @@ import { Vide, VideSize, VIDE_DEFAULT, clampVide } from "../model/vide";
 import {
   Cabinet, CabinetSpec, cabinetDefaults, cabinetPreset, clampCabinet,
 } from "../model/cabinet";
-import { Route, RoutePoint, Discipline } from "../model/route";
+import {
+  Route, RoutePoint, Discipline, RouteKind, ROUTE_VEINS_DEFAULT, clampRouteVeins,
+} from "../model/route";
 import { resolveRoutePoints, resolveRoutes, routeHit, ResolvedRoute } from "../core/route";
 import {
   nodeAt, splitWall, nearestWall, wallOnRay, wallLength, mergeNodes, deleteWall, clampOpening,
@@ -156,6 +158,16 @@ export class Tools {
    * a plan is drawn discipline by discipline rather than one run at a time.
    */
   routeDiscipline: Discipline = "electrical";
+  /**
+   * Electrical-only fields for the next route -- sticky like routeDiscipline,
+   * since a plan is wired groep by groep and kind by kind, not one run at a
+   * time. Kept armed even while routeDiscipline is something else, so
+   * switching back to electrical remembers the last choice.
+   */
+  routeKind: RouteKind = "power";
+  routeVeins: number = ROUTE_VEINS_DEFAULT;
+  routeGroup = "";
+  routeSpec = "";
   /**
    * Per-discipline visibility. Editor state, like snapGrid -- not persisted,
    * no document impact, and no bearing on SVG/DXF exports (those draw every
@@ -1411,6 +1423,34 @@ export class Tools {
     this.requestRender();
   }
 
+  /** Arm what the next electrical run carries. Sticky, like routeDiscipline. */
+  setRouteKind(k: RouteKind): void {
+    this.routeKind = k;
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /**
+   * Arm the aders count for the next power run. [2,3,4,5] are the chip row's
+   * ordinary options; a typed value can go up to the schema's own maximum.
+   */
+  setRouteVeins(n: number): void {
+    this.routeVeins = clampRouteVeins(n);
+    this.onToolChange();
+  }
+
+  /** Arm the groep for the next power run. */
+  setRouteGroup(s: string): void {
+    this.routeGroup = s.trim();
+    this.onToolChange();
+  }
+
+  /** Arm the cable spec for the next data run. */
+  setRouteSpec(s: string): void {
+    this.routeSpec = s.trim();
+    this.onToolChange();
+  }
+
   /**
    * A fixed 30 mm stand-off from the nearest wall's centerline, on the
    * cursor's side -- reusing wallSnap()'s own centerline-projection maths
@@ -1508,6 +1548,19 @@ export class Tools {
   private commitRoute(): void {
     if (this.routePoints.length >= 2) {
       const route: Route = { id: newId("rt"), discipline: this.routeDiscipline, points: this.routePoints };
+      // Electrical vocabulary, only when it applies and only when it says
+      // something a reader would not already assume -- the armed defaults
+      // (power, 3 aders) are left unstated, the way an absent Cabinet.hinge
+      // means "left" rather than being written out on every placement.
+      if (this.routeDiscipline === "electrical") {
+        if (this.routeKind !== "power") route.kind = this.routeKind;
+        if (this.routeKind === "power") {
+          if (this.routeVeins !== ROUTE_VEINS_DEFAULT) route.veins = this.routeVeins;
+          if (this.routeGroup) route.group = this.routeGroup;
+        } else if (this.routeSpec) {
+          route.spec = this.routeSpec;
+        }
+      }
       this.store.mutate(doc => {
         (this.store.floorOf(doc).routes ??= []).push(route);
       });

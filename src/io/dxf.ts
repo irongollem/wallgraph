@@ -30,7 +30,7 @@ import { cabinetOverhead } from "../model/cabinet";
 import { resolveStair } from "../core/stair";
 import { resolveRoutes } from "../core/route";
 import { routePrims } from "./route";
-import type { Discipline } from "../model/route";
+import { routeKind, type Discipline } from "../model/route";
 import { saveViaHost, downloadBlob } from "./save";
 import { t } from "../i18n";
 
@@ -59,11 +59,23 @@ const ROUTE_LAYER: Record<Discipline, string> = {
   electrical: "ROUTES-ELECTRICAL", water: "ROUTES-WATER", vent: "ROUTES-VENT",
 };
 
+/**
+ * An electrical data run (utp/coax) gets its own layer rather than a dash
+ * pattern -- the same reasoning as CABINETS-OVERHEAD above: a dash cannot
+ * survive the recorder/prims path, so the distinction has to live in the
+ * layer instead, which is where CAD expects to find it anyway. Registered
+ * only when the floor actually has a data run (see toDxf), unlike
+ * ROUTE_LAYER's three names, which are declared together once the floor has
+ * any route at all.
+ */
+const ROUTE_DATA_LAYER = "ROUTES-ELECTRICAL-DATA";
+
 /** ACI colour indices — 7 is "by background", i.e. black on white paper. */
 const LAYER_COLOR: Record<string, number> = {
   WALLS: 7, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, ROOMS: 8,
   CABINETS: 6, "CABINETS-OVERHEAD": 6,
   "ROUTES-ELECTRICAL": 1, "ROUTES-WATER": 5, "ROUTES-VENT": 2,
+  "ROUTES-ELECTRICAL-DATA": 1,
 };
 
 class DxfWriter {
@@ -227,10 +239,15 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
       && routesOf(floor).length === 0)) return null;
 
   const hasRoutes = routesOf(floor).length > 0;
+  const hasElectricalData = routesOf(floor).some(r => r.discipline === "electrical" && routeKind(r) !== "power");
   const resolved = resolveFloor(floor);
   const w = new DxfWriter();
   w.header();
-  w.tables([...Object.values(LAYER), ...(hasRoutes ? Object.values(ROUTE_LAYER) : [])]);
+  w.tables([
+    ...Object.values(LAYER),
+    ...(hasRoutes ? Object.values(ROUTE_LAYER) : []),
+    ...(hasElectricalData ? [ROUTE_DATA_LAYER] : []),
+  ]);
   w.section("ENTITIES", () => {
     // Walls: each solid piece as a closed outline, so openings are real gaps
     // rather than something drawn over.
@@ -244,7 +261,11 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
     for (const vd of videsOf(floor)) emitPrims(w, LAYER.vides, videPrims(vd, t("vide.label")));
 
     if (hasRoutes) {
-      for (const rr of resolveRoutes(floor)) emitPrims(w, ROUTE_LAYER[rr.route.discipline], routePrims(rr));
+      for (const rr of resolveRoutes(floor)) {
+        const layer = rr.route.discipline === "electrical" && routeKind(rr.route) !== "power"
+          ? ROUTE_DATA_LAYER : ROUTE_LAYER[rr.route.discipline];
+        emitPrims(w, layer, routePrims(rr));
+      }
     }
 
     for (const st of stairsOf(floor))

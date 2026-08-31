@@ -3,7 +3,7 @@
 // long the run is, and where several routes bundle through the same corridor
 // are all recomputed on every call, exactly like a room's boundary.
 import { Floor, routesOf } from "../model/doc";
-import { Route } from "../model/route";
+import { Route, RouteKind, routeKind, routeVeins } from "../model/route";
 import { Vec, v, add, sub, scale, cross, dot, dist, perp, distToSeg } from "../geometry/vec";
 import { arcLength, arcFlatten } from "../geometry/arc";
 
@@ -179,6 +179,61 @@ export function resolveRoutes(floor: Floor): ResolvedRoute[] {
     }
     return { route, segments };
   });
+}
+
+/**
+ * Per groep, across the floor's electrical runs: total resolved length and
+ * how many distinct anchored devices (sockets, switches -- whatever symbol a
+ * waypoint follows) sit somewhere on a run carrying that groep. A materials-
+ * list shape for the person wiring the meterkast to check their own count
+ * against -- reported, never validated against what the meterkast actually
+ * has (there is nothing here that knows).
+ */
+export interface RouteGroupSummary {
+  group: string;
+  lengthMm: number;
+  devices: number;
+}
+
+export function routeGroupSummaries(floor: Floor): RouteGroupSummary[] {
+  const byGroup = new Map<string, { lengthMm: number; devices: Set<string> }>();
+  for (const r of routesOf(floor)) {
+    if (r.discipline !== "electrical" || !r.group) continue;
+    const entry = byGroup.get(r.group) ?? { lengthMm: 0, devices: new Set<string>() };
+    entry.lengthMm += routeLength(floor, r);
+    for (const p of r.points) if (p.anchor) entry.devices.add(p.anchor);
+    byGroup.set(r.group, entry);
+  }
+  return [...byGroup.entries()]
+    .map(([group, e]) => ({ group, lengthMm: e.lengthMm, devices: e.devices.size }))
+    .sort((a, b) => a.group.localeCompare(b.group));
+}
+
+/**
+ * Per kind -- and for power, per aders count -- total cable length across the
+ * floor's electrical runs: "120 m of 3-aders, 40 m Cat6". Same reported,
+ * never-validated shape as routeGroupSummaries above.
+ */
+export interface RouteKindSummary {
+  kind: RouteKind;
+  /** Power only; a data run's summary carries no veins count. */
+  veins?: number;
+  lengthMm: number;
+}
+
+export function routeKindSummaries(floor: Floor): RouteKindSummary[] {
+  const by = new Map<string, RouteKindSummary>();
+  for (const r of routesOf(floor)) {
+    if (r.discipline !== "electrical") continue;
+    const kind = routeKind(r);
+    const veins = kind === "power" ? routeVeins(r) : undefined;
+    const key = kind + (veins !== undefined ? ":" + veins : "");
+    const entry = by.get(key) ?? { kind, veins, lengthMm: 0 };
+    entry.lengthMm += routeLength(floor, r);
+    by.set(key, entry);
+  }
+  return [...by.values()].sort((a, b) =>
+    a.kind === b.kind ? (a.veins ?? 0) - (b.veins ?? 0) : a.kind.localeCompare(b.kind));
 }
 
 /** True when `p` (world mm) lands within `margin` of the resolved route. */

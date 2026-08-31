@@ -1052,20 +1052,22 @@ export class Panel {
      * value is one click away and visibly one of a short set — a dropdown hides
      * both facts, and a bare number field states no opinion at all.
      */
-    const chipRow = (
-      label: string, values: readonly number[], value: number, onCommit: (n: number) => void,
+    const chipRow = <T extends string | number>(
+      label: string, values: readonly T[], value: T, onCommit: (v: T) => void,
     ): void => {
       const row = el("div", "chip-row");
       row.setAttribute("role", "group");
       row.setAttribute("aria-label", label);
-      for (const mm of values) {
+      for (const v of values) {
         const b = el("button", "chip") as HTMLButtonElement;
         b.type = "button";
-        b.textContent = String(mm);
-        const on = mm === Math.round(value);
+        b.textContent = String(v);
+        // A number chip matches on the rounded value, the way a scrubbed
+        // field settles; a string chip (recent groep labels) matches exactly.
+        const on = typeof v === "number" ? v === Math.round(value as number) : v === value;
         b.setAttribute("aria-pressed", String(on));
         if (on) b.classList.add("is-on");
-        b.onclick = () => onCommit(mm);
+        b.onclick = () => onCommit(v);
         row.append(b);
       }
       p.append(row);

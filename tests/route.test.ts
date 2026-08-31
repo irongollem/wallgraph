@@ -3,8 +3,10 @@
 // legible without touching the stored document, and the permit sheet must
 // never carry services.
 import { emptyDoc, routesOf } from "../src/model/doc";
-import { Route, DISCIPLINES } from "../src/model/route";
-import { resolveRoutePoints, routeLength, resolveRoutes } from "../src/core/route";
+import { Route, DISCIPLINES, ROUTE_KINDS, routeKind, routeVeins } from "../src/model/route";
+import {
+  resolveRoutePoints, routeLength, resolveRoutes, routeGroupSummaries, routeKindSummaries,
+} from "../src/core/route";
 import { arcLength } from "../src/geometry/arc";
 import { unanchorRoutePoints } from "../src/model/ops";
 import { toDxf } from "../src/io/dxf";
@@ -197,6 +199,118 @@ const route = (over: Partial<Route> = {}): Route =>
   check("an unknown routePoint property is rejected", validate(schema, badPoint).length > 0);
 }
 
+/* ── electrical vocabulary: accessors ── */
+
+{
+  check("routeKind defaults to power when absent", routeKind(route()) === "power");
+  check("routeKind reads an explicit kind", routeKind(route({ kind: "utp" })) === "utp");
+  check("routeVeins defaults to 3 when absent", routeVeins(route()) === 3);
+  check("routeVeins reads an explicit count", routeVeins(route({ veins: 5 })) === 5);
+  check("every route kind is offered", ROUTE_KINDS.length === 3
+    && ROUTE_KINDS.includes("power") && ROUTE_KINDS.includes("utp") && ROUTE_KINDS.includes("coax"));
+}
+
+/* ── electrical vocabulary: the schema ── */
+
+{
+  const schema = planSchema("");
+  const doc = emptyDoc();
+  doc.floors[0]!.routes = [
+    { id: "r2", discipline: "electrical", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }],
+      kind: "power", veins: 4, group: "K1" },
+    { id: "r3", discipline: "electrical", points: [{ x: 0, y: 500 }, { x: 1000, y: 500 }],
+      kind: "utp", spec: "Cat6" },
+  ];
+  check("a document with the electrical fields validates", validate(schema, doc).length === 0,
+    validate(schema, doc).join(" | "));
+
+  const lowVeins = JSON.parse(JSON.stringify(doc));
+  lowVeins.floors[0].routes[0].veins = 1;
+  check("veins below the schema minimum is rejected", validate(schema, lowVeins).length > 0);
+
+  const highVeins = JSON.parse(JSON.stringify(doc));
+  highVeins.floors[0].routes[0].veins = 9;
+  check("veins above the schema maximum is rejected", validate(schema, highVeins).length > 0);
+
+  const badKind = JSON.parse(JSON.stringify(doc));
+  badKind.floors[0].routes[0].kind = "gas";
+  check("an unknown route kind is rejected", validate(schema, badKind).length > 0);
+
+  // JSON round-trip.
+  const again = JSON.parse(JSON.stringify(doc));
+  check("electrical fields round-trip through JSON",
+    JSON.stringify(again.floors[0].routes) === JSON.stringify(doc.floors[0]!.routes));
+  check("the round-tripped document still validates", validate(schema, again).length === 0);
+}
+
+/* ── electrical vocabulary: reported figures ── */
+
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.symbols.push({ id: "s1", type: "socket-single", x: 1000, y: 0, rotation: 0 });
+  f.symbols.push({ id: "s2", type: "socket-single", x: 1000, y: 1000, rotation: 0 });
+  f.routes = [
+    // Two power runs sharing groep "1", one of them anchoring two devices.
+    { id: "p1", discipline: "electrical", group: "1",
+      points: [{ x: 0, y: 0 }, { x: 1000, y: 0, anchor: "s1" }, { x: 1000, y: 1000, anchor: "s2" }] },
+    { id: "p2", discipline: "electrical", group: "1", veins: 4,
+      points: [{ x: 0, y: 2000 }, { x: 1000, y: 2000 }] },
+    // A data run, no groep.
+    { id: "d1", discipline: "electrical", kind: "utp", spec: "Cat6",
+      points: [{ x: 0, y: 3000 }, { x: 500, y: 3000 }] },
+  ];
+
+  const groups = routeGroupSummaries(f);
+  check("one summary per groep", groups.length === 1, JSON.stringify(groups));
+  const g1 = groups[0]!;
+  check("groep length sums both runs sharing it",
+    Math.abs(g1.lengthMm - (2000 + 1000)) < 1e-6, String(g1.lengthMm));
+  check("groep device count is the distinct anchored symbols on it", g1.devices === 2, String(g1.devices));
+
+  const kinds = routeKindSummaries(f);
+  const power3 = kinds.find(k => k.kind === "power" && k.veins === 3);
+  const power4 = kinds.find(k => k.kind === "power" && k.veins === 4);
+  const utp = kinds.find(k => k.kind === "utp");
+  check("power runs are split by veins count", power3 !== undefined && power4 !== undefined,
+    JSON.stringify(kinds));
+  check("the 3-aders power total is that one run's length",
+    power3 !== undefined && Math.abs(power3.lengthMm - 2000) < 1e-6);
+  check("a data run's summary carries no veins count",
+    utp !== undefined && utp.veins === undefined, JSON.stringify(utp));
+}
+
+/* ── electrical vocabulary: SVG dash and DXF layer ── */
+
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.routes = [
+    { id: "power", discipline: "electrical", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }] },
+    { id: "data", discipline: "electrical", kind: "utp",
+      points: [{ x: 0, y: 500 }, { x: 1000, y: 500 }] },
+  ];
+
+  const svg = toSvg(doc) ?? "";
+  check("the electrical group still carries one id", svg.includes('id="routes-electrical"'));
+  check("the SVG carries a dash pattern for the data sub-group", svg.includes("stroke-dasharray"));
+  const beforeDash = svg.split("stroke-dasharray")[0]!;
+  check("the power run's geometry is drawn before the dashed sub-group opens",
+    beforeDash.includes("routes-electrical"));
+
+  const dxfBoth = toDxf(doc) ?? "";
+  check("a floor with a data run gets the ROUTES-ELECTRICAL-DATA layer",
+    dxfBoth.includes("ROUTES-ELECTRICAL-DATA"));
+
+  const powerOnly = emptyDoc();
+  powerOnly.floors[0]!.routes = [
+    { id: "power", discipline: "electrical", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }] },
+  ];
+  const dxfPowerOnly = toDxf(powerOnly) ?? "";
+  check("a floor with only power runs carries no ROUTES-ELECTRICAL-DATA layer",
+    !dxfPowerOnly.includes("ROUTES-ELECTRICAL-DATA"));
+}
+
 /* ── discipline list ── */
 
 check("every discipline is offered", DISCIPLINES.length === 3
@@ -207,6 +321,10 @@ for (const lng of ["nl", "en"] as const) {
   for (const d of DISCIPLINES) {
     const key = "discipline" + d[0]!.toUpperCase() + d.slice(1);
     check(`${lng} names discipline "${d}"`, typeof panel[key] === "string", key);
+  }
+  for (const k of ROUTE_KINDS) {
+    const key = "routeKind" + k[0]!.toUpperCase() + k.slice(1);
+    check(`${lng} names route kind "${k}"`, typeof panel[key] === "string", key);
   }
 }
 

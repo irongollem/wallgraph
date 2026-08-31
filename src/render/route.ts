@@ -6,7 +6,7 @@
 // there is no box, and a route can run the whole diagonal of a plan, where a
 // frame around its bounds would highlight everything between its ends.
 import { ResolvedRoute, ResolvedRouteSegment } from "../core/route";
-import { RoutePoint } from "../model/route";
+import { RoutePoint, routeKind } from "../model/route";
 import { Vec } from "../geometry/vec";
 import { arcInfo } from "../geometry/arc";
 import { dot, circle } from "./symbols/defs";
@@ -15,6 +15,13 @@ import { dot, circle } from "./symbols/defs";
 const LINE_WIDTH_MM = 25;
 const DOT_R_MM = 40;
 const CIRCLE_R_MM = 45;
+
+/**
+ * Dash pattern for an electrical data run (utp/coax), mm -- same figures as a
+ * wall cabinet's overhead dash (render/cabinet.ts's OVERHEAD_DASH), so the
+ * convention reads the same wherever it appears. A power run stays solid.
+ */
+export const ROUTE_DATA_DASH: readonly [number, number] = [90, 60];
 
 export interface RoutePaint {
   ink: string;
@@ -66,7 +73,13 @@ export function drawRoute(
   ctx.strokeStyle = ink;
   ctx.fillStyle = ink;
   ctx.lineWidth = LINE_WIDTH_MM;
+  // A data run (utp/coax) draws dashed; a power run and every non-electrical
+  // discipline stay solid. The wash above is deliberately left undashed --
+  // it is a highlight glow, not part of the run's own line.
+  const dashed = resolved.route.discipline === "electrical" && routeKind(resolved.route) !== "power";
+  if (dashed) ctx.setLineDash([...ROUTE_DATA_DASH]);
   strokePath(ctx, resolved.segments);
+  if (dashed) ctx.setLineDash([]);
 
   for (let i = 0; i < waypoints.length; i++) {
     const p = waypoints[i]!;

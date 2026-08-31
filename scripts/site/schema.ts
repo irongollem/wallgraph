@@ -2,7 +2,7 @@
 // imported from their source, and document objects reject unknown properties.
 import { SYMBOL_TYPES } from "../../src/render/symbols";
 import { STAIR_KINDS } from "../../src/model/stair";
-import { DISCIPLINES } from "../../src/model/route";
+import { DISCIPLINES, ROUTE_KINDS } from "../../src/model/route";
 
 export type JsonSchema = Record<string, unknown>;
 
@@ -277,6 +277,30 @@ export function planSchema(siteUrl: string): JsonSchema {
           points: {
             type: "array", items: { $ref: "#/$defs/routePoint" },
             description: "The run's waypoints, in order.",
+          },
+          kind: {
+            enum: [...ROUTE_KINDS],
+            description:
+              "Electrical-only: what the run carries. Meaningful only when discipline " +
+              "is \"electrical\"; a water or vent route ignores it. Absent means " +
+              "\"power\", the ordinary case.",
+          },
+          veins: {
+            type: "integer", minimum: 2, maximum: 8,
+            description:
+              "Aantal aders. Meaningful for power runs only (kind is \"power\" or " +
+              "absent) -- a data run's pairs follow from `spec` instead. Absent means " +
+              "3, the ordinary geschakelde/wandcontactdoos run.",
+          },
+          group: {
+            type: "string",
+            description:
+              "Groep, as the meterkast labels it (\"1\", \"2\", \"K1\"). Meaningful for " +
+              "power runs; a data run does not belong to a groep.",
+          },
+          spec: {
+            type: "string",
+            description: "Data-cable spec (\"Cat6\"). Meaningful for kind \"utp\" or \"coax\".",
           },
         },
       },
