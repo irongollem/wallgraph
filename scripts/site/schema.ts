@@ -43,6 +43,26 @@ export function planSchema(siteUrl: string): JsonSchema {
           "the default when absent; 'clear' measures face to face (dagmaat); 'both' draws " +
           "each as its own chain.",
       },
+      project: {
+        type: "object",
+        additionalProperties: false,
+        description:
+          "Title-block data for the permit sheet export. All fields are authored and " +
+          "optional; absent fields render as empty cells.",
+        properties: {
+          name: { type: "string", description: "Project name as the title block states it." },
+          address: { type: "string", description: "Site address." },
+          number: { type: "string", description: "Drawing number (tekeningnummer)." },
+          author: { type: "string", description: "Who drew it (getekend)." },
+          date: { type: "string", description: "Date as written on the sheet. Absent means the export date." },
+        },
+      },
+      northDeg: {
+        type: "integer", minimum: 0, maximum: 359,
+        description:
+          "Where north points: degrees clockwise from screen-up. Absent means the " +
+          "direction has not been stated and no north arrow is drawn.",
+      },
       floors: {
         type: "array", minItems: 1, items: { $ref: "#/$defs/floor" },
         description: "Storeys, lowest first. The floor below draws as a tracing underlay.",
