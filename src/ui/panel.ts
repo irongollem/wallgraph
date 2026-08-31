@@ -9,6 +9,7 @@ import { v, norm, sub, add, scale } from "../geometry/vec";
 import { exportJson, copyJson, importJsonFile, parseDoc, clearAutosave } from "../io/json";
 import { exportPng } from "../io/image";
 import { exportDxf } from "../io/dxf";
+import { exportIfc } from "../io/ifc";
 import { exportSvg } from "../io/svg";
 import { exportPermit } from "../io/permit";
 import { permitChecklist } from "../core/permit";
@@ -397,6 +398,7 @@ export class Panel {
       { kind: "item", icon: "docPng", label: t("action.png"), hint: "PNG", onPick: () => { void this.savePng(); } },
       { kind: "item", icon: "docSvg", label: t("action.svg"), hint: "SVG", onPick: () => { void this.saveSvg(); } },
       { kind: "item", icon: "docDxf", label: t("action.dxf"), hint: "DXF", onPick: () => { void this.saveDxf(); } },
+      { kind: "item", icon: "docDxf", label: t("action.ifc"), hint: "IFC", onPick: () => { void this.saveIfc(); } },
       { kind: "item", icon: "docCopy", label: t("action.copy"), onPick: () => {
         void copyJson(this.store.doc).then(ok => this.flash(ok ? t("status.copied") : t("status.copyFailed")));
       } },
@@ -445,6 +447,13 @@ export class Panel {
     this.flash(t(result === "saved" ? "status.dxfSaved"
       : result === "empty" ? "status.dxfEmpty"
       : "status.dxfFailed"));
+  }
+
+  /** BIM spatial structure export. Whole document, not one storey — every
+   *  floor becomes an IFCBUILDINGSTOREY, so there is no floorIndex to pass. */
+  private async saveIfc(): Promise<void> {
+    const result = await exportIfc(this.store.doc);
+    this.flash(t(result === "saved" ? "status.ifcSaved" : "status.ifcFailed"));
   }
 
   /**
