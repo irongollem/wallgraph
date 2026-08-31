@@ -1,6 +1,6 @@
 {
   "name": "wallgraph",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "private": true,
   "description": "A free, browser-based floorplan editor. mm-exact, wall-graph based, zero runtime dependencies.",
   "license": "AGPL-3.0-only",
