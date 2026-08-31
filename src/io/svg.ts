@@ -15,7 +15,7 @@ import { resolveFloor } from "../core/resolve";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
 import { COLORS, routeInk, symbolInk } from "../render/draw";
-import { ROUTE_DATA_DASH } from "../render/route";
+import { ROUTE_DATA_DASH, ROUTE_AFVOER_DASH, ROUTE_AFVOER_EXTRA_MM } from "../render/route";
 import { stairBox } from "../core/stair";
 import { recordSymbol, Prim } from "./record";
 import { openingMarks } from "./marks";
@@ -27,7 +27,7 @@ import { videBox } from "../core/vide";
 import { resolveStair } from "../core/stair";
 import { resolveRoutes } from "../core/route";
 import { routePrims } from "./route";
-import { DISCIPLINES, routeKind } from "../model/route";
+import { DISCIPLINES, routeKind, routeWater } from "../model/route";
 import { planBounds } from "../core/bounds";
 import { saveViaHost, downloadBlob } from "./save";
 import { t } from "../i18n";
@@ -256,6 +256,29 @@ export function routeSvgParts(floor: Floor): string[] {
       if (data.length > 0) {
         parts.push(`<g stroke-dasharray="${ROUTE_DATA_DASH.join(" ")}">`);
         for (const rr of data) for (const p of routePrims(rr)) parts.push(primSvg(p));
+        parts.push(`</g>`);
+      }
+    } else if (discipline === "water") {
+      // koud stays the plain outer group -- solid, the ordinary water ink,
+      // matching every other discipline's markup. warm is a colour-override
+      // sub-group (its own tint within the water ink family, see
+      // render/draw.ts's COLORS.routeWaterWarm); afvoer is a dashed, wider
+      // sub-group -- the recorder/prims path this feeds cannot carry a dash
+      // or a widened stroke, so the SVG group carries them, the same
+      // reasoning io/dxf.ts documents for CABINETS-OVERHEAD and this
+      // function's own electrical data sub-group above.
+      const koud = group.filter(r => routeWater(r.route) === "koud");
+      const warm = group.filter(r => routeWater(r.route) === "warm");
+      const afvoer = group.filter(r => routeWater(r.route) === "afvoer");
+      for (const rr of koud) for (const p of routePrims(rr)) parts.push(primSvg(p));
+      if (warm.length > 0) {
+        parts.push(`<g stroke="${routeInk("water", "warm")}">`);
+        for (const rr of warm) for (const p of routePrims(rr)) parts.push(primSvg(p));
+        parts.push(`</g>`);
+      }
+      if (afvoer.length > 0) {
+        parts.push(`<g stroke-width="${W_ROUTE + ROUTE_AFVOER_EXTRA_MM}" stroke-dasharray="${ROUTE_AFVOER_DASH.join(" ")}">`);
+        for (const rr of afvoer) for (const p of routePrims(rr)) parts.push(primSvg(p));
         parts.push(`</g>`);
       }
     } else {

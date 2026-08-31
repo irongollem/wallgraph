@@ -3,9 +3,13 @@
 // legible without touching the stored document, and the permit sheet must
 // never carry services.
 import { emptyDoc, routesOf } from "../src/model/doc";
-import { Route, DISCIPLINES, ROUTE_KINDS, routeKind, routeVeins } from "../src/model/route";
+import {
+  Route, DISCIPLINES, ROUTE_KINDS, routeKind, routeVeins,
+  ROUTE_WATERS, routeWater, routeDiameter, WATER_SUPPLY_DIAMETERS, WATER_DRAIN_DIAMETERS,
+} from "../src/model/route";
 import {
   resolveRoutePoints, routeLength, resolveRoutes, routeGroupSummaries, routeKindSummaries,
+  routeWaterSummaries,
 } from "../src/core/route";
 import { arcLength } from "../src/geometry/arc";
 import { unanchorRoutePoints } from "../src/model/ops";
@@ -311,6 +315,119 @@ const route = (over: Partial<Route> = {}): Route =>
     !dxfPowerOnly.includes("ROUTES-ELECTRICAL-DATA"));
 }
 
+/* ── water vocabulary: accessors ── */
+
+{
+  const wroute = (over: Partial<Route> = {}): Route =>
+    ({ id: "w1", discipline: "water", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }], ...over });
+
+  check("routeWater defaults to koud when absent", routeWater(wroute()) === "koud");
+  check("routeWater reads an explicit kind", routeWater(wroute({ water: "warm" })) === "warm");
+  check("routeDiameter defaults to 15 for koud", routeDiameter(wroute()) === 15);
+  check("routeDiameter defaults to 15 for warm", routeDiameter(wroute({ water: "warm" })) === 15);
+  check("routeDiameter defaults to 50 for afvoer", routeDiameter(wroute({ water: "afvoer" })) === 50);
+  check("routeDiameter reads an explicit value", routeDiameter(wroute({ diameter: 28 })) === 28);
+  check("every water kind is offered", ROUTE_WATERS.length === 3
+    && ROUTE_WATERS.includes("koud") && ROUTE_WATERS.includes("warm") && ROUTE_WATERS.includes("afvoer"));
+  check("the supply ladder is ordered in steps", WATER_SUPPLY_DIAMETERS.join(",") === "15,22,28");
+  check("the drain ladder is ordered in steps", WATER_DRAIN_DIAMETERS.join(",") === "40,50,75,110");
+}
+
+/* ── water vocabulary: the schema ── */
+
+{
+  const schema = planSchema("");
+  const doc = emptyDoc();
+  doc.floors[0]!.routes = [
+    { id: "w2", discipline: "water", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }], water: "warm", diameter: 22 },
+    { id: "w3", discipline: "water", points: [{ x: 0, y: 500 }, { x: 1000, y: 500 }], water: "afvoer" },
+  ];
+  check("a document with the water fields validates", validate(schema, doc).length === 0,
+    validate(schema, doc).join(" | "));
+
+  const lowDiameter = JSON.parse(JSON.stringify(doc));
+  lowDiameter.floors[0].routes[0].diameter = 7;
+  check("diameter below the schema minimum is rejected", validate(schema, lowDiameter).length > 0);
+
+  const highDiameter = JSON.parse(JSON.stringify(doc));
+  highDiameter.floors[0].routes[0].diameter = 201;
+  check("diameter above the schema maximum is rejected", validate(schema, highDiameter).length > 0);
+
+  const badWater = JSON.parse(JSON.stringify(doc));
+  badWater.floors[0].routes[0].water = "gas";
+  check("an unknown water kind is rejected", validate(schema, badWater).length > 0);
+
+  // JSON round-trip.
+  const again = JSON.parse(JSON.stringify(doc));
+  check("water fields round-trip through JSON",
+    JSON.stringify(again.floors[0].routes) === JSON.stringify(doc.floors[0]!.routes));
+  check("the round-tripped document still validates", validate(schema, again).length === 0);
+}
+
+/* ── water vocabulary: reported figures ── */
+
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.routes = [
+    // Two koud runs at the default diameter -- summed into one entry.
+    { id: "k1", discipline: "water", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }] },
+    { id: "k2", discipline: "water", points: [{ x: 0, y: 100 }, { x: 500, y: 100 }] },
+    // A warm run at a non-default diameter.
+    { id: "h1", discipline: "water", water: "warm", diameter: 22,
+      points: [{ x: 0, y: 200 }, { x: 2000, y: 200 }] },
+    // An afvoer run at its own default diameter.
+    { id: "a1", discipline: "water", water: "afvoer",
+      points: [{ x: 0, y: 300 }, { x: 1200, y: 300 }] },
+  ];
+
+  const waters = routeWaterSummaries(f);
+  const koud15 = waters.find(w => w.water === "koud" && w.diameter === 15);
+  const warm22 = waters.find(w => w.water === "warm" && w.diameter === 22);
+  const afvoer50 = waters.find(w => w.water === "afvoer" && w.diameter === 50);
+  check("koud runs at the same diameter are summed into one entry",
+    koud15 !== undefined && Math.abs(koud15.lengthMm - 1500) < 1e-6, JSON.stringify(waters));
+  check("warm is reported separately at its own diameter",
+    warm22 !== undefined && Math.abs(warm22.lengthMm - 2000) < 1e-6, JSON.stringify(waters));
+  check("afvoer is reported separately at its own default diameter",
+    afvoer50 !== undefined && Math.abs(afvoer50.lengthMm - 1200) < 1e-6, JSON.stringify(waters));
+  check("exactly three water summary entries", waters.length === 3, JSON.stringify(waters));
+}
+
+/* ── water vocabulary: SVG dash/tint and DXF layer ── */
+
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.routes = [
+    { id: "koud", discipline: "water", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }] },
+    { id: "warm", discipline: "water", water: "warm", points: [{ x: 0, y: 500 }, { x: 1000, y: 500 }] },
+    { id: "afvoer", discipline: "water", water: "afvoer", points: [{ x: 0, y: 1000 }, { x: 1000, y: 1000 }] },
+  ];
+
+  const svg = toSvg(doc) ?? "";
+  check("the water group still carries one id", svg.includes('id="routes-water"'));
+  check("the SVG carries a dash pattern for the afvoer sub-group", svg.includes("stroke-dasharray"));
+  const beforeDash = svg.split("stroke-dasharray")[0]!;
+  check("koud's geometry is drawn before the dashed sub-group opens",
+    beforeDash.includes("routes-water"));
+  check("warm draws in its own tinted sub-group stroke",
+    /<g stroke="#[0-9a-f]{6}">/i.test(svg.split('id="routes-water"')[1]!.split("</g>")[0] ?? ""));
+
+  const dxfAll = toDxf(doc) ?? "";
+  check("a floor with an afvoer run gets the ROUTES-WATER-AFVOER layer",
+    dxfAll.includes("ROUTES-WATER-AFVOER"));
+
+  const supplyOnly = emptyDoc();
+  supplyOnly.floors[0]!.routes = [
+    { id: "koud", discipline: "water", points: [{ x: 0, y: 0 }, { x: 1000, y: 0 }] },
+    { id: "warm", discipline: "water", water: "warm", points: [{ x: 0, y: 500 }, { x: 1000, y: 500 }] },
+  ];
+  const dxfSupplyOnly = toDxf(supplyOnly) ?? "";
+  check("a floor with only supply runs carries no ROUTES-WATER-AFVOER layer",
+    !dxfSupplyOnly.includes("ROUTES-WATER-AFVOER"));
+}
+
 /* ── discipline list ── */
 
 check("every discipline is offered", DISCIPLINES.length === 3
@@ -325,6 +442,10 @@ for (const lng of ["nl", "en"] as const) {
   for (const k of ROUTE_KINDS) {
     const key = "routeKind" + k[0]!.toUpperCase() + k.slice(1);
     check(`${lng} names route kind "${k}"`, typeof panel[key] === "string", key);
+  }
+  for (const w of ROUTE_WATERS) {
+    const key = "routeWater" + w[0]!.toUpperCase() + w.slice(1);
+    check(`${lng} names water kind "${w}"`, typeof panel[key] === "string", key);
   }
 }
 

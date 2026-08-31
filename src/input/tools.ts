@@ -17,6 +17,7 @@ import {
 } from "../model/cabinet";
 import {
   Route, RoutePoint, Discipline, RouteKind, ROUTE_VEINS_DEFAULT, clampRouteVeins,
+  RouteWater, clampRouteDiameter, defaultRouteDiameter,
 } from "../model/route";
 import { resolveRoutePoints, resolveRoutes, routeHit, ResolvedRoute } from "../core/route";
 import {
@@ -168,6 +169,14 @@ export class Tools {
   routeVeins: number = ROUTE_VEINS_DEFAULT;
   routeGroup = "";
   routeSpec = "";
+  /**
+   * Water-only fields for the next route -- sticky like routeDiscipline, the
+   * same way the electrical fields above are. Kept armed even while
+   * routeDiscipline is something else, so switching back to water remembers
+   * the last choice.
+   */
+  routeWater: RouteWater = "koud";
+  routeDiameter: number = defaultRouteDiameter("koud");
   /**
    * Per-discipline visibility. Editor state, like snapGrid -- not persisted,
    * no document impact, and no bearing on SVG/DXF exports (those draw every
@@ -1452,6 +1461,28 @@ export class Tools {
   }
 
   /**
+   * Arm the water kind for the next run. When the armed diameter still sits
+   * on the OLD kind's own default -- i.e. the user never typed or chipped a
+   * diameter of their own -- it follows the new kind's default too, the same
+   * "only reset when nothing was overridden" rule a placed route's diameter
+   * field applies via its own absence (see ui/route.ts).
+   */
+  setRouteWater(w: RouteWater): void {
+    if (this.routeDiameter === defaultRouteDiameter(this.routeWater)) {
+      this.routeDiameter = defaultRouteDiameter(w);
+    }
+    this.routeWater = w;
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  /** Arm the nominal diameter for the next water run. */
+  setRouteDiameter(n: number): void {
+    this.routeDiameter = clampRouteDiameter(n);
+    this.onToolChange();
+  }
+
+  /**
    * A fixed 30 mm stand-off from the nearest wall's centerline, on the
    * cursor's side -- reusing wallSnap()'s own centerline-projection maths
    * (see its comment) rather than a symbol's half-thickness offset, since a
@@ -1560,6 +1591,9 @@ export class Tools {
         } else if (this.routeSpec) {
           route.spec = this.routeSpec;
         }
+      } else if (this.routeDiscipline === "water") {
+        if (this.routeWater !== "koud") route.water = this.routeWater;
+        if (this.routeDiameter !== defaultRouteDiameter(this.routeWater)) route.diameter = this.routeDiameter;
       }
       this.store.mutate(doc => {
         (this.store.floorOf(doc).routes ??= []).push(route);
@@ -2949,7 +2983,7 @@ export class Tools {
         const mm = parseFloat(this.lengthBuffer);
         if (isFinite(mm) && mm > 0) target = add(this.routeStart, scale(norm(sub(target, this.routeStart)), mm));
       }
-      const ink = routeInk(this.routeDiscipline);
+      const ink = routeInk(this.routeDiscipline, this.routeDiscipline === "water" ? this.routeWater : undefined);
       ctx.save();
       ctx.strokeStyle = ink;
       ctx.fillStyle = ink;

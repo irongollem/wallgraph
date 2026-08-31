@@ -69,6 +69,54 @@ export function clampRouteVeins(n: number): number {
   return Math.max(2, Math.min(8, Math.round(isFinite(n) ? n : ROUTE_VEINS_DEFAULT)));
 }
 
+/**
+ * What a water run carries. Meaningless outside discipline "water" -- an
+ * electrical or vent route ignores it entirely. Absent = "koud", the
+ * ordinary supply run; "warm" is the other supply leg, "afvoer" is drainage.
+ * Read through routeWater(), never r.water directly, so a route that
+ * predates this field reads as an ordinary cold-supply run.
+ */
+export type RouteWater = "koud" | "warm" | "afvoer";
+
+export const ROUTE_WATERS: readonly RouteWater[] = ["koud", "warm", "afvoer"];
+
+/** The run's water kind, defaulted. See RouteWater. */
+export function routeWater(r: Route): RouteWater {
+  return r.water ?? "koud";
+}
+
+/**
+ * Nominal pipe diameter, mm, ordered in steps rather than measured -- the
+ * same "offered set, not a continuum" reasoning as a door width. Supply
+ * (koud/warm) runs in copper/PEX sizes; afvoer runs in PVC drain sizes, a
+ * different ladder entirely since it carries waste, not pressure.
+ */
+export const WATER_SUPPLY_DIAMETERS: readonly number[] = [15, 22, 28];
+export const WATER_DRAIN_DIAMETERS: readonly number[] = [40, 50, 75, 110];
+
+/** The default nominal diameter, mm, for a water route of the given kind. */
+export function defaultRouteDiameter(water: RouteWater): number {
+  return water === "afvoer" ? 50 : 15;
+}
+
+/** The chip row's ladder for a water kind: drain sizes for afvoer, supply
+ *  sizes for koud/warm. */
+export function routeDiameterLadder(water: RouteWater): readonly number[] {
+  return water === "afvoer" ? WATER_DRAIN_DIAMETERS : WATER_SUPPLY_DIAMETERS;
+}
+
+/** The run's nominal diameter, mm, defaulted per water kind. Water-only --
+ *  see Route.diameter. */
+export function routeDiameter(r: Route): number {
+  return r.diameter ?? defaultRouteDiameter(routeWater(r));
+}
+
+/** Whole mm, within what the schema allows (8-200) -- the chip row offers
+ *  the kind's own ladder; this is the wider bound a typed value can reach. */
+export function clampRouteDiameter(n: number): number {
+  return Math.max(8, Math.min(200, Math.round(isFinite(n) ? n : defaultRouteDiameter("koud"))));
+}
+
 export interface Route {
   id: Id;
   discipline: Discipline;
@@ -95,4 +143,15 @@ export interface Route {
    * run ignores it.
    */
   spec?: string;
+  /**
+   * Water-only: koud/warm/afvoer. See RouteWater. Meaningful only when
+   * discipline is "water"; an electrical or vent route ignores it.
+   */
+  water?: RouteWater;
+  /**
+   * Water-only: nominal pipe diameter, mm. Meaningful only when discipline
+   * is "water". Absent defaults per water kind -- 15 for koud/warm, 50 for
+   * afvoer. Read through routeDiameter().
+   */
+  diameter?: number;
 }

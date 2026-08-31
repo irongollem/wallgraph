@@ -14,7 +14,7 @@ import { drawVide } from "./vide";
 import { drawCabinet } from "./cabinet";
 import { drawRoute } from "./route";
 import { resolveRoutes, resolveRoutePoints } from "../core/route";
-import type { Discipline } from "../model/route";
+import { routeWater, type Discipline, type RouteWater } from "../model/route";
 import { ROOM_NAME_PX } from "../model/room";
 import { resolveStair } from "../core/stair";
 import { t } from "../i18n";
@@ -63,11 +63,24 @@ export const COLORS = {
    */
   routeElectrical: "#7d4dae",
   routeWater: "#1a7a6e",
+  /**
+   * Warm water's own tint within the water ink family -- a warmer, redder
+   * hue of the same water green rather than an unrelated colour, so "this is
+   * still water" reads at a glance and only the temperature differs. Koud
+   * and afvoer stay on COLORS.routeWater; only warm overrides.
+   */
+  routeWaterWarm: "#b0602f",
   routeVent: "#9c7a1f",
 };
 
-/** The default ink for one discipline's routes. */
-export function routeInk(d: Discipline): string {
+/**
+ * The ink for one discipline's routes. `water` is read only when `d` is
+ * "water" -- warm gets its own tint (COLORS.routeWaterWarm); koud and afvoer
+ * both draw in the ordinary water ink, afvoer distinguished by dash and
+ * weight instead (see render/route.ts).
+ */
+export function routeInk(d: Discipline, water?: RouteWater): string {
+  if (d === "water" && water === "warm") return COLORS.routeWaterWarm;
   return d === "electrical" ? COLORS.routeElectrical
        : d === "water" ? COLORS.routeWater
        : COLORS.routeVent;
@@ -300,7 +313,7 @@ export function drawScene(
     const route = rr.route;
     if (extras.showRoutes?.[route.discipline] === false) continue;
     drawRoute(ctx, rr, route.points, resolveRoutePoints(floor, route), {
-      ink: routeInk(route.discipline),
+      ink: routeInk(route.discipline, route.discipline === "water" ? routeWater(route) : undefined),
       selected: sel?.kind === "route" && sel.id === route.id,
       select: COLORS.select, wash: COLORS.selectWash,
     });

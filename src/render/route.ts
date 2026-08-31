@@ -6,7 +6,7 @@
 // there is no box, and a route can run the whole diagonal of a plan, where a
 // frame around its bounds would highlight everything between its ends.
 import { ResolvedRoute, ResolvedRouteSegment } from "../core/route";
-import { RoutePoint, routeKind } from "../model/route";
+import { RoutePoint, routeKind, routeWater } from "../model/route";
 import { Vec } from "../geometry/vec";
 import { arcInfo } from "../geometry/arc";
 import { dot, circle } from "./symbols/defs";
@@ -22,6 +22,16 @@ const CIRCLE_R_MM = 45;
  * convention reads the same wherever it appears. A power run stays solid.
  */
 export const ROUTE_DATA_DASH: readonly [number, number] = [90, 60];
+
+/** Dash pattern for an afvoer run -- longer than the data dash so a wider,
+ *  heavier line still reads as dashed rather than as a row of dots. */
+export const ROUTE_AFVOER_DASH: readonly [number, number] = [140, 80];
+
+/** How much wider than LINE_WIDTH_MM an afvoer run draws -- a drain pipe is
+ *  physically larger than a supply pipe, so its line carries that. Exported
+ *  so the SVG export can widen its own afvoer sub-group by the same figure
+ *  (see io/svg.ts). */
+export const ROUTE_AFVOER_EXTRA_MM = 15;
 
 export interface RoutePaint {
   ink: string;
@@ -72,12 +82,15 @@ export function drawRoute(
   const ink = paint.selected && paint.select ? paint.select : paint.ink;
   ctx.strokeStyle = ink;
   ctx.fillStyle = ink;
-  ctx.lineWidth = LINE_WIDTH_MM;
   // A data run (utp/coax) draws dashed; a power run and every non-electrical
-  // discipline stay solid. The wash above is deliberately left undashed --
-  // it is a highlight glow, not part of the run's own line.
-  const dashed = resolved.route.discipline === "electrical" && routeKind(resolved.route) !== "power";
-  if (dashed) ctx.setLineDash([...ROUTE_DATA_DASH]);
+  // discipline stay solid, except afvoer, which is always dashed AND heavier
+  // -- it is a larger pipe under the floor. The wash above is deliberately
+  // left undashed/un-widened -- it is a highlight glow, not part of the run's
+  // own line.
+  const isAfvoer = resolved.route.discipline === "water" && routeWater(resolved.route) === "afvoer";
+  const dashed = isAfvoer || (resolved.route.discipline === "electrical" && routeKind(resolved.route) !== "power");
+  ctx.lineWidth = isAfvoer ? LINE_WIDTH_MM + ROUTE_AFVOER_EXTRA_MM : LINE_WIDTH_MM;
+  if (dashed) ctx.setLineDash([...(isAfvoer ? ROUTE_AFVOER_DASH : ROUTE_DATA_DASH)]);
   strokePath(ctx, resolved.segments);
   if (dashed) ctx.setLineDash([]);
 

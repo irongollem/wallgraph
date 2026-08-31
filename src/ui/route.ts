@@ -1,16 +1,21 @@
 // The route pane: the discipline the next run is drawn in, and the
 // properties of a placed one. The manual-routing core (issue #25) kept this
-// deliberately minimal; this is the electrical vocabulary over that core
-// (issue #26) -- one Route type, richer optional fields read only when
-// discipline is "electrical", not a parallel system.
+// deliberately minimal; the electrical (issue #26) and water (issue #27)
+// vocabularies sit over that same core -- one Route type, richer optional
+// fields read only when discipline matches, not a parallel system per
+// discipline.
 import { Store } from "../model/store";
 import { Tools } from "../input/tools";
 import { Floor, routesOf } from "../model/doc";
 import {
   Route, Discipline, DISCIPLINES, RouteKind, ROUTE_KINDS, ROUTE_VEINS_DEFAULT,
   routeKind, routeVeins, clampRouteVeins,
+  RouteWater, ROUTE_WATERS, routeWater, routeDiameter, routeDiameterLadder,
+  clampRouteDiameter, defaultRouteDiameter,
 } from "../model/route";
-import { routeLength, routeGroupSummaries, routeKindSummaries } from "../core/route";
+import {
+  routeLength, routeGroupSummaries, routeKindSummaries, routeWaterSummaries,
+} from "../core/route";
 import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
 
@@ -24,6 +29,10 @@ function disciplineOptions(): Array<[string, string]> {
 
 function kindOptions(): Array<[string, string]> {
   return ROUTE_KINDS.map(k => [k, t("panel.routeKind" + k[0]!.toUpperCase() + k.slice(1))]);
+}
+
+function waterOptions(): Array<[string, string]> {
+  return ROUTE_WATERS.map(w => [w, t("panel.routeWater" + w[0]!.toUpperCase() + w.slice(1))]);
 }
 
 /** The chip row's ordinary options; a typed value reaches further (see
@@ -76,6 +85,30 @@ function electricalRows(
   }
 }
 
+interface WaterFields {
+  water: RouteWater;
+  diameter: number;
+}
+
+/**
+ * The water-only rows, shared by the tool pane and the property pane: the
+ * koud/warm/afvoer kind, then a diameter typed field beside a chip row over
+ * that kind's own ladder -- the supply sizes for koud/warm, the drain sizes
+ * for afvoer. Nothing here writes the diameter back when the kind changes:
+ * an unset diameter reads its default through routeDiameter() (model/route.ts),
+ * which is keyed on the CURRENT kind, so the displayed value already follows
+ * the new kind's default on its own; an explicitly typed diameter is left
+ * exactly as the user set it.
+ */
+function waterRows(
+  rows: RouteRows, fields: WaterFields,
+  commit: (patch: Partial<WaterFields>) => void,
+): void {
+  rows.selRow(t("panel.routeKind"), fields.water, waterOptions(), v => commit({ water: v as RouteWater }));
+  rows.numRow(t("panel.routeDiameter"), fields.diameter, n => commit({ diameter: n }), 1);
+  rows.chipRow(t("panel.routeDiameter"), routeDiameterLadder(fields.water), fields.diameter, n => commit({ diameter: n }));
+}
+
 /**
  * The floor's electrical runs, reported as a materials list: total length and
  * anchored-device count per groep, total cable length per kind (and, for
@@ -86,7 +119,8 @@ function electricalRows(
 function materialsRows(rows: RouteRows, floor: Floor): void {
   const groups = routeGroupSummaries(floor);
   const kinds = routeKindSummaries(floor);
-  if (groups.length === 0 && kinds.length === 0) return;
+  const waters = routeWaterSummaries(floor);
+  if (groups.length === 0 && kinds.length === 0 && waters.length === 0) return;
   rows.noteRow(t("panel.routeMaterialsNote"));
   for (const g of groups) {
     rows.infoRow(t("panel.routeMaterialsGroup", { group: g.group }),
@@ -98,6 +132,11 @@ function materialsRows(rows: RouteRows, floor: Floor): void {
       ? t("panel.routeMaterialsKindVeins", { kind: kindLabel, veins: k.veins })
       : kindLabel;
     rows.infoRow(label, `${Math.round(k.lengthMm)} mm`);
+  }
+  for (const w of waters) {
+    const waterLabel = t("panel.routeWater" + w.water[0]!.toUpperCase() + w.water.slice(1));
+    rows.infoRow(t("panel.routeMaterialsWater", { water: waterLabel, diameter: w.diameter }),
+      `${Math.round(w.lengthMm)} mm`);
   }
 }
 
@@ -114,6 +153,11 @@ export function renderRouteTool(store: Store, tools: Tools, rows: RouteRows): vo
       if (patch.veins !== undefined) tools.setRouteVeins(patch.veins);
       if (patch.group !== undefined) tools.setRouteGroup(patch.group);
       if (patch.spec !== undefined) tools.setRouteSpec(patch.spec);
+    });
+  } else if (tools.routeDiscipline === "water") {
+    waterRows(rows, { water: tools.routeWater, diameter: tools.routeDiameter }, patch => {
+      if (patch.water !== undefined) tools.setRouteWater(patch.water);
+      if (patch.diameter !== undefined) tools.setRouteDiameter(patch.diameter);
     });
   }
   rows.noteRow(t("panel.routeNote"));
@@ -136,10 +180,11 @@ export function renderRouteProps(store: Store, tools: Tools, rows: RouteRows, id
   rows.selRow(t("panel.routeDiscipline"), route.discipline, disciplineOptions(),
     d => mut(r => {
       r.discipline = d as Discipline;
-      // The electrical vocabulary means nothing on a water or vent run --
-      // dropped on the way out, the way a cabinet preset swap rewrites every
-      // field the old preset wrote.
+      // The electrical/water vocabularies mean nothing outside their own
+      // discipline -- dropped on the way out, the way a cabinet preset swap
+      // rewrites every field the old preset wrote.
       if (r.discipline !== "electrical") { delete r.kind; delete r.veins; delete r.group; delete r.spec; }
+      if (r.discipline !== "water") { delete r.water; delete r.diameter; }
     }));
   if (route.discipline === "electrical") {
     electricalRows(rows, store.floor, {
@@ -157,6 +202,21 @@ export function renderRouteProps(store: Store, tools: Tools, rows: RouteRows, id
       }
       if (patch.spec !== undefined) {
         if (patch.spec) r.spec = patch.spec; else delete r.spec;
+      }
+    }));
+  } else if (route.discipline === "water") {
+    waterRows(rows, { water: routeWater(route), diameter: routeDiameter(route) }, patch => mut(r => {
+      if (patch.water !== undefined) {
+        if (patch.water === "koud") delete r.water; else r.water = patch.water;
+      }
+      if (patch.diameter !== undefined) {
+        // Left untouched by the water-kind row above -- an absent diameter
+        // already reads the new kind's own default through routeDiameter(),
+        // so there is nothing to reset here. Only writes when the typed/chip
+        // value differs from that default; matches the default exactly and
+        // it is dropped back to absent.
+        const d = clampRouteDiameter(patch.diameter);
+        if (d === defaultRouteDiameter(routeWater(r))) delete r.diameter; else r.diameter = d;
       }
     }));
   }

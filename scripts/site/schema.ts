@@ -2,7 +2,7 @@
 // imported from their source, and document objects reject unknown properties.
 import { SYMBOL_TYPES } from "../../src/render/symbols";
 import { STAIR_KINDS } from "../../src/model/stair";
-import { DISCIPLINES, ROUTE_KINDS } from "../../src/model/route";
+import { DISCIPLINES, ROUTE_KINDS, ROUTE_WATERS } from "../../src/model/route";
 
 export type JsonSchema = Record<string, unknown>;
 
@@ -301,6 +301,20 @@ export function planSchema(siteUrl: string): JsonSchema {
           spec: {
             type: "string",
             description: "Data-cable spec (\"Cat6\"). Meaningful for kind \"utp\" or \"coax\".",
+          },
+          water: {
+            enum: [...ROUTE_WATERS],
+            description:
+              "Water-only: koud/warm/afvoer. Meaningful only when discipline is " +
+              "\"water\"; an electrical or vent route ignores it. Absent means " +
+              "\"koud\", the ordinary supply run.",
+          },
+          diameter: {
+            type: "integer", minimum: 8, maximum: 200,
+            description:
+              "Water-only: nominal pipe diameter, mm. Meaningful only when discipline " +
+              "is \"water\". Absent defaults per water kind -- 15 for koud/warm, 50 " +
+              "for afvoer.",
           },
         },
       },

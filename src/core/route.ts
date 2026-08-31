@@ -3,7 +3,9 @@
 // long the run is, and where several routes bundle through the same corridor
 // are all recomputed on every call, exactly like a room's boundary.
 import { Floor, routesOf } from "../model/doc";
-import { Route, RouteKind, routeKind, routeVeins } from "../model/route";
+import {
+  Route, RouteKind, routeKind, routeVeins, RouteWater, routeWater, routeDiameter, ROUTE_WATERS,
+} from "../model/route";
 import { Vec, v, add, sub, scale, cross, dot, dist, perp, distToSeg } from "../geometry/vec";
 import { arcLength, arcFlatten } from "../geometry/arc";
 
@@ -234,6 +236,34 @@ export function routeKindSummaries(floor: Floor): RouteKindSummary[] {
   }
   return [...by.values()].sort((a, b) =>
     a.kind === b.kind ? (a.veins ?? 0) - (b.veins ?? 0) : a.kind.localeCompare(b.kind));
+}
+
+/**
+ * Per water kind and diameter, total run length across the floor's water
+ * routes: "40 m of 15 mm koud, 12 m of 50 mm afvoer" -- same reported, never
+ * validated shape as routeKindSummaries above. This is a takeoff, not a
+ * sizing calculation, and afvoer's slope is not modelled at all -- a 2D plan
+ * states the run, not its fall, so nothing here claims a gradient.
+ */
+export interface RouteWaterSummary {
+  water: RouteWater;
+  diameter: number;
+  lengthMm: number;
+}
+
+export function routeWaterSummaries(floor: Floor): RouteWaterSummary[] {
+  const by = new Map<string, RouteWaterSummary>();
+  for (const r of routesOf(floor)) {
+    if (r.discipline !== "water") continue;
+    const water = routeWater(r);
+    const diameter = routeDiameter(r);
+    const key = water + ":" + diameter;
+    const entry = by.get(key) ?? { water, diameter, lengthMm: 0 };
+    entry.lengthMm += routeLength(floor, r);
+    by.set(key, entry);
+  }
+  return [...by.values()].sort((a, b) =>
+    a.water === b.water ? a.diameter - b.diameter : ROUTE_WATERS.indexOf(a.water) - ROUTE_WATERS.indexOf(b.water));
 }
 
 /** True when `p` (world mm) lands within `margin` of the resolved route. */
