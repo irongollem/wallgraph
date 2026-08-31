@@ -9,6 +9,12 @@
 // Everything drawn inside the plan group is in world millimetres under a
 // scale() transform; line weights and text that must hold a size ON PAPER are
 // multiplied by the scale so they stay constant whichever scale is chosen.
+//
+// Deliberately excludes routes (model/route.ts): a bouwkundige permit sheet
+// carries no services. This falls out of composition rather than a filter --
+// the plan group below is built from planSvgParts() alone, and routes are
+// emitted only by the separate routeSvgParts() in io/svg.ts, which nothing
+// here imports. See tests/route.test.ts for the assertion.
 import { PlanDoc, Floor, projectOf, areaModeOf, dimModeOf } from "../model/doc";
 import { resolveFloor } from "../core/resolve";
 import { permitLayout, PermitLayout, CHAIN_OVERALL_MM, CHAIN_LIFT_MM } from "../core/permit";

@@ -19,10 +19,11 @@ import {
   emptyDoc, areaModeOf, dimModeOf, floorHeight, wallHeight, openingSill, openingHeight, projectOf,
   sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS,
   doorKindOf, DOOR_KINDS, widthsFor, DOOR_WIDTHS_DOUBLE, FIRE_KINDS, FIRE_MINUTES,
-  FIRE_MINUTES_DEFAULT,
+  FIRE_MINUTES_DEFAULT, routesOf,
   type AreaMode, type DimMode, type Sash, type HingeEdge, type Opening, type Wall, type Floor, type FireKind,
   type ProjectMeta,
 } from "../model/doc";
+import { DISCIPLINES } from "../model/route";
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
 import { COLORS, INKS } from "../render/draw";
 import { icon, type IconName } from "./icons";
@@ -35,6 +36,7 @@ import { renderZoomTool, type RoomEdit } from "./zoom";
 import { renderOpeningTool } from "./openings";
 import { renderWallTool } from "./walls";
 import { renderVideTool, renderVideProps } from "./vide";
+import { renderRouteTool, renderRouteProps } from "./route";
 import { scrubbable } from "./scrub";
 import { watchLayout, isTouchPrimary, type LayoutMode } from "./layout";
 import { Sheet } from "./sheet";
@@ -324,6 +326,7 @@ export class Panel {
       toolBtn("stair", "stair", "T", t("tool.stair"), t("tool.shortStair")),
       toolBtn("vide", "vide", "H", t("tool.vide"), t("tool.shortVide")),
       toolBtn("cabinet", "cabinet", "C", t("tool.cabinet"), t("tool.shortCabinet")),
+      toolBtn("route", "route", "U", t("tool.route"), t("tool.shortRoute")),
       toolBtn("zoom", "zoom", "Z", t("tool.zoom"), t("tool.shortZoom")),
     );
     // The symbol palette is a tool like the rest on a phone, where the pane it
@@ -507,12 +510,14 @@ export class Panel {
     // pane has a third state: nothing selected, but something to configure.
     const stairMode = this.tools.tool === "stair";
     const videMode = this.tools.tool === "vide";
+    const routeMode = this.tools.tool === "route";
     const paneTool = this.tools.tool === "cabinet"
       || this.tools.tool === "zoom" || this.tools.tool === "door"
       || this.tools.tool === "window" || this.tools.tool === "passage"
       || this.tools.tool === "wall";
     const selSig = (stairMode ? `stair-tool:${this.tools.stairKind}|` : "")
       + (videMode ? "vide-tool|" : "")
+      + (routeMode ? `route-tool:${this.tools.routeDiscipline}|` : "")
       + (paneTool ? "pane-tool:" + this.tools.tool + "|" : "")
       + (this.tools.tool === "wall"
         ? `wall:${this.tools.wallShape}:${this.tools.polygonSides}:${this.tools.squareLock}:${this.tools.canCloseChain}|`
@@ -525,6 +530,9 @@ export class Panel {
       d.gridMm, areaModeOf(d), floorHeight(this.store.floor), d.groundMm ?? "", this.tools.lastThickness,
       JSON.stringify(d.project ?? null), d.northDeg ?? "",
       this.store.floor.underlay ? "u1" : "u0", this.tools.calibrating ? "c1" : "c0",
+      // The Plan section's per-discipline toggles only show once the floor
+      // has routes, so a route being added or removed has to rebuild it too.
+      routesOf(this.store.floor).length,
       selSig].join("|");
 
     if (paneSig !== this.lastPaneSig) {
@@ -551,8 +559,8 @@ export class Panel {
 
     const swap = selSig !== this.lastSelSig;
     this.lastSelSig = selSig;
-    this.paneBody.hidden = !sel && !stairMode && !videMode && !paneTool;
-    if (sel || stairMode || videMode || paneTool) {
+    this.paneBody.hidden = !sel && !stairMode && !videMode && !routeMode && !paneTool;
+    if (sel || stairMode || videMode || routeMode || paneTool) {
       this.paneBody.className = "pane-body" + (swap ? " pane-swap" : "");
       this.renderProps(this.props);
     }
@@ -601,7 +609,7 @@ export class Panel {
       if (barSig) {
         const bar = el("div", "wg-chain");
         const label = el("span", "sec-label");
-        label.textContent = t("panel.wall");
+        label.textContent = t(this.tools.tool === "route" ? "panel.route" : "panel.wall");
         bar.append(label, el("div", "sec-rule"));
         if (this.tools.canCloseChain) {
           const close = el("button", "wg-done") as HTMLButtonElement;
@@ -1137,6 +1145,19 @@ export class Panel {
       m => this.store.mutate(d => { d.dimMode = m as DimMode; }));
     if (dimModeOf(this.store.doc) !== "centerline") noteRow(t("panel.dimNote"));
 
+    // Per-discipline visibility, only once there is something to hide: an
+    // empty floor showing three toggles for a layer it does not have would
+    // be furniture nobody can use yet.
+    if (routesOf(this.store.floor).length > 0) {
+      for (const disc of DISCIPLINES) {
+        const key = "showRoutes" + disc[0]!.toUpperCase() + disc.slice(1);
+        checkRow(t("panel." + key), this.tools.showRoutes[disc], on => {
+          this.tools.showRoutes[disc] = on;
+          this.tools.refresh();
+        });
+      }
+    }
+
     wrap.append(head, body);
     return wrap;
   }
@@ -1375,6 +1396,18 @@ export class Panel {
     }
     if (sel?.kind === "vide") {
       renderVideProps(this.store, this.tools, rows, sel.id);
+      return;
+    }
+
+    // The route tool, like the stair and vide tools, keeps its fields in the
+    // property area.
+    if (this.tools.tool === "route") {
+      if (sel?.kind === "route") renderRouteProps(this.store, this.tools, rows, sel.id);
+      renderRouteTool(this.store, this.tools, rows);
+      return;
+    }
+    if (sel?.kind === "route") {
+      renderRouteProps(this.store, this.tools, rows, sel.id);
       return;
     }
 

@@ -1,6 +1,7 @@
 // Full scene render. Immediate mode: redraw everything on change (documents at
 // this scale render in well under a frame). Layers: grid, rooms, walls,
-// opening decorations, symbols, selection, labels (labels in screen space).
+// opening decorations, routes, cabinets, symbols, stairs, selection, labels
+// (labels in screen space).
 import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, videsOf, cabinetsOf, fireLabel, Underlay } from "../model/doc";
 import { Resolved, OpeningGeom } from "../core/resolve";
 import { Room, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
@@ -11,6 +12,9 @@ import { getSymbol } from "./symbols";
 import { drawStair, drawStairGhost } from "./stair";
 import { drawVide } from "./vide";
 import { drawCabinet } from "./cabinet";
+import { drawRoute } from "./route";
+import { resolveRoutes, resolveRoutePoints } from "../core/route";
+import type { Discipline } from "../model/route";
 import { ROOM_NAME_PX } from "../model/room";
 import { resolveStair } from "../core/stair";
 import { t } from "../i18n";
@@ -48,7 +52,26 @@ export const COLORS = {
    * in red and survives an export that loses the colour.
    */
   stairWarn: "#b3261e",
+  /**
+   * Default ink per discipline, chosen to sit clearly apart from each other,
+   * from the selection orange, and from the snap/dimension blue -- print-safe
+   * saturated hues rather than a scheme tied to any drawing standard. Which
+   * colour means what is a follow-up issue; this is only "tell three layers
+   * apart at a glance". A route carries no colour of its own (see
+   * model/route.ts), unlike a symbol or a stair, so there is no per-instance
+   * override to read through.
+   */
+  routeElectrical: "#7d4dae",
+  routeWater: "#1a7a6e",
+  routeVent: "#9c7a1f",
 };
+
+/** The default ink for one discipline's routes. */
+export function routeInk(d: Discipline): string {
+  return d === "electrical" ? COLORS.routeElectrical
+       : d === "water" ? COLORS.routeWater
+       : COLORS.routeVent;
+}
 
 /**
  * The pens a plan is annotated with, offered as presets by the colour picker.
@@ -121,6 +144,13 @@ export interface DrawExtras {
    * PNG path simply never sets this.
    */
   showUnderlay?: boolean;
+  /**
+   * Per-discipline visibility (Tools.showRoutes). Absent, or a discipline
+   * missing from it, means visible -- an export that never sets this (PNG
+   * included; see io/image.ts) draws every route regardless of what a live
+   * editor's toggles happen to say, since it has no Tools to read them from.
+   */
+  showRoutes?: Record<Discipline, boolean>;
   /**
    * Called once when a cached underlay image finishes decoding, so the host
    * can redraw with it visible. Unused, and safe to omit, wherever
@@ -260,6 +290,20 @@ export function drawScene(
     tracePoly(ctx, j.poly);
     ctx.fillStyle = COLORS.wallFill;
     ctx.fill();
+  }
+
+  // Routes: a services overlay. Drawn over the masonry, so a duct reads as
+  // crossing a wall in plan the way it does on an installation drawing, and
+  // under the cabinets and symbols that follow so a socket or tap placed on
+  // top of a run stays the thing actually read there.
+  for (const rr of resolveRoutes(floor)) {
+    const route = rr.route;
+    if (extras.showRoutes?.[route.discipline] === false) continue;
+    drawRoute(ctx, rr, route.points, resolveRoutePoints(floor, route), {
+      ink: routeInk(route.discipline),
+      selected: sel?.kind === "route" && sel.id === route.id,
+      select: COLORS.select, wash: COLORS.selectWash,
+    });
   }
 
   // Cabinetry, over the masonry and under the symbols. A unit stands against a

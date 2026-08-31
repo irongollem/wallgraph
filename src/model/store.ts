@@ -2,7 +2,7 @@
 // command-object migration path exists if they ever aren't) + change notification.
 import { PlanDoc, emptyDoc, Floor, Id, newId } from "./doc";
 
-export type SelKind = "wall" | "node" | "opening" | "symbol" | "stair" | "vide" | "cabinet";
+export type SelKind = "wall" | "node" | "opening" | "symbol" | "stair" | "vide" | "cabinet" | "route";
 export interface Selection { kind: SelKind; id: Id; wallId?: Id } // opening carries wallId
 
 type Listener = () => void;
@@ -61,7 +61,7 @@ export class Store {
       d.floors.splice(this.activeFloor + 1, 0,
         {
           id: newId("f"), name,
-          nodes: [], walls: [], symbols: [], stairs: [], vides: [], cabinets: [], roomNames: [],
+          nodes: [], walls: [], symbols: [], stairs: [], vides: [], cabinets: [], routes: [], roomNames: [],
         });
     });
     this.activeFloor = Math.min(this.activeFloor + 1, this.doc.floors.length - 1);
@@ -86,10 +86,28 @@ export class Store {
         w.b = nodeMap.get(w.b) ?? w.b;
         for (const o of w.openings) o.id = newId("o");
       }
-      for (const sym of copy.symbols) { sym.id = newId("s"); if (sym.wallId) delete sym.wallId; }
+      // Symbol ids are remapped too, and a route anchored to one has to follow
+      // -- the anchor stores the OLD id at this point, and every symbol on the
+      // copy is about to be assigned a fresh one.
+      const symMap = new Map<Id, Id>();
+      for (const sym of copy.symbols) {
+        const id = newId("s"); symMap.set(sym.id, id); sym.id = id;
+        if (sym.wallId) delete sym.wallId;
+      }
       for (const st of copy.stairs ?? []) st.id = newId("t");
       for (const vd of copy.vides ?? []) vd.id = newId("v");
       for (const cb of copy.cabinets ?? []) cb.id = newId("k");
+      for (const rt of copy.routes ?? []) {
+        rt.id = newId("rt");
+        for (const p of rt.points) {
+          if (!p.anchor) continue;
+          const mapped = symMap.get(p.anchor);
+          // A dangling anchor stays dangling rather than pointing at whatever
+          // fresh symbol id happens to come next; it falls back to its stored
+          // x/y at derive time, same as on the original floor.
+          if (mapped) p.anchor = mapped; else delete p.anchor;
+        }
+      }
       // Room names do not come up with the walls. A name is authored, and it
       // names the room below: an upper storey duplicated off the ground floor
       // is a keuken and a woonkamer that have to be deleted one by one before

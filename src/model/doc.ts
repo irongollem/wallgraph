@@ -3,6 +3,7 @@
 import type { Stair } from "./stair";
 import type { Vide } from "./vide";
 import type { Cabinet } from "./cabinet";
+import type { Route } from "./route";
 import type { RoomName } from "./room";
 import { newDocGuid } from "./guid";
 
@@ -190,6 +191,12 @@ export interface Floor {
    */
   cabinets?: Cabinet[];
   /**
+   * Manually drawn service runs -- electrical, water, ventilation -- as
+   * switchable layers over the plan. Absent means the plan predates them, or
+   * simply has none; see model/route.ts and routesOf() below.
+   */
+  routes?: Route[];
+  /**
    * What the rooms are called. A name is authored, so it is stored; which room
    * it names is derived from its point. See model/room.ts.
    */
@@ -211,6 +218,9 @@ export function videsOf(f: Floor): Vide[] { return f.vides ?? []; }
 
 /** A floor's cabinets. Absent means none, not an error. */
 export function cabinetsOf(f: Floor): Cabinet[] { return f.cabinets ?? []; }
+
+/** A floor's routes. Absent means none, not an error. */
+export function routesOf(f: Floor): Route[] { return f.routes ?? []; }
 
 /** A floor's room names. Absent means none, not an error. */
 export function roomNamesOf(f: Floor): RoomName[] { return f.roomNames ?? []; }
@@ -329,7 +339,7 @@ export function emptyDoc(): PlanDoc {
     version: 1, unit: "mm", gridMm: GRID_DEFAULT_MM, guid: newDocGuid(),
     floors: [{
       id: newId("f"), name: "Floor 1",
-      nodes: [], walls: [], symbols: [], stairs: [], vides: [], cabinets: [], roomNames: [],
+      nodes: [], walls: [], symbols: [], stairs: [], vides: [], cabinets: [], routes: [], roomNames: [],
     }],
   };
 }

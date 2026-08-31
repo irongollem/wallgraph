@@ -16,7 +16,7 @@
 // context (see recordSymbol) because the library draws them with canvas calls;
 // their arcs flatten to polylines, which is exact enough at symbol scale and
 // avoids guessing how a mirrored, rotated transform maps onto an ARC.
-import { PlanDoc, Floor, areaModeOf, dimModeOf, stairsOf, videsOf, cabinetsOf, roomNamesOf } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf, dimModeOf, stairsOf, videsOf, cabinetsOf, routesOf, roomNamesOf } from "../model/doc";
 import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
@@ -28,6 +28,9 @@ import { videPrims } from "./vide";
 import { cabinetPrims } from "./cabinet";
 import { cabinetOverhead } from "../model/cabinet";
 import { resolveStair } from "../core/stair";
+import { resolveRoutes } from "../core/route";
+import { routePrims } from "./route";
+import type { Discipline } from "../model/route";
 import { saveViaHost, downloadBlob } from "./save";
 import { t } from "../i18n";
 
@@ -49,10 +52,18 @@ const LAYER = {
   cabinetsOverhead: "CABINETS-OVERHEAD",
 } as const;
 
+/** One layer per discipline, registered only when the floor has routes at
+ *  all (see toDxf) -- unlike every other layer above, which is always
+ *  declared even when its own kind of object is absent from the plan. */
+const ROUTE_LAYER: Record<Discipline, string> = {
+  electrical: "ROUTES-ELECTRICAL", water: "ROUTES-WATER", vent: "ROUTES-VENT",
+};
+
 /** ACI colour indices — 7 is "by background", i.e. black on white paper. */
 const LAYER_COLOR: Record<string, number> = {
   WALLS: 7, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, ROOMS: 8,
   CABINETS: 6, "CABINETS-OVERHEAD": 6,
+  "ROUTES-ELECTRICAL": 1, "ROUTES-WATER": 5, "ROUTES-VENT": 2,
 };
 
 class DxfWriter {
@@ -212,12 +223,14 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
   const floor: Floor | undefined = doc.floors[floorIndex] ?? doc.floors[0];
   if (!floor || (floor.walls.length === 0 && floor.symbols.length === 0
       && stairsOf(floor).length === 0 && videsOf(floor).length === 0
-      && cabinetsOf(floor).length === 0 && roomNamesOf(floor).length === 0)) return null;
+      && cabinetsOf(floor).length === 0 && roomNamesOf(floor).length === 0
+      && routesOf(floor).length === 0)) return null;
 
+  const hasRoutes = routesOf(floor).length > 0;
   const resolved = resolveFloor(floor);
   const w = new DxfWriter();
   w.header();
-  w.tables(Object.values(LAYER));
+  w.tables([...Object.values(LAYER), ...(hasRoutes ? Object.values(ROUTE_LAYER) : [])]);
   w.section("ENTITIES", () => {
     // Walls: each solid piece as a closed outline, so openings are real gaps
     // rather than something drawn over.
@@ -229,6 +242,10 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
     for (const rw of resolved.walls.values()) emitPrims(w, LAYER.openings, openingMarks(rw));
 
     for (const vd of videsOf(floor)) emitPrims(w, LAYER.vides, videPrims(vd, t("vide.label")));
+
+    if (hasRoutes) {
+      for (const rr of resolveRoutes(floor)) emitPrims(w, ROUTE_LAYER[rr.route.discipline], routePrims(rr));
+    }
 
     for (const st of stairsOf(floor))
       emitPrims(w, LAYER.stairs, stairPrims(resolveStair(floor, st)));

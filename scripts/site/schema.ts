@@ -2,6 +2,7 @@
 // imported from their source, and document objects reject unknown properties.
 import { SYMBOL_TYPES } from "../../src/render/symbols";
 import { STAIR_KINDS } from "../../src/model/stair";
+import { DISCIPLINES } from "../../src/model/route";
 
 export type JsonSchema = Record<string, unknown>;
 
@@ -126,6 +127,12 @@ export function planSchema(siteUrl: string): JsonSchema {
           cabinets: {
             type: "array", items: { $ref: "#/$defs/cabinet" },
             description: "Placed cabinetry. Absent means the storey has none.",
+          },
+          routes: {
+            type: "array", items: { $ref: "#/$defs/route" },
+            description:
+              "Manually drawn service runs -- electrical, water, ventilation -- as " +
+              "switchable layers over the plan. Absent means the storey has none.",
           },
           roomNames: {
             type: "array", items: { $ref: "#/$defs/roomName" },
@@ -253,6 +260,45 @@ export function planSchema(siteUrl: string): JsonSchema {
             type: "string", pattern: "^#[0-9a-fA-F]{6}$",
             description: "Pen colour; absent means the plan's default ink.",
           },
+        },
+      },
+      route: {
+        type: "object",
+        description:
+          "A manually drawn run of a building service -- electrical, water or " +
+          "ventilation -- as a switchable layer over the plan. Same DXF bulge " +
+          "convention as a wall's centerline: one bulge per point, for the segment " +
+          "leaving it toward the next.",
+        required: ["id", "discipline", "points"],
+        additionalProperties: false,
+        properties: {
+          id: { $ref: "#/$defs/id" },
+          discipline: { enum: [...DISCIPLINES] },
+          points: {
+            type: "array", items: { $ref: "#/$defs/routePoint" },
+            description: "The run's waypoints, in order.",
+          },
+        },
+      },
+      routePoint: {
+        type: "object",
+        description:
+          "One waypoint. x/y are authoritative unless `anchor` resolves to a symbol " +
+          "still on the floor, in which case the symbol's own position is read " +
+          "instead at render time -- x/y then stand only as the fallback for a " +
+          "dangling anchor.",
+        required: ["x", "y"],
+        additionalProperties: false,
+        properties: {
+          x: mm("mm."),
+          y: mm("mm, positive down."),
+          bulge: {
+            type: "number",
+            description:
+              "DXF bulge for the segment leaving this point toward the next: 0 or " +
+              "absent is straight. Meaningless on a route's last point.",
+          },
+          anchor: { $ref: "#/$defs/id", description: "A symbol instance id this point follows." },
         },
       },
       cabinet: {

@@ -1,7 +1,7 @@
 // Graph-maintenance operations shared by tools: node reuse, wall splitting,
 // welded wall insertion, opening placement bounds, orphan cleanup. All take the
 // floor mutably; callers wrap them in store.mutate().
-import { Floor, PlanNode, Wall, Opening, Id, newId, roomNamesOf, Underlay } from "./doc";
+import { Floor, PlanNode, Wall, Opening, Id, newId, roomNamesOf, routesOf, Underlay } from "./doc";
 import { Vec, dist, distToSeg, v, add, sub, scale, dot, cross, norm, perp, lineIntersect } from "../geometry/vec";
 import { arcLength, arcPointAt, arcFlatten } from "../geometry/arc";
 
@@ -353,6 +353,24 @@ export function deleteRoomNames(f: Floor, ids: readonly Id[]): void {
   if (ids.length === 0) return;
   const dead = new Set(ids);
   f.roomNames = roomNamesOf(f).filter(rn => !dead.has(rn.id));
+}
+
+/**
+ * Un-anchor every route point following `symbol`: write the symbol's current
+ * x/y into the point and clear the anchor. Meant to run in the SAME mutation
+ * that removes the symbol (see Tools.deleteSelected in input/tools.ts) --
+ * resolveRoutePoints() (core/route.ts) already falls back to a point's own
+ * x/y once its anchor stops resolving, but that stored x/y is stale from
+ * wherever the point was FIRST anchored, not where the symbol last stood.
+ * Doing it here, with the symbol's live position still in hand, is what
+ * keeps the route from jumping back there.
+ */
+export function unanchorRoutePoints(f: Floor, symbol: { id: Id; x: number; y: number }): void {
+  for (const route of routesOf(f)) {
+    for (const p of route.points) {
+      if (p.anchor === symbol.id) { p.x = symbol.x; p.y = symbol.y; delete p.anchor; }
+    }
+  }
 }
 
 /** The placed objects a copy applies to; walls and openings are not among them. */

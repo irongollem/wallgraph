@@ -11,6 +11,7 @@ import { getSymbol } from "../render/symbols";
 import { stairCorners, resolveStair } from "./stair";
 import { videCorners } from "./vide";
 import { cabinetCorners } from "./cabinet";
+import { resolveRoutes } from "./route";
 import { Vec, v } from "../geometry/vec";
 
 export interface Bounds { min: Vec; max: Vec }
@@ -41,6 +42,9 @@ export function planBounds(floor: Floor, resolved: Resolved): Bounds | null {
   for (const st of stairsOf(floor)) for (const c of stairCorners(resolveStair(floor, st))) b.add(c.x, c.y);
   for (const vd of videsOf(floor)) for (const c of videCorners(vd)) b.add(c.x, c.y);
   for (const cb of cabinetsOf(floor)) for (const c of cabinetCorners(cb)) b.add(c.x, c.y);
+  // Resolved, so a run following a moved symbol crops where it is actually
+  // drawn, and the corridor fan (core/route.ts) never crops off a lane.
+  for (const rr of resolveRoutes(floor)) for (const s of rr.segments) { b.add(s.a.x, s.a.y); b.add(s.b.x, s.b.y); }
   // A room name is a point, and a plan that is nothing but names still has to
   // frame somewhere rather than reporting itself empty.
   for (const rn of roomNamesOf(floor)) b.add(rn.x, rn.y);

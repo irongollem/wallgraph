@@ -14,7 +14,7 @@ import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
-import { COLORS, symbolInk } from "../render/draw";
+import { COLORS, routeInk, symbolInk } from "../render/draw";
 import { stairBox } from "../core/stair";
 import { recordSymbol, Prim } from "./record";
 import { openingMarks } from "./marks";
@@ -24,6 +24,9 @@ import { cabinetPrims } from "./cabinet";
 import { cabinetOverhead } from "../model/cabinet";
 import { videBox } from "../core/vide";
 import { resolveStair } from "../core/stair";
+import { resolveRoutes } from "../core/route";
+import { routePrims } from "./route";
+import { DISCIPLINES } from "../model/route";
 import { planBounds } from "../core/bounds";
 import { saveViaHost, downloadBlob } from "./save";
 import { t } from "../i18n";
@@ -221,6 +224,30 @@ export function planSvgParts(doc: PlanDoc, floor: Floor, resolved: ReturnType<ty
   return parts;
 }
 
+/** Route line weight in mm. */
+const W_ROUTE = 25;
+
+/**
+ * Routes as SVG, one group per discipline (`id="routes-electrical"` etc.), in
+ * the discipline's own ink. Kept OUTSIDE planSvgParts deliberately: that
+ * function also composes the permit sheet (io/permit.ts), and a bouwkundige
+ * permit sheet carries no services -- see the module comment on io/permit.ts.
+ * Called only from toSvg below, so the permit path never reaches it.
+ */
+export function routeSvgParts(floor: Floor): string[] {
+  const parts: string[] = [];
+  const resolved = resolveRoutes(floor);
+  for (const discipline of DISCIPLINES) {
+    const group = resolved.filter(r => r.route.discipline === discipline);
+    if (group.length === 0) continue;
+    const ink = routeInk(discipline);
+    parts.push(`<g id="routes-${discipline}" fill="none" stroke="${ink}" stroke-width="${W_ROUTE}" stroke-linecap="round">`);
+    for (const rr of group) for (const p of routePrims(rr)) parts.push(primSvg(p));
+    parts.push(`</g>`);
+  }
+  return parts;
+}
+
 /** The plan of one storey as an SVG document. */
 export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
   const floor: Floor | undefined = doc.floors[floorIndex] ?? doc.floors[0];
@@ -242,6 +269,7 @@ export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
   );
   parts.push(`<rect x="${n(minX)}" y="${n(minY)}" width="${n(w)}" height="${n(h)}" fill="${COLORS.bg}"/>`);
   parts.push(...planSvgParts(doc, floor, resolved));
+  parts.push(...routeSvgParts(floor));
   parts.push(`</svg>`);
   return parts.join("\n") + "\n";
 }

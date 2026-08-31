@@ -106,6 +106,7 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
       ghost,
       selMore: store.selMore,
       showUnderlay: tools.showUnderlay,
+      showRoutes: tools.showRoutes,
       requestRedraw: requestRender,
       preview: (c, viewport) => tools.drawPreview(c, viewport),
     }, store.doc.gridMm, areaModeOf(store.doc), dimModeOf(store.doc));
@@ -159,6 +160,7 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
       preview: (c, viewport) => tools.drawPreview(c, viewport, false),
       showGrid: false,
       showUnderlay: tools.showUnderlay,
+      showRoutes: tools.showRoutes,
     }, store.doc.gridMm, areaModeOf(store.doc), dimModeOf(store.doc));
     // Crosshair at the exact point, drawn last so nothing covers it.
     lctx.strokeStyle = COLORS.snap;
