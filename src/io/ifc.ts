@@ -1,24 +1,36 @@
-// IFC export: the plan's spatial spine as an ISO 10303-21 STEP physical file.
+// IFC export: the plan as an ISO 10303-21 STEP physical file.
 //
-// This is BIM 3 of the roadmap: project → site → building → storeys, with no
-// building elements yet (walls etc. follow in later issues). The writer is
-// structured so an element only has to add its own IFCLOCALPLACEMENT (relative
-// to its storey's) and an IFCRELCONTAINEDINSPATIALSTRUCTURE entry — the spine
-// itself does not change shape when that lands.
+// BIM 3 built the spatial spine: project → site → building → storeys. This is
+// BIM 4, which hangs building elements off it: one IFCWALL per resolved wall
+// body, one IFCOPENINGELEMENT (IFCRELVOIDSELEMENT'd to its wall) per opening,
+// and an IFCDOOR/IFCWINDOW (IFCRELFILLSELEMENT'd to its opening) for door and
+// window kinds — a passage stays a bare voided hole. Geometry comes from
+// core/solids.floorSolids(), which already resolves footprints, opening
+// placement and arc-bulged walls; this module only turns those prisms and
+// quads into IFCEXTRUDEDAREASOLID and does not re-derive any of it. Every
+// element's ObjectPlacement is IDENTITY relative to its storey, because
+// floorSolids() already returns absolute plan coordinates — the profile
+// points carry the position directly rather than through a translated
+// placement, the same way IFCBUILDING reuses `worldPlacement` as an identity
+// offset from the site below.
 //
 // Two conventions carried over from dxf.ts, for the same reasons:
 //   * The document is y-down; IFC (and every viewer) is right-handed Z-up, so
-//     the one place this matters here is TrueNorth, which is turned into an
-//     IFCDIRECTION in IFC's own axes rather than the document's.
+//     every plan-space y is negated on the way into an IFC coordinate —
+//     TrueNorth and every profile point alike.
 //   * Every stored length is already millimetres, so IFCSIUNIT states MILLI
 //     rather than scaling coordinates — a 4000 mm wall must read as 4000, the
 //     way it does in DXF's $INSUNITS.
 //
 // GlobalIds are derived, not random: ifcGuid(doc.guid, id) in model/guid.ts,
 // so re-exporting the same document keeps every element's identity and two
-// documents' ids cannot collide.
-import { PlanDoc, projectOf, floorElevation } from "../model/doc";
+// documents' ids cannot collide. A relationship (void, fill, containment)
+// gets its own GlobalId derived from the element it hangs off, suffixed so it
+// cannot collide with that element's own id.
+import { PlanDoc, projectOf, floorElevation, Sash, sashSpecsOf, openingHeight } from "../model/doc";
 import { ifcGuid } from "../model/guid";
+import { floorSolids } from "../core/solids";
+import { Vec, add, sub, scale, norm, perp, len, mid } from "../geometry/vec";
 import { saveViaHost, downloadBlob } from "./save";
 
 export type IfcResult = "saved" | "failed";
@@ -136,6 +148,59 @@ function renderStepFile(data: readonly string[], author: string, nowMs: number):
   return lines.join("\n") + "\n";
 }
 
+// ── door / window operation classification ──────────────────────────────────
+//
+// IFC4's IfcDoorTypeOperationEnum and IfcWindowTypePartitioningEnum name
+// specific leaf arrangements. The document's sash list is finer-grained (see
+// SashAction in model/doc.ts), so several sash combinations have no matching
+// IFC name; NOTDEFINED is correct for those, not the nearest-looking literal.
+
+/**
+ * A door's IfcDoorTypeOperationEnum literal (without the surrounding dots)
+ * from its sash list. Mirrors DOOR_KINDS in model/doc.ts: one turn sash is a
+ * single swing, two a double door, and so on for slide/fold/revolve/
+ * double-acting — but read off the actual sashes rather than matched against
+ * the named presets, so a hand-tuned combination still classifies correctly.
+ */
+function doorOperationType(sashes: Sash[]): string {
+  if (sashes.length === 1) {
+    const s = sashes[0]!;
+    switch (s.action) {
+      case "turn":
+        return s.hinge === "a" ? "SINGLE_SWING_LEFT" : s.hinge === "b" ? "SINGLE_SWING_RIGHT" : "NOTDEFINED";
+      case "slide":
+        return s.slideTo === "a" ? "SLIDING_TO_LEFT" : "SLIDING_TO_RIGHT";
+      case "fold":
+        return "FOLDING_TO_LEFT";
+      case "revolve":
+        return "REVOLVING";
+      case "double-acting":
+        return s.hinge === "a" ? "DOUBLE_SWING_LEFT" : s.hinge === "b" ? "DOUBLE_SWING_RIGHT" : "NOTDEFINED";
+      default:
+        return "NOTDEFINED"; // pivot, tilt, overhead, fixed alone, …
+    }
+  }
+  if (sashes.length === 2) {
+    const [s0, s1] = sashes as [Sash, Sash];
+    if (s0.action === "turn" && s1.action === "turn") return "DOUBLE_DOOR_SINGLE_SWING";
+    if (s0.action === "slide" && s1.action === "slide") return "DOUBLE_DOOR_SLIDING";
+    if (s0.action === "double-acting" && s1.action === "double-acting") return "DOUBLE_DOOR_DOUBLE_SWING";
+    return "NOTDEFINED"; // e.g. a pui: one fixed light beside one operable sash
+  }
+  return "NOTDEFINED"; // three+ sashes, or none (an empty passage never reaches here)
+}
+
+/** A window's IfcWindowTypePartitioningEnum literal from its pane count alone
+ *  — the enum names panel counts, not what each pane does. */
+function windowPartitioningType(sashCount: number): string {
+  switch (sashCount) {
+    case 1: return "SINGLE_PANEL";
+    case 2: return "DOUBLE_PANEL_VERTICAL";
+    case 3: return "TRIPLE_PANEL_VERTICAL";
+    default: return "NOTDEFINED";
+  }
+}
+
 // ── the spine ────────────────────────────────────────────────────────────────
 
 /**
@@ -213,11 +278,13 @@ export function toIfc(doc: PlanDoc): string {
     [str(ifcGuid(seed, "building")), ref(ownerHistory), meta.name ? str(meta.name) : UNSET, UNSET, UNSET,
       ref(buildingPlacement), UNSET, UNSET, enumv("ELEMENT"), UNSET, UNSET, buildingAddress]);
 
+  const storeyPlacements: number[] = [];
   const storeys = doc.floors.map((floor, i) => {
     const elevation = floorElevation(doc, i);
     const pt = w.entity("IFCCARTESIANPOINT", [list(real(0), real(0), real(elevation))]);
     const placement3d = w.entity("IFCAXIS2PLACEMENT3D", [ref(pt), UNSET, UNSET]);
     const storeyPlacement = w.entity("IFCLOCALPLACEMENT", [ref(buildingPlacement), ref(placement3d)]);
+    storeyPlacements.push(storeyPlacement);
     return w.entity("IFCBUILDINGSTOREY",
       [str(ifcGuid(seed, floor.id)), ref(ownerHistory), str(floor.name), UNSET, UNSET, ref(storeyPlacement),
         UNSET, UNSET, enumv("ELEMENT"), real(elevation)]);
@@ -230,6 +297,130 @@ export function toIfc(doc: PlanDoc): string {
   w.entity("IFCRELAGGREGATES",
     [str(ifcGuid(seed, "rel-building-storeys")), ref(ownerHistory), UNSET, UNSET, ref(building),
       list(...storeys.map(ref))]);
+
+  // ── building elements: walls, openings, doors and windows ────────────────
+
+  /** 50 mm — deep enough to read as a leaf in a viewer, not a claim about a
+   *  real door or window's actual thickness (out of scope for this export). */
+  const FILLER_DEPTH_MM = 50;
+
+  /**
+   * One IFCEXTRUDEDAREASOLID from a plan-space polygon (mm, y-down, as
+   * floorSolids() returns it) extruded from z0 to z1: an
+   * IfcArbitraryClosedProfileDef of the polygon — y negated for IFC's y-up
+   * axes, closed by repeating the first point — swept along +Z. Null for a
+   * degenerate polygon or a non-positive depth (a collapsed footprint, or a
+   * void clamped to zero height), so the caller can fall back to no
+   * representation rather than emit a broken profile.
+   */
+  function extrudedSolid(poly: Vec[], z0: number, z1: number): number | null {
+    if (poly.length < 3) return null;
+    const depth = z1 - z0;
+    if (!(depth > 0)) return null;
+    const pointIds = poly.map(p => w.entity("IFCCARTESIANPOINT", [list(real(p.x), real(-p.y))]));
+    pointIds.push(pointIds[0]!); // closed
+    const polyline = w.entity("IFCPOLYLINE", [list(...pointIds.map(ref))]);
+    const profile = w.entity("IFCARBITRARYCLOSEDPROFILEDEF", [enumv("AREA"), UNSET, ref(polyline)]);
+    const posPt = w.entity("IFCCARTESIANPOINT", [list(real(0), real(0), real(z0))]);
+    const position = w.entity("IFCAXIS2PLACEMENT3D", [ref(posPt), UNSET, UNSET]);
+    return w.entity("IFCEXTRUDEDAREASOLID", [ref(profile), ref(position), ref(zAxis), real(depth)]);
+  }
+
+  /** IFCPRODUCTDEFINITIONSHAPE wrapping a 'Body'/'SweptSolid' representation
+   *  of the given solids, or $ when there is nothing to show. */
+  function bodyShape(solidIds: readonly (number | null)[]): IfcArg {
+    const ids = solidIds.filter((id): id is number => id !== null);
+    if (ids.length === 0) return UNSET;
+    const rep = w.entity("IFCSHAPEREPRESENTATION",
+      [ref(context), str("Body"), str("SweptSolid"), list(...ids.map(ref))]);
+    const pds = w.entity("IFCPRODUCTDEFINITIONSHAPE", [UNSET, UNSET, list(ref(rep))]);
+    return ref(pds);
+  }
+
+  /**
+   * A void quad shrunk to FILLER_DEPTH_MM about its own centerline — the door
+   * or window leaf's placeholder geometry. `voidPoly` is built the way
+   * core/solids.ts builds it: [start+n0*half, end+n1*half, end-n1*half,
+   * start-n0*half], so poly[0]/poly[3] straddle the opening's start-jamb
+   * centerline point and poly[1]/poly[2] straddle its end-jamb point. Moving
+   * each corner to FILLER_DEPTH_MM/2 from its own midpoint, on the side it
+   * started on, keeps the panel centered on the wall regardless of thickness
+   * or the jamb normals differing slightly across a bulged wall.
+   */
+  function fillerQuad(voidPoly: Vec[]): Vec[] {
+    const m0 = mid(voidPoly[0]!, voidPoly[3]!);
+    const m1 = mid(voidPoly[1]!, voidPoly[2]!);
+    const half = FILLER_DEPTH_MM / 2;
+    // Only reached if a jamb pair coincides (zero-thickness wall): fall back
+    // to a normal built from the opening's own direction.
+    const fallback = perp(norm(sub(m1, m0)));
+    const sideAt = (corner: Vec, m: Vec): Vec => {
+      const d = sub(corner, m);
+      const l = len(d);
+      return l > 1e-6 ? scale(d, 1 / l) : fallback;
+    };
+    const s0 = sideAt(voidPoly[0]!, m0), s1 = sideAt(voidPoly[1]!, m1);
+    return [add(m0, scale(s0, half)), add(m1, scale(s1, half)),
+      sub(m1, scale(s1, half)), sub(m0, scale(s0, half))];
+  }
+
+  for (let i = 0; i < doc.floors.length; i++) {
+    const floor = doc.floors[i]!;
+    const fs = floorSolids(doc, i);
+    if (!fs) continue; // no walls on this storey at all — nothing to place
+
+    // Identity placement relative to the storey: floorSolids() already
+    // returns absolute plan coordinates, so every element on this storey
+    // shares one relative placement rather than each carrying its own offset.
+    const levelPlacement = w.entity("IFCLOCALPLACEMENT", [ref(storeyPlacements[i]!), ref(worldPlacement)]);
+    const contained: number[] = []; // walls + door/window fillers; NOT openings
+
+    for (const ws of fs.walls) {
+      const wall = floor.walls.find(x => x.id === ws.wallId)!;
+      const bodyIds = ws.body.map(p => extrudedSolid(p.poly, p.z0, p.z1));
+      const wallEntity = w.entity("IFCWALL",
+        [str(ifcGuid(seed, wall.id)), ref(ownerHistory), str(`Wall ${wall.thickness}`), UNSET, UNSET,
+          ref(levelPlacement), bodyShape(bodyIds), UNSET, UNSET]);
+      contained.push(wallEntity);
+
+      for (const og of ws.voids) {
+        const opening = wall.openings.find(o => o.id === og.openingId)!;
+        const name = opening.kind[0]!.toUpperCase() + opening.kind.slice(1);
+        const openingEntity = w.entity("IFCOPENINGELEMENT",
+          [str(ifcGuid(seed, opening.id)), ref(ownerHistory), str(name), UNSET, UNSET, ref(levelPlacement),
+            bodyShape([extrudedSolid(og.poly, og.z0, og.z1)]), UNSET, UNSET]);
+        w.entity("IFCRELVOIDSELEMENT",
+          [str(ifcGuid(seed, `${opening.id}:void`)), ref(ownerHistory), UNSET, UNSET,
+            ref(wallEntity), ref(openingEntity)]);
+
+        if (opening.kind === "door" || opening.kind === "window") {
+          const fillerShape = bodyShape([extrudedSolid(fillerQuad(og.poly), og.z0, og.z1)]);
+          const overallHeight = real(openingHeight(opening));
+          const overallWidth = real(opening.width);
+          const sashes = sashSpecsOf(opening);
+          const fillEntity = opening.kind === "door"
+            ? w.entity("IFCDOOR",
+                [str(ifcGuid(seed, `${opening.id}:fill`)), ref(ownerHistory), str("Door"), UNSET, UNSET,
+                  ref(levelPlacement), fillerShape, UNSET, overallHeight, overallWidth, UNSET,
+                  enumv(doorOperationType(sashes)), UNSET])
+            : w.entity("IFCWINDOW",
+                [str(ifcGuid(seed, `${opening.id}:fill`)), ref(ownerHistory), str("Window"), UNSET, UNSET,
+                  ref(levelPlacement), fillerShape, UNSET, overallHeight, overallWidth, UNSET,
+                  enumv(windowPartitioningType(sashes.length)), UNSET]);
+          w.entity("IFCRELFILLSELEMENT",
+            [str(ifcGuid(seed, `${opening.id}:fills`)), ref(ownerHistory), UNSET, UNSET,
+              ref(openingEntity), ref(fillEntity)]);
+          contained.push(fillEntity);
+        }
+      }
+    }
+
+    if (contained.length > 0) {
+      w.entity("IFCRELCONTAINEDINSPATIALSTRUCTURE",
+        [str(ifcGuid(seed, `${floor.id}:contains`)), ref(ownerHistory), UNSET, UNSET,
+          list(...contained.map(ref)), ref(storeys[i]!)]);
+    }
+  }
 
   return renderStepFile(w.data, meta.author ?? "", nowMs);
 }
