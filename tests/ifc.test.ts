@@ -3,9 +3,11 @@
 // rules are checked here rather than eyeballed.
 import {
   emptyDoc, newId, floorElevation, DOOR_HEIGHT_DEFAULT, WINDOW_HEIGHT_DEFAULT,
-  type Floor, type Wall, type Opening,
+  type Floor, type Wall, type Opening, type Id,
 } from "../src/model/doc";
 import { toIfc } from "../src/io/ifc";
+import { detectRooms } from "../src/core/rooms";
+import { ifcGuid } from "../src/model/guid";
 import { v } from "../src/geometry/vec";
 import { bulgeFromSagitta } from "../src/geometry/arc";
 
@@ -124,9 +126,12 @@ check("one IFCBUILDINGSTOREY per floor", countOf("IFCBUILDINGSTOREY") === doc.fl
     (bare.match(/=IFCBUILDINGSTOREY\(/g) ?? []).length === 1);
   check("an empty document still ends the file", bare.trimEnd().endsWith("END-ISO-10303-21;"));
   check("an empty document has no walls", !bare.includes("=IFCWALL("));
+  check("an empty document has no spaces", !bare.includes("=IFCSPACE("));
   check("an empty document has no rels beyond the spine",
     !bare.includes("=IFCRELCONTAINEDINSPATIALSTRUCTURE(") && !bare.includes("=IFCRELVOIDSELEMENT(")
     && !bare.includes("=IFCRELFILLSELEMENT("));
+  check("an empty document aggregates only the spine (no per-storey space rel)",
+    (bare.match(/=IFCRELAGGREGATES\(/g) ?? []).length === 3);
 }
 
 // ── BIM 4: walls, openings, doors and windows ───────────────────────────────
@@ -287,6 +292,145 @@ check("one IFCBUILDINGSTOREY per floor", countOf("IFCBUILDINGSTOREY") === doc.fl
         const m = /,(-?\d+\.?\d*(?:E[+-]?\d+)?)\);$/.exec(l);
         return m !== null && Number(m[1]) > 0;
       }));
+  }
+}
+
+// ── BIM 5: spaces from detected rooms ───────────────────────────────────────
+//
+// Two 4x3 m rooms side by side, split by a partition wall that tees into
+// both the top and bottom outer walls (so each half closes into its own
+// face). Only the right-hand room carries an authored name.
+{
+  function addNode(f: Floor, x: number, y: number): Id {
+    const id = newId("n");
+    f.nodes.push({ id, x, y });
+    return id;
+  }
+  function addWall(f: Floor, a: Id, b: Id, thickness: number): void {
+    f.walls.push({ id: newId("w"), a, b, thickness, bulge: 0, openings: [] });
+  }
+
+  const two = emptyDoc();
+  const floor = two.floors[0]!;
+  floor.name = "Begane grond";
+  const n0 = addNode(floor, 0, 0), n4 = addNode(floor, 4000, 0), n1 = addNode(floor, 8000, 0);
+  const n3 = addNode(floor, 0, 3000), n5 = addNode(floor, 4000, 3000), n2 = addNode(floor, 8000, 3000);
+  addWall(floor, n0, n4, 300); addWall(floor, n4, n1, 300);
+  addWall(floor, n1, n2, 300); addWall(floor, n2, n5, 300);
+  addWall(floor, n5, n3, 300); addWall(floor, n3, n0, 300);
+  addWall(floor, n4, n5, 150); // partition
+  floor.roomNames = [{ id: newId("rn"), x: 6000, y: 1500, name: "Woonkamer" }];
+
+  const rooms = detectRooms(floor);
+  check("test doc encloses exactly two rooms", rooms.length === 2, String(rooms.length));
+  const named = rooms.find(r => r.name === "Woonkamer");
+  check("one room carries the authored name", named !== undefined);
+
+  /** One parsed IFCSPACE: its entity id, GlobalId and raw Name argument. */
+  interface ParsedSpace { id: number; guid: string; name: string }
+
+  function parse(text: string): { entities: string[]; spaces: ParsedSpace[] } {
+    const entities = text.split("\n").filter(l => l.startsWith("#"));
+    const spaceRe = /^#(\d+)=IFCSPACE\('([0-9A-Za-z_$]{22})',#\d+,(\$|'[^']*'),\$,\$,#\d+,/;
+    const spaces = entities.map(l => spaceRe.exec(l)).filter((m): m is RegExpExecArray => m !== null)
+      .map(m => ({ id: Number(m[1]), guid: m[2]!, name: m[3]! }));
+    return { entities, spaces };
+  }
+
+  /** Refs an entity's OWN argument list carries — excludes the leading `#N=`
+   *  that names the entity itself, which a bare `/#(\d+)/g` over the whole
+   *  line would otherwise pick up as if it were the first argument. */
+  function argRefs(line: string): number[] {
+    return [...line.slice(line.indexOf("=") + 1).matchAll(/#(\d+)/g)].map(m => Number(m[1]));
+  }
+
+  /** The NetFloorArea m² a space's Qto_SpaceBaseQuantities carries, chasing
+   *  IFCSPACE -> IFCRELDEFINESBYPROPERTIES -> IFCELEMENTQUANTITY -> IFCQUANTITYAREA. */
+  function qtoArea(entities: string[], spaceId: number): number | undefined {
+    const rel = entities.find(l =>
+      l.includes("=IFCRELDEFINESBYPROPERTIES(") && new RegExp(`#${spaceId}(?!\\d)`).test(l));
+    if (!rel) return undefined;
+    const refs = argRefs(rel);
+    const qsetId = refs[refs.length - 1];
+    const qsetLine = entities.find(l => l.startsWith(`#${qsetId}=IFCELEMENTQUANTITY(`));
+    if (!qsetLine || !qsetLine.includes("'Qto_SpaceBaseQuantities'")) return undefined;
+    const qrefs = argRefs(qsetLine).slice(1); // drop OwnerHistory; left with [area, height]
+    const areaId = qrefs[0];
+    const heightId = qrefs[1];
+    const areaLine = entities.find(l => l.startsWith(`#${areaId}=IFCQUANTITYAREA(`));
+    const heightLine = entities.find(l => l.startsWith(`#${heightId}=IFCQUANTITYLENGTH(`));
+    if (!heightLine || !heightLine.includes("'Height'")) return undefined;
+    const m = areaLine ? /IFCQUANTITYAREA\('NetFloorArea',\$,\$,([^,]+),\$\)/.exec(areaLine) : null;
+    return m ? Number(m[1]) : undefined;
+  }
+
+  const twoText = toIfc(two);
+  const { entities: twoEntities, spaces } = parse(twoText);
+
+  check("IFCSPACE count equals detected room count", spaces.length === rooms.length, String(spaces.length));
+  check("space GlobalIds are well-formed and unique",
+    spaces.every(s => /^[0-9A-Za-z_$]{22}$/.test(s.guid) && "0123".includes(s.guid[0]!))
+      && new Set(spaces.map(s => s.guid)).size === spaces.length);
+
+  const namedSpace = spaces.find(s => s.name === "'Woonkamer'");
+  check("the named room's IfcSpace carries the authored name", namedSpace !== undefined,
+    spaces.map(s => s.name).join(" | "));
+
+  // ── aggregation, not containment ─────────────────────────────────────────
+  const seed = two.guid ?? "";
+  const aggGuid = ifcGuid(seed, `${floor.id}:spaces`);
+  const aggLine = twoEntities.find(l => l.includes(`=IFCRELAGGREGATES('${aggGuid}'`));
+  check("the storey aggregates its spaces", aggLine !== undefined, twoEntities.join("|"));
+  if (aggLine) {
+    // [OwnerHistory, RelatingObject (the storey), ...RelatedObjects (the spaces)].
+    const relatedObjects = argRefs(aggLine).slice(2);
+    const spaceIds = spaces.map(s => s.id);
+    check("the aggregation rel's RelatedObjects is exactly the space entities, once each",
+      relatedObjects.length === spaceIds.length && spaceIds.every(id => relatedObjects.includes(id)),
+      aggLine);
+  }
+  {
+    const containmentLines = twoEntities.filter(l => l.includes("=IFCRELCONTAINEDINSPATIALSTRUCTURE("));
+    const spaceIds = new Set(spaces.map(s => s.id));
+    check("no space appears in any containment rel",
+      containmentLines.every(l => argRefs(l).every(id => !spaceIds.has(id))));
+  }
+
+  // ── quantities on the document's default (net) area basis ────────────────
+  if (namedSpace && named) {
+    const expectedNet = named.netAreaMm2 / 1e6;
+    const actualNet = qtoArea(twoEntities, namedSpace.id);
+    check("named room's NetFloorArea matches the net basis (areaMode default)",
+      actualNet !== undefined && Math.abs(actualNet - expectedNet) < 1e-6, `${actualNet} vs ${expectedNet}`);
+  }
+
+  // ── GlobalId stability across a re-export ─────────────────────────────────
+  {
+    const again = toIfc(two);
+    const a = twoText.split("\n"), b = again.split("\n");
+    const diffLines = a.length === b.length
+      ? a.map((l, i) => l === b[i] || l.startsWith("FILE_NAME(") ? null : i).filter((i): i is number => i !== null)
+      : [-1];
+    check("two exports of the two-room plan are byte-identical apart from FILE_NAME's timestamp",
+      diffLines.length === 0, diffLines.join(","));
+  }
+
+  // ── flipping areaMode changes the reported figure ─────────────────────────
+  {
+    two.areaMode = "centerline";
+    const centerText = toIfc(two);
+    const { entities: centerEntities, spaces: centerSpaces } = parse(centerText);
+    const centerNamed = centerSpaces.find(s => s.name === "'Woonkamer'");
+    check("the named space still resolves under areaMode centerline", centerNamed !== undefined);
+    if (centerNamed && named) {
+      const expectedCenterline = named.areaMm2 / 1e6;
+      const actualCenterline = qtoArea(centerEntities, centerNamed.id);
+      check("NetFloorArea follows areaMode to the centerline basis",
+        actualCenterline !== undefined && Math.abs(actualCenterline - expectedCenterline) < 1e-6,
+        `${actualCenterline} vs ${expectedCenterline}`);
+      check("the centerline figure differs from the net figure (300mm walls make a real gap)",
+        actualCenterline !== undefined && Math.abs(actualCenterline - named.netAreaMm2 / 1e6) > 1e-3);
+    }
   }
 }
 

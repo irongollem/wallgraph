@@ -1,15 +1,29 @@
 // IFC export: the plan as an ISO 10303-21 STEP physical file.
 //
-// BIM 3 built the spatial spine: project → site → building → storeys. This is
-// BIM 4, which hangs building elements off it: one IFCWALL per resolved wall
-// body, one IFCOPENINGELEMENT (IFCRELVOIDSELEMENT'd to its wall) per opening,
-// and an IFCDOOR/IFCWINDOW (IFCRELFILLSELEMENT'd to its opening) for door and
-// window kinds — a passage stays a bare voided hole. Geometry comes from
-// core/solids.floorSolids(), which already resolves footprints, opening
-// placement and arc-bulged walls; this module only turns those prisms and
-// quads into IFCEXTRUDEDAREASOLID and does not re-derive any of it. Every
-// element's ObjectPlacement is IDENTITY relative to its storey, because
-// floorSolids() already returns absolute plan coordinates — the profile
+// BIM 3 built the spatial spine: project → site → building → storeys. BIM 4
+// hung building elements off it: one IFCWALL per resolved wall body, one
+// IFCOPENINGELEMENT (IFCRELVOIDSELEMENT'd to its wall) per opening, and an
+// IFCDOOR/IFCWINDOW (IFCRELFILLSELEMENT'd to its opening) for door and window
+// kinds — a passage stays a bare voided hole. This is BIM 5, which adds one
+// IFCSPACE per detected room, IFCRELAGGREGATES'd (not contained — a space is
+// a spatial element, not a building element) under its storey, each carrying
+// a Qto_SpaceBaseQuantities with the document's own area figure.
+//
+// Geometry comes from core/solids.floorSolids() for walls/openings, and from
+// core/rooms.detectRooms() directly for spaces — floorSolids() already calls
+// detectRooms() internally to build its own SpaceSolid list, but that list
+// keeps only poly/z0/z1/name and drops areaMm2/netAreaMm2/centroid, which the
+// quantities and the per-room GlobalId key below both need. Re-deriving
+// SpaceSolid's few extra fields here from the Room, or reaching into
+// floorSolids.ts to widen SpaceSolid, would either duplicate the geometry
+// logic or touch a module this export otherwise treats as read-only; calling
+// detectRooms() a second time keeps one function as the source of room
+// geometry and areas, at the cost of walking the wall graph twice per
+// export — cheap next to writing the STEP text itself. Either way this
+// module only turns polygons and prisms into IFCEXTRUDEDAREASOLID and does
+// not re-derive any of the geometry itself. Every element's ObjectPlacement
+// is IDENTITY relative to its storey, because both floorSolids() and
+// detectRooms() already return absolute plan coordinates — the profile
 // points carry the position directly rather than through a translated
 // placement, the same way IFCBUILDING reuses `worldPlacement` as an identity
 // offset from the site below.
@@ -27,9 +41,13 @@
 // documents' ids cannot collide. A relationship (void, fill, containment)
 // gets its own GlobalId derived from the element it hangs off, suffixed so it
 // cannot collide with that element's own id.
-import { PlanDoc, projectOf, floorElevation, Sash, sashSpecsOf, openingHeight } from "../model/doc";
+import {
+  PlanDoc, Floor, projectOf, floorElevation, floorHeight, areaModeOf, dimModeOf, DimMode, Sash, sashSpecsOf,
+  openingHeight,
+} from "../model/doc";
 import { ifcGuid } from "../model/guid";
 import { floorSolids } from "../core/solids";
+import { detectRooms, roomSize, sizeLabel, Room } from "../core/rooms";
 import { Vec, add, sub, scale, norm, perp, len, mid } from "../geometry/vec";
 import { saveViaHost, downloadBlob } from "./save";
 
@@ -364,6 +382,33 @@ export function toIfc(doc: PlanDoc): string {
       sub(m1, scale(s1, half)), sub(m0, scale(s0, half))];
   }
 
+  /**
+   * A stable identity for a derived room: rooms carry no id of their own (see
+   * core/rooms.ts), so the export keys each IfcSpace off the room's own
+   * footprint, the same way the room panel keys its rows (roomKey() in
+   * core/rooms.ts) — the net-polygon centroid, rounded to whole mm. Moving a
+   * wall re-keys the space on the next export; that is the honest outcome
+   * for a derived object, the same trade-off roomNames.ts already accepts
+   * for name attachment, not a limitation specific to this exporter.
+   */
+  function spaceKey(floor: Floor, r: Room): string {
+    return `space:${floor.id}:${Math.round(r.centroid.x)}x${Math.round(r.centroid.y)}`;
+  }
+
+  /**
+   * The Name an IfcSpace carries when the room itself has none: the same
+   * clear-size label the drawing prints under an unnamed room's area (see
+   * roomSize()/sizeLabel() in core/rooms.ts, used identically in io/svg.ts
+   * and io/dxf.ts). $ only when there is truly nothing to say — an L-shaped
+   * unnamed room has no rectangular size, and roomSize() never answers at
+   * all when dimMode is "centerline".
+   */
+  function spaceName(r: Room, dim: DimMode): IfcArg {
+    if (r.name !== undefined) return str(r.name);
+    const size = roomSize(r, dim);
+    return size ? str(sizeLabel(size)) : UNSET;
+  }
+
   for (let i = 0; i < doc.floors.length; i++) {
     const floor = doc.floors[i]!;
     const fs = floorSolids(doc, i);
@@ -419,6 +464,36 @@ export function toIfc(doc: PlanDoc): string {
       w.entity("IFCRELCONTAINEDINSPATIALSTRUCTURE",
         [str(ifcGuid(seed, `${floor.id}:contains`)), ref(ownerHistory), UNSET, UNSET,
           list(...contained.map(ref)), ref(storeys[i]!)]);
+    }
+
+    // ── spaces: one IFCSPACE per detected room, aggregated (not contained) ──
+
+    const dim = dimModeOf(doc);
+    const fh = floorHeight(floor);
+    const spaceEntities: number[] = [];
+    for (const r of detectRooms(floor)) {
+      const key = spaceKey(floor, r);
+      const spaceEntity = w.entity("IFCSPACE",
+        [str(ifcGuid(seed, key)), ref(ownerHistory), spaceName(r, dim), UNSET, UNSET, ref(levelPlacement),
+          bodyShape([extrudedSolid(r.netPoly, 0, fh)]), UNSET, enumv("ELEMENT"), enumv("INTERNAL"), UNSET]);
+      spaceEntities.push(spaceEntity);
+
+      // NetFloorArea on the document's own declared basis (areaModeOf), not
+      // a claim of NEN 2580 conformance — MethodOfMeasurement stays $.
+      const areaMm2 = areaModeOf(doc) === "net" ? r.netAreaMm2 : r.areaMm2;
+      const areaQty = w.entity("IFCQUANTITYAREA", [str("NetFloorArea"), UNSET, UNSET, real(areaMm2 / 1e6), UNSET]);
+      const heightQty = w.entity("IFCQUANTITYLENGTH", [str("Height"), UNSET, UNSET, real(fh), UNSET]);
+      const qset = w.entity("IFCELEMENTQUANTITY",
+        [str(ifcGuid(seed, `${key}:qset`)), ref(ownerHistory), str("Qto_SpaceBaseQuantities"), UNSET, UNSET,
+          list(ref(areaQty), ref(heightQty))]);
+      w.entity("IFCRELDEFINESBYPROPERTIES",
+        [str(ifcGuid(seed, `${key}:qto`)), ref(ownerHistory), UNSET, UNSET, list(ref(spaceEntity)), ref(qset)]);
+    }
+
+    if (spaceEntities.length > 0) {
+      w.entity("IFCRELAGGREGATES",
+        [str(ifcGuid(seed, `${floor.id}:spaces`)), ref(ownerHistory), UNSET, UNSET, ref(storeys[i]!),
+          list(...spaceEntities.map(ref))]);
     }
   }
 
