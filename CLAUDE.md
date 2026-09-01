@@ -127,7 +127,19 @@ This model supports wall openings, room detection and future direct extrusion to
 5. **Mutations go through `store.mutate()`.** It snapshots for undo and bumps `revision`,
    which is what invalidates the derived-geometry cache. Mutating `store.doc` directly
    leaves stale geometry on screen and no undo entry.
-6. **`mountWallgraph(el)` is the public API**, returning a `{ load, save }` handle. No
+6. **A device's PORTS decide what may connect to it.** `SymbolDef.ports` and
+   `furnishingPorts()` say which services a thing takes and where; `routeTakesSymbol()` /
+   `routeTakesFurnishing()` answer only by asking them. This replaced a table keyed on the
+   symbol's category, which was wrong in both directions — a gas-point sits in the water
+   category, so no gas run could reach it, and no electrical run could reach a cv-ketel.
+   Do not reintroduce a category rule: a device that declares what it takes cannot be
+   right about it in one place and wrong in another.
+7. **A device's anchor is not its connection.** Where a run reaches a thing comes from
+   `connectionPoint()` / `anchorPoint()` in [port.ts](src/core/port.ts) — never from
+   `device.x`/`device.y`. They coincide for a wandcontactdoos, which is why the anchor
+   served as both for so long; they are most of a fixture apart for a bad or a douche.
+   Port positions are FRACTIONS of the footprint, so they survive a piece being resized.
+8. **`mountWallgraph(el)` is the public API**, returning a `{ load, save }` handle. No
    globals beyond window-level key listeners. [src/boot.ts](src/boot.ts) is only the
    standalone-page entry; frameworks (Astro/Vue/etc.) call `mountWallgraph` directly.
    Don't add module-level side effects to [src/main.ts](src/main.ts). The hosted page's
@@ -148,15 +160,15 @@ established. Ask before adding a compatibility layer.
 **`resolveFloor()`** — per node, collect incident wall-ends with their outgoing tangent
 (arc-aware) and half-thickness, sort by angle, and take the corner between angular
 neighbours as the intersection of their facing offset lines. Degree-1 ends get square
-caps. Miter length is clamped (`MITER_LIMIT = 4`) so hairpins don't shoot off to infinity;
+caps. Miter length is clamped (`MITER_LIMIT`) so hairpins don't shoot off to infinity;
 parallel ends fall back to the offset midpoint. Arc miters use a **tangent-line
 approximation** at the endpoint — a known limitation, exact in the limit and visually
 correct at wall scale.
 
-**`detectRooms()`** — flatten all centerlines (≤5 mm chord error), build half-edges, walk
+**`detectRooms()`** — flatten all centerlines at the shared chord tolerance, build half-edges, walk
 faces by taking the sharpest-left next edge. With this turn rule under y-down, bounded
 faces trace with **positive** shoelace area and the unbounded outer face is negative;
-faces under 0.01 m² are dropped as slivers. It derives both the centerline boundary and
+faces below the sliver threshold are dropped. It derives both the centerline boundary and
 the net inner-face boundary; `PlanDoc.areaMode` selects which area is reported.
 
 Both are verified by [tests/core.test.ts](tests/core.test.ts), including the sign
@@ -208,7 +220,7 @@ The `draw(ctx)` contract in [defs.ts](src/render/symbols/defs.ts) is strict:
   [defs.ts](src/render/symbols/defs.ts), which paints in the stroke colour and un-mirrors
   the glyph. Never call `ctx.fillText` directly, and never for a name or caption *we* chose
   to add — those stay in screen space, drawn by the caller.
-- Wrap in `withCtx()`, which handles `save`/`restore` and sets `lineWidth = 20`.
+- Wrap in `withCtx()`, which handles `save`/`restore` and sets the stroke weight.
 - **`mountHeight` is a convention, not a rule** — the ordinary height a device of this type
   is mounted at, or `"ceiling"` for one fixed to the soffit, which resolves against the
   storey rather than a constant. Set it only where a single ordinary height genuinely
@@ -235,14 +247,14 @@ the SVG group and its own DXF layer instead.
 ## Operational constraints
 
 - **Grid lines are always whole multiples of `doc.gridMm`.** `gridSteps()` in
-  [src/render/grid.ts](src/render/grid.ts) steps the spacing up a 1-2-5 ladder until it is at
-  least 6 px, so one square on screen is always a whole number of grid cells; the canvas
+  [src/render/grid.ts](src/render/grid.ts) steps the spacing up a 1-2-5 ladder until it is
+  legible, so one square on screen is always a whole number of grid cells; the canvas
   legend names both drawn spacings. A fixed spacing would conflict with the panel's Grid
   (mm) value. `COLORS.grid` and `COLORS.gridMajor` use distinct lightness values so the
   major grid remains visually identifiable.
-- **`GRID_DEFAULT_MM` is 100** ([doc.ts](src/model/doc.ts)) — building measurements are rarely
-  finer, and it draws cell-for-cell at ordinary zoom instead of stepping up. The default
-  applies only to new plans.
+- **`GRID_DEFAULT_MM`** ([doc.ts](src/model/doc.ts)) is chosen so building measurements are
+  rarely finer than one cell, and so the grid draws cell-for-cell at ordinary zoom instead
+  of stepping up. It applies only to new plans.
 - **Grid snapping is a toggle** (`Tools.snapGrid`, G). Off still rounds to whole mm, so
   invariant 1 holds either way — quantise through `Tools.gridStep`, not `doc.gridMm`.
 - **Wall-placement dimensions go on the cursor's side of the wall.**
@@ -268,7 +280,7 @@ the SVG group and its own DXF layer instead.
   which is every plan's opening view — would frame into a zero-width box.
 - **Autosave uses the storage key `floorplan-doc-v1`**. Renaming it makes existing locally
   stored plans unavailable. Ask before changing or migrating the key.
-- **`Store.mutate()` coalesces** same-`coalesceKey` mutations within 900 ms into one undo
+- **`Store.mutate()` coalesces** same-`coalesceKey` mutations within a short window into one undo
   step. Drags rely on this; pass a stable key for continuous gestures and `undefined` for
   discrete edits.
 - **`store.replace(doc, undoable)`** — `New`/`Demo`/`Open` pass `true` so Ctrl+Z restores
@@ -279,8 +291,8 @@ the SVG group and its own DXF layer instead.
   embedded. `onKey` ignores
   INPUT/SELECT/TEXTAREA targets.
 - **There are TWO layouts, and a change has to hold in both.** `layoutFor()` in
-  [src/ui/layout.ts](src/ui/layout.ts) is the only breakpoint: narrower than 768 px or
-  shorter than 500 px is `compact`, everything else is `wide`. `Panel.mountShell()`
+  [src/ui/layout.ts](src/ui/layout.ts) is the only breakpoint, and it decides `compact`
+  against `wide` on both width and height. `Panel.mountShell()`
   re-parents the *same* elements between them rather than building a second set.
   Consequences for anything new:
   - **A new tool needs `tool.short<Name>` and `hint.touch<Name>`.** There is no `title`
@@ -295,6 +307,23 @@ the SVG group and its own DXF layer instead.
     pinch never leaves an object behind; a tool that must act on contact (select, zoom)
     is listed explicitly in `onDown`.
   - Check a change at 390×844 and 844×390, not only at desktop width.
+- **Verwarming is its own discipline, not a kind of water.** CV pipe is not tapwater
+  pipe: it is sized on a different basis, ordered separately, and an installatietekening
+  carries verwarming and sanitair as separate systems even where one installateur lays
+  both. Aanvoer and retour are two legs because a radiator is reached by both — a plan
+  drawing only the flow is short by half the pipe. `LayerKey` already carried a `heating`
+  key for the symbols that no run could be drawn on; this is what it was missing.
+- **`ServicePort.required` is a claim about the FIXTURE, not about the drawing's stage.**
+  A douche needs warm water whether or not the water layer has been started, which is why
+  the completeness check is a toggle rather than something the plan always says. Declare
+  `required` only where a device demonstrably cannot work without it AND the model has
+  that service; a rookmelder may be wired or on a battery, and the drawing cannot tell.
+  `alt` is for the genuine either/or — a kookplaat is fed by gas OR by power.
+- **Authored data may ride on a placed object where its MARK is one fixed picture.** A
+  groepenkast's plan mark does not change with the number of groepen, so its name and its
+  groepen are fields on the `SymbolInstance` (`model/board.ts`), guarded by type the way
+  `Furnishing.cistern` is guarded by form. That is the other side of "a thing built to a
+  size is not a symbol": what varies here is what the thing distributes, not its size.
 - **What a run may end at is stated once**, in [attach.ts](src/core/attach.ts). The route
   tool asks it while drawing, and a device asks it while being placed or dropped — a
   socket landing on a loose end takes that end over, in the same mutation. Two copies of
