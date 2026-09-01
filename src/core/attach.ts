@@ -12,12 +12,16 @@
 // the panel still calls the end loose.
 import { Floor, Id, furnishingsOf, routesOf, type SymbolInstance } from "../model/doc";
 import { furnishingClass, type Furnishing } from "../model/furnishing";
-import { Discipline, RoutePoint, RouteWater, routeWater } from "../model/route";
+import {
+  Discipline, RoutePoint, RouteWater, RouteVent, RouteKind, routeWater, routeServiceKey,
+} from "../model/route";
+import { serviceKeyOf } from "../model/service";
 import { getSymbol } from "../render/symbols";
 import { Vec, add, sub, scale, dist, distToSeg, v } from "../geometry/vec";
 import { arcFlatten, arcPointAt } from "../geometry/arc";
 import { resolveRoutePoints } from "./route";
 import { insertRouteTap } from "./routegraph";
+import { connectionPoint, type Device } from "./port";
 
 /** Whether a run of this discipline ends at a symbol of this type. */
 export function routeTakesSymbol(discipline: Discipline, type: string): boolean {
@@ -72,13 +76,16 @@ export const ROUTE_LINK_MM = 200;
  * the device, so a link is one undo step with the placement that caused it.
  */
 export function routeEndsUnder(
-  floor: Floor, device: { id: Id; x: number; y: number; wallId?: Id },
+  floor: Floor, device: Device & { wallId?: Id },
   takes: (discipline: Discipline, water: RouteWater) => boolean,
 ): RoutePoint[] {
   const found: RoutePoint[] = [];
-  const at = v(device.x, device.y);
   for (const route of routesOf(floor)) {
     if (!takes(route.discipline, routeWater(route))) continue;
+    // Measured from where THIS run would attach, not from the device's anchor:
+    // a run drawn to a bath's waste is at the bath's waste, which is most of a
+    // bath away from the wall the bath is anchored to.
+    const at = connectionPoint(device, routeServiceKey(route));
     const degree = new Map<Id, number>();
     for (const segment of route.segments) {
       degree.set(segment.a, (degree.get(segment.a) ?? 0) + 1);
@@ -139,14 +146,14 @@ export interface RouteLegUnder {
  * would leave a zero-length leg.
  */
 export function routeLegsUnder(
-  floor: Floor, device: { id: Id; x: number; y: number; wallId?: Id },
+  floor: Floor, device: Device & { wallId?: Id },
   takes: (discipline: Discipline, water: RouteWater) => boolean,
 ): RouteLegUnder[] {
-  const at = v(device.x, device.y);
   const found: RouteLegUnder[] = [];
   for (const route of routesOf(floor)) {
     if (!takes(route.discipline, routeWater(route))) continue;
     if (route.points.some(p => p.anchor === device.id)) continue;
+    const at = connectionPoint(device, routeServiceKey(route));
     const resolved = resolveRoutePoints(floor, route);
     const byId = new Map(route.points.map((p, i) => [p.id, { point: p, at: resolved[i]! }]));
     let best: RouteLegUnder | undefined;
@@ -208,7 +215,7 @@ function projectOntoLeg(
 
 /** Apply what routeEndsUnder found. Returns how many ends changed hands. */
 export function linkDeviceToRouteEnds(
-  floor: Floor, device: { id: Id; x: number; y: number; wallId?: Id },
+  floor: Floor, device: Device & { wallId?: Id },
   takes: (discipline: Discipline, water: RouteWater) => boolean,
 ): number {
   const ends = routeEndsUnder(floor, device, takes);
@@ -227,22 +234,25 @@ export function linkDeviceToRouteEnds(
 export interface NearbyDevice { id: Id; kind: "symbol" | "furnishing"; name: string }
 
 export function nearestDeviceFor(
-  floor: Floor, route: { discipline: Discipline; water?: RouteWater }, at: { x: number; y: number },
+  floor: Floor,
+  route: { discipline: Discipline; water?: RouteWater; vent?: RouteVent; kind?: RouteKind },
+  at: { x: number; y: number },
   within = ROUTE_LINK_MM * 4,
 ): NearbyDevice | null {
   const water = route.water ?? "koud";
+  const key = serviceKeyOf(route.discipline, { water, vent: route.vent, power: route.kind });
   const found: Array<NearbyDevice & { d: number }> = [];
-  const consider = (device: NearbyDevice, x: number, y: number): void => {
-    const d = dist(v(x, y), v(at.x, at.y));
-    if (d <= within) found.push({ ...device, d });
+  const consider = (named: NearbyDevice, device: Device): void => {
+    const d = dist(connectionPoint(device, key), v(at.x, at.y));
+    if (d <= within) found.push({ ...named, d });
   };
   for (const s of floor.symbols as SymbolInstance[]) {
     if (routeTakesSymbol(route.discipline, s.type))
-      consider({ id: s.id, kind: "symbol", name: s.type }, s.x, s.y);
+      consider({ id: s.id, kind: "symbol", name: s.type }, s);
   }
   for (const fn of furnishingsOf(floor)) {
     if (routeTakesFurnishing(route.discipline, water, fn))
-      consider({ id: fn.id, kind: "furnishing", name: fn.mark ?? fn.form }, fn.x, fn.y);
+      consider({ id: fn.id, kind: "furnishing", name: fn.mark ?? fn.form }, fn);
   }
   found.sort((a, b) => a.d - b.d);
   const best = found[0];
@@ -265,7 +275,7 @@ export function nearestDeviceFor(
  * it. Returns how many connections were made.
  */
 export function connectDevice(
-  floor: Floor, device: { id: Id; x: number; y: number; wallId?: Id },
+  floor: Floor, device: Device & { wallId?: Id },
   takes: (discipline: Discipline, water: RouteWater) => boolean,
 ): number {
   const linked = linkDeviceToRouteEnds(floor, device, takes);
@@ -279,7 +289,7 @@ export function connectDevice(
 /** Whether connectDevice() would do anything -- asked before opening a
  *  mutation, so a placement that connected nothing pushes no undo step. */
 export function deviceConnects(
-  floor: Floor, device: { id: Id; x: number; y: number; wallId?: Id },
+  floor: Floor, device: Device & { wallId?: Id },
   takes: (discipline: Discipline, water: RouteWater) => boolean,
 ): boolean {
   return routeEndsUnder(floor, device, takes).length > 0

@@ -2,12 +2,13 @@
 // waypoints (model/route.ts): where an anchored point currently sits, how
 // long the run is, and where several routes bundle through the same corridor
 // are all recomputed on every call, exactly like a room's boundary.
-import { Floor, floorHeight, furnishingsOf, routesOf } from "../model/doc";
+import { Floor, floorHeight, routesOf } from "../model/doc";
 import {
   Route, RouteKind, routeKind, routeVeins, RouteWater, routeWater, routeDiameter, ROUTE_WATERS,
-  RouteInstallation, routeInstallation,
+  RouteInstallation, routeInstallation, routeServiceKey,
 } from "../model/route";
 import { symbolMountHeight } from "./mount";
+import { connectionPoint, deviceById } from "./port";
 import { Vec, v, add, sub, scale, cross, dot, dist, perp, distToSeg } from "../geometry/vec";
 import { arcLength, arcFlatten, arcPointAt, arcTangentAt } from "../geometry/arc";
 import { wallLength } from "../model/ops";
@@ -21,12 +22,14 @@ import { wallLength } from "../model/ops";
  * mutation racing to keep the other in sync. See model/route.ts.
  */
 export function resolveRoutePoints(floor: Floor, route: Route): Vec[] {
+  const key = routeServiceKey(route);
   return route.points.map(p => {
     if (p.anchor) {
-      const sym = floor.symbols.find(s => s.id === p.anchor);
-      if (sym) return v(sym.x, sym.y);
-      const fn = furnishingsOf(floor).find(x => x.id === p.anchor);
-      if (fn) return v(fn.x, fn.y);
+      // Where THIS run reaches the device, which for a fixture with several
+      // services is not its anchor: a douche's afvoer is in the middle of the
+      // tray while its koud and warm are on the wall. See core/port.ts.
+      const device = deviceById(floor, p.anchor);
+      if (device) return connectionPoint(device, key);
     }
     if (p.wallId && p.wallT !== undefined) {
       const wall = floor.walls.find(w => w.id === p.wallId);

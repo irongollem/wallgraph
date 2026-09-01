@@ -25,6 +25,8 @@ import {
   routeGroupSummaries, routeKindSummaries, routeWaterSummaries, routeGasSummaries,
 } from "../core/route";
 import { nearestDeviceFor, routeLegsUnder } from "../core/attach";
+import { deviceServiceGaps, type Device } from "../core/port";
+import type { ServiceKey } from "../model/service";
 import {
   planRouteMerge, mergeRoutes, removeRoutePoint, insertRouteTap, disconnectDevice,
 } from "../core/routegraph";
@@ -415,6 +417,20 @@ function mergeRow(rows: RouteRows, store: Store, ids: readonly Id[]): void {
   });
 }
 
+/**
+ * A service key in the reader's own language, composed from the discipline and
+ * kind names the panel already uses rather than a second set of strings — a
+ * key and a route pane must not disagree about what "afvoer" is called.
+ */
+export function serviceLabel(key: ServiceKey): string {
+  const [discipline, kind] = key.split(":");
+  const cap = (word: string): string => word[0]!.toUpperCase() + word.slice(1);
+  const name = t("panel.discipline" + cap(discipline!));
+  if (!kind) return name;
+  const kindKey = discipline === "water" ? "panel.routeWater" : "panel.routeVent";
+  return `${name} ${t(kindKey + cap(kind)).toLowerCase()}`;
+}
+
 /** How a run is named where one has to be picked out of several. */
 export function routeLabel(route: Route): string {
   if (route.tag) return route.tag;
@@ -436,10 +452,19 @@ export function routeLabel(route: Route): string {
  * guessed -- a guess would look exactly like a deliberate connection.
  */
 export function deviceConnectionRows(
-  rows: RouteRows, store: Store, device: { id: Id; x: number; y: number; wallId?: Id },
+  rows: RouteRows, store: Store, device: Device,
   takes: (discipline: Discipline, water: WaterKind) => boolean,
 ): void {
   const floor = store.floor;
+  // What the fixture needs and nobody has drawn. A statement about the
+  // fixture, not about how far along the drawing is -- a douche needs warm
+  // water whether or not the water layer has been started.
+  const gaps = deviceServiceGaps(floor, device);
+  if (gaps.length > 0) {
+    rows.warnRow(t("panel.deviceIncomplete", {
+      services: gaps.map(gap => serviceLabel(gap.key)).join(", "),
+    }));
+  }
   const connected = routesOf(floor).filter(r => r.points.some(p => p.anchor === device.id));
   for (const route of connected) {
     rows.infoRow(t("panel.deviceConnected"), routeLabel(route));

@@ -13,6 +13,7 @@
 // per-discipline vocabularies. `form` says which drawing and which of those
 // fields apply; FURNISHING_PRESETS names the ordinary combinations.
 import type { Id } from "./doc";
+import type { ServicePort } from "./service";
 
 /**
  * Which thing this is, and so which mark is drawn and which optional fields
@@ -459,6 +460,80 @@ export const furnishingKind = (f: Furnishing): CabinetKind => f.kind ?? "base";
 export const furnishingFront = (f: Furnishing): CabinetFront => f.front ?? "door";
 export const furnishingHinge = (f: Furnishing): CabinetHinge => f.hinge ?? "left";
 export const applianceMark = (f: Furnishing): ApplianceMark => f.mark ?? "none";
+
+/**
+ * Which services a piece of fit-out takes, and where a run reaches it. See
+ * model/service.ts for the coordinate convention (fractions of the footprint,
+ * because a bath is built to a size) and for what `required` claims.
+ *
+ * The positions are the ordinary layout of the fixture, not a measurement of
+ * any particular one: a bath's taps at the head end, a douche's waste in the
+ * middle of the tray, a closet's supply high at the wall and its afvoer at the
+ * trap. Read as a convention like SymbolDef.mountHeight — right for the usual
+ * case, and moved by dragging the waypoint when it is not.
+ *
+ * Computed rather than tabled, because two of the answers depend on the piece:
+ * an aanrecht needs water only once it has a bowl in it, and an appliance's
+ * services follow its mark.
+ */
+export function furnishingPorts(f: Furnishing): ServicePort[] {
+  const supply = (v: number): ServicePort[] => [
+    { key: "water:koud", required: true, v },
+    { key: "water:warm", required: true, v },
+  ];
+  switch (f.form) {
+    case "bath":
+      // Taps and waste at the head end, which is the end a bath is plumbed at.
+      return [...supply(0.15).map(p => ({ ...p, u: 0.15 })),
+        { key: "water:afvoer", required: true, u: 0.15, v: 0.5 }];
+    case "shower":
+      return [...supply(0.08), { key: "water:afvoer", required: true, v: 0.5 }];
+    case "shower-head":
+      return supply(0.1);
+    case "basin":
+    case "basin-trough":
+      return [...supply(0.1), { key: "water:afvoer", required: true, v: 0.3 }];
+    case "bidet":
+      return [...supply(0.2), { key: "water:afvoer", required: true, v: 0.4 }];
+    case "toilet":
+      // Cistern feed high at the wall; the trap is forward of it.
+      return [{ key: "water:koud", required: true, v: 0.05 },
+        { key: "water:afvoer", required: true, v: 0.4 }];
+    case "urinal":
+    case "urinal-trough":
+      return [{ key: "water:koud", required: true, v: 0.05 },
+        { key: "water:afvoer", required: true, v: 0.4 }];
+    case "counter":
+      // An aanrecht is plumbed for the bowl it holds. Without one it is a
+      // worktop, and nothing is missing from it.
+      return (f.basins ?? 0) > 0
+        ? [...supply(0.5), { key: "water:afvoer", required: true, v: 0.5 }]
+        : [];
+    case "appliance":
+      return appliancePorts(applianceMark(f));
+    default:
+      return [];
+  }
+}
+
+function appliancePorts(mark: ApplianceMark): ServicePort[] {
+  switch (mark) {
+    // Gas OR power, never both — see ServicePort.alt.
+    case "cooktop":
+      return [{ key: "electrical:power", required: true, alt: "hob" },
+        { key: "gas", required: true, alt: "hob" }];
+    case "hood":
+      return [{ key: "electrical:power", required: true },
+        { key: "vent:afvoer", required: true, v: 0 }];
+    case "oven":
+    case "microwave":
+    case "fridge":
+    case "freezer":
+      return [{ key: "electrical:power", required: true }];
+    default:
+      return [];
+  }
+}
 export const toiletCistern = (f: Furnishing): ToiletCistern => f.cistern ?? "exposed";
 export const showerTray = (f: Furnishing): ShowerTray => f.tray ?? "none";
 

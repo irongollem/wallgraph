@@ -21,7 +21,7 @@ import {
   Route, RoutePoint, RouteSegment, Discipline, RouteKind, ROUTE_VEINS_DEFAULT, clampRouteVeins,
   RouteWater, routeWater, clampRouteDiameter, defaultRouteDiameter,
   RouteVent, VENT_DIAMETER_DEFAULT, clampDuctDiameter, clampRouteFlow,
-  RouteInstallation, routeInstallation,
+  RouteInstallation, routeInstallation, routeVent, routeKind,
 } from "../model/route";
 import {
   resolveRoutePoints, resolveRoutes, routeDistance, defaultRouteHeight, ResolvedRoute,
@@ -30,6 +30,8 @@ import {
   routeTakesSymbol, routeTakesFurnishing, connectDevice, deviceConnects, ROUTE_LINK_MM,
 } from "../core/attach";
 import { riserMarks, type ResolvedRiserMark } from "../core/continuation";
+import { connectionPoint, type Device } from "../core/port";
+import { serviceKeyOf } from "../model/service";
 import { autoRoutePath } from "../core/autoroute";
 import {
   nodeAt, splitWall, nearestWall, wallOnRay, wallLength, mergeNodes, deleteWall, clampOpening,
@@ -243,6 +245,17 @@ export class Tools {
   routeAuto = false;
   /** Stand-off from the wall centerline for a proposed leg, mm. */
   routeOffset = 0;
+  /**
+   * Mark every device whose declared services are not all connected, so a
+   * socket nobody wired is visible rather than merely absent from a schedule
+   * (see core/port.ts).
+   *
+   * Editor state, not a drawing convention: a pulse is a thing to notice while
+   * working, and it has no meaning on paper -- so unlike `mountMarks` it lives
+   * here and never reaches an export. Off by default, since a plattegrond
+   * drawn before its services would otherwise light up entirely.
+   */
+  requireComplete = false;
   routeTag = "";
   routeName = "";
   routeBoard = "";
@@ -1772,6 +1785,12 @@ export class Tools {
 
   setRouteAuto(on: boolean): void { this.routeAuto = on; this.onToolChange(); this.requestRender(); }
 
+  setRequireComplete(on: boolean): void {
+    this.requireComplete = on;
+    this.onToolChange();
+    this.requestRender();
+  }
+
   setRouteOffset(n: number): void {
     this.routeOffset = Math.max(0, Math.round(n));
     this.onToolChange();
@@ -1829,6 +1848,8 @@ export class Tools {
     discipline: Discipline = this.routeDiscipline,
     waterKind: RouteWater = this.routeWater,
     installation: RouteInstallation = this.routeInstallation,
+    ventKind: RouteVent = this.routeVent,
+    kindOfRun: RouteKind = this.routeKind,
   ): {
     p: Vec; anchor?: Id; wallId?: Id; wallT?: number; wallSide?: 1 | -1;
     routeId?: Id; routePointId?: Id;
@@ -1859,11 +1880,16 @@ export class Tools {
     // lives in core/attach.ts, because a device being PLACED asks the same
     // question from the other side. Alt overrides the check, for the run the
     // rule did not anticipate.
+    // Measured at the PORT this run would reach, not at the device's anchor:
+    // a douche's afvoer is in the middle of its tray, most of a tray away from
+    // the wall it stands against. core/port.ts is the one answer to that.
+    const key = serviceKeyOf(discipline, { water: waterKind, vent: ventKind, power: kindOfRun });
     const anchors: Array<{ id: Id; x: number; y: number; d: number }> = [];
-    const consider = (item: { id: Id; x: number; y: number }, compatible: boolean): void => {
+    const consider = (item: Device, compatible: boolean): void => {
       if (!compatible && !this.altKey) return;
-      const d = dist(v(item.x, item.y), raw);
-      if (d <= tol) anchors.push({ id: item.id, x: item.x, y: item.y, d });
+      const at = connectionPoint(item, key);
+      const d = dist(at, raw);
+      if (d <= tol) anchors.push({ id: item.id, x: at.x, y: at.y, d });
     };
     for (const s of f.symbols) consider(s, routeTakesSymbol(discipline, s.type));
     for (const fn of furnishingsOf(f)) consider(fn, routeTakesFurnishing(discipline, waterKind, fn));
@@ -2816,7 +2842,9 @@ export class Tools {
       const currentRoute = routesOf(this.floor).find(route => route.id === d.id);
       const snap = this.computeRouteSnap(w, currentRoute?.discipline,
         currentRoute?.discipline === "water" ? routeWater(currentRoute) : this.routeWater,
-        currentRoute ? routeInstallation(currentRoute) : this.routeInstallation);
+        currentRoute ? routeInstallation(currentRoute) : this.routeInstallation,
+        currentRoute?.discipline === "vent" ? routeVent(currentRoute) : this.routeVent,
+        currentRoute?.discipline === "electrical" ? routeKind(currentRoute) : this.routeKind);
       this.store.mutate(doc => {
         const route = routesOf(this.store.floorOf(doc)).find(x => x.id === d.id);
         const pt = route?.points[idx];

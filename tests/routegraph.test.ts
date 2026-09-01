@@ -13,7 +13,7 @@ import {
 } from "../src/core/routegraph";
 import {
   routeTakesSymbol, routeTakesFurnishing, routeEndsUnder, linkDeviceToRouteEnds,
-  routeLegsUnder, connectDevice, nearestDeviceFor, ROUTE_LINK_MM,
+  routeLegsUnder, connectDevice, nearestDeviceFor,
 } from "../src/core/attach";
 import { resolveRoutePoints, routeLength } from "../src/core/route";
 import { resources } from "../src/i18n";

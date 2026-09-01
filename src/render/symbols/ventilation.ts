@@ -33,6 +33,7 @@ const mvSocket: SymbolDef = {
   wallMounted: true,
   width: 280,
   depth: 440,
+  ports: [{ key: "electrical:power", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       socketPath(ctx, 1, false);
@@ -48,6 +49,7 @@ const mvSwitch: SymbolDef = {
   wallMounted: true,
   width: 280,
   depth: 400,
+  ports: [{ key: "electrical:power", required: true }],
   mountHeight: 1050,
   draw(ctx) {
     withCtx(ctx, () => {
@@ -65,6 +67,7 @@ const ventExhaustCeiling: SymbolDef = {
   wallMounted: false,
   width: 340,
   depth: 340,
+  ports: [{ key: "vent:afvoer", required: true }],
   mountHeight: "ceiling",
   draw(ctx) {
     withCtx(ctx, () => {
@@ -88,6 +91,7 @@ const ventExhaustWall: SymbolDef = {
   wallMounted: true,
   width: 300,
   depth: 320,
+  ports: [{ key: "vent:afvoer", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       // Grille across the wall face, with the air reaching it from the room.
@@ -112,6 +116,7 @@ const ventExtract: SymbolDef = {
   wallMounted: false,
   width: 280,
   depth: 440,
+  ports: [{ key: "vent:afvoer", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       terminal(ctx, 0, -60, 100);
@@ -130,6 +135,7 @@ const ventSupply: SymbolDef = {
   wallMounted: false,
   width: 280,
   depth: 440,
+  ports: [{ key: "vent:toevoer", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       terminal(ctx, 0, -60, 100);
@@ -148,6 +154,7 @@ const ventValve: SymbolDef = {
   wallMounted: false,
   width: 240,
   depth: 240,
+  ports: [{ key: "vent", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.moveTo(100, 0);
@@ -172,6 +179,7 @@ const ventUnit: SymbolDef = {
   wallMounted: true,
   width: 600,
   depth: 400,
+  ports: [{ key: "vent", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.rect(-300, 0, 600, 400);
@@ -194,6 +202,7 @@ const wtwUnit: SymbolDef = {
   wallMounted: true,
   width: 600,
   depth: 600,
+  ports: [{ key: "vent", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.rect(-300, 0, 600, 600);
@@ -217,6 +226,7 @@ const fan: SymbolDef = {
   wallMounted: true,
   width: 500,
   depth: 300,
+  ports: [{ key: "vent", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.rect(-250, 0, 500, 300);

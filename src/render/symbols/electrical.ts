@@ -44,6 +44,7 @@ function socket(type: string, label: string, cups: number, earthed: boolean): Sy
     // The ordinary Dutch wandcontactdoos height. A socket above a worktop or
     // behind an appliance states its own; see SymbolDef.mountHeight.
     mountHeight: 300,
+    ports: [{ key: "electrical:power", required: true }],
     draw(ctx) {
       withCtx(ctx, () => socketPath(ctx, cups, earthed));
     },
@@ -64,6 +65,7 @@ const socketShaver: SymbolDef = {
   wallMounted: true,
   width: socketWidth(true),
   depth: socketDepth(1),
+  ports: [{ key: "electrical:power", required: true }],
   mountHeight: 1300,
   draw(ctx) {
     withCtx(ctx, () => {
@@ -87,6 +89,7 @@ const socketFloor: SymbolDef = {
   wallMounted: false,
   width: 320,
   depth: 320,
+  ports: [{ key: "electrical:power", required: true }],
   mountHeight: 0,
   draw(ctx) {
     withCtx(ctx, () => {
@@ -133,6 +136,7 @@ const switchSingle: SymbolDef = {
   wallMounted: true,
   width: 240,
   depth: 240,
+  ports: [{ key: "electrical:power", required: true }],
   mountHeight: 1050,
   draw(ctx) {
     withCtx(ctx, () => {
@@ -149,6 +153,7 @@ const switchDouble: SymbolDef = {
   wallMounted: true,
   width: 240,
   depth: 240,
+  ports: [{ key: "electrical:power", required: true }],
   mountHeight: 1050,
   draw(ctx) {
     withCtx(ctx, () => {
@@ -187,6 +192,7 @@ const switchSeries: SymbolDef = {
   wallMounted: true,
   width: 260,
   depth: 260,
+  ports: [{ key: "electrical:power", required: true }],
   mountHeight: 1050,
   draw(ctx) {
     withCtx(ctx, () => {
@@ -223,6 +229,7 @@ const switchTwoWay: SymbolDef = {
   wallMounted: true,
   width: 260,
   depth: 260,
+  ports: [{ key: "electrical:power", required: true }],
   mountHeight: 1050,
   draw(ctx) {
     withCtx(ctx, () => {
@@ -260,6 +267,7 @@ const switchCross: SymbolDef = {
   wallMounted: true,
   width: 260,
   depth: 260,
+  ports: [{ key: "electrical:power", required: true }],
   mountHeight: 1050,
   draw(ctx) {
     withCtx(ctx, () => {
@@ -297,6 +305,7 @@ const dimmer: SymbolDef = {
   wallMounted: true,
   width: 260,
   depth: 260,
+  ports: [{ key: "electrical:power", required: true }],
   mountHeight: 1050,
   draw(ctx) {
     withCtx(ctx, () => {
@@ -340,6 +349,7 @@ const switchPull: SymbolDef = {
   wallMounted: true,
   width: 240,
   depth: 300,
+  ports: [{ key: "electrical:power", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       const cx = 0;
@@ -380,6 +390,7 @@ const pushButton: SymbolDef = {
   wallMounted: true,
   width: 200,
   depth: 200,
+  ports: [{ key: "electrical:power", required: true }],
   mountHeight: 1050,
   draw(ctx) {
     withCtx(ctx, () => {
@@ -401,6 +412,7 @@ const doorbell: SymbolDef = {
   wallMounted: true,
   width: 240,
   depth: 200,
+  ports: [{ key: "electrical:power", required: true }],
   mountHeight: 1050,
   draw(ctx) {
     withCtx(ctx, () => {
@@ -426,6 +438,7 @@ const lightPoint: SymbolDef = {
   wallMounted: false,
   width: 300,
   depth: 300,
+  ports: [{ key: "electrical:power", required: true }],
   mountHeight: "ceiling",
   draw(ctx) {
     withCtx(ctx, () => {
@@ -450,6 +463,7 @@ const lightWall: SymbolDef = {
   wallMounted: true,
   width: 300,
   depth: 300,
+  ports: [{ key: "electrical:power", required: true }],
   mountHeight: 1800,
   draw(ctx) {
     withCtx(ctx, () => {
@@ -479,6 +493,7 @@ const lightFluor: SymbolDef = {
   wallMounted: false,
   width: 1200,
   depth: 120,
+  ports: [{ key: "electrical:power", required: true }],
   mountHeight: "ceiling",
   draw(ctx) {
     withCtx(ctx, () => {
@@ -497,6 +512,7 @@ const lightSpot: SymbolDef = {
   wallMounted: false,
   width: 240,
   depth: 240,
+  ports: [{ key: "electrical:power", required: true }],
   mountHeight: "ceiling",
   draw(ctx) {
     withCtx(ctx, () => {
@@ -522,6 +538,7 @@ const lightEmergency: SymbolDef = {
   wallMounted: false,
   width: 320,
   depth: 320,
+  ports: [{ key: "electrical:power", required: true }],
   mountHeight: 2200,
   draw(ctx) {
     withCtx(ctx, () => {
@@ -545,6 +562,9 @@ const outletTv: SymbolDef = {
   wallMounted: true,
   width: 240,
   depth: 260,
+  // A coax outlet takes coax. A power circuit run to it is not what
+  // feeds it, so it does not count as connected.
+  ports: [{ key: "electrical:coax", required: true }],
   mountHeight: 300,
   draw(ctx) {
     withCtx(ctx, () => {
@@ -570,6 +590,7 @@ const outletData: SymbolDef = {
   wallMounted: true,
   width: 240,
   depth: 260,
+  ports: [{ key: "electrical:utp", required: true }],
   mountHeight: 300,
   draw(ctx) {
     withCtx(ctx, () => {
@@ -613,6 +634,7 @@ const thermostat: SymbolDef = {
   wallMounted: true,
   width: 240,
   depth: 240,
+  ports: [{ key: "electrical:power", required: true }],
   mountHeight: 1500,
   draw(ctx) {
     withCtx(ctx, () => {
@@ -639,6 +661,7 @@ const motionSensor: SymbolDef = {
   wallMounted: true,
   width: 280,
   depth: 220,
+  ports: [{ key: "electrical:power", required: true }],
   mountHeight: "ceiling",
   draw(ctx) {
     withCtx(ctx, () => {

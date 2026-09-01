@@ -4,12 +4,14 @@ import { Store } from "./model/store";
 import { resolveFloor, Resolved } from "./core/resolve";
 import { detectRooms, Room } from "./core/rooms";
 import { Viewport } from "./render/viewport";
-import { drawScene, COLORS, type GhostFloor } from "./render/draw";
+import { drawScene, COLORS, type GhostFloor, PULSE_MS } from "./render/draw";
 import { Tools } from "./input/tools";
 import { Panel } from "./ui/panel";
 import { tryLoadAutosave, scheduleAutosave } from "./io/json";
 import { seedDoc } from "./seed";
 import { areaModeOf, dimModeOf, mountMarksOn, PlanDoc } from "./model/doc";
+import { incompleteMarks } from "./core/port";
+import type { Vec } from "./geometry/vec";
 import { riserMarks } from "./core/continuation";
 import { v } from "./geometry/vec";
 import { language, on as onI18n } from "./i18n";
@@ -83,6 +85,23 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
     requestAnimationFrame(() => { renderQueued = false; render(); });
   }
 
+  // The incomplete-device set, cached against the revision like the rest of the
+  // derived geometry: the pulse asks for it every frame, and walking every
+  // symbol and every route sixty times a second for an answer that only
+  // changes on a mutation would be the one place this editor's full-redraw
+  // costs anything.
+  const NOTHING_MISSING: ReadonlyMap<string, readonly Vec[]> = new Map();
+  let cachedIncompleteRev = -1;
+  let cachedIncomplete: ReadonlyMap<string, readonly Vec[]> = NOTHING_MISSING;
+  function incomplete(): ReadonlyMap<string, readonly Vec[]> {
+    if (!tools.requireComplete) return NOTHING_MISSING;
+    if (store.revision !== cachedIncompleteRev) {
+      cachedIncompleteRev = store.revision;
+      cachedIncomplete = incompleteMarks(store.floor);
+    }
+    return cachedIncomplete;
+  }
+
   const tools = new Tools(
     store, vp, canvas, requestRender,
     () => derived().resolved, () => panel.refreshToolbar(), () => derived().rooms,
@@ -102,11 +121,14 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const { resolved, rooms, ghost } = derived();
+    const pulsing = incomplete();
     drawScene(ctx, vp, rect.width, rect.height, store.floor, resolved, rooms, store.sel, {
       hoverSnap: tools.getSnap(),
       ghost,
       selMore: store.selMore,
       riserMarks: riserMarks(store.doc, store.activeFloor),
+      incomplete: pulsing,
+      pulse: (performance.now() % PULSE_MS) / PULSE_MS,
       showUnderlay: tools.showUnderlay,
       layers: tools.layers,
       dimLayers: tools.dimLayers(),
@@ -115,6 +137,11 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
       preview: (c, viewport) => tools.drawPreview(c, viewport),
     }, store.doc.gridMm, areaModeOf(store.doc), dimModeOf(store.doc), mountMarksOn(store.doc));
     renderLoupe(rect, dpr, resolved, rooms, ghost);
+    // A pulse is the one thing here that changes without a mutation, so it is
+    // the one thing that asks for the next frame itself. Nothing incomplete,
+    // or the check switched off, and the editor goes back to redrawing only
+    // when something happened.
+    if (pulsing.size > 0) requestRender();
   }
 
   /** Side of the square magnifier, in CSS px. */

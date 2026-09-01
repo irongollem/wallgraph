@@ -18,6 +18,8 @@
 //     never ctx.fillText directly, and never for a name or a caption we chose
 //     to add. Those are still the caller's job, in screen space (see drawLabel).
 //   - Set ctx.lineWidth = 20 and wrap in ctx.save()/ctx.restore().
+import type { ServicePort } from "../../model/service";
+
 export type SymbolCategory =
   | "electrical" | "water" | "heating" | "ventilation" | "safety";
 
@@ -45,6 +47,13 @@ export interface SymbolDef {
   depth: number;         // mm away from the wall (or footprint depth)
   /** Ordinary mounting height for this type; absent means no convention. */
   mountHeight?: MountHeight;
+  /**
+   * Which services a device of this type takes, and where a run reaches it.
+   * Absent means the anchor is the only connection, which is what the mark
+   * itself says for everything wall-mounted (see applianceBox's stub below).
+   * See model/service.ts.
+   */
+  ports?: readonly ServicePort[];
   draw(ctx: CanvasRenderingContext2D): void;
 }
 

@@ -272,6 +272,13 @@ export interface DrawExtras {
   selMore?: readonly string[];
   /** Derived cross-floor marks for the active storey. */
   riserMarks?: readonly ResolvedRiserMark[];
+  /**
+   * Devices with a declared service nobody has connected, and how far through
+   * the pulse they are (0..1). Editor state -- absent everywhere but the live
+   * canvas, so no export ever draws it.
+   */
+  incomplete?: ReadonlyMap<string, readonly Vec[]>;
+  pulse?: number;
   /** False for exports: no grid, and no legend describing one. */
   showGrid?: boolean;
   /**
@@ -528,6 +535,8 @@ export function drawScene(
         selected: isSel("furnishing", fn.id),
         select: COLORS.select, wash: COLORS.selectWash,
       });
+      const gaps = extras.incomplete?.get(fn.id);
+      if (gaps) drawIncomplete(ctx, gaps, px, extras.pulse ?? 0);
     }
   });
 
@@ -541,6 +550,8 @@ export function drawScene(
     const key = cat ? LAYER_OF_CATEGORY[cat] : "furnishing";
     onLayer(key, () => {
       drawSymbol(ctx, s, px, isSel("symbol", s.id));
+      const gaps = extras.incomplete?.get(s.id);
+      if (gaps) drawIncomplete(ctx, gaps, px, extras.pulse ?? 0);
       const mark = mountMarks ? mountMarkOf(floor, s) : null;
       if (!mark) return;
       ctx.save();
@@ -1133,6 +1144,41 @@ function line(ctx: CanvasRenderingContext2D, a: Vec, b: Vec): void {
   ctx.moveTo(a.x, a.y);
   ctx.lineTo(b.x, b.y);
   ctx.stroke();
+}
+
+/** How long one pulse takes, ms. Slow enough to read as breathing rather than
+ *  as a flash, which on a drawing reads as an error the drawing cannot fix. */
+export const PULSE_MS = 1600;
+/** Smallest radius of the ring, mm. It breathes out from here. */
+const PULSE_PAD_MM = 90;
+
+/**
+ * The ring around a device whose declared services are not all connected.
+ *
+ * A ring rather than a recolour: colour on a plan already MEANS something here
+ * (existing work black, new red, removed yellow -- see SymbolInstance.color),
+ * so tinting an incomplete socket would say it is to be demolished. The ring
+ * sits outside the mark instead, and pulses so it reads as an editor's note
+ * rather than as part of the drawing.
+ *
+ * Drawn at the PORT, not at the device: a bath waiting for its taps is marked
+ * at the taps, so the mark says where to draw to rather than only that
+ * something is missing somewhere on a fixture two metres long.
+ */
+function drawIncomplete(
+  ctx: CanvasRenderingContext2D, at: readonly Vec[], px: number, phase: number,
+): void {
+  const breathe = 0.5 + 0.5 * Math.sin(phase * Math.PI * 2);
+  ctx.save();
+  ctx.globalAlpha = 0.3 + 0.45 * breathe;
+  ctx.strokeStyle = COLORS.stairWarn;
+  ctx.lineWidth = Math.max(20, 2 / px);
+  for (const p of at) {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, PULSE_PAD_MM + 60 * breathe, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function drawSymbol(ctx: CanvasRenderingContext2D, s: SymbolInstance, px: number, selected: boolean): void {

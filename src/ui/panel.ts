@@ -38,6 +38,7 @@ import {
 import { LAYER_KEYS, LAYER_OF_CATEGORY, type LayerKey } from "../render/layers";
 import { renderStairTool, renderStairProps, renderStairBulk, type PaneRows } from "./stairs";
 import { routeTakesSymbol } from "../core/attach";
+import { incompleteDevices } from "../core/port";
 import { renderFurnishingTool, renderFurnishingProps } from "./furnishing";
 import { renderZoomTool, type RoomEdit } from "./zoom";
 import { renderOpeningTool } from "./openings";
@@ -1318,6 +1319,17 @@ export class Panel {
     // PNG carry the same annotation the screen does -- see mountMarksOn().
     checkRow(t("panel.showHeights"), mountMarksOn(this.store.doc), on =>
       this.store.mutate(d => { if (on) d.mountMarks = true; else delete d.mountMarks; }));
+    // Editor state rather than a document convention: a pulse is something to
+    // notice while working and means nothing on paper, so it never reaches an
+    // export. See Tools.requireComplete.
+    checkRow(t("panel.requireComplete"), this.tools.requireComplete,
+      on => this.tools.setRequireComplete(on));
+    if (this.tools.requireComplete) {
+      const gaps = incompleteDevices(this.store.floor);
+      noteRow(gaps.size > 0
+        ? t("panel.requireCompleteOpen", { n: gaps.size })
+        : t("panel.requireCompleteDone"));
+    }
 
     // Per-layer visibility, and only for the layers this storey actually
     // carries: an empty floor showing seven toggles for drawings it does not

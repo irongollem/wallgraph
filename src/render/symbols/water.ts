@@ -11,6 +11,7 @@ const waterPoint: SymbolDef = {
   wallMounted: true,
   width: 240,
   depth: 240,
+  ports: [{ key: "water:koud", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       // Stem from the wall, then an open equilateral triangle (side 150)
@@ -37,6 +38,7 @@ const waterPointHot: SymbolDef = {
   wallMounted: true,
   width: 240,
   depth: 260,
+  ports: [{ key: "water:warm", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       // Same stem + open triangle as water-point, with a second, smaller
@@ -100,6 +102,7 @@ const waterPointFloor: SymbolDef = {
   wallMounted: false,
   width: BOX_R * 2 + 20,
   depth: BOX_R * 2 + 20,
+  ports: [{ key: "water:koud", required: true }],
   mountHeight: 0,
   draw(ctx) {
     withCtx(ctx, () => floorWaterPath(ctx, false));
@@ -113,6 +116,7 @@ const waterPointFloorHot: SymbolDef = {
   wallMounted: false,
   width: BOX_R * 2 + 20,
   depth: BOX_R * 2 + 20,
+  ports: [{ key: "water:warm", required: true }],
   mountHeight: 0,
   draw(ctx) {
     withCtx(ctx, () => floorWaterPath(ctx, true));
@@ -126,6 +130,7 @@ const mixerTap: SymbolDef = {
   wallMounted: true,
   width: 340,
   depth: 260,
+  ports: [{ key: "water:koud", required: true }, { key: "water:warm", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       // One stem from the wall, then two open triangles (side 130) side by
@@ -155,6 +160,10 @@ const washingMachine: SymbolDef = {
   wallMounted: true,
   width: 600,
   depth: 600,
+  ports: [
+      { key: "water:koud", required: true },
+      { key: "water:afvoer", required: true, v: 0.5 },
+    ],
   draw(ctx) {
     withCtx(ctx, () => {
       // Wasmachine: the drum seen through the door, centre marked.
@@ -194,6 +203,10 @@ const dishwasher: SymbolDef = {
   wallMounted: true,
   width: 600,
   depth: 600,
+  ports: [
+      { key: "water:koud", required: true },
+      { key: "water:afvoer", required: true, v: 0.5 },
+    ],
   draw(ctx) {
     withCtx(ctx, () => {
       // Vaatwasser: both diagonals with the spray arm at their crossing.
@@ -215,6 +228,7 @@ const boiler: SymbolDef = {
   wallMounted: true,
   width: 500,
   depth: 500,
+  ports: [{ key: "water:koud", required: true }, { key: "water:warm" }],
   draw(ctx) {
     withCtx(ctx, () => {
       const cy = 250;
@@ -242,6 +256,7 @@ const waterMeter: SymbolDef = {
   wallMounted: true,
   width: 300,
   depth: 220,
+  ports: [{ key: "water:koud", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.rect(-150, 0, 300, 220);
@@ -263,6 +278,7 @@ const floorDrain: SymbolDef = {
   wallMounted: false,
   width: 240,
   depth: 240,
+  ports: [{ key: "water:afvoer", required: true }],
   mountHeight: 0,
   draw(ctx) {
     withCtx(ctx, () => {
@@ -284,6 +300,7 @@ const wastePoint: SymbolDef = {
   wallMounted: false,
   width: 240,
   depth: 240,
+  ports: [{ key: "water:afvoer", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       // Afvoeraansluitpunt: the waste stub where it comes up through the
@@ -304,6 +321,7 @@ const gasPoint: SymbolDef = {
   wallMounted: true,
   width: 260,
   depth: 300,
+  ports: [{ key: "gas", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       // Gasaansluitpunt: the stem and crossbar of the connection-point family,

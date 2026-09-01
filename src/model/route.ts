@@ -20,6 +20,7 @@
 // jump back to wherever it was FIRST anchored rather than where the symbol
 // last stood.
 import type { Id } from "./doc";
+import { serviceKeyOf, type ServiceKey } from "./service";
 
 export type Discipline = "electrical" | "water" | "vent" | "gas";
 
@@ -211,6 +212,11 @@ export function routeFlow(r: Route): number | undefined {
  *  value meant to clear the field; that is 0/empty, handled by the caller. */
 export function clampRouteFlow(n: number): number {
   return Math.max(1, Math.round(n));
+}
+
+/** The service key a run carries -- see model/service.ts. */
+export function routeServiceKey(r: Route): ServiceKey {
+  return serviceKeyOf(r.discipline, { water: routeWater(r), vent: routeVent(r), power: routeKind(r) });
 }
 
 export interface Route {

@@ -417,9 +417,11 @@ function rectFloor(wallTh = 100) {
   check("duplicate re-ids everything", !shared);
   check("duplicate rewires walls to its own nodes",
     copy.walls.every(w => copy.nodes.some(n => n.id === w.a) && copy.nodes.some(n => n.id === w.b)));
+  const copiedRoutePoint = copy.routes?.[0]?.points[0];
   check("duplicate rewires furnishing route anchors",
-    copy.routes?.[0]?.points[0]?.anchor === copy.furnishings?.[0]?.id
-    && copy.routes[0]!.points[0]!.anchor !== src.furnishings?.[0]?.id);
+    copiedRoutePoint !== undefined
+    && copiedRoutePoint.anchor === copy.furnishings?.[0]?.id
+    && copiedRoutePoint.anchor !== src.furnishings?.[0]?.id);
 
   // Undo can shrink floors[]; the index must never dangle.
   st.setActiveFloor(st.doc.floors.length - 1);
