@@ -1594,8 +1594,41 @@ function rectFloor(wallTh = 100) {
     f.walls.map(w => Math.round(wallLength(f, w))).join(","));
 }
 {
-  // The bound is the wall's own thickness, not a constant: a thicker wall
-  // refuses a longer stub.
+  // Welding MOVES the end it welds, so a junction is only ever nudged. A
+  // partition drawn 250 mm from the corner of a 300 mm exterior wall must not
+  // drag that corner onto it -- doing so leaves the wall running off the corner
+  // slanted, which is the very defect the weld exists to stop people redrawing
+  // their way out of.
+  const f = emptyDoc().floors[0]!;
+  const corner = nodeAt(f, v(0, 0));
+  insertWall(f, corner.id, nodeAt(f, v(6000, 0)).id, 300);
+  insertWall(f, corner.id, nodeAt(f, v(0, -4000)).id, 300);
+  insertWall(f, nodeAt(f, v(250, 0)).id, nodeAt(f, v(250, 3000)).id, 100);
+  const at = f.nodes.find(n => n.id === corner.id);
+  check("a junction near a crossing is not dragged onto it",
+    at !== undefined && at.x === 0 && at.y === 0, JSON.stringify(at));
+  check("the wall running off it stays square",
+    f.walls.some(w => {
+      const a = f.nodes.find(n => n.id === w.a)!, b = f.nodes.find(n => n.id === w.b)!;
+      return a.x === b.x && near(Math.abs(a.y - b.y), 4000, 1);
+    }), f.walls.map(w => Math.round(wallLength(f, w))).join(","));
+  check("and the crossing splits it as it always did",
+    f.walls.some(w => near(wallLength(f, w), 250, 1)));
+}
+{
+  // A junction is still welded when the move is small enough to be nothing.
+  const f = emptyDoc().floors[0]!;
+  const corner = nodeAt(f, v(0, 0));
+  insertWall(f, corner.id, nodeAt(f, v(6000, 0)).id, 300);
+  insertWall(f, corner.id, nodeAt(f, v(0, -4000)).id, 300);
+  insertWall(f, nodeAt(f, v(12, 0)).id, nodeAt(f, v(12, 3000)).id, 100);
+  check("a crossing 12 mm from a junction still welds",
+    !f.walls.some(w => wallLength(f, w) < 100),
+    f.walls.map(w => Math.round(wallLength(f, w))).join(","));
+}
+{
+  // The bound is the wall's own thickness where the end is loose, not a
+  // constant: a thicker wall refuses a longer stub.
   const thin = emptyDoc().floors[0]!;
   insertWall(thin, nodeAt(thin, v(0, 0)).id, nodeAt(thin, v(4000, 0)).id, 70);
   insertWall(thin, nodeAt(thin, v(3900, -500)).id, nodeAt(thin, v(3900, 500)).id, 100);

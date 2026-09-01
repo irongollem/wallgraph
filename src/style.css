@@ -207,6 +207,8 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 /* A room with no name yet reads as a placeholder, not as a room called
    "naamloos" -- the word is the prompt, not the label. */
 .zone-name.is-unnamed { color: #b5afa0; font-style: italic; }
+.zone-name.is-warn { color: #b3261e; font-weight: 500; }
+.pal-cat.is-warn .count { color: #b3261e; font-weight: 600; }
 .zone-area { color: #a09a8a; font-size: 10px; font-variant-numeric: tabular-nums; flex: none; }
 .zone-edit {
   display: flex; align-items: center; justify-content: center; flex: none;

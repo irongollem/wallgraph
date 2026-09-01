@@ -252,6 +252,17 @@ export const WELD_TOL = 1; // mm
 /** Shortest wall the tools create; below this the two ends are one node. */
 export const MIN_WALL_MM = 10;
 
+/**
+ * How near an existing wall's end a crossing may fall before it is treated as
+ * meeting that end rather than cutting it. Small and absolute, because welding
+ * MOVES the end: a junction dragged further than this is a deformation of
+ * something already drawn, not a correction. The click path applies the same
+ * distance when deciding whether to split a wall under the cursor
+ * (Tools.anchorNode), so the two gestures cannot disagree about where a wall
+ * stops being splittable.
+ */
+export const SPLIT_END_MM = 40;
+
 /** Clearance between an opening jamb and the end of the wall that carries it. */
 const OPENING_END_CLEARANCE_MM = 10;
 
@@ -310,26 +321,34 @@ export function insertWall(f: Floor, aId: Id, bId: Id, thickness: number, bulge 
   const welds: Array<{ node: Id; to: Vec }> = [];
   /**
    * Cut an existing wall where the new one meets it -- unless the piece left
-   * over would be shorter than that wall is thick, in which case its END is
-   * welded to the meeting point instead.
+   * over would be too short to be a wall, in which case that END is welded to
+   * the meeting point instead.
    *
-   * A wall shorter than its own thickness cannot be built; its end caps
-   * overlap. So a crossing that close to an end is a wall MEETING that end,
-   * not a wall cutting it. Splitting there leaves a stub that is invisible at
-   * plan zoom, carries a dangling node, and puts a zero-width spur in the
-   * boundary of the room around it -- which insetPolygon() reads as a
-   * collapsed face and reports as having no usable floor at all.
+   * Splitting close to an end leaves a stub invisible at plan zoom, carrying a
+   * dangling node, which puts a zero-width spur in the boundary of the room
+   * around it -- and insetPolygon() reads that as a collapsed face and reports
+   * the room as having no usable floor at all.
    *
-   * The bound comes off the wall rather than a constant so it scales with what
-   * is drawn: a 300 mm wall does not leave a 200 mm stub either. Welding can
-   * move a junction, but never further than one wall thickness, which is below
-   * anything placed deliberately at that point.
+   * How close counts depends on what is on the end, because welding MOVES it:
+   *
+   *   a loose end (nothing else attached) is pulled the whole way, up to the
+   *     wall's own thickness -- a wall shorter than it is thick cannot be
+   *     built, its end caps overlap, and nothing but this wall follows the
+   *     move;
+   *   a junction is only nudged, by SPLIT_END_MM. Everything meeting there
+   *     travels with it, so a bound that scaled with thickness would drag a
+   *     300 mm corner a quarter of a metre onto a partition drawn near it and
+   *     leave the walls running off that corner slanted -- deforming a drawing
+   *     to avoid a stub that at that size is visible, selectable and plainly a
+   *     wall.
    */
+  const degreeOf = (id: Id): number => f.walls.filter(x => x.a === id || x.b === id).length;
   const cutExisting = (w: Wall, t: number, at: Vec): void => {
     const Lw = wallLength(f, w);
-    const limit = Math.max(MIN_WALL_MM, w.thickness);
-    if (t < limit || t > Lw - limit) {
-      welds.push({ node: t <= Lw - t ? w.a : w.b, to: at });
+    const end = t <= Lw - t ? w.a : w.b;
+    const limit = degreeOf(end) === 1 ? Math.max(MIN_WALL_MM, w.thickness) : SPLIT_END_MM;
+    if (Math.min(t, Lw - t) < limit) {
+      welds.push({ node: end, to: at });
       return;
     }
     const list = splits.get(w.id);

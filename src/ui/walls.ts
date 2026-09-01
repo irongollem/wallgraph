@@ -5,10 +5,15 @@
 // rectangle is two clicks and leaves four ordinary walls behind: the shape is
 // how they were entered, not something the document keeps (see model/shape.ts).
 import { Tools } from "../input/tools";
+import { Store } from "../model/store";
 import {
   WALL_SHAPES, POLYGON_MIN_SIDES, POLYGON_MAX_SIDES, type WallShape,
 } from "../model/shape";
 import { WALL_MATERIALS, POST_DEFAULT_MM, POST_WIDTH_DEFAULT, type WallMaterial } from "../model/doc";
+import type { Wall } from "../model/doc";
+import { wallLength, MIN_WALL_MM } from "../model/ops";
+import { v } from "../geometry/vec";
+import { foldOut } from "./foldout";
 import { icon, type IconName } from "./icons";
 import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
@@ -22,7 +27,7 @@ const SHAPE_ICON: Record<WallShape, IconName> = {
 
 /** The shape picker and the dimensions the next wall will carry. */
 export function renderWallTool(
-  host: HTMLElement, tools: Tools, rows: PaneRows, onPick: () => void,
+  host: HTMLElement, store: Store, tools: Tools, rows: PaneRows, onPick: () => void,
 ): void {
   rows.secHead(t("panel.newWall"));
 
@@ -84,6 +89,87 @@ export function renderWallTool(
     rows.btnRow(t("panel.chainClose"), () => tools.closeChain(), t("panel.chainCloseTitle"));
   }
   rows.noteRow(t("panel.wallWeldNote"));
+
+  renderWallList(host, store, tools);
+}
+
+/**
+ * Every wall on this storey with the length it was built to, shortest first.
+ *
+ * Shortest first because of what the list is read for. A wall of a few
+ * millimetres is invisible at plan zoom and says nothing about itself on the
+ * canvas, but beside one of four metres in a column it is unmistakable.
+ * Pressing a row frames and selects it; the bin removes it.
+ *
+ * Folded away, and shut until asked for. This is the pane a plan is drawn
+ * from, rebuilt at every wall placed, and a storey's worth of rows standing
+ * open above the shape picker would bury the controls the drawing is actually
+ * being made with. The head carries the count, and is marked when the list
+ * holds something too short to be a wall -- so the one thing worth opening it
+ * for is legible without opening it.
+ *
+ * The list states what the graph holds and changes nothing about it. It is not
+ * a check and it repairs nothing: a short wall may be exactly what was meant.
+ */
+function renderWallList(host: HTMLElement, store: Store, tools: Tools): void {
+  const f = store.floor;
+  if (f.walls.length === 0) return;
+  const walls = [...f.walls]
+    .map(w => ({ w, len: Math.round(wallLength(f, w)), stub: false }))
+    .sort((a, b) => a.len - b.len);
+  for (const row of walls) row.stub = row.len < Math.max(MIN_WALL_MM, row.w.thickness);
+
+  const list = el("div", "zone-list");
+  for (const { w, len, stub } of walls) list.append(wallRow(store, tools, w, len, stub));
+  const note = el("div", "prop-note");
+  note.textContent = t("panel.wallListNote");
+  const body = el("div");
+  body.append(list, note);
+
+  const fold = foldOut({
+    id: "wg-wall-list",
+    label: t("panel.wallList"),
+    count: walls.length,
+    open: tools.wallListOpen,
+    content: body,
+    onToggle: open => { tools.wallListOpen = open; },
+  });
+  if (walls.some(x => x.stub)) {
+    fold.head.classList.add("is-warn");
+    fold.head.title = t("panel.wallListStub");
+  }
+  host.append(fold.head, fold.body);
+}
+
+/** One wall: its length, its thickness, and a bin. `stub` marks it as shorter
+ *  than it is thick, which is a length nothing can be built to. */
+function wallRow(store: Store, tools: Tools, w: Wall, len: number, stub: boolean): HTMLElement {
+  const f = store.floor;
+  const row = el("div", "zone-row");
+  const b = el("button", "zone") as HTMLButtonElement;
+  b.type = "button";
+  if (stub) b.title = t("panel.wallListStub");
+  b.append(
+    Object.assign(el("span", "zone-name" + (stub ? " is-warn" : "")),
+      { textContent: t("panel.wallListLength", { mm: len }) }),
+    Object.assign(el("span", "zone-area"),
+      { textContent: t("panel.wallListThickness", { mm: w.thickness }) }),
+  );
+  b.onclick = () => {
+    const a = f.nodes.find(n => n.id === w.a), z = f.nodes.find(n => n.id === w.b);
+    store.select({ kind: "wall", id: w.id });
+    if (a && z) tools.fitWorldBox(v(a.x, a.y), v(z.x, z.y));
+  };
+  const bin = el("button", "zone-edit") as HTMLButtonElement;
+  bin.type = "button";
+  bin.title = t("panel.deleteWall");
+  bin.setAttribute("aria-label", t("panel.deleteWall"));
+  bin.append(icon("trash", 15));
+  // Through the selection, so this is the same delete the canvas and the wall
+  // pane perform -- including the room names it orphans.
+  bin.onclick = () => { store.select({ kind: "wall", id: w.id }); tools.deleteSelected(); };
+  row.append(b, bin);
+  return row;
 }
 
 function shapeTile(shape: WallShape, active: boolean, onPick: () => void): HTMLButtonElement {

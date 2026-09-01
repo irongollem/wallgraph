@@ -1828,7 +1828,7 @@ export class Panel {
     // The wall tool states what the next wall is drawn with. With a wall
     // selected the same rows follow its properties, below.
     if (this.tools.tool === "wall" && sel?.kind !== "wall") {
-      renderWallTool(p, this.tools, rows, () => this.refreshToolbar());
+      renderWallTool(p, this.store, this.tools, rows, () => this.refreshToolbar());
       return;
     }
     // The opening tools state what the next opening is placed with, above the
@@ -2096,7 +2096,7 @@ export class Panel {
         });
         this.store.select(null);
       });
-      if (this.tools.tool === "wall") renderWallTool(p, this.tools, rows, () => this.refreshToolbar());
+      if (this.tools.tool === "wall") renderWallTool(p, this.store, this.tools, rows, () => this.refreshToolbar());
       return;
     }
 

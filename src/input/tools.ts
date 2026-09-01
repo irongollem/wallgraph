@@ -38,7 +38,7 @@ import { autoRoutePath } from "../core/autoroute";
 import { legAt, insertRoutePoint } from "../core/routegraph";
 import {
   nodeAt, splitWall, nearestWall, wallOnRay, wallLength, mergeNodes, deleteWall, clampOpening,
-  insertWall, insertRun, deleteRoomNames, cloneOnFloor, MIN_WALL_MM,
+  insertWall, insertRun, deleteRoomNames, cloneOnFloor, MIN_WALL_MM, SPLIT_END_MM,
   calibrateUnderlay, unanchorRoutePoints,
   type PlacedKind,
 } from "../model/ops";
@@ -181,6 +181,9 @@ export class Tools {
   symbolType = "socket-single";
   ortho = true;
   snapGrid = true;  // round placements to doc.gridMm; off = free 1 mm placement
+  /** Whether the wall pane's list of this storey's walls stands open. Editor
+   *  state, like the snaps: nothing about it belongs in the document. */
+  wallListOpen = false;
   showDims = false; // always show wall measurements (clickable), not only on selection
   lastThickness = 100;
   /**
@@ -1610,7 +1613,7 @@ export class Tools {
       const wall = f.walls.find(x => x.id === snap.wall!.id);
       if (wall) {
         const L = wallLength(f, wall);
-        if (snap.tMm > 40 && snap.tMm < L - 40) {
+        if (snap.tMm > SPLIT_END_MM && snap.tMm < L - SPLIT_END_MM) {
           const split = splitWall(f, wall, snap.tMm);
           if (split) return split;
         }
