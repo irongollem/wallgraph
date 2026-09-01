@@ -14,7 +14,7 @@ import {
 } from "../model/stair";
 import { Vide, VideSize, VIDE_DEFAULT, clampVide } from "../model/vide";
 import {
-  Furnishing, FurnishingSpec, furnishingDefaults, furnishingPreset, furnishingClass,
+  Furnishing, FurnishingSpec, furnishingDefaults, furnishingPreset,
   furnishingWallMounted, clampFurnishing, writeSpec,
 } from "../model/furnishing";
 import {
@@ -26,6 +26,9 @@ import {
 import {
   resolveRoutePoints, resolveRoutes, routeDistance, defaultRouteHeight, ResolvedRoute,
 } from "../core/route";
+import {
+  routeTakesSymbol, routeTakesFurnishing, routeEndsUnder, linkDeviceToRouteEnds, ROUTE_LINK_MM,
+} from "../core/attach";
 import {
   nodeAt, splitWall, nearestWall, wallOnRay, wallLength, mergeNodes, deleteWall, clampOpening,
   cleanOrphanNodes, insertWall, insertRun, deleteRoomNames, cloneOnFloor, MIN_WALL_MM,
@@ -1339,10 +1342,13 @@ export class Tools {
    * over. dragMove has already written the new position, so this is only the
    * part that cannot be done per move: a node dropped onto another has to weld,
    * or the graph keeps two coincident nodes and resolveFloor miters them as two
-   * separate degree-1 ends.
+   * separate degree-1 ends -- and a device dropped on a run's loose end takes
+   * that end over, the same rule its placement follows.
    */
   private finishDrag(d: DragState): void {
-    if (d.kind !== "node" || !d.moved) return;
+    if (!d.moved) return;
+    if (d.kind === "symbol" || d.kind === "furnishing") { this.linkDroppedDevices(d); return; }
+    if (d.kind !== "node") return;
     const before = this.rooms();
     this.store.mutate(doc => {
       const f = this.store.floorOf(doc);
@@ -1355,6 +1361,44 @@ export class Tools {
       // them exactly as deleting that wall would.
       deleteRoomNames(f, orphanedRoomNames(f, before));
     }, "nodedrop");
+  }
+
+  /**
+   * Every device the drag just moved picks up whatever loose route end it now
+   * stands on. Its own mutation rather than part of the move's coalesced
+   * gesture: the link is a topology change, and undoing it separately from the
+   * move it arrived with is the behaviour that matches how it reads.
+   *
+   * A device already anchoring a point keeps it -- that run followed the drag
+   * on its own (see model/route.ts) and needs nothing here.
+   */
+  private linkDroppedDevices(d: DragState): void {
+    const group = this.store.selectedOf(d.kind === "symbol" ? "symbol" : "furnishing");
+    const ids = group.length > 0 ? group : d.id ? [d.id] : [];
+    // Asked before mutating: a drop that landed on nothing must not push an
+    // empty undo step onto the stack.
+    const live = this.floor;
+    const lands = ids.some(id => {
+      if (d.kind === "symbol") {
+        const sym = live.symbols.find(x => x.id === id);
+        return !!sym && routeEndsUnder(live, sym, disc => routeTakesSymbol(disc, sym.type)).length > 0;
+      }
+      const fn = furnishingsOf(live).find(x => x.id === id);
+      return !!fn && routeEndsUnder(live, fn, (disc, water) => routeTakesFurnishing(disc, water, fn)).length > 0;
+    });
+    if (!lands) return;
+    this.store.mutate(doc => {
+      const f = this.store.floorOf(doc);
+      for (const id of ids) {
+        if (d.kind === "symbol") {
+          const sym = f.symbols.find(x => x.id === id);
+          if (sym) linkDeviceToRouteEnds(f, sym, disc => routeTakesSymbol(disc, sym.type));
+        } else {
+          const fn = furnishingsOf(f).find(x => x.id === id);
+          if (fn) linkDeviceToRouteEnds(f, fn, (disc, water) => routeTakesFurnishing(disc, water, fn));
+        }
+      }
+    });
   }
 
   // ---- wall tool ----
@@ -1540,7 +1584,14 @@ export class Tools {
     // Only when a pen is armed: the default ink is stored as no colour at all.
     if (this.symbolColor) sym.color = this.symbolColor;
     this.store.mutate(doc => {
-      this.store.floorOf(doc).symbols.push(sym);
+      const f = this.store.floorOf(doc);
+      f.symbols.push(sym);
+      // A device dropped on a run's loose end takes that end over, in the same
+      // mutation that places it: otherwise the run reads as wired and behaves
+      // as though it is not -- it would not follow the socket when the socket
+      // moves, and the panel would still call the end loose. See
+      // linkDeviceToRouteEnds().
+      linkDeviceToRouteEnds(f, sym, d => routeTakesSymbol(d, sym.type));
     });
     this.store.select({ kind: "symbol", id });
   }
@@ -1746,6 +1797,13 @@ export class Tools {
    * the nearest wall (routeWallHug above); failing that, it falls back to
    * grid/whole-mm placement like every other tool. Ortho/45 lock applies
    * while a chain is open, the same rule computeSnap uses for a wall.
+   *
+   * A device sitting ON the selected run reports BOTH: the anchor and the leg
+   * it stands on. That combination is the tap the drawing actually wants -- a
+   * socket fed from a trunk that carries on past it, where the spur is a
+   * centimetre and not a branch worth drawing. Clicking it inserts an anchored
+   * junction into that leg (see routeClick/commitRoute), rather than choosing
+   * between anchoring to the device and splitting the run.
    */
   private computeRouteSnap(
     raw: Vec,
@@ -1763,7 +1821,8 @@ export class Tools {
     const selected = this.routeTargetId
       ? routesOf(f).find(r => r.id === this.routeTargetId)
       : this.store.sel?.kind === "route" ? routesOf(f).find(r => r.id === this.store.sel!.id) : undefined;
-    if (selected && selected.discipline === discipline) {
+    const onSelected = selected !== undefined && selected.discipline === discipline;
+    if (onSelected) {
       const points = resolveRoutePoints(f, selected);
       let best = -1, bestDistance = Infinity;
       for (let i = 0; i < points.length; i++) {
@@ -1773,14 +1832,40 @@ export class Tools {
       if (best >= 0) return {
         p: points[best]!, routeId: selected.id, routePointId: selected.points[best]!.id,
       };
+    }
+
+    // What this discipline's run may end at: the symbols of its own trade, and
+    // the fit-out that is plumbed or wired -- a run ends at a fornuis, a
+    // wastafel or an afzuigkap as readily as at a socket. The rule itself
+    // lives in core/attach.ts, because a device being PLACED asks the same
+    // question from the other side. Alt overrides the check, for the run the
+    // rule did not anticipate.
+    const anchors: Array<{ id: Id; x: number; y: number; d: number }> = [];
+    const consider = (item: { id: Id; x: number; y: number }, compatible: boolean): void => {
+      if (!compatible && !this.altKey) return;
+      const d = dist(v(item.x, item.y), raw);
+      if (d <= tol) anchors.push({ id: item.id, x: item.x, y: item.y, d });
+    };
+    for (const s of f.symbols) consider(s, routeTakesSymbol(discipline, s.type));
+    for (const fn of furnishingsOf(f)) consider(fn, routeTakesFurnishing(discipline, waterKind, fn));
+    anchors.sort((a, b) => a.d - b.d);
+    const anchorHit = anchors[0] ?? null;
+
+    // The leg of the selected run under the cursor -- or, when a device was
+    // found, under the DEVICE: a wall-mounted socket's anchor sits on the wall
+    // face while a concealed run hugs the centerline, so the two are half a
+    // wall apart and the cursor's own tolerance would not reach across it.
+    const segmentAt = anchorHit ? v(anchorHit.x, anchorHit.y) : raw;
+    const segmentTol = anchorHit ? Math.max(tol, ROUTE_LINK_MM) : tol;
+    let bestSegment: {
+      id: Id; p: Vec; d: number; wallId?: Id; wallT?: number; wallSide?: 1 | -1;
+    } | undefined;
+    if (onSelected) {
       const resolved = resolveRoutes(f).find(rr => rr.route.id === selected.id);
-      let bestSegment: {
-        id: Id; p: Vec; d: number; wallId?: Id; wallT?: number; wallSide?: 1 | -1;
-      } | undefined;
       for (const segment of resolved?.segments ?? []) {
         if (segment.bulge !== 0) continue;
-        const hit = distToSeg(raw, segment.a, segment.b);
-        if (hit.d <= tol && (!bestSegment || hit.d < bestSegment.d)) {
+        const hit = distToSeg(segmentAt, segment.a, segment.b);
+        if (hit.d <= segmentTol && (!bestSegment || hit.d < bestSegment.d)) {
           const rawSegment = selected.segments.find(item => item.id === segment.id);
           const pointA = rawSegment && selected.points.find(point => point.id === rawSegment.a);
           const pointB = rawSegment && selected.points.find(point => point.id === rawSegment.b);
@@ -1797,44 +1882,18 @@ export class Tools {
           };
         }
       }
-      if (bestSegment) return {
-        p: bestSegment.p, routeId: selected.id, routeSegmentId: bestSegment.id,
-        wallId: bestSegment.wallId, wallT: bestSegment.wallT, wallSide: bestSegment.wallSide,
-      };
     }
 
-    // What this discipline's run may end at: the symbols of its own trade, and
-    // the fit-out that is plumbed or wired -- a run ends at a fornuis, a
-    // wastafel or an afzuigkap as readily as at a socket. Alt overrides the
-    // check, for the run this list did not anticipate.
-    let bestAnchor: { id: Id; x: number; y: number } | null = null, bestD = Infinity;
-    const consider = (item: { id: Id; x: number; y: number }, compatible: boolean): void => {
-      if (!compatible && !this.altKey) return;
-      const d = dist(v(item.x, item.y), raw);
-      if (d <= tol && d < bestD) { bestAnchor = item; bestD = d; }
+    // A device wins the POSITION; the leg it stands on rides along, so the
+    // click becomes a tap into the trunk rather than a new loose branch.
+    if (anchorHit) return {
+      p: v(anchorHit.x, anchorHit.y), anchor: anchorHit.id,
+      ...(bestSegment && selected ? { routeId: selected.id, routeSegmentId: bestSegment.id } : {}),
     };
-    for (const s of f.symbols) {
-      const def = getSymbol(s.type);
-      consider(s, !!def && (
-        (discipline === "electrical" && def.category === "electrical")
-        || (discipline === "water" && def.category === "water")
-        || (discipline === "vent" && def.category === "ventilation")
-        || (discipline === "gas" && def.category === "heating")
-      ));
-    }
-    for (const fn of furnishingsOf(f)) {
-      const trade = furnishingClass(fn.form);
-      consider(fn, (discipline === "water" && trade === "sanitary")
-        // Drainage reaches the fixtures; supply reaches the appliances too.
-        || (discipline === "water" && waterKind !== "afvoer" && trade === "appliance")
-        || (discipline === "electrical" && trade === "appliance")
-        || (discipline === "vent" && fn.form === "appliance" && fn.mark === "hood")
-        || (discipline === "gas" && fn.form === "appliance"));
-    }
-    if (bestAnchor) {
-      const hit: { id: Id; x: number; y: number } = bestAnchor;
-      return { p: v(hit.x, hit.y), anchor: hit.id };
-    }
+    if (bestSegment && selected) return {
+      p: bestSegment.p, routeId: selected.id, routeSegmentId: bestSegment.id,
+      wallId: bestSegment.wallId, wallT: bestSegment.wallT, wallSide: bestSegment.wallSide,
+    };
 
     for (const n of f.nodes) {
       if (dist(v(n.x, n.y), raw) <= tol) return { p: v(n.x, n.y) };
@@ -1902,12 +1961,18 @@ export class Tools {
 
   /**
    * End the open chain: two or more waypoints become one Route, written in a
-   * single mutate() call so the whole run is one undo step. Fewer than two
-   * points is nothing to draw and is simply dropped. Called by Escape,
+   * single mutate() call so the whole run is one undo step. Called by Escape,
    * double-click, and the touch "Done" button (endChain()).
+   *
+   * ONE point is committed too, but only when it splits a leg of an existing
+   * run: that is a tap into a trunk -- a socket or a switch the run reaches on
+   * its way past, where the spur is a centimetre and not a branch worth
+   * drawing -- and it is a real edit to the network even though it drew no new
+   * line. A single point anywhere else is nothing to draw and is dropped.
    */
   private commitRoute(): void {
-    if (this.routePoints.length >= 2) {
+    const tap = this.routePoints.length === 1 && this.routeSplit !== null;
+    if (this.routePoints.length >= 2 || tap) {
       const segments: RouteSegment[] = [];
       for (let i = 0; i + 1 < this.routePoints.length; i++) {
         segments.push({ id: newId("rse"), a: this.routePoints[i]!.id, b: this.routePoints[i + 1]!.id });
@@ -2087,6 +2152,9 @@ export class Tools {
     this.store.mutate(doc => {
       const f = this.store.floorOf(doc);
       (f.furnishings ??= []).push(c);
+      // A run ends at a fornuis or a wastafel as readily as at a socket, so
+      // fit-out picks up a loose end the same way a symbol does.
+      linkDeviceToRouteEnds(f, c, (d, water) => routeTakesFurnishing(d, water, c));
     });
     this.store.select({ kind: "furnishing", id: c.id });
   }

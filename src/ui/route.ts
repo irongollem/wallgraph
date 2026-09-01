@@ -17,12 +17,15 @@ import {
   clampRouteDiameter, defaultRouteDiameter,
   RouteVent, ROUTE_VENTS, routeVent, VENT_DIAMETERS, VENT_DIAMETER_DEFAULT,
   routeDuctDiameter, clampDuctDiameter, routeFlow, clampRouteFlow,
-  RouteInstallation, ROUTE_INSTALLATIONS, routeInstallation,
+  RouteInstallation, ROUTE_INSTALLATIONS, routeInstallation, type RoutePoint,
 } from "../model/route";
 import {
   resolveRoutePoints, routeLength, routeDrops, routePlaneHeight, defaultRouteHeight,
   routeGroupSummaries, routeKindSummaries, routeWaterSummaries, routeGasSummaries,
 } from "../core/route";
+import { nearestDeviceFor } from "../core/attach";
+import { planRouteMerge, mergeRoutes, removeRoutePoint } from "../core/routegraph";
+import type { Vec } from "../geometry/vec";
 import { serviceNetworkLength } from "../core/continuation";
 import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
@@ -256,12 +259,42 @@ function jumpToPort(store: Store, port: RoutePort): void {
   store.select({ kind: "route", id: port.routeId });
 }
 
-function endpointRows(rows: RouteRows, store: Store, route: Route): void {
+/**
+ * The device a loose end could be connected to, named in the reader's own
+ * language. Offered rather than assumed: a run drawn before the socket that
+ * belongs on it has an end that LOOKS wired and is not, and this is how that
+ * is repaired without dragging the waypoint pixel-accurately onto the mark.
+ * Placing or dropping a device on the end does the same thing (core/attach.ts).
+ */
+function linkRow(rows: RouteRows, store: Store, route: Route, point: RoutePoint, at: Vec): void {
+  const near = nearestDeviceFor(store.floor, route, at);
+  if (!near) return;
+  const name = near.kind === "symbol" ? t("symbol." + near.name) : t("furnishing." + near.name);
+  rows.btnRow(t("panel.routeEndpointLink", { device: name }), () => store.mutate(doc => {
+    const current = routesOf(store.floorOf(doc)).find(r => r.id === route.id)?.points.find(p => p.id === point.id);
+    if (!current) return;
+    current.anchor = near.id;
+    delete current.wallId; delete current.wallT; delete current.wallSide;
+  }));
+}
+
+function removeRow(rows: RouteRows, store: Store, tools: Tools, route: Route, point: RoutePoint): void {
+  rows.btnRow(t("panel.routeEndpointRemove"), () => {
+    store.mutate(doc => { removeRoutePoint(doc, store.activeFloor, route.id, point.id); });
+    // The route may have been the last of its points; if it is gone, so is the
+    // selection that was editing it.
+    if (!routesOf(store.floor).some(r => r.id === route.id)) tools.exitSelectMode();
+  });
+}
+
+function endpointRows(rows: RouteRows, store: Store, tools: Tools, route: Route): void {
   const degree = new Map<string, number>();
   for (const segment of route.segments) {
     degree.set(segment.a, (degree.get(segment.a) ?? 0) + 1);
     degree.set(segment.b, (degree.get(segment.b) ?? 0) + 1);
   }
+  const resolved = resolveRoutePoints(store.floor, route);
+  const positions = new Map(route.points.map((p, i) => [p.id, resolved[i]!]));
   const loose = route.points.filter(point => (degree.get(point.id) ?? 0) <= 1 && !point.anchor);
   for (let index = 0; index < loose.length; index++) {
     const point = loose[index]!;
@@ -282,6 +315,7 @@ function endpointRows(rows: RouteRows, store: Store, route: Route): void {
         const destination = store.doc.floors.find(f => f.id === other.floorId)?.name;
         if (destination) rows.btnRow(t("panel.routeJumpTo", { floor: destination }), () => jumpToPort(store, other));
       }
+      removeRow(rows, store, tools, route, point);
       continue;
     }
     rows.selRow(t("panel.routeEndpoint", { n: index + 1 }), point.terminal ?? "open", [
@@ -294,10 +328,13 @@ function endpointRows(rows: RouteRows, store: Store, route: Route): void {
       if (value === "open") delete current.terminal;
       else current.terminal = value as "source" | "capped";
     }));
+    const at = positions.get(point.id);
+    if (at) linkRow(rows, store, route, point, at);
     if (store.activeFloor + 1 < store.doc.floors.length)
       rows.btnRow(t("panel.routeContinueAbove"), () => continueInputs(store, [{ route, pointId: point.id }], 1));
     if (store.activeFloor > 0)
       rows.btnRow(t("panel.routeContinueBelow"), () => continueInputs(store, [{ route, pointId: point.id }], -1));
+    removeRow(rows, store, tools, route, point);
   }
 }
 
@@ -312,6 +349,26 @@ function bulkContinuationRows(rows: RouteRows, store: Store, routes: Route[]): v
     rows.btnRow(t("panel.routeContinueManyAbove", { n: routes.length }), () => continueInputs(store, entries, 1));
   if (store.activeFloor > 0)
     rows.btnRow(t("panel.routeContinueManyBelow", { n: routes.length }), () => continueInputs(store, entries, -1));
+}
+
+/**
+ * Join the selected runs into one network. Offered only when it would produce
+ * a single connected service: the same discipline throughout, and every run
+ * reaching the first through a weld. When it cannot, the pane says which of
+ * the two is missing rather than hiding a button that ought to be there --
+ * "the routes do not touch" is something the drawing can then be corrected
+ * for, "nothing here" is not. See planRouteMerge() in core/routegraph.ts.
+ */
+function mergeRow(rows: RouteRows, store: Store, ids: readonly Id[]): void {
+  const plan = planRouteMerge(store.floor, ids);
+  if (!plan) return;
+  if (!plan.sameDiscipline) { rows.noteRow(t("panel.routeMergeMixed")); return; }
+  if (!plan.connected) { rows.noteRow(t("panel.routeMergeApart")); return; }
+  rows.btnRow(t("panel.routeMerge", { n: ids.length }), () => {
+    let survivor: Id | null = null;
+    store.mutate(doc => { survivor = mergeRoutes(doc, store.activeFloor, ids); });
+    if (survivor) store.select({ kind: "route", id: survivor });
+  });
 }
 
 /** The discipline the next run will be drawn in, plus its armed properties. */
@@ -472,7 +529,7 @@ export function renderRouteProps(store: Store, tools: Tools, rows: RouteRows, id
     rows.infoRow(t("panel.routeVerticalLength"), `${Math.round(networkLength.verticalLengthMm)} mm`);
   }
   rows.noteRow(t("panel.routePoints", { n: route.points.length }));
-  endpointRows(rows, store, route);
+  endpointRows(rows, store, tools, route);
   materialsRows(rows, store.floor);
   rows.dangerRow(t("panel.deleteOpening"), () => tools.deleteSelected());
 }
@@ -536,6 +593,7 @@ export function renderRouteBulk(store: Store, tools: Tools, rows: RouteRows, ids
       }
     }));
   }
+  mergeRow(rows, store, ids);
   bulkContinuationRows(rows, store, routes);
   materialsRows(rows, floor);
   rows.dangerRow(t("panel.deleteOpening"), () => tools.deleteSelected());

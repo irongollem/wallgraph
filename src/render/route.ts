@@ -128,7 +128,13 @@ export function drawRoute(
     if (linkedPoints.has(point.id)) continue;
     if (n >= 3) {
       dot(ctx, p.x, p.y, DOT_R_MM + 12);
-    } else if (n === 1 && point.anchor) {
+    } else if (n === 2 && point.anchor) {
+      // A tap on a trunk: the run passes through, and this is where it reaches
+      // the device. Without a mark, the commonest wiring pattern there is --
+      // a socket fed from a run that carries on past it -- would be drawn as
+      // an unremarkable bend.
+      dot(ctx, p.x, p.y, DOT_R_MM);
+    } else if (n <= 1 && point.anchor) {
       ctx.beginPath();
       circle(ctx, p.x, p.y, CIRCLE_R_MM);
       ctx.stroke();
@@ -145,10 +151,18 @@ export function drawRoute(
       ctx.beginPath();
       ctx.moveTo(p.x, p.y - r); ctx.lineTo(p.x + r, p.y); ctx.lineTo(p.x, p.y + r);
       ctx.lineTo(p.x - r, p.y); ctx.closePath(); ctx.stroke();
-    } else if (n === 1) {
-      // An unclassified loose endpoint remains visibly incomplete until it is
-      // anchored to a device or marked as a source/cap.
-      ctx.beginPath(); circle(ctx, p.x, p.y, CIRCLE_R_MM); ctx.stroke();
+    } else if (n <= 1) {
+      // An unclassified loose end remains visibly INCOMPLETE until it is
+      // anchored to a device or marked as a source/cap -- crossed through, not
+      // the plain open circle an anchored end draws. The two used to be the
+      // same mark, which meant a plan could not show the difference between a
+      // socket that is wired and one that merely has a wire drawn up to it.
+      const arm = CIRCLE_R_MM * 0.62;
+      ctx.beginPath();
+      circle(ctx, p.x, p.y, CIRCLE_R_MM);
+      ctx.moveTo(p.x - arm, p.y - arm); ctx.lineTo(p.x + arm, p.y + arm);
+      ctx.moveTo(p.x + arm, p.y - arm); ctx.lineTo(p.x - arm, p.y + arm);
+      ctx.stroke();
     }
   }
   ctx.restore();
