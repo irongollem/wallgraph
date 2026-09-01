@@ -17,8 +17,8 @@ import {
 } from "../model/doc";
 import { continuationsOf } from "../model/continuation";
 import { Route, RoutePoint, RouteSegment } from "../model/route";
-import { Vec, dist, distToSeg } from "../geometry/vec";
-import { arcPointAt } from "../geometry/arc";
+import { Vec, add, sub, scale, dist, distToSeg } from "../geometry/vec";
+import { arcFlatten, arcPointAt } from "../geometry/arc";
 import { resolveRoutePoints } from "./route";
 
 /** Undirected edge key, so a duplicate segment is recognised either way round. */
@@ -90,8 +90,73 @@ export function removeRoutePoint(doc: PlanDoc, floorIndex: number, routeId: Id, 
 }
 
 /**
- * Splice a junction into one leg of a run, anchored to a device: the leg
- * becomes two, meeting at a point that follows the device from then on.
+ * Where `p` projects onto one leg. A bowed leg is measured on its flattened
+ * polyline and the fraction reported along the arc -- which for a circular arc
+ * is the sweep fraction, so splitting the bulge at it (see insertRouteTap in
+ * core/routegraph.ts) lands exactly on the returned point.
+ */
+export function projectOntoLeg(
+  a: Vec, b: Vec, bulge: number, p: Vec,
+): { t: number; at: Vec; distanceMm: number } | null {
+  if (dist(a, b) < 1) return null;
+  if (bulge === 0) {
+    const hit = distToSeg(p, a, b);
+    return { t: hit.t, at: add(a, scale(sub(b, a), hit.t)), distanceMm: hit.d };
+  }
+  const pts = arcFlatten(a, b, bulge, 2);
+  const lengths: number[] = [];
+  let total = 0;
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const legLength = dist(pts[i]!, pts[i + 1]!);
+    lengths.push(legLength);
+    total += legLength;
+  }
+  if (total < 1) return null;
+  let acc = 0, best: { t: number; distanceMm: number } | undefined;
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const hit = distToSeg(p, pts[i]!, pts[i + 1]!);
+    const t = (acc + hit.t * lengths[i]!) / total;
+    if (!best || hit.d < best.distanceMm) best = { t, distanceMm: hit.d };
+    acc += lengths[i]!;
+  }
+  if (!best) return null;
+  return { t: best.t, at: arcPointAt(a, b, bulge, best.t), distanceMm: best.distanceMm };
+}
+
+/**
+ * The leg of a run nearest `at`, and where along it -- what a click on the
+ * drawn line means in the stored graph. Straight legs and bowed ones alike;
+ * the fraction is the sweep fraction on an arc, so splitting the bulge at it
+ * lands exactly on the point reported.
+ */
+export function legAt(
+  floor: Floor, route: Route, at: Vec,
+): { segmentId: Id; t: number; distanceMm: number } | null {
+  const resolved = resolveRoutePoints(floor, route);
+  const byId = new Map(route.points.map((p, i) => [p.id, resolved[i]!]));
+  let best: { segmentId: Id; t: number; distanceMm: number } | null = null;
+  for (const segment of route.segments) {
+    const a = byId.get(segment.a), b = byId.get(segment.b);
+    if (!a || !b) continue;
+    const hit = projectOntoLeg(a, b, segment.bulge ?? 0, at);
+    if (!hit) continue;
+    if (best && best.distanceMm <= hit.distanceMm) continue;
+    best = { segmentId: segment.id, t: hit.t, distanceMm: hit.distanceMm };
+  }
+  return best;
+}
+
+/**
+ * Splice a point into one leg of a run: the leg becomes two, meeting there.
+ *
+ * With `anchor`, that point follows a device from then on -- which is what
+ * placing a socket ON a circuit means, the run reaching it and carrying on
+ * past. Without one it is an ordinary bend, which is what adding a node midway
+ * along a cable means: somewhere to take the run around something.
+ *
+ * The point's stored x/y is the projection onto the leg. For an anchored point
+ * that is only the fallback for an anchor that stops resolving; while the
+ * device is there the run bends to reach it, which is the tap.
  *
  * This is what placing a socket ON a circuit means -- the run reaches it and
  * carries on past, so the device is a vertex of the network rather than the
@@ -107,8 +172,8 @@ export function removeRoutePoint(doc: PlanDoc, floorIndex: number, routeId: Id, 
  *
  * Returns the new point's id, or null when the leg is not there to split.
  */
-export function insertRouteTap(
-  floor: Floor, routeId: Id, segmentId: Id, deviceId: Id, t: number,
+export function insertRoutePoint(
+  floor: Floor, routeId: Id, segmentId: Id, t: number, anchor?: Id,
 ): Id | null {
   const route = routesOf(floor).find(r => r.id === routeId);
   const index = route?.segments.findIndex(s => s.id === segmentId) ?? -1;
@@ -122,9 +187,8 @@ export function insertRouteTap(
   const bulge = segment.bulge ?? 0;
   const clamped = Math.max(0, Math.min(1, t));
   const at = arcPointAt(a, b, bulge, clamped);
-  const point: RoutePoint = {
-    id: newId("rp"), x: Math.round(at.x), y: Math.round(at.y), anchor: deviceId,
-  };
+  const point: RoutePoint = { id: newId("rp"), x: Math.round(at.x), y: Math.round(at.y) };
+  if (anchor) point.anchor = anchor;
   route.points.push(point);
 
   const sweep = 4 * Math.atan(bulge);

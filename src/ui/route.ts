@@ -31,7 +31,7 @@ import { boardOf, nextGroup, clampBoardName, type BoardData } from "../model/boa
 import type { SymbolInstance } from "../model/doc";
 import type { ServiceKey } from "../model/service";
 import {
-  planRouteMerge, mergeRoutes, removeRoutePoint, insertRouteTap, disconnectDevice,
+  planRouteMerge, mergeRoutes, removeRoutePoint, insertRoutePoint, disconnectDevice,
 } from "../core/routegraph";
 import type { Vec } from "../geometry/vec";
 import { serviceNetworkLength, issuesForRoute, storeyServices } from "../core/continuation";
@@ -572,7 +572,7 @@ export function deviceConnectionRows(
     const route = routesOf(floor).find(r => r.id === leg.routeId);
     if (!route) continue;
     rows.btnRow(t("panel.deviceConnectTo", { run: routeLabel(route) }), () => store.mutate(doc => {
-      insertRouteTap(store.floorOf(doc), leg.routeId, leg.segmentId, device.id, leg.t);
+      insertRoutePoint(store.floorOf(doc), leg.routeId, leg.segmentId, leg.t, device.id);
     }));
   }
 }

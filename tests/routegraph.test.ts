@@ -9,7 +9,7 @@ import type { Route } from "../src/model/route";
 import type { RouteContinuation } from "../src/model/continuation";
 import {
   removeRoutePoint, planRouteMerge, canMergeRoutes, mergeRoutes, routeDegrees, ROUTE_WELD_MM,
-  insertRouteTap, disconnectDevice,
+  insertRoutePoint, legAt, disconnectDevice,
 } from "../src/core/routegraph";
 import {
   routeTakesSymbol, routeTakesFurnishing, routeEndsUnder, linkDeviceToRouteEnds,
@@ -421,7 +421,7 @@ const socket = (over: Partial<SymbolInstance> = {}): SymbolInstance =>
     routesOf(f).every(r => r.segments.length === 2 && r.points.every(p => !p.anchor)));
 
   // Picking one is the panel's job; the op itself is unambiguous.
-  insertRouteTap(f, "b", "bs0", device.id, legs[0]!.t);
+  insertRoutePoint(f, "b", "bs0", legs[0]!.t, device.id);
   check("picking one splices only that run",
     routesOf(f)[1]!.segments.length === 3 && routesOf(f)[0]!.segments.length === 2);
   check("and the other is not offered again",
@@ -471,7 +471,7 @@ const socket = (over: Partial<SymbolInstance> = {}): SymbolInstance =>
   };
   f.routes = [bowed];
   const before = routeLength(f, bowed);
-  const id = insertRouteTap(f, "r", "s", "dev", 0.5);
+  const id = insertRoutePoint(f, "r", "s", 0.5, "dev");
   check("a bowed leg splices", id !== null);
   const after = routesOf(f)[0]!;
   check("into two bowed halves",
@@ -500,10 +500,79 @@ const socket = (over: Partial<SymbolInstance> = {}): SymbolInstance =>
   check("the run keeps its shape", r.segments.length === 3);
 }
 
+/* ── adding a node midway along a run ── */
+
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.routes = [chain("r", 3)];
+  const route = routesOf(f)[0]!;
+
+  // Part-way along the first leg -- what a double-click on the drawn line means.
+  const leg = legAt(f, route, { x: 400, y: 0 })!;
+  check("a click on the line names the leg it landed on", leg.segmentId === "rs0");
+  check("and where along it", Math.abs(leg.t - 0.4) < 1e-6, String(leg.t));
+  check("a click nowhere near the run is far from every leg",
+    legAt(f, route, { x: 400, y: 90000 })!.distanceMm > 1000);
+
+  const id = insertRoutePoint(f, "r", leg.segmentId, leg.t);
+  check("inserting splits that leg in two", route.segments.length === 3);
+  const added = route.points.find(p => p.id === id)!;
+  check("the new point sits where the click was",
+    added.x === 400 && added.y === 0, `${added.x},${added.y}`);
+  check("it is a bend the run passes through, not a branch",
+    degreeOf(route, added.id) === 2);
+  // A plain bend, unlike the tap a device makes: nothing follows it.
+  check("and it follows nothing", added.anchor === undefined);
+  check("the run is the length it was", Math.abs(routeLength(f, route) - 2000) < 1);
+}
+
+{
+  // A bend added to a bowed leg keeps the bow: the run must not be
+  // straightened by the act of putting a point in it.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  const bowed: Route = {
+    id: "r", discipline: "electrical",
+    points: [{ id: "a", x: 0, y: 0 }, { id: "b", x: 2000, y: 0 }],
+    segments: [{ id: "s", a: "a", b: "b", bulge: 0.4 }],
+  };
+  f.routes = [bowed];
+  const before = routeLength(f, bowed);
+  const leg = legAt(f, bowed, { x: 1000, y: 380 })!;
+  insertRoutePoint(f, "r", leg.segmentId, leg.t);
+  const after = routesOf(f)[0]!;
+  check("a bend on a bowed leg leaves two bowed halves",
+    after.segments.length === 2 && after.segments.every(s => (s.bulge ?? 0) !== 0));
+  check("and the run keeps the length it was drawn with",
+    Math.abs(routeLength(f, after) - before) < 1, `${routeLength(f, after)}/${before}`);
+}
+
+{
+  // Removing it again is the reverse, and leaves the run as it was.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.routes = [chain("r", 2)];
+  const leg = legAt(f, routesOf(f)[0]!, { x: 500, y: 0 })!;
+  const id = insertRoutePoint(f, "r", leg.segmentId, leg.t)!;
+  removeRoutePoint(doc, 0, "r", id);
+  const route = routesOf(f)[0]!;
+  check("a bend added and taken out again leaves one leg",
+    route.segments.length === 1 && route.points.length === 2);
+}
+
 /* ── both languages name what the panel shows ── */
 
 {
   const keys = ["deviceConnected", "deviceDisconnect", "deviceConnectTo", "deviceConnectPick"];
+  for (const lang of ["nl", "en"] as const) {
+    const hint = resources[lang].translation.hint as Record<string, string>;
+    check(`${lang} tells the reader how to add a point to a run`,
+      typeof hint.selectRoute === "string" && typeof hint.touchSelectRoute === "string");
+    // The touch twin must not name a key or a mouse button, per mobile.test.
+    check(`${lang} says it with a finger too`,
+      !/klik|click|Cmd|Ctrl|Del/i.test(hint.touchSelectRoute ?? ""), hint.touchSelectRoute);
+  }
   for (const lang of ["nl", "en"] as const) {
     const panel = resources[lang].translation.panel as Record<string, string>;
     check(`${lang} names every connection field`,

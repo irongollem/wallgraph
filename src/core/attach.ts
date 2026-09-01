@@ -17,10 +17,9 @@ import {
 } from "../model/route";
 import { serviceKeyOf, serviceMatches, type ServiceKey } from "../model/service";
 import { getSymbol } from "../render/symbols";
-import { Vec, add, sub, scale, dist, distToSeg, v } from "../geometry/vec";
-import { arcFlatten, arcPointAt } from "../geometry/arc";
+import { Vec, dist, v } from "../geometry/vec";
 import { resolveRoutePoints } from "./route";
-import { insertRouteTap } from "./routegraph";
+import { insertRoutePoint, projectOntoLeg } from "./routegraph";
 import { connectionPoint, type Device } from "./port";
 
 /**
@@ -180,40 +179,6 @@ export function routeLegsUnder(
  *  split, as a fraction of the leg. */
 const END_MARGIN = 0.02;
 
-/**
- * Where `p` projects onto one leg. A bowed leg is measured on its flattened
- * polyline and the fraction reported along the arc -- which for a circular arc
- * is the sweep fraction, so splitting the bulge at it (see insertRouteTap in
- * core/routegraph.ts) lands exactly on the returned point.
- */
-function projectOntoLeg(
-  a: Vec, b: Vec, bulge: number, p: Vec,
-): { t: number; at: Vec; distanceMm: number } | null {
-  if (dist(a, b) < 1) return null;
-  if (bulge === 0) {
-    const hit = distToSeg(p, a, b);
-    return { t: hit.t, at: add(a, scale(sub(b, a), hit.t)), distanceMm: hit.d };
-  }
-  const pts = arcFlatten(a, b, bulge, 2);
-  const lengths: number[] = [];
-  let total = 0;
-  for (let i = 0; i + 1 < pts.length; i++) {
-    const legLength = dist(pts[i]!, pts[i + 1]!);
-    lengths.push(legLength);
-    total += legLength;
-  }
-  if (total < 1) return null;
-  let acc = 0, best: { t: number; distanceMm: number } | undefined;
-  for (let i = 0; i + 1 < pts.length; i++) {
-    const hit = distToSeg(p, pts[i]!, pts[i + 1]!);
-    const t = (acc + hit.t * lengths[i]!) / total;
-    if (!best || hit.d < best.distanceMm) best = { t, distanceMm: hit.d };
-    acc += lengths[i]!;
-  }
-  if (!best) return null;
-  return { t: best.t, at: arcPointAt(a, b, bulge, best.t), distanceMm: best.distanceMm };
-}
-
 /** Apply what routeEndsUnder found. Returns how many ends changed hands. */
 export function linkDeviceToRouteEnds(
   floor: Floor, device: Device & { wallId?: Id },
@@ -282,7 +247,7 @@ export function connectDevice(
   const legs = routeLegsUnder(floor, device, takes);
   if (legs.length !== 1) return 0;
   const leg = legs[0]!;
-  return insertRouteTap(floor, leg.routeId, leg.segmentId, device.id, leg.t) ? 1 : 0;
+  return insertRoutePoint(floor, leg.routeId, leg.segmentId, leg.t, device.id) ? 1 : 0;
 }
 
 /** Whether connectDevice() would do anything -- asked before opening a

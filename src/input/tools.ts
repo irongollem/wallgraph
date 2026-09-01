@@ -35,6 +35,7 @@ import { connectionPoint, type Device } from "../core/port";
 import { resolveBoards } from "../core/board";
 import { serviceKeyOf } from "../model/service";
 import { autoRoutePath } from "../core/autoroute";
+import { legAt, insertRoutePoint } from "../core/routegraph";
 import {
   nodeAt, splitWall, nearestWall, wallOnRay, wallLength, mergeNodes, deleteWall, clampOpening,
   cleanOrphanNodes, insertWall, insertRun, deleteRoomNames, cloneOnFloor, MIN_WALL_MM,
@@ -343,6 +344,10 @@ export class Tools {
   private shiftKey = false;
   /** Alt at the last press: a drag that starts under it copies rather than moves. */
   private altKey = false;
+  /** Cmd on a Mac, Ctrl elsewhere. Accepted either way: the OS menu a Mac's
+   *  Ctrl-click would raise is already suppressed (see the contextmenu
+   *  listener), so both reach the canvas as an ordinary press. */
+  private modKey = false;
   private cursor: Vec = v(0, 0);
   lengthBuffer = "";
   private drag: DragState | null = null;
@@ -441,6 +446,19 @@ export class Tools {
     // Double-click ends a route chain, the mouse-side twin of the touch
     // "Done" button -- both go through commitRoute() (see endChain()).
     canvas.addEventListener("dblclick", e => {
+      // With the select tool, a double-click on a run adds a waypoint there --
+      // the same thing a double-tap does with a finger, so the gesture is one
+      // thing to learn rather than one per input device.
+      if (this.tool === "select") {
+        // screenOf takes the pointer/wheel events the rest of the input path
+        // deals in; a dblclick is a plain MouseEvent, so the cursor the moves
+        // before it already left is what says where it landed.
+        if (this.addRouteNodeAt(this.cursor)) {
+          e.preventDefault();
+          this.updateHint();
+        }
+        return;
+      }
       if (this.tool !== "route" || !this.routeStart) return;
       e.preventDefault();
       this.commitRoute();
@@ -455,7 +473,10 @@ export class Tools {
     // be a trap. Suppressed either way so the OS menu never covers the plan.
     canvas.addEventListener("contextmenu", e => {
       e.preventDefault();
-      if (this.lastPointerType === "mouse") this.cancel();
+      // A Mac's Ctrl-click raises this on the same press that just added a
+      // waypoint and took hold of it; cancelling there would throw the point
+      // away between creating it and placing it.
+      if (this.lastPointerType === "mouse" && !this.drag) this.cancel();
     });
     window.addEventListener("keydown", e => this.onKey(e));
     // Shift squares off the rectangle being struck out and locks the angle of
@@ -1154,6 +1175,15 @@ export class Tools {
       // nothing: testing only the second one turns an ordinary tap-a-wall then
       // tap-away-to-deselect into a zoom-all, which throws away the view the
       // reader was working in.
+      // A second tap on a run adds a waypoint there. Checked before the
+      // frame-all below, which needs BOTH taps to have hit nothing and so
+      // never competes for this one.
+      if (this.store.sel?.kind === "route" && time - this.lastTapTime <= DOUBLE_TAP_MS
+          && this.addRouteNodeAt(this.cursor)) {
+        this.lastTapTime = 0;
+        this.lastTapOnNothing = false;
+        return;
+      }
       const onNothing = this.store.sel === null;
       if (onNothing && this.lastTapOnNothing && time - this.lastTapTime <= DOUBLE_TAP_MS) {
         this.lastTapTime = 0;
@@ -1186,6 +1216,7 @@ export class Tools {
     this.lastPointerType = e.pointerType;
     this.shiftKey = e.shiftKey;
     this.altKey = e.altKey;
+    this.modKey = e.metaKey || e.ctrlKey;
     this.hoverSymbol = null; // a name pill has no business sitting under a click or drag
     this.hoverStair = null;
     const s = this.screenOf(e);
@@ -2145,6 +2176,40 @@ export class Tools {
   }
 
   /**
+   * Add a waypoint to the run under `w`, and take hold of it.
+   *
+   * The gesture for taking a cable around something: a run drawn straight past
+   * an obstacle needs a bend, and until now the only way to get one was to
+   * arm the route tool and split the leg from there. Hit-tested against the
+   * DRAWN line -- the corridor fan is what the reader clicked on -- and
+   * inserted into the stored leg the drawn one came from, which is the same
+   * segment either way since the fan only translates it.
+   *
+   * Returns false when the press was not on a run, so the caller falls through
+   * to whatever it would otherwise have done.
+   */
+  private addRouteNodeAt(w: Vec): boolean {
+    const pick = this.routeAt(w);
+    if (!pick) return false;
+    const leg = legAt(this.floor, pick.route, w);
+    if (!leg) return false;
+    let added: Id | null = null;
+    this.store.mutate(doc => {
+      added = insertRoutePoint(this.store.floorOf(doc), pick.route.id, leg.segmentId, leg.t);
+    });
+    this.store.select({ kind: "route", id: pick.route.id });
+    const index = routesOf(this.floor).find(r => r.id === pick.route.id)
+      ?.points.findIndex(p => p.id === added) ?? -1;
+    // Held straight away, so the point can be put where it is wanted in the
+    // same gesture that created it rather than needing a second grab.
+    if (index >= 0) {
+      this.drag = { kind: "routeVertex", id: pick.route.id, pointIndex: index, startWorld: w, moved: false };
+    }
+    this.requestRender();
+    return true;
+  }
+
+  /**
    * The route to select for a press on a cross-floor riser mark, or undefined
    * when the press is not on one. Coincident services share one mark with a
    * count badge, so the member selected is the one AFTER whatever is selected
@@ -2388,6 +2453,10 @@ export class Tools {
   private selectDown(s: Vec, w: Vec): void {
     this.lengthBuffer = "";
     this.closeDimInput();
+    // Cmd/Ctrl-click adds a waypoint to the run under the pointer -- the
+    // desktop twin of the double-tap (see onTap). Checked before anything
+    // else, since the modifier says what the press is FOR.
+    if (this.modKey && this.addRouteNodeAt(w)) return;
     const f = this.floor;
     const res = this.getResolved();
     const tol = 10 / this.vp.pxPerMm;
@@ -3267,6 +3336,7 @@ export class Tools {
             ? h("selectWallTyped", { length: this.lengthBuffer })
             : h("selectWall"))
           : this.store.sel?.kind === "furnishing" ? h("selectFurnishing")
+          : this.store.sel?.kind === "route" ? h("selectRoute")
           : h("select");
         break;
       case "door": this.hint = h("door"); break;
