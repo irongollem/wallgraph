@@ -30,6 +30,7 @@ import {
   routeTakesSymbol, routeTakesFurnishing, routeEndsUnder, linkDeviceToRouteEnds, ROUTE_LINK_MM,
 } from "../core/attach";
 import { riserMarks, type ResolvedRiserMark } from "../core/continuation";
+import { autoRoutePath } from "../core/autoroute";
 import {
   nodeAt, splitWall, nearestWall, wallOnRay, wallLength, mergeNodes, deleteWall, clampOpening,
   cleanOrphanNodes, insertWall, insertRun, deleteRoomNames, cloneOnFloor, MIN_WALL_MM,
@@ -231,6 +232,17 @@ export class Tools {
   routeFlow: number | undefined = undefined;
   routeInstallation: RouteInstallation = "concealed";
   routeHeight = 0;
+  /**
+   * Propose each leg along the walls instead of drawing it straight (issue
+   * #29). An input convenience only: what lands in the document is an ordinary
+   * Route whose waypoints can be dragged, added to or deleted afterwards, and
+   * nothing remembers it was proposed. A leg with no path along the fabric --
+   * either end too far from a wall, or nothing connecting them -- falls back to
+   * the straight line the click asked for rather than refusing the click.
+   */
+  routeAuto = false;
+  /** Stand-off from the wall centerline for a proposed leg, mm. */
+  routeOffset = 0;
   routeTag = "";
   routeName = "";
   routeBoard = "";
@@ -1763,6 +1775,14 @@ export class Tools {
     this.onToolChange();
   }
 
+  setRouteAuto(on: boolean): void { this.routeAuto = on; this.onToolChange(); this.requestRender(); }
+
+  setRouteOffset(n: number): void {
+    this.routeOffset = Math.max(0, Math.round(n));
+    this.onToolChange();
+    this.requestRender();
+  }
+
   setRouteTag(value: string): void { this.routeTag = value.trim(); this.onToolChange(); }
   setRouteName(value: string): void { this.routeName = value.trim(); this.onToolChange(); }
   setRouteBoard(value: string): void { this.routeBoard = value.trim(); this.onToolChange(); }
@@ -1954,6 +1974,11 @@ export class Tools {
       this.routePoints = [pt];
     } else {
       if (dist(target, this.routeStart) < MIN_ROUTE_STEP_MM) return;
+      // Auto mode fills the corners in between; the click's own point is still
+      // the one that lands where it was asked for.
+      for (const corner of this.autoCorners(this.routeStart, target)) {
+        this.routePoints.push({ id: newId("rp"), x: corner.x, y: corner.y });
+      }
       this.routePoints.push(pt);
     }
     this.routeStart = target;
@@ -1961,6 +1986,18 @@ export class Tools {
     this.updateHint();
     this.onToolChange();
     this.requestRender();
+  }
+
+  /**
+   * The corners a proposed leg turns at between two points, or nothing when
+   * auto mode is off or no path along the walls connects them. The endpoints
+   * themselves are the caller's, so a leg proposed to a socket still ends AT
+   * the socket rather than at the wall behind it.
+   */
+  private autoCorners(from: Vec, to: Vec): Vec[] {
+    if (!this.routeAuto) return [];
+    const path = autoRoutePath(this.floor, from, to, { offsetMm: this.routeOffset });
+    return path === null ? [] : path.slice(1, -1);
   }
 
   /**
@@ -3688,6 +3725,10 @@ export class Tools {
       const first = this.routePoints[0]!;
       ctx.moveTo(first.x, first.y);
       for (let i = 1; i < this.routePoints.length; i++) ctx.lineTo(this.routePoints[i]!.x, this.routePoints[i]!.y);
+      // The leg about to be placed, as auto mode would lay it -- so the
+      // proposal is visible before the click that accepts it.
+      const corners = this.autoCorners(this.routeStart, target);
+      for (const corner of corners) ctx.lineTo(corner.x, corner.y);
       ctx.lineTo(target.x, target.y);
       ctx.setLineDash([60, 60]); // the whole run is uncommitted until the chain ends
       ctx.stroke();
@@ -3699,7 +3740,13 @@ export class Tools {
       if (snap.anchor) { ctx.beginPath(); drawOpenCircle(ctx, target.x, target.y, 45); ctx.stroke(); }
       else drawDot(ctx, target.x, target.y, 40);
       ctx.restore();
-      const L = Math.round(dist(this.routeStart, target));
+      // The length the leg will actually be: along the corners in auto mode,
+      // straight otherwise. A proposed run reporting its straight-line distance
+      // would understate every leg it turned.
+      const legs = [this.routeStart, ...corners, target];
+      let L = 0;
+      for (let i = 0; i + 1 < legs.length; i++) L += dist(legs[i]!, legs[i + 1]!);
+      L = Math.round(L);
       drawLabel(ctx, vp, scale(add(this.routeStart, target), 0.5),
         this.lengthBuffer ? `${this.lengthBuffer}▎mm` : `${L} mm`);
     }

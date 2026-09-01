@@ -88,6 +88,10 @@ function identityRows(
  *  Tools.setRouteVeins / the schema's own maximum). */
 const VEINS_CHIPS: readonly number[] = [2, 3, 4, 5];
 
+/** Ordinary stand-offs from a wall centerline for a proposed run, mm. 0 runs
+ *  down the centerline, which is where concealed work is drawn. */
+const ROUTE_OFFSET_CHIPS: readonly number[] = [0, 100, 200, 300];
+
 /**
  * Distinct groep values already used on the floor's electrical runs, most
  * recently placed first, capped at six -- wiring one circuit is repeated
@@ -445,6 +449,15 @@ export function renderRouteTool(store: Store, tools: Tools, rows: RouteRows): vo
     });
   } else if (tools.routeDiscipline === "gas") {
     gasRows(rows, tools.routeGasDiameter, diameter => tools.setRouteGasDiameter(diameter));
+  }
+  // Auto-routing (issue #29): the engine proposes each leg along the walls,
+  // and what lands in the document is an ordinary Route the user then owns.
+  rows.checkRow(t("panel.routeAuto"), tools.routeAuto, on => tools.setRouteAuto(on));
+  if (tools.routeAuto) {
+    rows.numRow(t("panel.routeOffset"), tools.routeOffset, n => tools.setRouteOffset(n), 50);
+    rows.chipRow(t("panel.routeOffset"), ROUTE_OFFSET_CHIPS, tools.routeOffset,
+      n => tools.setRouteOffset(n));
+    rows.noteRow(t("panel.routeAutoNote"));
   }
   rows.noteRow(t("panel.routeNote"));
   storeyServiceRows(rows, store);
