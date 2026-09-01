@@ -38,7 +38,7 @@ import { autoRoutePath } from "../core/autoroute";
 import { legAt, insertRoutePoint } from "../core/routegraph";
 import {
   nodeAt, splitWall, nearestWall, wallOnRay, wallLength, mergeNodes, deleteWall, clampOpening,
-  cleanOrphanNodes, insertWall, insertRun, deleteRoomNames, cloneOnFloor, MIN_WALL_MM,
+  insertWall, insertRun, deleteRoomNames, cloneOnFloor, MIN_WALL_MM,
   calibrateUnderlay, unanchorRoutePoints,
   type PlacedKind,
 } from "../model/ops";
@@ -61,6 +61,8 @@ import { planBounds, polyBounds, Bounds } from "../core/bounds";
 import { Room, roomAnchor, orphanedRoomNames } from "../core/rooms";
 import { drawLabel, COLORS, symbolInk, routeInk } from "../render/draw";
 import { ROUTE_VENT_EXTRA_MM, LINE_WIDTH_MM } from "../render/route";
+import { removeNode } from "../core/join";
+import { removeRoutePoint } from "../core/routegraph";
 import {
   LAYER_KEYS, LAYER_OF_CATEGORY, allLayersOn, type LayerFlags, type LayerKey,
 } from "../render/layers";
@@ -74,6 +76,8 @@ export type ToolName =
 
 /** Finger travel that still counts as a tap rather than a drag. */
 const TAP_SLOP_PX = 10;
+/** How near a neighbour's x or y a dragged node squares onto it. */
+const ALIGN_TOL_PX = 12;
 /** Longest press still read as a tap. */
 const TAP_MS = 500;
 /** Gap between two taps that makes them one double tap. */
@@ -142,6 +146,36 @@ export function isHandleDrag(kind: DragState["kind"]): boolean {
   return kind === "routeVertex" || kind === "bow";
 }
 
+/**
+ * A dragged node squared against the nodes it is walled to: where the cursor
+ * comes within `tol` of a neighbour's x or y, that coordinate is taken exactly
+ * and the other axis keeps the position the grid gave it (`fallback`).
+ *
+ * The grid cannot do this. A neighbour left off-grid by an earlier free
+ * placement has no grid multiple to line up with, so a corner dragged against
+ * it comes out a slant however carefully it is placed -- and the way around
+ * that is to redraw over the wall with a shape, which is how a plan collects
+ * stubs and dangling nodes in the first place. Each axis is decided on its own,
+ * so one drag can square a corner against two different neighbours at once.
+ *
+ * Armed by the angle-snap toggle, which is what that toggle already means for a
+ * wall being drawn. Exported as a pure function so the rule can be tested
+ * without a canvas and pointers.
+ */
+export function alignToNeighbours(f: Floor, id: Id, raw: Vec, fallback: Vec, tol: number): Vec {
+  let bx = tol, by = tol;
+  let x = fallback.x, y = fallback.y;
+  for (const w of f.walls) {
+    const other = w.a === id ? w.b : w.b === id ? w.a : null;
+    if (other === null) continue;
+    const n = f.nodes.find(q => q.id === other);
+    if (!n) continue;
+    if (Math.abs(raw.x - n.x) < bx) { bx = Math.abs(raw.x - n.x); x = n.x; }
+    if (Math.abs(raw.y - n.y) < by) { by = Math.abs(raw.y - n.y); y = n.y; }
+  }
+  return v(x, y);
+}
+
 export class Tools {
   tool: ToolName = "select";
   symbolType = "socket-single";
@@ -170,11 +204,13 @@ export class Tools {
    * lastThickness and symbolColor are. A glazed partition is a run of walls and
    * so is a demolition, so both are a standing choice rather than something to
    * set again on every wall struck out. null = the plan's default masonry, and
-   * `wallMullionMm` is read only while `wallMaterial` is "glass".
+   * `wallPostWidthMm` is read only while `wallPostMm` states centres to put a
+   * member on.
    */
   wallColor: string | null = null;
   wallMaterial: WallMaterial | null = null;
-  wallMullionMm: number | null = null;
+  wallPostMm: number | null = null;
+  wallPostWidthMm: number | null = null;
 
   /**
    * The stair the tool will place next. Unlike a symbol, a stair carries its
@@ -648,16 +684,19 @@ export class Tools {
     for (const w of made) {
       if (this.wallColor) w.color = this.wallColor;
       if (this.wallMaterial) w.material = this.wallMaterial;
-      if (this.wallMaterial === "glass" && this.wallMullionMm) w.mullionMm = this.wallMullionMm;
+      if (this.wallPostMm) w.postMm = this.wallPostMm;
+      if (this.wallPostMm && this.wallPostWidthMm) w.postWidthMm = this.wallPostWidthMm;
     }
   }
 
   /** Arm the wall pen. Redraws so the draft wall shows what it will land as. */
-  setWallPen(patch: Partial<Pick<Tools, "wallColor" | "wallMaterial" | "wallMullionMm">>): void {
+  setWallPen(
+    patch: Partial<Pick<Tools, "wallColor" | "wallMaterial" | "wallPostMm" | "wallPostWidthMm">>,
+  ): void {
     Object.assign(this, patch);
-    // Glazing carries the spacing; a wall that is not glass has no stijlen to
-    // space, so the armed number goes with the material rather than lingering.
-    if (this.wallMaterial !== "glass") this.wallMullionMm = null;
+    // A profile with nothing to be a profile OF is not a state to arm: the
+    // width goes with the centres rather than waiting for them to come back.
+    if (this.wallPostMm === null) this.wallPostWidthMm = null;
     this.onToolChange();
     this.requestRender();
   }
@@ -907,8 +946,20 @@ export class Tools {
   private get gridStep(): number { return this.snapGrid ? this.store.doc.gridMm : 1; }
 
   // ---- snapping ----
-  private computeSnap(raw: Vec, forWall: boolean): SnapResult {
+  /**
+   * `dragNode` is the node currently being dragged, when one is. It and the
+   * walls it carries are left out of every target below: they sit wherever the
+   * last move put them, so a node that snapped to itself would hold the drag
+   * inside its own snap radius and move only in jumps -- and could never reach
+   * another node to weld onto, since the two compete for the same radius and
+   * the array order decides.
+   */
+  private computeSnap(raw: Vec, forWall: boolean, dragNode?: Id): SnapResult {
     const f = this.floor;
+    // The walls a dragged node carries move with it, so they are no more a
+    // target than the node itself.
+    const sf = dragNode === undefined ? f
+      : { ...f, walls: f.walls.filter(w => w.a !== dragNode && w.b !== dragNode) };
     const tolNode = 12 / this.vp.pxPerMm;
     // Drawing a wall, landing on one is the usual aim, so it is as sticky as a
     // node. Placing a symbol or an opening it stays tighter: there the wall
@@ -929,18 +980,19 @@ export class Tools {
 
     // Node snap (on the constrained point OR raw — prefer raw so nodes win).
     for (const n of f.nodes) {
+      if (n.id === dragNode) continue;
       if (dist(v(n.x, n.y), raw) <= tolNode) return { p: v(n.x, n.y), kind: "node", node: n };
     }
     // Under the angle lock the point that matters is where the locked ray meets
     // a wall: the drawer is aiming at that wall, and a grid point short of it
     // leaves an end hanging in the room.
     if (orthoDir && this.chainStart) {
-      const ray = wallOnRay(f, this.chainStart, orthoDir, p, tolWall);
+      const ray = wallOnRay(sf, this.chainStart, orthoDir, p, tolWall);
       if (ray) return { p: ray.p, kind: "wall", wall: ray.wall, tMm: ray.tMm };
     }
 
     // Wall snap.
-    const nw = nearestWall(f, p, tolWall);
+    const nw = nearestWall(sf, p, tolWall);
     if (nw) {
       const a = f.nodes.find(n => n.id === nw.wall.a)!;
       const b = f.nodes.find(n => n.id === nw.wall.b)!;
@@ -956,8 +1008,13 @@ export class Tools {
       const l = Math.round(dist(p, this.chainStart!) / g) * g;
       return { p: add(this.chainStart!, scale(orthoDir, l)), kind };
     }
-    return { p: v(Math.round(p.x / g) * g, Math.round(p.y / g) * g), kind };
+    const gp = v(Math.round(p.x / g) * g, Math.round(p.y / g) * g);
+    if (dragNode !== undefined && (this.ortho || this.shiftKey)) {
+      return { p: alignToNeighbours(f, dragNode, raw, gp, ALIGN_TOL_PX / this.vp.pxPerMm), kind };
+    }
+    return { p: gp, kind };
   }
+
 
   getSnap(): Vec | null { return this.snap?.p ?? this.routeSnap?.p ?? null; }
 
@@ -2188,6 +2245,44 @@ export class Tools {
    * Returns false when the press was not on a run, so the caller falls through
    * to whatever it would otherwise have done.
    */
+  /**
+   * Cmd/Ctrl-click on a wall splits it there, the twin of the same press on a
+   * run. The new node is selected, so the property pane's x and y set it to an
+   * exact position immediately -- and so Delete acts on what was just made.
+   *
+   * The 40 mm margins are anchorNode()'s: a split closer than that to an end
+   * leaves a sliver of wall nobody drew.
+   */
+  /**
+   * The run whose waypoints are live: the selected route, or the run a selected
+   * waypoint belongs to. Picking a point must not make its own run's other
+   * points unreachable, which is what reading `sel.kind === "route"` alone did.
+   */
+  private get activeRouteId(): Id | null {
+    const sel = this.store.sel;
+    if (sel?.kind === "route") return sel.id;
+    if (sel?.kind === "routePoint") return sel.routeId ?? null;
+    return null;
+  }
+
+  private addWallNodeAt(w: Vec): boolean {
+    const f = this.floor;
+    const hit = nearestWall(f, w, 12 / this.vp.pxPerMm);
+    if (!hit) return false;
+    const L = wallLength(f, hit.wall);
+    if (hit.tMm <= 40 || hit.tMm >= L - 40) return false;
+    let made: Id | null = null;
+    this.store.mutate(doc => {
+      const fl = this.store.floorOf(doc);
+      const wall = fl.walls.find(x => x.id === hit.wall.id);
+      if (wall) made = splitWall(fl, wall, hit.tMm)?.id ?? null;
+    });
+    if (!made) return false;
+    this.store.select({ kind: "node", id: made });
+    this.requestRender();
+    return true;
+  }
+
   private addRouteNodeAt(w: Vec): boolean {
     const pick = this.routeAt(w);
     if (!pick) return false;
@@ -2456,7 +2551,7 @@ export class Tools {
     // Cmd/Ctrl-click adds a waypoint to the run under the pointer -- the
     // desktop twin of the double-tap (see onTap). Checked before anything
     // else, since the modifier says what the press is FOR.
-    if (this.modKey && this.addRouteNodeAt(w)) return;
+    if (this.modKey && (this.addRouteNodeAt(w) || this.addWallNodeAt(w))) return;
     const f = this.floor;
     const res = this.getResolved();
     const tol = 10 / this.vp.pxPerMm;
@@ -2476,12 +2571,16 @@ export class Tools {
     // since these are marks the route tool draws, not graph nodes. Dropping
     // one on a symbol re-anchors it -- dragMove's routeVertex branch runs
     // through the same computeRouteSnap() the tool itself draws with.
-    const selRoute = this.store.sel?.kind === "route"
-      ? routesOf(f).find(x => x.id === this.store.sel!.id) : undefined;
+    const activeRoute = this.activeRouteId;
+    const selRoute = activeRoute ? routesOf(f).find(x => x.id === activeRoute) : undefined;
     if (selRoute) {
       const marks = resolveRoutePoints(f, selRoute);
       for (let i = 0; i < marks.length; i++) {
         if (dist(marks[i]!, w) <= tol * 1.5) {
+          // Picked as well as dragged, so Del takes out the point rather than
+          // the run -- the twin of a wall node, which selects on the same press.
+          const point = selRoute.points[i];
+          if (point) this.store.select({ kind: "routePoint", id: point.id, routeId: selRoute.id });
           this.drag = { kind: "routeVertex", id: selRoute.id, pointIndex: i, startWorld: w, moved: false };
           return;
         }
@@ -2851,7 +2950,7 @@ export class Tools {
       return;
     }
     if (d.kind === "node") {
-      const snap = this.computeSnap(w, false);
+      const snap = this.computeSnap(w, false, d.id);
       this.store.mutate(doc => {
         const n = this.store.floorOf(doc).nodes.find(x => x.id === d.id);
         if (n) { n.x = Math.round(snap.p.x); n.y = Math.round(snap.p.y); }
@@ -3051,7 +3150,9 @@ export class Tools {
       // Nothing else reads Enter without a typed length in the buffer, and
       // closing the ring is what a chain is usually four clicks away from.
       case "Enter": if (this.tool === "wall") this.closeChain(); break;
-      case "Delete": case "Backspace": this.deleteSelected(); break;
+      // preventDefault, or Backspace navigates the page back on browsers that
+      // still bind it -- losing the drawing to a history entry.
+      case "Delete": case "Backspace": e.preventDefault(); this.deleteSelected(); break;
     }
   }
 
@@ -3254,9 +3355,14 @@ export class Tools {
         for (const id of group) deleteWall(f, id);
         deleteRoomNames(f, orphanedRoomNames(f, before));
       } else if (sel.kind === "node") {
-        f.walls = f.walls.filter(w => w.a !== sel.id && w.b !== sel.id);
-        cleanOrphanNodes(f);
+        // Take out the NODE, not the walls it happens to join: a node between
+        // two walls dissolves and they become one. See removeNode() in
+        // core/join.ts, which follows removeRoutePoint()'s rule exactly so the
+        // two halves of the editor behave the same way under the same key.
+        removeNode(f, sel.id);
         deleteRoomNames(f, orphanedRoomNames(f, before));
+      } else if (sel.kind === "routePoint") {
+        if (sel.routeId) removeRoutePoint(doc, this.store.activeFloor, sel.routeId, sel.id);
       } else if (sel.kind === "symbol") {
         // Un-anchor every route point following any of these symbols, in the
         // SAME mutation that removes them -- see unanchorRoutePoints().
@@ -3681,25 +3787,31 @@ export class Tools {
     // of the active tool since calibration sits on top of it.
     if (this.calibArmed && this.calibP0) this.drawCalibrationPreview(ctx, vp, px);
 
-    // Node handles in select mode.
+    // Node handles in select mode. The SELECTED node is drawn in the selection
+    // colour and larger: Delete acts on it, and a plan of identical white dots
+    // does not say which one is about to go.
     if (this.tool === "select") {
-      ctx.fillStyle = "#ffffff";
-      ctx.strokeStyle = "#7a7f88";
-      ctx.lineWidth = 1 * px;
-      for (const n of f.nodes) {
+      const selNode = this.store.sel?.kind === "node" ? this.store.sel.id : null;
+      const handle = (x: number, y: number, on: boolean): void => {
+        ctx.fillStyle = on ? COLORS.select : "#ffffff";
+        ctx.strokeStyle = on ? COLORS.select : "#7a7f88";
+        ctx.lineWidth = (on ? 1.5 : 1) * px;
         ctx.beginPath();
-        ctx.arc(n.x, n.y, 3.5 * px, 0, Math.PI * 2);
+        ctx.arc(x, y, (on ? 5.5 : 3.5) * px, 0, Math.PI * 2);
         ctx.fill(); ctx.stroke();
-      }
+      };
+      for (const n of f.nodes) handle(n.x, n.y, n.id === selNode);
       // A selected route's own waypoints, drawable but not graph nodes, so
-      // they get the same handle drawn on top of the route's own marks.
-      if (this.store.sel?.kind === "route") {
-        const selRoute = routesOf(f).find(x => x.id === this.store.sel!.id);
+      // they get the same handle drawn on top of the route's own marks -- and
+      // the picked one is marked the way a picked node is, since Del acts on it.
+      const liveRoute = this.activeRouteId;
+      if (liveRoute) {
+        const selRoute = routesOf(f).find(x => x.id === liveRoute);
+        const selPoint = this.store.sel?.kind === "routePoint" ? this.store.sel.id : null;
         if (selRoute) {
-          for (const p of resolveRoutePoints(f, selRoute)) {
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, 3.5 * px, 0, Math.PI * 2);
-            ctx.fill(); ctx.stroke();
+          const marks = resolveRoutePoints(f, selRoute);
+          for (let i = 0; i < marks.length; i++) {
+            handle(marks[i]!.x, marks[i]!.y, selRoute.points[i]?.id === selPoint);
           }
         }
       }
@@ -3844,6 +3956,8 @@ export class Tools {
       ctx.save();
       ctx.strokeStyle = ink;
       ctx.fillStyle = ink;
+      // The draft has no Route to read a bore off yet, so it previews at the
+      // discipline's line width; the footprint appears once the run is committed.
       ctx.lineWidth = this.routeDiscipline === "vent" ? LINE_WIDTH_MM + ROUTE_VENT_EXTRA_MM : LINE_WIDTH_MM;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";

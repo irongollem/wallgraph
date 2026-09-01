@@ -4,7 +4,7 @@ import { roomKey, orphanedRoomNames, type Room } from "../core/rooms";
 import { isMixed } from "../core/mixed";
 import { defaultMountHeight, clampMountHeight } from "../core/mount";
 import { Tools, ToolName } from "../input/tools";
-import { clampOpening, wallLength, deleteWall, deleteRoomNames } from "../model/ops";
+import { clampOpening, wallLength, deleteWall, deleteRoomNames, splitWall } from "../model/ops";
 import type { SymbolDef } from "../render/symbols";
 import { sagittaFromBulge, bulgeFromSagitta } from "../geometry/arc";
 import { v, norm, sub, add, scale } from "../geometry/vec";
@@ -21,7 +21,8 @@ import {
   emptyDoc, areaModeOf, dimModeOf, mountMarksOn, floorHeight, wallHeight, openingSill, openingHeight, projectOf,
   sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS,
   doorKindOf, DOOR_KINDS, widthsFor, DOOR_WIDTHS_DOUBLE, FIRE_KINDS, FIRE_MINUTES,
-  FIRE_MINUTES_DEFAULT, routesOf, furnishingsOf, WALL_MATERIALS, wallGlazed, MULLION_DEFAULT_MM,
+  FIRE_MINUTES_DEFAULT, routesOf, furnishingsOf, WALL_MATERIALS, POST_DEFAULT_MM, POST_WIDTH_DEFAULT,
+  FACADE_DEFAULT_MM, facadeSideOf,
   type AreaMode, type DimMode, type Sash, type HingeEdge, type Opening, type Wall, type Floor, type FireKind,
   type ProjectMeta, type Id, type WallMaterial,
 } from "../model/doc";
@@ -41,6 +42,11 @@ import { renderFurnishingTool, renderFurnishingProps } from "./furnishing";
 import { renderZoomTool, type RoomEdit } from "./zoom";
 import { renderOpeningTool } from "./openings";
 import { renderWallTool } from "./walls";
+import {
+  planWallJoin, applyWallJoin, isJoinPlan,
+  applyNodeDissolve, isDissolvePlan, planWallMerge, planNodeRemoval, removeNode,
+} from "../core/join";
+import { removeRoutePoint } from "../core/routegraph";
 import { renderVideTool, renderVideProps, renderVideBulk } from "./vide";
 import {
   renderRouteTool, renderRouteProps, renderRouteBulk, deviceConnectionRows, boardRows,
@@ -1300,7 +1306,8 @@ export class Panel {
     // face while it is placed or dragged. Off leaves it wherever it is put.
     checkRow(t("panel.snapWall"), this.tools.snapWall, (on: boolean) => { this.tools.snapWall = on; });
     selRow(t("panel.areaMode"), areaModeOf(this.store.doc),
-      [["net", t("panel.areaNet")], ["centerline", t("panel.areaCenterline")]],
+      [["net", t("panel.areaNet")], ["centerline", t("panel.areaCenterline")],
+        ["bvo", t("panel.areaBvo")]],
       m => this.store.mutate(d => { d.areaMode = m as AreaMode; }));
     if (areaModeOf(this.store.doc) === "net") noteRow(t("panel.areaNote"));
     // Which convention the dimension lines use, separately from the areas: the
@@ -1555,21 +1562,41 @@ export class Panel {
         ...WALL_MATERIALS.map(m => [m, t("panel.material_" + m)] as [string, string])],
       value => mutAll(w => {
         if (value) w.material = value as WallMaterial; else delete w.material;
-        if (!wallGlazed(w)) delete w.mullionMm;
       }), { mixed: matMixed });
-    // Offered once the selection is glazed throughout: a spacing typed against a
-    // mixed run would land on the walls it means nothing for as well.
-    if (!matMixed && wallGlazed(first)) {
-      const onMixed = isMixed(walls, w => w.mullionMm !== undefined);
-      rows.checkRow(t("panel.mullionsOn"), first.mullionMm !== undefined, on => mutAll(w => {
-        if (on) w.mullionMm = MULLION_DEFAULT_MM; else delete w.mullionMm;
-      }), { mixed: onMixed });
-      if (!onMixed && first.mullionMm !== undefined) {
-        rows.numRow(t("panel.mullions"), first.mullionMm, n => mutAll(w => {
-          w.mullionMm = Math.max(100, Math.round(n));
-        }), 100, { mixed: isMixed(walls, w => w.mullionMm) });
-        rows.noteRow(t("panel.mullionsHelp"));
+    const postsMixed = isMixed(walls, w => w.postMm !== undefined);
+    rows.checkRow(t("panel.postsOn"), first.postMm !== undefined, on => mutAll(w => {
+      if (on) w.postMm = POST_DEFAULT_MM;
+      else { delete w.postMm; delete w.postWidthMm; }
+    }), { mixed: postsMixed });
+    if (!postsMixed && first.postMm !== undefined) {
+      rows.numRow(t("panel.posts"), first.postMm, n => mutAll(w => {
+        w.postMm = Math.max(100, Math.round(n));
+      }), 100, { mixed: isMixed(walls, w => w.postMm) });
+      const widthMixed = isMixed(walls, w => w.postWidthMm !== undefined);
+      rows.checkRow(t("panel.postWidthOn"), first.postWidthMm !== undefined, on => mutAll(w => {
+        if (on) w.postWidthMm = POST_WIDTH_DEFAULT; else delete w.postWidthMm;
+      }), { mixed: widthMixed });
+      if (!widthMixed && first.postWidthMm !== undefined) {
+        rows.numRow(t("panel.postWidth"), first.postWidthMm, n => mutAll(w => {
+          w.postWidthMm = Math.max(10, Math.round(n));
+        }), 10, { mixed: isMixed(walls, w => w.postWidthMm) });
       }
+      rows.noteRow(t("panel.postsHelp"));
+    }
+    const facadeMixed = isMixed(walls, w => w.facadeMm !== undefined);
+    rows.checkRow(t("panel.facadeOn"), first.facadeMm !== undefined, on => mutAll(w => {
+      if (on) w.facadeMm = FACADE_DEFAULT_MM;
+      else { delete w.facadeMm; delete w.facadeSide; }
+    }), { mixed: facadeMixed });
+    if (!facadeMixed && first.facadeMm !== undefined) {
+      rows.numRow(t("panel.facade"), first.facadeMm, n => mutAll(w => {
+        w.facadeMm = Math.max(10, Math.round(n));
+      }), 10, { mixed: isMixed(walls, w => w.facadeMm) });
+      rows.selRow(t("panel.facadeSide"), facadeSideOf(first),
+        [["left", t("panel.facadeLeft")], ["right", t("panel.facadeRight")]],
+        v => mutAll(w => { w.facadeSide = v === "right" ? "right" : "left"; }),
+        { mixed: isMixed(walls, w => facadeSideOf(w)) });
+      rows.noteRow(t("panel.facadeHelp"));
     }
     const colorMixed = isMixed(walls, w => w.color ?? "");
     rows.colorRow(t("panel.color"), first.color ?? null, hex => {
@@ -1581,7 +1608,49 @@ export class Panel {
         }
       }, "wallcolor:" + group.join(","));
     }, { mixed: colorMixed });
+    this.renderWallJoin(rows, group);
     rows.dangerRow(t("panel.deleteWall"), () => this.tools.deleteSelected());
+  }
+
+  /**
+   * What two selected walls can be made into, the way the route pane offers to
+   * merge two runs. Two cases, and which one applies is decided by the drawing
+   * rather than by the reader: walls that already meet are MERGED into one, and
+   * walls that stop short of each other are JOINED at a corner.
+   *
+   * Merging is offered here and not only on the node between them, because two
+   * collinear sections are two things on the screen -- selecting both and
+   * looking for "merge" is where the drawer arrives, and finding a note saying
+   * they already share a node is a dead end rather than an answer.
+   *
+   * Where neither can be done the pane SAYS which condition failed rather than
+   * hiding the button: "the walls do not reach each other" is something the
+   * drawing can be corrected for, a missing button is not.
+   */
+  private renderWallJoin(rows: PaneRows, group: readonly Id[]): void {
+    const reason = (prefix: string, key: string): void =>
+      rows.noteRow(t(prefix + key[0]!.toUpperCase() + key.slice(1)));
+
+    const merge = planWallMerge(this.store.floor, group);
+    if (merge) {
+      if (!isDissolvePlan(merge)) { reason("panel.nodeDissolve", merge.reason); return; }
+      rows.btnRow(t("panel.wallMerge"), () => {
+        this.store.mutate(d => { applyNodeDissolve(this.store.floorOf(d), merge); });
+        this.store.select({ kind: "wall", id: merge.keepId });
+      }, t("panel.wallMergeTitle"));
+      return;
+    }
+
+    const plan = planWallJoin(this.store.floor, group);
+    if (!plan) return;
+    if (!isJoinPlan(plan)) { reason("panel.wallJoin", plan.reason); return; }
+    // Parallel walls have no crossing to extend to, so their ends are welded at
+    // the midpoint instead -- a different edit, and named as one.
+    const weld = plan.parallel;
+    rows.btnRow(t(weld ? "panel.wallJoinWeld" : "panel.wallJoin"), () => {
+      this.store.mutate(d => { applyWallJoin(this.store.floorOf(d), plan); });
+      this.store.select(null);
+    }, t(weld ? "panel.wallJoinWeldTitle" : "panel.wallJoinTitle"));
   }
 
   /**
@@ -1809,6 +1878,21 @@ export class Panel {
       else renderRouteProps(this.store, this.tools, rows, sel.id);
       return;
     }
+    // A picked waypoint shows its own run's pane -- the point is a part of the
+    // run, not a separate object with properties of its own -- headed by the
+    // one action that belongs to the point: taking it out.
+    if (sel?.kind === "routePoint" && sel.routeId) {
+      const routeId = sel.routeId;
+      btnRow(t("panel.routeEndpointRemove"), () => {
+        this.store.mutate(d => {
+          removeRoutePoint(d, this.store.activeFloor, routeId, sel.id);
+        });
+        this.store.select(routesOf(this.store.floor).some(r => r.id === routeId)
+          ? { kind: "route", id: routeId } : null);
+      }, t("panel.routePointRemoveTitle"), "Del");
+      renderRouteProps(this.store, this.tools, rows, routeId);
+      return;
+    }
 
     // With the stair tool armed the picker stays put, the way the symbol
     // palette does: placing a stair selects it, so the next kind has to be
@@ -1917,25 +2001,56 @@ export class Panel {
           const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
           if (!wall) return;
           if (value) wall.material = value as WallMaterial; else delete wall.material;
-          // A spacing on a wall that is no longer glazed is a number nothing
-          // reads; it goes with the glazing rather than waiting for it to return.
-          if (!wallGlazed(wall)) delete wall.mullionMm;
         }));
-      if (wallGlazed(w)) {
-        // Set/unset, like the wall's own height: absent means no stijlen, which
-        // is a frameless pane and not a spacing that happens to be zero.
-        checkRow(t("panel.mullionsOn"), w.mullionMm !== undefined, on => this.store.mutate(d => {
+      // Set/unset, like the wall's own height: absent means no frame at all,
+      // which is a frameless pane or plain masonry, not a spacing of zero.
+      checkRow(t("panel.postsOn"), w.postMm !== undefined, on => this.store.mutate(d => {
+        const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+        if (!wall) return;
+        if (on) wall.postMm = POST_DEFAULT_MM;
+        // The profile is a fact about a member; with no members it states nothing.
+        else { delete wall.postMm; delete wall.postWidthMm; }
+      }));
+      if (w.postMm !== undefined) {
+        numRow(t("panel.posts"), w.postMm, n => this.store.mutate(d => {
+          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+          if (wall) wall.postMm = Math.max(100, Math.round(n));
+        }), 100);
+        // Absent is a real answer here — centres known, section not yet chosen —
+        // so the width is its own set/unset rather than a number defaulted to 0.
+        checkRow(t("panel.postWidthOn"), w.postWidthMm !== undefined, on => this.store.mutate(d => {
           const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
           if (!wall) return;
-          if (on) wall.mullionMm = MULLION_DEFAULT_MM; else delete wall.mullionMm;
+          if (on) wall.postWidthMm = POST_WIDTH_DEFAULT; else delete wall.postWidthMm;
         }));
-        if (w.mullionMm !== undefined) {
-          numRow(t("panel.mullions"), w.mullionMm, n => this.store.mutate(d => {
+        if (w.postWidthMm !== undefined) {
+          numRow(t("panel.postWidth"), w.postWidthMm, n => this.store.mutate(d => {
             const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
-            if (wall) wall.mullionMm = Math.max(100, Math.round(n));
-          }), 100);
-          noteRow(t("panel.mullionsHelp"));
+            if (wall) wall.postWidthMm = Math.max(10, Math.round(n));
+          }), 10);
         }
+        noteRow(t("panel.postsHelp"));
+      }
+      // Cladding. Set/unset, because a wall with no facade is an internal or
+      // party wall rather than one clad to zero.
+      checkRow(t("panel.facadeOn"), w.facadeMm !== undefined, on => this.store.mutate(d => {
+        const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+        if (!wall) return;
+        if (on) wall.facadeMm = FACADE_DEFAULT_MM;
+        else { delete wall.facadeMm; delete wall.facadeSide; }
+      }));
+      if (w.facadeMm !== undefined) {
+        numRow(t("panel.facade"), w.facadeMm, n => this.store.mutate(d => {
+          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+          if (wall) wall.facadeMm = Math.max(10, Math.round(n));
+        }), 10);
+        selRow(t("panel.facadeSide"), facadeSideOf(w),
+          [["left", t("panel.facadeLeft")], ["right", t("panel.facadeRight")]],
+          v => this.store.mutate(d => {
+            const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+            if (wall) wall.facadeSide = v === "right" ? "right" : "left";
+          }));
+        noteRow(t("panel.facadeHelp"));
       }
       // Recolouring one wall arms the pen, the way editing its thickness sets
       // the thickness of the next one: a wall marked as new work is nearly
@@ -1959,6 +2074,19 @@ export class Panel {
           wall.bulge = bulgeFromSagitta(v(aa.x, aa.y), v(bb.x, bb.y), n);
         });
       }, 50);
+      // Split at the midpoint and select what it made: the node pane already
+      // takes an exact x and y, so "add a node then place it" is two steps
+      // rather than a second way of typing a position.
+      btnRow(t("panel.wallAddNode"), () => {
+        let made: Id | null = null;
+        this.store.mutate(d => {
+          const fl = this.store.floorOf(d);
+          const wall = fl.walls.find(x => x.id === sel.id);
+          if (!wall) return;
+          made = splitWall(fl, wall, wallLength(fl, wall) / 2)?.id ?? null;
+        });
+        if (made) this.store.select({ kind: "node", id: made });
+      }, t("panel.wallAddNodeTitle"));
       dangerRow(t("panel.deleteWall"), () => {
         const before = this.tools.rooms();
         this.store.mutate(d => {
@@ -2047,6 +2175,17 @@ export class Panel {
         const n2 = this.store.floorOf(d).nodes.find(x => x.id === sel.id);
         if (n2) n2.y = Math.round(val);
       }));
+      // Removing a node is the inverse of adding one, and does exactly what Del
+      // does -- one behaviour, whether it is reached by key or by button.
+      const removal = planNodeRemoval(f, sel.id);
+      if (removal === "junction") {
+        noteRow(t("panel.nodeRemoveJunction"));
+      } else {
+        btnRow(t("panel.nodeDissolve"), () => {
+          this.store.mutate(d => { removeNode(this.store.floorOf(d), sel.id); });
+          this.store.select(null);
+        }, t(removal === "dissolved" ? "panel.nodeDissolveTitle" : "panel.nodeRemoveCutTitle"), "Del");
+      }
       dangerRow(t("panel.deleteWithWalls"), () => this.tools.deleteSelected());
     }
   }

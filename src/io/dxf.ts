@@ -16,14 +16,14 @@
 // context (see recordSymbol) because the library draws them with canvas calls;
 // their arcs flatten to polylines, which is exact enough at symbol scale and
 // avoids guessing how a mirrored, rotated transform maps onto an ARC.
-import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, stairsOf, videsOf, furnishingsOf, routesOf, roomNamesOf, wallGlazed } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, stairsOf, videsOf, furnishingsOf, routesOf, roomNamesOf, Wall, wallGlazed, wallInfill } from "../model/doc";
 import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
-import { detectRooms, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
+import { detectRooms, roomSize, sizeLabel, looseRoomNames, roomArea } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
 import { mountMarkOf } from "../core/mount";
 import { recordSymbol, Prim } from "./record";
-import { openingMarks, mullionMarks } from "./marks";
+import { openingMarks, postMarks } from "./marks";
 import { stairPrims } from "./stair";
 import { videPrims } from "./vide";
 import { furnishingPrims } from "./furnishing";
@@ -43,13 +43,24 @@ export type DxfResult = "saved" | "empty" | "failed";
 const LAYER = {
   walls: "WALLS",
   /**
-   * Glazed wall bodies and their stijlen. Its own layer rather than a pen on
-   * WALLS for the reason CABINETS-OVERHEAD is its own layer: DXF colour is
-   * per-layer, not per-entity, so a glazen wand can only be told from masonry
-   * by the layer it lands on -- which is also where a CAD reader expects to
-   * find the distinction, and where they turn the glazing off.
+   * Infill wall bodies, one layer per material, and the frame that carries
+   * them. Their own layers rather than a pen on WALLS for the reason
+   * CABINETS-OVERHEAD is its own layer: DXF colour is per-layer, not
+   * per-entity, so a glazen wand can only be told from masonry by the layer it
+   * lands on -- which is also where a CAD reader expects the distinction, and
+   * where they turn one off. POSTS is separate from both because a frame is
+   * read on its own: the columns of a portal frame and the mullions of a
+   * curtain wall are what the setting-out is dimensioned to.
    */
   glazing: "GLAZING",
+  panels: "PANELS",
+  posts: "POSTS",
+  /**
+   * Cladding outside the structural body. Its own layer because it is a
+   * different trade and a different set of dimensions: a bricklayer works to
+   * WALLS, a gevelbouwer to this, and the gross area is measured over it.
+   */
+  facade: "FACADE",
   openings: "OPENINGS",
   symbols: "SYMBOLS",
   stairs: "STAIRS",
@@ -130,7 +141,7 @@ const ROUTE_HEAT_RETOUR_LAYER = "ROUTES-HEATING-RETOUR";
 
 /** ACI colour indices — 7 is "by background", i.e. black on white paper. */
 const LAYER_COLOR: Record<string, number> = {
-  WALLS: 7, GLAZING: 4, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, ROOMS: 8,
+  WALLS: 7, GLAZING: 4, PANELS: 8, POSTS: 7, FACADE: 8, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, ROOMS: 8,
   CABINETS: 6, "CABINETS-OVERHEAD": 6,
   "ROUTES-ELECTRICAL": 1, "ROUTES-WATER": 5, "ROUTES-VENT": 2, "ROUTES-GAS": 2,
   "ROUTES-HEATING": 6, "ROUTES-HEATING-RETOUR": 6,
@@ -315,18 +326,25 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
   ]);
   w.section("ENTITIES", () => {
     // Walls: each solid piece as a closed outline, so openings are real gaps
-    // rather than something drawn over. A glazed wall's body and its stijlen go
-    // to GLAZING instead; a wall's own colour has no DXF equivalent at all,
-    // since colour here is a property of the layer rather than of the entity.
+    // rather than something drawn over. An infill body goes to its own material
+    // layer and the frame to POSTS; a wall's own colour has no DXF equivalent at
+    // all, since colour here is a property of the layer rather than the entity.
+    const bodyLayer = (wall: Wall): string =>
+      wallGlazed(wall) ? LAYER.glazing : wallInfill(wall) ? LAYER.panels : LAYER.walls;
     for (const rw of resolved.walls.values()) {
-      const layer = wallGlazed(rw.wall) ? LAYER.glazing : LAYER.walls;
-      for (const piece of rw.pieces) w.polyline(layer, piece.poly, true);
-      emitPrims(w, LAYER.glazing, mullionMarks(rw));
+      for (const piece of rw.pieces) w.polyline(bodyLayer(rw.wall), piece.poly, true);
+      emitPrims(w, LAYER.posts, postMarks(rw));
+      for (const band of rw.facade) w.polyline(LAYER.facade, band.poly, true);
     }
     // A wedge belongs to no one wall, so it follows what its neighbours agree
     // on -- the same rule the canvas and the SVG use (junctionPen in draw.ts).
-    for (const j of resolved.junctions)
-      w.polyline(junctionPen(j, resolved.walls).glazed ? LAYER.glazing : LAYER.walls, j.poly, true);
+    // Where they agree it is an infill wall, the wedge takes that body's layer.
+    for (const j of resolved.junctions) {
+      const first = resolved.walls.get(j.walls[0] ?? "");
+      const layer = first && junctionPen(j, resolved.walls).infill
+        ? bodyLayer(first.wall) : LAYER.walls;
+      w.polyline(layer, j.poly, true);
+    }
 
     for (const rw of resolved.walls.values()) emitPrims(w, LAYER.openings, openingMarks(rw));
 
@@ -375,11 +393,11 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
     }
 
     // Room areas, in the convention the document says it is using.
-    const net = areaModeOf(doc) === "net";
+    const areaMode = areaModeOf(doc);
     const dim = dimModeOf(doc);
     const rooms = detectRooms(floor);
     for (const r of rooms) {
-      const mm2 = net ? r.netAreaMm2 : r.areaMm2;
+      const mm2 = roomArea(r, areaMode);
       // Name over area over clear size, as the canvas and the SVG stack them.
       // y is document space here; the writer flips it for CAD.
       const size = roomSize(r, dim);

@@ -265,21 +265,60 @@ de dikte die hij had.</li>
 </ul>
 
 <p>Naast de dikte staat in het paneel wat de muur is en waarin hij wordt getekend. Het materiaal is
-metselwerk, beton, hout, staal of glas; niet opgegeven is een aparte staat en geen aanname. Alleen glas
-verandert de tekening: een glazen wand krijgt geen arcering maar zijn twee vlakken, met de beglazing
-ertussen. Kleur is ook hier betekenis en geen opmaak — zwart is bestaand, rood te bouwen, geel te
-slopen — en vult het muurvlak, zoals op een verbouwtekening. Beide keuzes blijven staan voor de
-volgende muur, net als de dikte.</p>
-<p>Een glazen wand kan een stijlafstand dragen. Die geldt als maximale ruitbreedte: elk glasvlak tussen
-de sparingen wordt in gelijke vakken verdeeld die niet breder zijn dan de opgegeven maat. Een deur in de
-wand verschuift daarmee de stijlen van zijn eigen vlak in plaats van er een in de doorgang te laten
+metselwerk, beton, hout, staal, glas of sandwichpaneel; niet opgegeven is een aparte staat en geen
+aanname. Glas en sandwichpaneel zijn invulling en veranderen de tekening: het muurlichaam krijgt geen
+arcering maar een lichte band tussen zijn twee vlakken. Kleur is ook hier betekenis en geen opmaak —
+zwart is bestaand, rood te bouwen, geel te slopen — en vult het muurvlak, zoals op een verbouwtekening.
+Die keuzes blijven staan voor de volgende muur, net als de dikte.</p>
+<p>Elke muur kan stijlen dragen: het raamwerk waarop het muurlichaam rust. Dat is één begrip voor wat in
+plattegrond één ding is — de stijlen van een pui, de kolommen van een stalen spant met sandwichpanelen,
+de regels van een houten wand. De stijlafstand geldt hart-op-hart als maximale vakbreedte: elk vlak
+tussen de sparingen wordt in gelijke vakken verdeeld die niet breder zijn dan de opgegeven maat. Een
+deur verschuift daarmee de stijlen van zijn eigen vlak in plaats van er een in de doorgang te laten
 vallen; de deurstijlen zijn dan de stijlen, zoals in een echte pui.</p>
+<p>De stijlbreedte is los op te geven. Zonder breedte staat een stijl als lijn — de hart-op-hart-maat is
+bekend, het profiel nog niet. Mét breedte is het een echt staafje op de maat waarop het wordt gebouwd;
+de diepte is de muurdikte zelf. Een stijl wordt nooit breder getekend dan zijn eigen vak. Een muur met
+stijlen gaat als <code>ELEMENTEDWALL</code> naar IFC: samengesteld uit onderdelen. Draagt het spant en de
+beplating niet, dan is de muur zelf dragend — dat is wat <code>loadBearing</code> over het bouwdeel
+zegt; de kolommen worden niet apart gemodelleerd.</p>
+
+<p>Los daarvan staat de gevelbekleding: een schil <em>buiten</em> het constructieve muurlichaam.
+<code>thickness</code> blijft de constructie, dus een sandwichwand van 100 + 100 is dikte 100 met
+geveldikte 100. Die schil ligt geheel buiten de constructieve vlakken en verandert dus niets aan de
+muurgraaf, de ruimtedetectie of het netto oppervlak — hij wordt getekend als een witte band met een
+dunne omtrek, zoals op een bouwtekening. Twee beklede muren versnijden hun schil in een hoek; een
+onbeklede muur die erop uitkomt laat de schil doorlopen. Wat de gevel wél bepaalt is het bruto
+oppervlak: bij oppervlaktemaat <b>bruto (BVO)</b> wordt gemeten tot de buitenkant van de gevel waar een
+begrenzende muur er een heeft, en tot de hartlijn waar dat niet zo is — precies wat NEN 2580 over een
+gedeelde bouwmuur zegt. Naar IFC gaat een beklede muur als <code>IfcMaterialLayerSet</code>: constructie
+en bekleding als geordende lagen.</p>
 
 <h2 id="selecteren">Selecteren, verplaatsen, krommen</h2>
 <p><kbd>V</kbd> activeert het selectiegereedschap voor knopen, muren en symbolen. Een geselecteerde muur
 krijgt een ruitvormige greep op het midden; verslepen buigt de muur tot een cirkelboog. De pijlhoogte in millimeters
 staat daarna in het paneel, net als de dikte en de lengte. Lengte aanpassen verschuift het verre
 uiteinde langs de muurrichting.</p>
+
+<p>Twee muren die net niet op elkaar uitkomen zijn samen te voegen: selecteer ze allebei
+(<kbd>Shift</kbd>+klik) en het paneel biedt <b>Muren verbinden</b> aan. Beide muren worden doorgetrokken
+tot hun snijpunt en de uiteinden worden één knoop — hetzelfde werkt bij een overlap, want dan ligt het
+snijpunt achter een van de uiteinden. Evenwijdige muren hebben geen snijpunt; die uiteinden komen samen
+op hun midden, en de knop heet dan ook anders. Kan het niet, dan zegt het paneel waaróm: de muren delen
+al een knoop, een uiteinde zit al aan een derde muur vast, of ze reiken niet tot elkaar.</p>
+<p>Knopen zijn ook los toe te voegen en te verwijderen. <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+klik op een muur
+splitst hem daar en selecteert de nieuwe knoop, zodat x en y meteen op maat te zetten zijn — dezelfde
+handeling als op een leiding. Een geselecteerde knoop is oranje getekend, zodat duidelijk is waar
+<kbd>Del</kbd> op werkt: die haalt de kn\u00f3\u00f3p weg, niet de muur. Zitten er twee muren aan, dan
+worden die \u00e9\u00e9n — ook als het een hoek was, want dat is wat het weghalen van een knoop betekent.
+Aan een muuruiteinde is er niets om in op te gaan en gaat die ene muur mee. Komen er drie of meer muren
+samen, dan gebeurt er niets: dat weghalen zou losse einden achterlaten, en daarvoor staat
+<b>Verwijderen met muren</b> er apart. Op een leiding werkt <kbd>Del</kbd> precies zo — het punt
+verdwijnt en de buren worden opnieuw verbonden. Staat een knoop tussen precies twee muren die in \u00e9\u00e9n lijn lopen en
+hetzelfde vermelden, dan biedt het paneel <b>Knoop verwijderen</b>: de twee muren worden \u00e9\u00e9n en
+de sparingen schuiven mee. Dezelfde bewerking staat op de muren zelf: selecteer beide secties en het
+paneel biedt <b>Muren samenvoegen</b> aan — twee secties zijn twee dingen op het scherm, en daar wordt
+naar de knop gezocht. Kan het niet, dan zegt het paneel waarom.</p>
 
 <h2 id="openingen">Deuren, ramen en doorgangen</h2>
 <p><kbd>D</kbd>, <kbd>N</kbd> en <kbd>P</kbd> plaatsen respectievelijk een deur, raam en doorgang op een
@@ -351,6 +390,62 @@ om het midden, <kbd>M</kbd> spiegelt.</p>
 draaien, spiegelen en verwijderen gelden voor de hele selectie. Een groep neemt geen snap: wat eenmaal is
 opgesteld blijft opgesteld. <kbd>Alt</kbd>+slepen kopieert in plaats van te verplaatsen — de kopie hangt
 aan de cursor en houdt maat, kleur en draairichting van het origineel.</p>
+
+<h2 id="installaties">Installaties</h2>
+<p><kbd>U</kbd> opent het installatiegereedschap. Een leiding is \u00e9\u00e9n samenhangend netwerk van
+punten en verbindingen, geen losse lijn: een gedeelde hoofdleiding staat \u00e9\u00e9nmaal in het bestand
+en vertakt daarna naar zoveel wandcontactdozen, kranen, afvoeren of ventielen als nodig. Klik om punten
+te plaatsen; <kbd>Esc</kbd> of dubbelklik sluit het trac\u00e9 af, <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+klik
+voegt onderweg een punt toe. Er zijn vijf disciplines — elektra, water, verwarming, ventilatie en gas —
+elk met een eigen kleur en een eigen laag onder <b>Zichtbare lagen</b>. Verwarming staat apart en is geen
+soort water: cv-leiding wordt op een andere grondslag gedimensioneerd en staat op een
+installatietekening als een eigen systeem, ook waar \u00e9\u00e9n installateur beide legt.</p>
+<p>Wat een leiding vermeldt hangt van de discipline af, en bepaalt hoe hij loopt op de tekening:</p>
+<ul>
+<li><b>Elektra</b> — kracht, utp of coax; het aantal aders; verdeler, groep en een leidingcode. Data
+loopt gestreept, kracht doorgetrokken.</li>
+<li><b>Water</b> — koud, warm of afvoer, met de diameter: 15/22/28 voor toevoer, 40/50/75/110 voor
+afvoer. Warm krijgt een eigen tint binnen de waterkleur; afvoer loopt gestreept en zwaarder.</li>
+<li><b>Verwarming</b> — aanvoer of retour, 15/16/22/28 mm.</li>
+<li><b>Ventilatie</b> — toevoer of afvoer, kanaaldiameter 100 t/m 200 mm en desgewenst een debiet in
+m\u00b3/h. Afvoer loopt gestreept.</li>
+<li><b>Gas</b> — diameter.</li>
+</ul>
+<p>Daarnaast draagt elke leiding een montagewijze — inbouw, opbouw, in de vloer, in of boven het plafond,
+of een vrij trac\u00e9 — en een hoogte boven de vloer. De lijn zegt wat voor leiding het is; hoe dik hij
+staat zegt hoeveel ruimte hij vraagt. Vanaf 50 mm krijgt een leiding onder zijn eigen lijn een
+doorsnedeband op ware maat: een kanaal van \u00d8200 neemt 200 mm in, en een tekening die dat als een
+streepje toont kan de vraag of het past niet beantwoorden. Daaronder blijft het bij de lijn — een
+toevoerleiding van 15 gaat waar hij gelegd wordt. Elektra vermeldt geen maat, want een bundel kabel
+heeft in plattegrond geen zinvolle breedte.</p>
+<p>Symbolen dragen aansluitpunten. Zet een symbool op een los leidingeinde en dat einde wordt
+overgenomen: het punt volgt vanaf dan het symbool. Dat volgen is afgeleid en niet opgeslagen — verplaats
+de wandcontactdoos en het leidingeinde gaat mee, omdat de leiding bij het tekenen de huidige positie
+leest in plaats van een bijgewerkte kopie. Staat een apparaat midden op een trac\u00e9, dan biedt het
+paneel <b>Aansluiten op</b> aan en wordt de leiding daar gesplitst; staat het precies op een knik of
+knooppunt, dan biedt het <b>Hier aansluiten op</b> aan en wordt dat bestaande punt overgenomen, zodat de
+leiding bij het apparaat omslaat. Beide zijn een keuze in het paneel en gebeuren nooit vanzelf: een
+plaatsing hoort geen knooppunt midden in een hoofdleiding stilzwijgend op te slokken. Zolang een
+aansluiting ontbreekt meldt het paneel welke dienst nog open staat.</p>
+<p>Een los eindpunt is te typeren als bron, afgedopt of doorvoer buiten het model, en is door te voeren
+naar de verdieping erboven of eronder. Zo\u2019n doorvoer is zichtbaar op elke verdieping die hij raakt,
+met een eigen schachtaanduiding. Het paneel telt per verdieping wat er binnenkomt, uitgaat en doorloopt,
+en hoeveel verticale lengte aan die verdieping toevalt — elke schacht \u00e9\u00e9n keer, bij de laagste
+verdieping die hij raakt, zodat dezelfde schacht niet op elke plattegrond opnieuw meetelt. Wat niet
+klopt wordt gemeld en niet geweigerd: een doorvoer naar een punt dat niet meer bestaat, tussen punten op
+dezelfde verdieping, tussen verschillende disciplines, of tussen leidingen waarvan de gegevens niet
+overeenkomen.</p>
+<p>Het paneel noemt de getekende lengte, en apart daarvan de aftakkingen naar de aangesloten apparaten:
+die zijn echte leiding maar staan niet op de plattegrond, dus worden ze ernaast vermeld in plaats van
+erin verwerkt. Apparaten zonder opgegeven montagehoogte worden geteld, niet geraden. Loopt het netwerk
+over meer verdiepingen, dan staat de totale netwerklengte er ook, met de verticale lengte apart. Twee
+leidingen zijn samen te voegen wanneer dat \u00e9\u00e9n aaneengesloten net oplevert — dezelfde discipline,
+en elkaar rakend; lukt dat niet, dan zegt het paneel welke van de twee ontbreekt.
+<b>Automatisch langs muren</b> trekt elk stuk over de kortste weg langs de muren, op een instelbare
+afstand tot het hart, en levert een gewoon trac\u00e9 op dat daarna met de hand aan te passen is.</p>
+<p>Bij export krijgt elke discipline een eigen DXF-laag, met aparte lagen voor data, waterafvoer en
+ventilatie-afvoer, omdat DXF kleur en streep per laag regelt en niet per lijn. De vergunningsbladen
+dragen geen installaties.</p>
 
 <h2 id="zoomen">Ruimtes in beeld en op naam</h2>
 <p><kbd>F</kbd> brengt de hele plattegrond in beeld, <kbd>Shift</kbd>+<kbd>F</kbd> de selectie. Beide
@@ -450,20 +545,57 @@ wall rather than stacking two. That wall keeps the thickness it had.</li>
 </ul>
 
 <p>Beside the thickness, the panel states what the wall is and what it is drawn in. The material is
-masonry, concrete, timber, steel or glass; not stated is a state of its own rather than an assumption.
-Only glass changes the drawing: a glazed wall is drawn as its two faces with the glazing between them
-rather than as poché. Colour is meaning here too, not formatting — black is existing, red to be built,
-yellow to be removed — and it fills the wall body, as a verbouwtekening does. Both choices stay armed
-for the next wall, the way the thickness does.</p>
-<p>A glazed wall can carry a mullion spacing. It reads as a maximum pane width: each run of glass
-between openings is divided into equal bays no wider than the stated figure. A door in the wall
-therefore pushes the mullions of its own run aside instead of one landing in the doorway, and the door
-jambs read as the mullions they are in a real pui.</p>
+masonry, concrete, timber, steel, glass or sandwich panel; not stated is a state of its own rather than
+an assumption. Glass and sandwich panel are infill and change the drawing: the body is drawn as a light
+band between its two faces rather than as poché. Colour is meaning here too, not formatting — black is
+existing, red to be built, yellow to be removed — and it fills the wall body, as a verbouwtekening does.
+Those choices stay armed for the next wall, the way the thickness does.</p>
+<p>Any wall can carry posts: the frame its body is held in. That is one idea for what is one thing in
+plan — the mullions of a curtain wall, the columns of a steel portal frame carrying sandwich panels, the
+studs of a timber wall. The spacing is centre to centre and reads as a maximum bay width: each run
+between openings is divided into equal bays no wider than the stated figure. A door therefore pushes the
+posts of its own run aside instead of one landing in the doorway, and the door jambs read as the posts
+they are in a real pui.</p>
+<p>The post width is stated separately. Without one a post draws as a line — the centres are known, the
+section is not yet. With one it is a member at the size it is built to, its depth being the wall
+thickness itself, and it is never drawn wider than its own bay. A wall carrying posts exports as an IFC
+<code>ELEMENTEDWALL</code>: assembled from components. Where the frame carries and the cladding does not,
+the wall itself is load-bearing — that is what <code>loadBearing</code> states about the element; the
+columns are not modelled separately.</p>
+
+<p>Separate from that is the cladding: a skin <em>outside</em> the structural body. <code>thickness</code>
+stays the structure, so a sandwich wall built 100 + 100 is thickness 100 with a facade of 100. That skin
+lies wholly outside the structural faces, so it changes nothing about the wall graph, room detection or
+the net area — it is drawn as a white band with a thin outline, as a building drawing does. Two clad
+walls miter their skins at a corner; an unclad wall running into one lets the skin pass. What the facade
+does set is the gross area: under the <b>gross (BVO)</b> area mode, measurement runs to the outer face of
+the facade where a bounding wall has one and to the centreline where it does not — which is what NEN 2580
+says about a shared party wall. A clad wall exports to IFC as an <code>IfcMaterialLayerSet</code>:
+structure and cladding as ordered layers.</p>
 
 <h2 id="select">Selecting, moving, curving</h2>
 <p><kbd>V</kbd> activates selection and dragging for nodes, walls and symbols. A selected wall displays
 a diamond handle at its midpoint; dragging it forms a circular arc. The sagitta in millimetres is editable in the
 panel, alongside thickness and length. Editing the length moves the far node along the wall direction.</p>
+
+<p>Two walls that stop short of each other can be joined: select both (<kbd>Shift</kbd>+click) and the
+panel offers <b>Join walls</b>. Both are extended to where their directions cross and the ends become one
+node — the same works for an overlap, where the crossing simply lies behind one of the ends. Parallel
+walls have no crossing, so their ends are welded at the midpoint and the button says so. Where the join
+cannot be made, the panel states which condition failed: the walls already share a node, one end is
+attached to a third wall, or they do not reach each other.</p>
+<p>Nodes can also be added and removed on their own. <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+click on a wall
+splits it there and selects the new node, so its x and y can be set exactly — the same gesture as on a
+service run. A selected node is drawn in the selection colour, so it is clear what <kbd>Del</kbd> will
+act on: it removes the <em>node</em>, not the wall. Where two walls meet there they become one — a corner
+included, since that is what removing a node means. At a wall end there is nothing to heal into and that
+one wall goes with it. Where three or more walls meet, nothing happens: removing it would leave loose
+ends, and <b>Delete with walls</b> sits beside it for anyone who wants that. <kbd>Del</kbd> behaves the
+same way on a service run — the point goes and its neighbours are reconnected. Where a node sits between exactly two walls that run in one line and state the same things, the
+panel offers <b>Remove node</b>: the two become one wall and the openings move with it. The same
+operation sits on the walls themselves: select both sections and the panel offers <b>Merge walls</b> —
+two sections are two things on the screen, and that is where the button gets looked for. Where it cannot
+be done, the panel says why.</p>
 
 <h2 id="openings">Doors, windows and passages</h2>
 <p><kbd>D</kbd>, <kbd>N</kbd> and <kbd>P</kbd> place a door, window and passage respectively on a wall.
@@ -533,6 +665,59 @@ a sofa, a table — lands where the cursor is. <kbd>R</kbd> turns a quarter abou
 turning, mirroring and deleting apply to the whole selection. A group takes no snap, so a run that has
 been arranged stays arranged. <kbd>Alt</kbd>-drag copies instead of moving — the copy follows the cursor
 with the original's size, colour and hinge side.</p>
+
+<h2 id="services">Building services</h2>
+<p><kbd>U</kbd> opens the services tool. A run is one connected network of points and segments rather
+than a loose line: a shared trunk is stored once and branches from there to as many sockets, taps,
+drains or air terminals as it needs. Click to place points; <kbd>Esc</kbd> or a double-click ends the
+run, and <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+click adds a point along one. There are five disciplines —
+electrical, water, heating, ventilation and gas — each with its own colour and its own layer under
+<b>Visible layers</b>. Heating is its own discipline rather than a kind of water: CV pipe is sized on a
+different basis and appears on an installation drawing as a separate system, even where one installer
+lays both.</p>
+<p>What a run states depends on its discipline, and decides how it draws:</p>
+<ul>
+<li><b>Electrical</b> — power, utp or coax; the number of cores; board, group and a cable tag. A data
+run is dashed, a power run solid.</li>
+<li><b>Water</b> — cold, hot or drain, with the diameter: 15/22/28 for supply, 40/50/75/110 for
+drainage. Hot takes its own tint within the water ink; drain is dashed and heavier.</li>
+<li><b>Heating</b> — CV flow or CV return, 15/16/22/28 mm.</li>
+<li><b>Ventilation</b> — supply or extract, duct diameter 100 to 200 mm, and a flow rate in
+m\u00b3/h where one is known. Extract is dashed.</li>
+<li><b>Gas</b> — diameter.</li>
+</ul>
+<p>Every run also carries a mounting method — concealed, surface, in the floor, in or above the ceiling,
+or a free route — and a height above the floor. The line says what kind of run it is; how thick it draws
+says how much room it needs. From 50 mm up a run gains a footprint band at its true bore beneath its own
+line: a \u00d8200 duct occupies 200 mm, and a drawing that shows that as a hairline cannot answer whether
+it fits. Below that the line is the whole statement — a 15 mm supply leg goes where it is put. Electrical
+states no size at all, because a bundle of cable has no meaningful width in plan.</p>
+<p>Symbols carry service ports. Place a symbol on a loose end of a run and that end is taken over: the
+point follows the symbol from then on. The following is derived rather than stored — move the socket and
+the end goes with it, because the run reads the symbol's current position when it draws rather than an
+updated copy. Where a device stands part-way along a run, the panel offers <b>Connect to</b> and the run
+is split there; where it stands exactly on a bend or a junction, it offers <b>Connect here to</b> and
+that existing point is adopted, so the run turns at the device. Both are a choice in the panel and never
+happen on their own: a placement should not silently swallow a junction in the middle of a trunk. Until a
+device is connected, the panel names which service is still open.</p>
+<p>A loose endpoint can be typed as a source, capped, or a run leaving the model, and can be continued to
+the storey above or below. Such a riser is visible on every storey it touches, with its own shaft tag.
+The panel counts what arrives, leaves and passes through per storey, and how much vertical run belongs to
+that storey — each shaft once, charged to the lowest storey it touches, so the same shaft is not counted
+again on every plan. What does not add up is reported rather than refused: a riser pointing at a point
+that no longer exists, one joining points on the same storey, one joining different disciplines, or one
+joining runs whose data disagree.</p>
+<p>The panel states the drawn length, and separately the drops to the devices the run is connected to:
+those are real cable but are not on the plan, so they are stated beside the drawn length rather than
+folded into it. Devices with no stated mounting height are counted, not guessed. Where the network runs
+across storeys, its total length is given too, with the vertical part stated separately. Two runs can be
+merged where that produces one connected service — the same discipline throughout, and touching; where it
+does not, the panel says which of the two is missing. <b>Follow the walls</b> takes each leg by the shortest
+path along the walls at a settable offset from the centreline, and leaves an ordinary run behind to edit
+afterwards.</p>
+<p>On export each discipline gets its own DXF layer, with separate layers for data, water drainage and
+ventilation extract, since DXF settles colour and dash per layer rather than per line. The permit sheets
+carry no services.</p>
 
 <h2 id="zoom">Framing and naming rooms</h2>
 <p><kbd>F</kbd> fits the whole plan, <kbd>Shift</kbd>+<kbd>F</kbd> the selection. Both work in any tool.

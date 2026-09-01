@@ -2,9 +2,11 @@
 // their symbol at derive time only, corridor fanning keeps bundled runs
 // legible without touching the stored document, and the permit sheet must
 // never carry services.
+import { COLORS } from "../src/render/draw";
+import { routeBandMm, routeBandInk, routeLineWidthMm } from "../src/render/route";
 import { emptyDoc, routesOf } from "../src/model/doc";
 import {
-  Route, DISCIPLINES, ROUTE_KINDS, routeKind, routeVeins,
+  Route, Discipline, routeBoreMm, DISCIPLINES, ROUTE_KINDS, routeKind, routeVeins,
   ROUTE_WATERS, routeWater, routeDiameter, WATER_SUPPLY_DIAMETERS, WATER_DRAIN_DIAMETERS,
   ROUTE_VENTS, routeVent, routeDuctDiameter, routeFlow, VENT_DIAMETERS,
 } from "../src/model/route";
@@ -470,8 +472,13 @@ const route = (over: Partial<Route> = {}): Route =>
   const beforeDash = svg.split("stroke-dasharray")[0]!;
   check("koud's geometry is drawn before the dashed sub-group opens",
     beforeDash.includes("routes-water"));
+  // Asserted on the whole document rather than on the water group's first
+  // child: a run big enough to earn a footprint band (io/svg.ts) opens its own
+  // group ahead of the tinted one, and where warm's group sits among its
+  // siblings was never what this was about. Six hex digits, so the band's own
+  // translucent eight-digit ink cannot satisfy it.
   check("warm draws in its own tinted sub-group stroke",
-    /<g stroke="#[0-9a-f]{6}">/i.test(svg.split('id="routes-water"')[1]!.split("</g>")[0] ?? ""));
+    svg.includes(`<g stroke="${COLORS.routeWaterWarm}">`));
 
   const dxfAll = toDxf(doc) ?? "";
   check("a floor with an afvoer run gets the ROUTES-WATER-AFVOER layer",
@@ -629,6 +636,44 @@ for (const lng of ["nl", "en"] as const) {
     check(`${lng} names vent kind "${v}"`, typeof panel[key] === "string", key);
   }
   check(`${lng} names the flow field`, typeof panel.routeFlow === "string");
+}
+
+// --- a run is drawn at the size it is built to ---
+{
+  const run = (discipline: Discipline, extra: Record<string, unknown>): Route => ({
+    id: "r", discipline, points: [], segments: [], ...extra,
+  } as Route);
+
+  // A cable is pulled through whatever it is pulled through, so it states no
+  // size at all; everything else is a pipe or a duct.
+  check("electrical states no bore", routeBoreMm(run("electrical", {})) === undefined);
+  check("a duct states its own", routeBoreMm(run("vent", { ductDiameter: 200 })) === 200);
+  check("a drain states its own", routeBoreMm(run("water", { water: "afvoer", diameter: 110 })) === 110);
+  check("a supply leg states its own", routeBoreMm(run("water", { water: "koud", diameter: 15 })) === 15);
+
+  // The footprint only appears where it says something the line does not: a
+  // band narrower than the line covering it would state nothing.
+  const band = (r: Route): number | undefined => routeBandMm(r);
+  check("a 200 duct gets a footprint", band(run("vent", { ductDiameter: 200 })) === 200);
+  check("a 100 duct gets one too", band(run("vent", { ductDiameter: 100 })) === 100);
+  check("a 110 soil stack gets one",
+    band(run("water", { water: "afvoer", diameter: 110 })) === 110);
+  check("a 15 supply leg does not", band(run("water", { water: "koud", diameter: 15 })) === undefined);
+  check("a 28 heating leg does not", band(run("heating", { diameter: 28 })) === undefined);
+  check("electrical never does", band(run("electrical", {})) === undefined);
+
+  // Bigger really is bigger, all the way up the duct ladder.
+  const ducts = [100, 125, 150, 160, 180, 200].map(d => band(run("vent", { ductDiameter: d })) ?? 0);
+  check("a wider duct always draws wider",
+    ducts.every((w, i) => i === 0 || w > ducts[i - 1]!), ducts.join(","));
+  check("and a duct outdraws its own line",
+    ducts.every(w => w > routeLineWidthMm(run("vent", {}))));
+
+  // The band is the run's own ink at low alpha, one string for canvas and SVG.
+  check("the band ink is the run's colour, translucent",
+    routeBandInk("#7d4dae") === "#7d4dae2e");
+  check("and a colour it cannot parse is passed through untouched",
+    routeBandInk("currentColor") === "currentColor");
 }
 
 console.log(failures === 0 ? "ALL ROUTE TESTS PASSED" : `${failures} FAILURES`);

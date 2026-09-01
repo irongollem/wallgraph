@@ -101,7 +101,7 @@ const IFC_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuv
       walls: [{
         id: "w1", a: "n1", b: "n2", thickness: 300, bulge: 0,
         height: 2700, loadBearing: true, fireRating: { kind: "wbdbo", minutes: 60 },
-        material: "glass", mullionMm: 1200, color: "#d0342c",
+        material: "glass", postMm: 1200, postWidthMm: 60, color: "#d0342c",
         openings: [{
           id: "o1", kind: "window", t: 2000, width: 1200, sashes: [],
           sillHeight: 900, height: 1400,
@@ -119,12 +119,17 @@ const IFC_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuv
 
   const noMaterial: PlanDoc = JSON.parse(JSON.stringify(full));
   delete noMaterial.floors[0]!.walls[0]!.material;
-  delete noMaterial.floors[0]!.walls[0]!.mullionMm;
+  delete noMaterial.floors[0]!.walls[0]!.postMm;
+  delete noMaterial.floors[0]!.walls[0]!.postWidthMm;
   check("a wall may state no material", validate(schema, noMaterial).length === 0);
 
   const badMaterial: PlanDoc = JSON.parse(JSON.stringify(full));
   (badMaterial.floors[0]!.walls[0]! as unknown as Record<string, unknown>).material = "brick";
   check("a material outside the list is rejected", validate(schema, badMaterial).length > 0);
+
+  const sandwich: PlanDoc = JSON.parse(JSON.stringify(full));
+  sandwich.floors[0]!.walls[0]!.material = "sandwich";
+  check("a steel-framed sandwich panel wall validates", validate(schema, sandwich).length === 0);
 
   const badWallColor: PlanDoc = JSON.parse(JSON.stringify(full));
   (badWallColor.floors[0]!.walls[0]! as unknown as Record<string, unknown>).color = "red";

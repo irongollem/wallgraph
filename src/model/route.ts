@@ -226,6 +226,27 @@ export function routeDuctDiameter(r: Route): number {
   return r.ductDiameter ?? VENT_DIAMETER_DEFAULT;
 }
 
+/**
+ * The size the run physically occupies in plan, mm, or undefined for a
+ * discipline that has none.
+ *
+ * A cable bundle has no meaningful plan width -- it is pulled through whatever
+ * it is pulled through -- so electrical returns nothing. Everything else is a
+ * pipe or a duct, and a 200 duct genuinely has to fit somewhere, which is what
+ * the drawing has to be able to show. One accessor rather than a dispatch at
+ * each call site: the canvas, the SVG and the property pane must agree about
+ * how big a run is.
+ */
+export function routeBoreMm(r: Route): number | undefined {
+  switch (r.discipline) {
+    case "electrical": return undefined;
+    case "vent": return routeDuctDiameter(r);
+    case "heating": return routeHeatDiameter(r);
+    case "water": return routeDiameter(r);
+    default: return r.diameter ?? 15;   // gas
+  }
+}
+
 /** Whole mm, within what the schema allows (63-400) -- the chip row offers
  *  VENT_DIAMETERS; this is the wider bound a typed value can still reach. */
 export function clampDuctDiameter(n: number): number {

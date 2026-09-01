@@ -121,6 +121,46 @@ export function cleanOrphanNodes(f: Floor): void {
   f.nodes = f.nodes.filter(n => used.has(n.id));
 }
 
+/**
+ * Reverse a wall's own a->b direction in place, preserving the drawing exactly.
+ *
+ * Most of a wall is symmetric, but five things are stated in the wall's own
+ * frame and have to be turned with it:
+ *   bulge        positive bows toward perp(chord), and perp reverses
+ *   facadeSide   "left" is +perp(tangent), likewise
+ *   opening.t    measured from node a, so it becomes L - t
+ *   sash order   sashes run along a->b, so the list reverses
+ *   sash hinge / slideTo / outward
+ *                the jambs swap names, and `outward` picks a face off the
+ *                normal, which reverses -- so an absent `outward` has to be
+ *                written out as `true` rather than left to default.
+ * `spin` does NOT turn: a revolving door's sense is a world rotation, taken
+ * from canvas angles rather than from the wall (see drawDoorLeaf).
+ *
+ * KNOWN GAP: a SLIDING sash is not preserved. Its two rails are drawn at +/- an
+ * offset from the wall normal with nothing in the document saying which side
+ * the leaf runs on, so reversing the wall mirrors them and there is no field to
+ * correct it with. Callers must not flip a wall carrying one -- planNodeDissolve
+ * in core/join.ts checks for exactly that before choosing which wall to turn.
+ */
+export function flipWall(f: Floor, w: Wall): void {
+  const L = wallLength(f, w);
+  const a = w.a; w.a = w.b; w.b = a;
+  w.bulge = -w.bulge;
+  if (w.facadeSide !== undefined) w.facadeSide = w.facadeSide === "left" ? "right" : "left";
+  const jamb = (e: "a" | "b" | "head" | "sill" | undefined): typeof e =>
+    e === "a" ? "b" : e === "b" ? "a" : e;
+  for (const o of w.openings) {
+    o.t = L - o.t;
+    o.sashes = [...o.sashes].reverse().map(sh => ({
+      ...sh,
+      ...(sh.hinge !== undefined ? { hinge: jamb(sh.hinge) as typeof sh.hinge } : {}),
+      ...(sh.slideTo !== undefined ? { slideTo: sh.slideTo === "a" ? "b" as const : "a" as const } : {}),
+      outward: sh.outward !== true,
+    }));
+  }
+}
+
 /** Merge node b into node a (used when dragging one node onto another). */
 export function mergeNodes(f: Floor, aId: Id, bId: Id): void {
   if (aId === bId) return;
@@ -128,7 +168,10 @@ export function mergeNodes(f: Floor, aId: Id, bId: Id): void {
     if (w.a === bId) w.a = aId;
     if (w.b === bId) w.b = aId;
   }
-  // Remove degenerate walls (both ends same node).
+  // Remove degenerate walls (both ends same node). A route point parameterised
+  // along one has to keep the place it currently resolves to, written in this
+  // same mutation -- the rule deleteWall() follows for the same reason.
+  for (const w of f.walls) if (w.a === w.b) unanchorWallRoutePoints(f, w);
   f.walls = f.walls.filter(w => w.a !== w.b);
   f.nodes = f.nodes.filter(n => n.id !== bId);
 }
@@ -262,7 +305,33 @@ export function insertWall(f: Floor, aId: Id, bId: Id, thickness: number, bulge 
   const covered: Array<[number, number]> = [];
   /** Existing wall id -> where to cut it, mm from its own node a. */
   const splits = new Map<Id, number[]>();
-  const cutExisting = (w: Wall, t: number): void => {
+  /** Ends welded onto the new run instead of cut off it: the node to move, and
+   *  the point on the new run to move it to. */
+  const welds: Array<{ node: Id; to: Vec }> = [];
+  /**
+   * Cut an existing wall where the new one meets it -- unless the piece left
+   * over would be shorter than that wall is thick, in which case its END is
+   * welded to the meeting point instead.
+   *
+   * A wall shorter than its own thickness cannot be built; its end caps
+   * overlap. So a crossing that close to an end is a wall MEETING that end,
+   * not a wall cutting it. Splitting there leaves a stub that is invisible at
+   * plan zoom, carries a dangling node, and puts a zero-width spur in the
+   * boundary of the room around it -- which insetPolygon() reads as a
+   * collapsed face and reports as having no usable floor at all.
+   *
+   * The bound comes off the wall rather than a constant so it scales with what
+   * is drawn: a 300 mm wall does not leave a 200 mm stub either. Welding can
+   * move a junction, but never further than one wall thickness, which is below
+   * anything placed deliberately at that point.
+   */
+  const cutExisting = (w: Wall, t: number, at: Vec): void => {
+    const Lw = wallLength(f, w);
+    const limit = Math.max(MIN_WALL_MM, w.thickness);
+    if (t < limit || t > Lw - limit) {
+      welds.push({ node: t <= Lw - t ? w.a : w.b, to: at });
+      return;
+    }
     const list = splits.get(w.id);
     if (list) list.push(t); else splits.set(w.id, [t]);
   };
@@ -290,7 +359,9 @@ export function insertWall(f: Floor, aId: Id, bId: Id, thickness: number, bulge 
       // The existing wall gets a node wherever the new one starts or stops
       // inside it, so the two meet at a node instead of overlapping.
       for (const s of [0, L]) {
-        if (s > lo + WELD_TOL && s < hi - WELD_TOL) cutExisting(w, sP < sQ ? s - lo : hi - s);
+        if (s > lo + WELD_TOL && s < hi - WELD_TOL) {
+          cutExisting(w, sP < sQ ? s - lo : hi - s, add(A, scale(dir, s)));
+        }
       }
       continue;
     }
@@ -300,7 +371,7 @@ export function insertWall(f: Floor, aId: Id, bId: Id, thickness: number, bulge 
     const s = along(x), u = dot(sub(x, P), norm(sub(Q, P)));
     if (s < -WELD_TOL || s > L + WELD_TOL) continue;
     if (u < -WELD_TOL || u > Lw + WELD_TOL) continue;
-    if (u > WELD_TOL && u < Lw - WELD_TOL) cutExisting(w, u);
+    if (u > WELD_TOL && u < Lw - WELD_TOL) cutExisting(w, u, x);
     if (s > WELD_TOL && s < L - WELD_TOL) cuts.push(s);
   }
 
@@ -350,6 +421,15 @@ export function insertWall(f: Floor, aId: Id, bId: Id, thickness: number, bulge 
     const w: Wall = { id: newId("w"), a: n0.id, b: n1.id, thickness, bulge: 0, openings: [] };
     f.walls.push(w);
     made.push(w);
+  }
+
+  // Welds run last: the point an end is drawn to is a node of the run that was
+  // just laid, so it does not exist until the loop above has put it there.
+  // mergeNodes() re-points every wall that named the old end, so a corner
+  // welded here keeps whatever else was attached to it.
+  for (const weld of welds) {
+    const target = nodeAt(f, weld.to);
+    if (target.id !== weld.node) mergeNodes(f, target.id, weld.node);
   }
   return made;
 }

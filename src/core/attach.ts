@@ -77,6 +77,37 @@ export function routeEndsUnder(
   floor: Floor, device: Device & { wallId?: Id },
   takes: (key: ServiceKey) => boolean,
 ): RoutePoint[] {
+  return pointsUnder(floor, device, takes, 1);
+}
+
+/**
+ * The unanchored points this device stands on that are NOT loose ends: the
+ * bends and junctions in the middle of a run.
+ *
+ * Kept apart from routeEndsUnder() because these are never taken over
+ * automatically -- the reasoning there stands, a placement must not silently
+ * capture a junction. These are offered in the property pane instead, where
+ * connecting is something the drawer asks for.
+ *
+ * Without this a device standing exactly on a bend could be connected by
+ * nothing at all: routeLegsUnder() leaves the ends of every leg alone (they are
+ * "the endpoint's business"), and routeEndsUnder() only takes degree-1 points --
+ * so a corner, which is both, fell between the two and reported as unconnected
+ * however precisely it was placed.
+ */
+export function routeVerticesUnder(
+  floor: Floor, device: Device & { wallId?: Id },
+  takes: (key: ServiceKey) => boolean,
+): RoutePoint[] {
+  return pointsUnder(floor, device, takes, Infinity)
+    .filter(p => !routeEndsUnder(floor, device, takes).some(e => e.id === p.id));
+}
+
+/** Shared body: `interior` is the highest degree a point may have and qualify. */
+function pointsUnder(
+  floor: Floor, device: Device & { wallId?: Id },
+  takes: (key: ServiceKey) => boolean, interior: number,
+): RoutePoint[] {
   const found: RoutePoint[] = [];
   for (const route of routesOf(floor)) {
     const key = routeServiceKey(route);
@@ -93,7 +124,7 @@ export function routeEndsUnder(
     const resolved = resolveRoutePoints(floor, route);
     for (let i = 0; i < route.points.length; i++) {
       const point = route.points[i]!;
-      if (point.anchor || (degree.get(point.id) ?? 0) > 1) continue;
+      if (point.anchor || (degree.get(point.id) ?? 0) > interior) continue;
       const sameWall = device.wallId !== undefined && point.wallId === device.wallId;
       const wall = sameWall ? floor.walls.find(w => w.id === device.wallId) : undefined;
       // A shared wall permits the perpendicular gap from its centreline to

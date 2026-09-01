@@ -14,6 +14,7 @@ import { routeVent, routeFlow } from "../model/route";
 import { resolveRoutePoints } from "./route";
 import { isContinuationPort } from "./continuation";
 import { pointInPolygon } from "../geometry/vec";
+import { roomArea } from "../core/rooms";
 
 /**
  * NEN 1824's commonly applied working figure for an office workstation: the
@@ -68,7 +69,7 @@ export interface RoomFigures {
 export function roomFigures(floor: Floor, room: Room, doc: PlanDoc): RoomFigures | null {
   if (roomUseOf(floor, room) !== "verblijf") return null;
 
-  const areaMm2 = areaModeOf(doc) === "net" ? room.netAreaMm2 : room.areaMm2;
+  const areaMm2 = roomArea(room, areaModeOf(doc));
   const areaM2 = areaMm2 / 1e6;
   const workstations = Math.floor(areaM2 / WORKPLACE_MIN_M2);
 

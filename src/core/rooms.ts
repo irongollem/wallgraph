@@ -7,10 +7,13 @@
 // centerline but 9.99 m² net, a 20% gap:
 //   poly    / areaMm2    centerline-bounded (hart-op-hart), what the graph stores
 //   netPoly / netAreaMm2 inner wall faces (dagmaat), the usable floor NEN 2580 asks for
+//   bvoPoly / bvoAreaMm2 gross: to the outer face of a clad wall, to the centreline
+//                        of an unclad one -- NEN 2580's BVO, which is what a
+//                        bedrijfsunit is advertised and taxed at
 // The net boundary is derived by offsetting each face edge inward by half the
 // thickness of the wall it lies on, then intersecting adjacent offset lines —
 // the same miter construction resolve.ts uses at junctions.
-import { Floor, DimMode, roomNamesOf } from "../model/doc";
+import { Floor, DimMode, AreaMode, roomNamesOf, wallFacadeMm } from "../model/doc";
 import type { Id } from "../model/doc";
 import type { RoomName } from "../model/room";
 import {
@@ -26,8 +29,17 @@ export interface Room {
   areaMm2: number;
   /** Inner wall faces (dagmaat) — the usable floor outline. */
   netPoly: Vec[];
+  /**
+   * Gross boundary, per NEN 2580: the outer face of the facade where a bounding
+   * wall has one, and the centreline where it does not — which is what the
+   * standard says about a party wall shared with a neighbour. Equal to `poly`
+   * on a plan whose walls carry no facade, because that is then the same line.
+   */
+  bvoPoly: Vec[];
   /** Net floor area, mm². This is the NEN 2580-style number. */
   netAreaMm2: number;
+  /** Gross floor area (BVO), mm², measured over `bvoPoly`. */
+  bvoAreaMm2: number;
   centroid: Vec;
   /**
    * What this room is called, when a name has been written inside it. Derived,
@@ -148,9 +160,19 @@ export function detectRooms(f: Floor): Room[] {
     if (face.area <= 1e4) continue; // rejects outer face and <0.01 m² slivers
     const netPoly = insetPolygon(face.poly, face.halves);
     const netArea = Math.max(0, polygonArea(netPoly));
+    // Gross: the same edge offsets run the other way, and only where the wall
+    // carrying that edge is clad. An exterior wall bounds one room and its
+    // facade is by definition on the far side of it, so no side check is needed
+    // -- a facade drawn on the room side is a document error, not a case.
+    const bvoPoly = insetPolygon(face.poly, face.wallIds.map((id, i) => {
+      const w = f.walls.find(x => x.id === id);
+      const fm = w ? wallFacadeMm(w) : undefined;
+      return fm === undefined ? 0 : -((face.halves[i] ?? 0) + fm);
+    }));
     rooms.push({
       poly: face.poly, areaMm2: face.area,
       netPoly, netAreaMm2: netArea,
+      bvoPoly, bvoAreaMm2: Math.max(0, polygonArea(bvoPoly)),
       centroid: polygonCentroid(face.poly),
       boundingWallIds: Array.from(new Set(face.wallIds)),
     });
@@ -178,6 +200,18 @@ export function outerBoundary(f: Floor): Vec[] | null {
   }
   if (!best || best.area >= -1e4) return null;
   return best.poly;
+}
+
+/**
+ * The area one room reports under the plan's convention. One helper rather than
+ * a ternary at each call site: the canvas, the panel, the SVG, the DXF, the IFC
+ * space and the fit-out all have to state the same number, and a third mode is
+ * exactly the change that leaves one of six ternaries behind.
+ */
+export function roomArea(r: Room, mode: AreaMode): number {
+  return mode === "net" ? r.netAreaMm2
+       : mode === "bvo" ? r.bvoAreaMm2
+       : r.areaMm2;
 }
 
 /** Corners count as square within about two degrees. */

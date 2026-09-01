@@ -99,17 +99,25 @@ export interface Opening {
 /**
  * What a wall's body is built of.
  *
- * Only `glass` changes the drawing. A glazed wall is not poché: it is drawn as
- * its two faces with the glazing between them, because that is what separates a
- * glazen wand from a stud wall on a plan. The other four draw as masonry and
- * exist so the wall can state its material to IFC, where a name is the whole
- * answer. This is a single material, not a build-up — see the known
- * limitations in CLAUDE.md.
+ * Two of these are infill rather than masonry — `glass` and `sandwich` — and
+ * they are drawn as a light body between two faces rather than as poché,
+ * because that is what separates a glazen wand or a beplating from a stud wall
+ * on a plan. The other four draw as poché and exist so the wall can state its
+ * material to IFC, where a name is the whole answer.
+ *
+ * This is a single material, not a build-up: a sandwich panel is named as one
+ * thing rather than modelled as facing/core/facing. See the known limitations
+ * in CLAUDE.md, and `postMm` below for the frame that carries an infill.
  */
-export type WallMaterial = "masonry" | "concrete" | "timber" | "steel" | "glass";
+export type WallMaterial =
+  | "masonry" | "concrete" | "timber" | "steel" | "glass" | "sandwich";
 
 export const WALL_MATERIALS: readonly WallMaterial[] =
-  ["masonry", "concrete", "timber", "steel", "glass"];
+  ["masonry", "concrete", "timber", "steel", "glass", "sandwich"];
+
+/** The materials drawn as a light infill body rather than as poché. */
+export const wallInfill = (w: Pick<Wall, "material">): boolean =>
+  w.material === "glass" || w.material === "sandwich";
 
 export interface Wall {
   id: Id;
@@ -135,16 +143,50 @@ export interface Wall {
    */
   material?: WallMaterial;
   /**
-   * Mullion (stijl) centres in mm, read as a MAXIMUM pane width rather than as
-   * a fixed grid: each run of glass between openings is divided into equal bays
-   * no wider than this. A door set into the wall therefore pushes the stijlen
-   * aside instead of one landing in the doorway, and its jambs read as the
-   * mullions they are in a real pui. Absent means none.
+   * Post (stijl) centres in mm — the frame the wall's body is carried on.
    *
-   * Glazed walls only — wallMullionMm() returns nothing for a solid one, so a
-   * wall switched away from glass keeps the number without drawing it.
+   * One field for what is one thing seen in plan: the mullions of a glazed
+   * wall, the columns of a steel frame carrying sandwich panels, and the studs
+   * of a timber wall are all vertical members at centres, and a plan shows a
+   * vertical member. Dutch says stijl for every one of them.
+   *
+   * Read as a MAXIMUM bay width rather than as a fixed grid: each run of body
+   * between openings is divided into equal bays no wider than this. A door set
+   * into the wall therefore pushes the posts of its own run aside instead of
+   * one landing in the doorway, and its jambs read as the posts they are in a
+   * real pui. Absent means none — a frameless pane, or a wall whose frame is
+   * not being drawn.
    */
-  mullionMm?: number;
+  postMm?: number;
+  /**
+   * The post's own width along the wall, mm. Its depth is not stored because
+   * the wall already carries it: a post runs through the thickness.
+   *
+   * Absent means the members are at these centres but their profile is not
+   * stated, which is an ordinary thing for a drawing to say before the supplier
+   * is chosen; a post with no width is drawn as a line. Read through
+   * wallPostWidthMm(), which is also what keeps it from outgrowing its bay.
+   */
+  postWidthMm?: number;
+  /**
+   * Cladding outside the structural body, mm. `thickness` stays the STRUCTURE:
+   * a sandwich wall built 100 + 100 is `thickness: 100, facadeMm: 100`.
+   *
+   * A skin, not a build-up. It lies wholly outside the structural faces, so it
+   * changes neither the wall graph, nor room detection, nor the net area — the
+   * three things a real layer set would reach into. What it does change is the
+   * gross area, which is measured to its outer face (see AreaMode "bvo").
+   *
+   * Absent means none. A wall with no facade is an internal or party wall.
+   */
+  facadeMm?: number;
+  /**
+   * Which side of the wall's own a->b direction the facade is on: "left" is
+   * +perp(tangent), the clockwise visual side (invariant 2). Stored rather than
+   * derived from which side the rooms are on, because that probe flips as soon
+   * as a wall is redrawn or a room stops closing. Absent means "left".
+   */
+  facadeSide?: "left" | "right";
   /**
    * Pen colour as "#rrggbb", the same statement SymbolInstance.color makes:
    * black is what is there, red what is to be built, yellow what goes. Absent
@@ -162,17 +204,50 @@ export interface Wall {
 export const wallGlazed = (w: Wall): boolean => w.material === "glass";
 
 /**
- * The mullion spacing that actually applies. Absent, zero and a solid wall all
- * mean no stijlen, so the render and both exporters ask this rather than
- * reading `mullionMm` and repeating the glazed check three times.
+ * The post spacing that actually applies. Absent and zero both mean no frame,
+ * so the render and both exporters ask this rather than reading `postMm` and
+ * repeating the check three times.
+ *
+ * Deliberately NOT restricted to one material. A frame carrying an infill is
+ * the same drawing whether the infill is glass or beplating, and a masonry wall
+ * on penanten is a real thing too; what a post is called changes, what it is
+ * does not.
  */
-export function wallMullionMm(w: Wall): number | undefined {
-  if (!wallGlazed(w)) return undefined;
-  return w.mullionMm !== undefined && w.mullionMm > 0 ? w.mullionMm : undefined;
+export function wallPostMm(w: Wall): number | undefined {
+  return w.postMm !== undefined && w.postMm > 0 ? w.postMm : undefined;
 }
 
-/** Ordinary curtain-walling mullion centres, offered when glazing is picked. */
-export const MULLION_DEFAULT_MM = 1200;
+/**
+ * The post profile width that actually applies, mm, or undefined for a post
+ * drawn as a line. Never wider than `cap` (the bay it sits in), because a post
+ * that fills its own bay leaves no body either side of it and the profiles of
+ * two neighbours would overlap into one block.
+ */
+export function wallPostWidthMm(w: Wall, cap = Infinity): number | undefined {
+  if (wallPostMm(w) === undefined) return undefined;
+  if (w.postWidthMm === undefined || w.postWidthMm <= 0) return undefined;
+  return Math.min(w.postWidthMm, cap);
+}
+
+/**
+ * The facade thickness that actually applies. Absent and zero both mean a wall
+ * with no cladding, so the render, the exporters and the gross-area sum ask
+ * this rather than each repeating the check.
+ */
+export function wallFacadeMm(w: Wall): number | undefined {
+  return w.facadeMm !== undefined && w.facadeMm > 0 ? w.facadeMm : undefined;
+}
+
+/** Which side the facade is on, defaulting to the wall's own left. */
+export const facadeSideOf = (w: Wall): "left" | "right" => w.facadeSide ?? "left";
+
+/** An ordinary outer leaf or cladding thickness, mm. */
+export const FACADE_DEFAULT_MM = 100;
+
+/** Ordinary curtain-walling / portal-frame centres, offered when posts go on. */
+export const POST_DEFAULT_MM = 1200;
+/** An ordinary mullion or column face width, mm. */
+export const POST_WIDTH_DEFAULT = 60;
 
 export interface SymbolInstance {
   id: Id;
@@ -321,8 +396,13 @@ export const wallHeight = (f: Floor, w: Wall): number => w.height ?? floorHeight
  * leaving a reader to guess.
  *   net        inner wall faces (dagmaat); the usable floor, per NEN 2580
  *   centerline hart-op-hart; matches the stored wall graph directly
+ *   bvo        gross floor area, per NEN 2580: to the OUTER face of the facade
+ *              where the bounding wall has one, and to the centreline where it
+ *              does not — which is what that standard says about a party wall
+ *              shared with a neighbour. A plan with no facade anywhere reports
+ *              the same figure as centerline, because that is what it is.
  */
-export type AreaMode = "net" | "centerline";
+export type AreaMode = "net" | "centerline" | "bvo";
 
 /**
  * Which convention the LINEAR dimensions use. Separate from `areaMode` because

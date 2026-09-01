@@ -34,10 +34,13 @@ export function planSchema(siteUrl: string): JsonSchema {
       unit: { const: "mm", description: "Stored unit. Always millimetres." },
       gridMm: { type: "integer", minimum: 1, description: "Grid spacing in mm. 100 by default." },
       areaMode: {
-        enum: ["net", "centerline"],
+        enum: ["net", "centerline", "bvo"],
         description:
           "Which convention reported room areas use. 'net' is inner wall faces (NEN 2580) " +
-          "and is the default when absent; 'centerline' is hart-op-hart.",
+          "and is the default when absent; 'centerline' is hart-op-hart; 'bvo' is the gross " +
+          "area, measured to the outer face of the facade where a bounding wall has one and " +
+          "to the centreline where it does not, which is what NEN 2580 says about a party " +
+          "wall. On a plan whose walls carry no facadeMm, 'bvo' equals 'centerline'.",
       },
       dimMode: {
         enum: ["centerline", "clear", "both"],
@@ -208,19 +211,46 @@ export function planSchema(siteUrl: string): JsonSchema {
           },
           fireRating: { $ref: "#/$defs/fireRating", description: "A fire compartment wall's rating." },
           material: {
-            enum: ["masonry", "concrete", "timber", "steel", "glass"],
+            enum: ["masonry", "concrete", "timber", "steel", "glass", "sandwich"],
             description:
               "What the body is built of; a single material, not a build-up. Absent means " +
-              "not stated, distinct from \"masonry\". Only \"glass\" changes the drawing: a " +
-              "glazed wall is drawn as its two faces rather than as poche.",
+              "not stated, distinct from \"masonry\". \"glass\" and \"sandwich\" are infill and " +
+              "change the drawing: the body is drawn as a light band between its two faces " +
+              "rather than as poche. The rest draw as poche and carry the name to IFC.",
           },
-          mullionMm: {
+          postMm: {
             type: "integer", minimum: 1,
             description:
-              "Mullion (stijl) centres, mm, read as a MAXIMUM pane width: each run of glass " +
+              "Post (stijl) centres, mm — the frame the body is carried on, whether those " +
+              "members are the mullions of a curtain wall, the columns of a steel portal " +
+              "frame or the studs of a timber wall. Read as a MAXIMUM bay width: each run " +
               "between openings is divided into equal bays no wider than this, so a door " +
-              "pushes the stijlen of its run aside instead of one landing in the doorway. " +
-              "Absent means none; ignored unless material is \"glass\".",
+              "pushes the posts of its run aside instead of one landing in the doorway. " +
+              "Absent means no frame is drawn.",
+          },
+          postWidthMm: {
+            type: "integer", minimum: 1,
+            description:
+              "A post's own width along the wall, mm; its depth is the wall thickness. " +
+              "Absent means the centres are stated and the section is not, and the post is " +
+              "drawn as a line. Ignored without postMm, and never drawn wider than its bay.",
+          },
+          facadeMm: {
+            type: "integer", minimum: 1,
+            description:
+              "Cladding outside the structural body, mm. `thickness` stays the STRUCTURE: a " +
+              "sandwich wall built 100 + 100 is thickness 100 with facadeMm 100. A skin, not " +
+              "a build-up — it lies wholly outside the structural faces, so it changes neither " +
+              "the wall graph, room detection nor the net area. It does set the gross area, " +
+              "which is measured to its outer face (see areaMode \"bvo\"). Absent means none.",
+          },
+          facadeSide: {
+            enum: ["left", "right"],
+            description:
+              "Which side of the wall's own a->b direction the facade is on; \"left\" is " +
+              "+perp(tangent), the clockwise visual side. Absent means \"left\". Stored rather " +
+              "than derived from which side the rooms are on, because that probe flips as soon " +
+              "as a wall is redrawn.",
           },
           color: {
             type: "string", pattern: "^#[0-9a-fA-F]{6}$",

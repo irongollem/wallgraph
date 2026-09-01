@@ -109,14 +109,14 @@ for (const id of ["rooms", "walls", "openings", "symbols", "labels"])
   f.walls.push(
     // Glazed, with stijlen; a run of 6000 at 1200 divides on four of them.
     { id: "vw0", a: "vn0", b: "vn1", thickness: 100, bulge: 0, openings: [],
-      material: "glass", mullionMm: 1200 },
+      material: "glass", postMm: 1200, postWidthMm: 60 },
     // Marked as work to be built: the colour takes the fill, not just the line.
     { id: "vw1", a: "vn1", b: "vn2", thickness: 300, bulge: 0, openings: [], color: "#d0342c" },
     { id: "vw2", a: "vn2", b: "vn3", thickness: 300, bulge: 0, openings: [] },
     { id: "vw3", a: "vn3", b: "vn0", thickness: 300, bulge: 0, openings: [] },
   );
   const out = toSvg(doc, 0) ?? "";
-  check("a glazing group is emitted for the stijlen", out.includes('id="glazing"'));
+  check("a posts group is emitted for the frame", out.includes('id="posts"'));
   check("a coloured wall takes the pen as its FILL", out.includes('fill="#d0342c"'));
   check("the plan still carries a default-pen wall group",
     out.includes(COLORS.wallFill), COLORS.wallFill);
@@ -129,7 +129,7 @@ for (const id of ["rooms", "walls", "openings", "symbols", "labels"])
   pf.nodes.push({ id: "pn0", x: 0, y: 0 }, { id: "pn1", x: 4000, y: 0 });
   pf.walls.push({ id: "pw", a: "pn0", b: "pn1", thickness: 300, bulge: 0, openings: [] });
   const plain = toSvg(plainDoc, 0) ?? "";
-  check("a plan of plain walls emits no glazing group", !plain.includes('id="glazing"'));
+  check("a plan of plain walls emits no posts group", !plain.includes('id="posts"'));
 }
 
 console.log(failures === 0 ? "ALL SVG TESTS PASSED" : `${failures} FAILURES`);

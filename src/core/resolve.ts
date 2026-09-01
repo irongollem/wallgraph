@@ -8,7 +8,9 @@
 // adjacent wall-ends is the intersection of the two offset lines that face each
 // other. Arc offsets use the tangent-line approximation at the endpoint, which
 // is exact in the limit and visually correct at wall scale.
-import { Floor, Wall, Opening, Id, wallMullionMm } from "../model/doc";
+import {
+  Floor, Wall, Opening, Id, wallPostMm, wallPostWidthMm, wallFacadeMm, facadeSideOf,
+} from "../model/doc";
 import {
   Vec, add, sub, scale, norm, perp, dist, v, angleOf, lineIntersect,
 } from "../geometry/vec";
@@ -27,8 +29,15 @@ export interface SolidPiece { poly: Vec[] } // closed polygon, flattened
  */
 export interface Junction extends SolidPiece { walls: Id[] }
 
-/** One mullion (stijl), drawn face to face across the glazing. */
-export interface MullionMark { a: Vec; b: Vec }
+/**
+ * One post (stijl) of a wall's frame, face to face across the body.
+ *
+ * `poly` is the member's own footprint, present only where the wall states a
+ * profile width; without one the post is a line, which is what a drawing that
+ * has not chosen a section says. Both are carried so a renderer never has to
+ * rebuild the quad from the centreline and a tangent it does not have.
+ */
+export interface PostMark { a: Vec; b: Vec; poly?: Vec[] }
 
 export interface OpeningGeom {
   opening: Opening;
@@ -61,12 +70,18 @@ export interface ResolvedWall {
   outline: Vec[];           // full outline ignoring openings (for hit-testing/selection)
   openings: OpeningGeom[];
   /**
-   * Stijlen across a glazed wall, empty for every other wall. Derived here
-   * rather than in each renderer because the canvas, the SVG and the DXF must
-   * place them identically, and because the division depends on the same solid
-   * intervals `pieces` is built from — see Wall.mullionMm.
+   * The wall's posts, empty where it states no frame. Derived here rather than
+   * in each renderer because the canvas, the SVG and the DXF must place them
+   * identically, and because the division depends on the same solid intervals
+   * `pieces` is built from — see Wall.postMm.
    */
-  mullions: MullionMark[];
+  posts: PostMark[];
+  /**
+   * The cladding band outside the structural body, empty where the wall states
+   * no facade. Split by the same openings the pieces are — a window goes
+   * through the cladding as well as the structure.
+   */
+  facade: SolidPiece[];
 }
 
 export interface Resolved {
@@ -88,7 +103,15 @@ export interface Resolved {
   junctions: Junction[];
 }
 
-interface End { wall: Wall; end: "a" | "b"; out: Vec; half: number }
+/**
+ * One wall-end at a node, with its offsets in the END's own outgoing frame.
+ *
+ * `halfL`/`halfR` are separate because a facade is one-sided: the outer pass
+ * below pushes only the clad side out, so an end can be 100 to its left and 200
+ * to its right. At end "b" the outgoing tangent is reversed, so the end's left
+ * is the WALL's right — mapped once, where the ends are built.
+ */
+interface End { wall: Wall; end: "a" | "b"; out: Vec; half: number; halfL: number; halfR: number }
 
 const MITER_LIMIT = 4;
 
@@ -104,44 +127,76 @@ export function resolveFloor(f: Floor): Resolved {
     const outA = arcTangentAt(A, B, w.bulge, 0);
     const outB = scale(arcTangentAt(A, B, w.bulge, 1), -1);
     const half = w.thickness / 2;
-    pushMap(byNode, w.a, { wall: w, end: "a", out: outA, half });
-    pushMap(byNode, w.b, { wall: w, end: "b", out: outB, half });
+    // Structural pass: symmetric. The facade pass re-runs the same solver with
+    // the clad side pushed out, which is what keeps the two sets of corners
+    // mitered by identical rules instead of by a second approximation.
+    pushMap(byNode, w.a, { wall: w, end: "a", out: outA, half, halfL: half, halfR: half });
+    pushMap(byNode, w.b, { wall: w, end: "b", out: outB, half, halfL: half, halfR: half });
   }
 
-  // Resolve corners per node.
-  const corners = new Map<string, WallEndCorners>(); // key: wallId + end
-  const junctions: Junction[] = [];
+  /** The same ends with the clad side pushed out by the facade thickness. */
+  const outerEnds = new Map<Id, End[]>();
   for (const [nid, ends] of byNode) {
-    const P = nodePos.get(nid)!;
-    if (ends.length === 1) {
-      const e = ends[0]!;
-      const pl = perp(e.out);
-      corners.set(key(e), { left: add(P, scale(pl, e.half)), right: add(P, scale(pl, -e.half)) });
-      continue;
-    }
-    ends.sort((x, y) => angleOf(x.out) - angleOf(y.out));
-    const n = ends.length;
-    const ring: Vec[] = [];
-    for (let i = 0; i < n; i++) {
-      const ei = ends[i]!, ej = ends[(i + 1) % n]!;
-      // Corner between ei (its LEFT offset, toward ej) and ej (its RIGHT offset).
-      const pi = add(P, scale(perp(ei.out), ei.half));
-      const pj = add(P, scale(perp(ej.out), -ej.half));
-      let corner = lineIntersect(pi, ei.out, pj, ej.out);
-      if (corner) {
-        const lim = MITER_LIMIT * Math.max(ei.half, ej.half) + Math.max(ei.half, ej.half);
-        if (dist(corner, P) > lim) corner = clampLen(P, corner, lim);
-      } else {
-        // Parallel (collinear pass-through or hairpin): use midpoint of both offsets.
-        corner = scale(add(pi, pj), 0.5);
-      }
-      setCorner(corners, ei, "left", corner);
-      setCorner(corners, ej, "right", corner);
-      ring.push(corner);
-    }
-    // Degree 1 has a square cap and degree 2 miters cleanly; only 3+ can gap.
-    if (n >= 3) junctions.push({ poly: ring, walls: ends.map(e => e.wall.id) });
+    outerEnds.set(nid, ends.map(e => {
+      const fm = wallFacadeMm(e.wall);
+      if (fm === undefined) return e;
+      // At end "b" the frame is reversed, so a facade on the wall's left is on
+      // that end's right.
+      const onEndLeft = (facadeSideOf(e.wall) === "left") === (e.end === "a");
+      return {
+        ...e,
+        halfL: e.half + (onEndLeft ? fm : 0),
+        halfR: e.half + (onEndLeft ? 0 : fm),
+      };
+    }));
   }
+
+  // Resolve corners per node, twice: once for the structural body and once for
+  // the outer face of the cladding. `wedges` is filled only by the structural
+  // pass -- a junction is masonry geometry, and a facade wraps the outside of a
+  // building rather than filling the middle of a T.
+  const solveCorners = (
+    byNodeEnds: Map<Id, End[]>, wedges: Junction[] | null,
+  ): Map<string, WallEndCorners> => {
+    const out = new Map<string, WallEndCorners>();
+    for (const [nid, ends] of byNodeEnds) {
+      const P = nodePos.get(nid)!;
+      if (ends.length === 1) {
+        const e = ends[0]!;
+        const pl = perp(e.out);
+        out.set(key(e), { left: add(P, scale(pl, e.halfL)), right: add(P, scale(pl, -e.halfR)) });
+        continue;
+      }
+      ends.sort((x, y) => angleOf(x.out) - angleOf(y.out));
+      const n = ends.length;
+      const ring: Vec[] = [];
+      for (let i = 0; i < n; i++) {
+        const ei = ends[i]!, ej = ends[(i + 1) % n]!;
+        // Corner between ei (its LEFT offset, toward ej) and ej (its RIGHT offset).
+        const pi = add(P, scale(perp(ei.out), ei.halfL));
+        const pj = add(P, scale(perp(ej.out), -ej.halfR));
+        let corner = lineIntersect(pi, ei.out, pj, ej.out);
+        if (corner) {
+          const reach = Math.max(ei.halfL, ej.halfR);
+          const lim = MITER_LIMIT * reach + reach;
+          if (dist(corner, P) > lim) corner = clampLen(P, corner, lim);
+        } else {
+          // Parallel (collinear pass-through or hairpin): midpoint of both offsets.
+          corner = scale(add(pi, pj), 0.5);
+        }
+        setCorner(out, ei, "left", corner);
+        setCorner(out, ej, "right", corner);
+        ring.push(corner);
+      }
+      // Degree 1 has a square cap and degree 2 miters cleanly; only 3+ can gap.
+      if (wedges && n >= 3) wedges.push({ poly: ring, walls: ends.map(e => e.wall.id) });
+    }
+    return out;
+  };
+
+  const junctions: Junction[] = [];
+  const corners = solveCorners(byNode, junctions);
+  const outerCorners = solveCorners(outerEnds, null);
 
   // Build wall outlines.
   const walls = new Map<Id, ResolvedWall>();
@@ -206,7 +261,9 @@ export function resolveFloor(f: Floor): Resolved {
       wall: w, a: A, b: B, length: L,
       faces, clearLength: Math.min(faces.left, faces.right),
       pieces, outline, openings: ogs,
-      mullions: mullionsFor(w, A, B, L, half, intervals),
+      posts: postsFor(w, A, B, L, half, intervals),
+      facade: facadeFor(w, A, B, L, half, flat, params, intervals, ca, cb,
+        outerCorners.get(w.id + ":a"), outerCorners.get(w.id + ":b")),
     });
   }
 
@@ -214,33 +271,94 @@ export function resolveFloor(f: Floor): Resolved {
 }
 
 /**
- * Stijlen across one glazed wall, per run of glass between its openings.
+ * One wall's posts, per run of body between its openings.
  *
- * The spacing is a maximum pane width, not a grid pitch: each run is divided
+ * The spacing is a maximum bay width, not a grid pitch: each run is divided
  * into `ceil(run / spacing)` equal bays, so a run shorter than the spacing gets
- * none and a door pushes the stijlen of its own run aside rather than having
- * one land in the doorway. `intervals` are the same solid runs the wall's
- * pieces are built from, which is what makes that true without the openings
- * being consulted again here.
+ * none and a door pushes the posts of its own run aside rather than having one
+ * land in the doorway. `intervals` are the same solid runs the wall's pieces
+ * are built from, which is what makes that true without the openings being
+ * consulted again here.
+ *
+ * A stated profile width also produces the member's footprint, built the way
+ * an opening's void quad is (core/solids.ts): each side of the post's own
+ * centre offset by the normal AT THAT POINT, so a post in a bowed wall sits
+ * square to the wall rather than to its neighbour.
  */
-function mullionsFor(
+function postsFor(
   w: Wall, A: Vec, B: Vec, L: number, half: number,
   intervals: ReadonlyArray<{ from: number; to: number }>,
-): MullionMark[] {
-  const spacing = wallMullionMm(w);
+): PostMark[] {
+  const spacing = wallPostMm(w);
   if (spacing === undefined || L <= 0) return [];
-  const out: MullionMark[] = [];
+  const out: PostMark[] = [];
+  const at = (s: number): { p: Vec; n: Vec } => {
+    const t = s / L;
+    return { p: arcPointAt(A, B, w.bulge, t), n: perp(arcTangentAt(A, B, w.bulge, t)) };
+  };
   for (const iv of intervals) {
     const run = iv.to - iv.from;
     // Rounded before the ceiling so a run that divides exactly — a 3600 run at
     // 1200 — takes 3 bays rather than 4 on a floating-point hair.
     const bays = Math.max(1, Math.ceil(Number((run / spacing).toFixed(6))));
+    const width = wallPostWidthMm(w, run / bays);
     for (let i = 1; i < bays; i++) {
-      const t = (iv.from + (run * i) / bays) / L;
-      const p = arcPointAt(A, B, w.bulge, t);
-      const n = perp(arcTangentAt(A, B, w.bulge, t));
-      out.push({ a: add(p, scale(n, half)), b: add(p, scale(n, -half)) });
+      const s = iv.from + (run * i) / bays;
+      const { p, n } = at(s);
+      const mark: PostMark = { a: add(p, scale(n, half)), b: add(p, scale(n, -half)) };
+      if (width !== undefined) {
+        const lo = at(Math.max(iv.from, s - width / 2));
+        const hi = at(Math.min(iv.to, s + width / 2));
+        mark.poly = [
+          add(lo.p, scale(lo.n, half)), add(hi.p, scale(hi.n, half)),
+          add(hi.p, scale(hi.n, -half)), add(lo.p, scale(lo.n, -half)),
+        ];
+      }
+      out.push(mark);
     }
+  }
+  return out;
+}
+
+/**
+ * The cladding band on one wall: between its structural face on the clad side
+ * and the same centerline offset by half + facadeMm.
+ *
+ * The inner edge reuses the structural corners the body is already built from,
+ * so the band cannot part company with the wall it clads; the outer edge uses
+ * the second corner pass, so two clad walls miter their skins at a corner while
+ * an unclad wall teeing into one leaves the skin to run straight past.
+ * Split by the same `intervals` the pieces are: an opening goes through the
+ * cladding as well as the structure.
+ */
+function facadeFor(
+  w: Wall, A: Vec, B: Vec, L: number, half: number,
+  flat: Vec[], params: number[],
+  intervals: ReadonlyArray<{ from: number; to: number }>,
+  ca: WallEndCorners, cb: WallEndCorners,
+  oa: WallEndCorners | undefined, ob: WallEndCorners | undefined,
+): SolidPiece[] {
+  const fm = wallFacadeMm(w);
+  if (fm === undefined || !oa || !ob) return [];
+  const left = facadeSideOf(w) === "left";
+  const sgn = left ? 1 : -1;
+  // Traversal-left runs A->B, and end-b corners are relative to the reversed
+  // tangent there, so the wall's left face is ca.left -> cb.right.
+  const innerStart = left ? ca.left : ca.right;
+  const innerEnd = left ? cb.right : cb.left;
+  const outerStart = left ? oa.left : oa.right;
+  const outerEnd = left ? ob.right : ob.left;
+
+  const out: SolidPiece[] = [];
+  for (const iv of intervals) {
+    const isStart = iv.from <= 1, isEnd = iv.to >= L - 1;
+    const sub = subFlat(flat, params, iv.from, iv.to, A, B, w);
+    const subParams = cumulative(sub, iv.to - iv.from);
+    const inner = offsetPolyline(sub, subParams, sgn * half);
+    const outer = offsetPolyline(sub, subParams, sgn * (half + fm));
+    if (isStart) { inner[0] = innerStart; outer[0] = outerStart; }
+    if (isEnd) { inner[inner.length - 1] = innerEnd; outer[outer.length - 1] = outerEnd; }
+    out.push({ poly: [...inner, ...outer.slice().reverse()] });
   }
   return out;
 }

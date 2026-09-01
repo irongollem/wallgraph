@@ -1113,6 +1113,47 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
   tf.walls.push({ id: newId("w"), a: t0, b: t1, thickness: 100, bulge: 0, openings: [], material: "timber" });
   check("timber is exported under IFC's name for it", toIfc(timberDoc).includes("IFCMATERIAL('Wood'"));
 
+  // A wall carrying posts is an assembly of components, which IFC4 names.
+  const framedDoc = emptyDoc();
+  const ff = framedDoc.floors[0]!;
+  const f0 = nodeAt(ff, v(0, 0)).id, f1 = nodeAt(ff, v(6000, 0)).id;
+  ff.walls.push({
+    id: newId("w"), a: f0, b: f1, thickness: 100, bulge: 0, openings: [],
+    material: "sandwich", postMm: 1200, postWidthMm: 100, loadBearing: true,
+  });
+  const framed = toIfc(framedDoc);
+  check("a sandwich panel names its material", framed.includes("IFCMATERIAL('SandwichPanel'"));
+  check("a wall carrying posts is an ELEMENTEDWALL", framed.includes(".ELEMENTEDWALL."));
+  // The steel carries even though the panels do not, and LoadBearing is a fact
+  // about the wall element rather than about one of its components.
+  check("and still states LoadBearing on the wall itself",
+    framed.includes("IFCIDENTIFIER('LoadBearing')") || framed.includes("'LoadBearing'"));
+  check("a wall with no posts states no predefined type",
+    !toIfc(timberDoc).includes(".ELEMENTEDWALL."));
+
+  // A clad wall is a build-up, so IFC gets a layer set rather than a bare
+  // material: structure and cladding as ordered layers.
+  const cladDoc = emptyDoc();
+  const cf = cladDoc.floors[0]!;
+  const c0 = nodeAt(cf, v(0, 0)).id, c1 = nodeAt(cf, v(6000, 0)).id, c2 = nodeAt(cf, v(6000, 4000)).id;
+  for (const [a, b] of [[c0, c1], [c1, c2]] as Array<[string, string]>) {
+    cf.walls.push({
+      id: newId("w"), a, b, thickness: 100, bulge: 0, openings: [],
+      material: "sandwich", facadeMm: 100, facadeSide: "right",
+    });
+  }
+  const cladOut = toIfc(cladDoc);
+  check("a clad wall gets a material layer set", cladOut.includes("=IFCMATERIALLAYERSET("));
+  check("with a named structure layer", cladOut.includes("'Structure'"));
+  check("and a named facade layer", cladOut.includes("'Facade'"));
+  check("the structure layer carries the wall thickness", cladOut.includes("100.,$,'Structure'"));
+  check("the facade layer carries its own thickness", cladOut.includes("100.,$,'Facade'"));
+  // Walls agreeing on material, thickness and cladding share one relation.
+  check("two identical clad walls share one layer set",
+    (cladOut.match(/=IFCMATERIALLAYERSET\(/g) ?? []).length === 1);
+  check("an unclad wall still gets a plain material, not a layer set",
+    !toIfc(timberDoc).includes("=IFCMATERIALLAYERSET("));
+
   // Absent means not stated, so nothing is associated rather than a guess.
   const plainDoc = emptyDoc();
   const pf = plainDoc.floors[0]!;

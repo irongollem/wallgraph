@@ -24,6 +24,11 @@ export function planBounds(floor: Floor, resolved: Resolved): Bounds | null {
   // Resolved outlines, not centerlines: they carry thickness and miters, so a
   // thick exterior wall isn't sliced in half by the crop.
   for (const rw of resolved.walls.values()) for (const p of rw.outline) b.add(p.x, p.y);
+  // Cladding sits OUTSIDE the structural outline, so a plan framed to the walls
+  // alone would crop the facade off every elevation of the building.
+  for (const rw of resolved.walls.values()) {
+    for (const band of rw.facade) for (const p of band.poly) b.add(p.x, p.y);
+  }
   for (const n of floor.nodes) b.add(n.x, n.y);
   for (const s of floor.symbols) {
     const def = getSymbol(s.type);

@@ -2,9 +2,10 @@
 import { emptyDoc, newId, Wall, GRID_DEFAULT_MM } from "../src/model/doc";
 import { Store } from "../src/model/store";
 import { sashesOf, sashSpecsOf, doorKindOf, windowKindOf, DOOR_KINDS, WINDOW_KINDS, type Opening } from "../src/model/doc";
-import { detectRooms, rectSize, roomSize } from "../src/core/rooms";
+import { detectRooms, rectSize, roomSize, roomArea } from "../src/core/rooms";
 import {
   insertWall, insertRun, nodeAt, wallLength, wallOnRay, cloneOnFloor, splitWall, deleteWall,
+  flipWall,
 } from "../src/model/ops";
 import { resolveRoutePoints } from "../src/core/route";
 import { shapeRun } from "../src/model/shape";
@@ -16,8 +17,14 @@ import { v, dist, pointInPolygon } from "../src/geometry/vec";
 import { gridSteps, MIN_GRID_PX } from "../src/render/grid";
 import { scaleBarMm } from "../src/io/image";
 import { planBounds } from "../src/core/bounds";
+import {
+  planWallJoin, applyWallJoin, isJoinPlan,
+  planNodeDissolve, applyNodeDissolve, isDissolvePlan, planWallMerge, planNodeRemoval, removeNode,
+} from "../src/core/join";
+import { openingMarks } from "../src/io/marks";
+import { alignToNeighbours } from "../src/input/tools";
 import { symbolInk, wallPen, junctionPen, COLORS, INKS } from "../src/render/draw";
-import { MULLION_DEFAULT_MM, type WallMaterial } from "../src/model/doc";
+import { POST_DEFAULT_MM, POST_WIDTH_DEFAULT, type WallMaterial } from "../src/model/doc";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ""): void {
@@ -1007,55 +1014,87 @@ function rectFloor(wallTh = 100) {
 
   // Glass has no poche at all, so the ink moves to the faces.
   const glass = pen({ material: "glass" });
-  check("a glazed wall is not poche", glass.fill === COLORS.glassFill && glass.glazed);
+  check("a glazed wall is not poche", glass.fill === COLORS.glassFill && glass.infill);
   check("its faces draw in the glazing line", glass.stroke === COLORS.glassStroke);
   const redGlass = pen({ material: "glass", color: "#d0342c" });
   check("a coloured glazed wall keeps a wash, not a solid fill",
     redGlass.fill !== "#d0342c" && redGlass.fill !== COLORS.glassFill, redGlass.fill);
   check("and puts the pen on its faces", redGlass.stroke === "#d0342c");
+
+  // A sandwich panel is infill too, drawn the same way but told apart by tint.
+  const panel = pen({ material: "sandwich" });
+  check("a sandwich panel is infill, not poche", panel.infill && panel.fill === COLORS.panelFill);
+  check("and is not mistakable for glazing", panel.fill !== COLORS.glassFill);
+  check("a steel wall is still poche", pen({ material: "steel" }).infill === false);
 }
 
-// --- stijlen: divided per run of glass, so a door pushes them aside ---
+// --- posts: divided per run of body, so a door pushes them aside ---
 {
-  const glazedFloor = (mullionMm?: number, opening?: Opening) => {
+  const framed = (postMm?: number, opening?: Opening, extra: Partial<Wall> = {}) => {
     const f = emptyDoc().floors[0]!;
     const a = nodeAt(f, v(0, 0)).id, b = nodeAt(f, v(6000, 0)).id;
     const w: Wall = {
       id: newId("w"), a, b, thickness: 100, bulge: 0,
       openings: opening ? [opening] : [],
       material: "glass" as WallMaterial,
-      ...(mullionMm !== undefined ? { mullionMm } : {}),
+      ...(postMm !== undefined ? { postMm } : {}),
+      ...extra,
     };
     f.walls.push(w);
     return f;
   };
-  const xs = (f: ReturnType<typeof glazedFloor>): number[] =>
-    [...resolveFloor(f).walls.values()][0]!.mullions.map(m => Math.round(m.a.x)).sort((p, q) => p - q);
+  const posts = (f: ReturnType<typeof framed>) => [...resolveFloor(f).walls.values()][0]!.posts;
+  const xs = (f: ReturnType<typeof framed>): number[] =>
+    posts(f).map(m => Math.round(m.a.x)).sort((p, q) => p - q);
 
-  check("glazing with no spacing carries no stijlen", xs(glazedFloor()).length === 0);
-  // 6000 at 1200 divides exactly: five stijlen, not four bays plus a sliver.
-  check("a 6000 run at 1200 divides into five bays on four stijlen",
-    xs(glazedFloor(1200)).join(",") === "1200,2400,3600,4800", xs(glazedFloor(1200)).join(","));
+  check("a wall with no spacing carries no posts", xs(framed()).length === 0);
+  // 6000 at 1200 divides exactly: five bays on four posts, not four plus a sliver.
+  check("a 6000 run at 1200 divides into five bays on four posts",
+    xs(framed(1200)).join(",") === "1200,2400,3600,4800", xs(framed(1200)).join(","));
   // The spacing is a MAXIMUM, so an indivisible run is split evenly under it.
-  const even = xs(glazedFloor(2500));
   check("an indivisible run divides evenly under the spacing",
-    even.join(",") === "2000,4000", even.join(","));
-  check("a run shorter than the spacing takes none", xs(glazedFloor(9000)).length === 0);
+    xs(framed(2500)).join(",") === "2000,4000", xs(framed(2500)).join(","));
+  check("a run shorter than the spacing takes none", xs(framed(9000)).length === 0);
 
   // A door at 3000 +/- 450 leaves 0..2550 and 3450..6000. Each divides on its
   // own, so nothing lands in the doorway.
   const door: Opening = { id: newId("o"), kind: "door", t: 3000, width: 900, sashes: [] };
-  const withDoor = xs(glazedFloor(1200, door));
-  check("no stijl lands inside the doorway",
+  const withDoor = xs(framed(1200, door));
+  check("no post lands inside the doorway",
     withDoor.every(x => x < 2550 || x > 3450), withDoor.join(","));
-  check("the glass either side of the door is still divided",
+  check("the body either side of the door is still divided",
     withDoor.some(x => x < 2550) && withDoor.some(x => x > 3450), withDoor.join(","));
 
-  // A solid wall ignores a spacing rather than drawing mullions through masonry.
-  const solid = glazedFloor(1200);
-  delete solid.walls[0]!.material;
-  check("a solid wall draws no stijlen even carrying a spacing",
-    [...resolveFloor(solid).walls.values()][0]!.mullions.length === 0);
+  // A frame is not a glass-only idea: a steel portal carrying sandwich panels
+  // is the same drawing, and so is a masonry wall on penanten.
+  const steel = framed(1200, undefined, { material: "sandwich" });
+  check("a sandwich-panel wall carries the same frame", xs(steel).length === 4);
+  const plainFramed = framed(1200);
+  delete plainFramed.walls[0]!.material;
+  check("a wall stating no material still carries its posts",
+    posts(plainFramed).length === 4, String(posts(plainFramed).length));
+
+  // --- the post's own profile ---
+  check("a post with no stated width is a line",
+    posts(framed(1200)).every(m => m.poly === undefined));
+  const profiled = posts(framed(1200, undefined, { postWidthMm: 60 }));
+  check("a stated width gives the post a footprint",
+    profiled.every(m => m.poly?.length === 4), JSON.stringify(profiled[0]?.poly));
+  // Built to the size it states: 60 along the wall, the wall's thickness across.
+  const quad = profiled[0]!.poly!;
+  const along = Math.abs(quad[1]!.x - quad[0]!.x);
+  const across = Math.abs(quad[3]!.y - quad[0]!.y);
+  check("the profile is the stated width along the wall", near(along, 60, 0.5), String(along));
+  check("and the wall's own thickness across it", near(across, 100, 0.5), String(across));
+  check("the profile is centred on the post", near((quad[0]!.x + quad[1]!.x) / 2, 1200, 0.5));
+
+  // A member cannot be wider than the bay it sits in, or two neighbours would
+  // overlap into one block and the wall would have no body left.
+  const fat = posts(framed(1200, undefined, { postWidthMm: 5000 }));
+  const fatWidth = Math.abs(fat[0]!.poly![1]!.x - fat[0]!.poly![0]!.x);
+  check("a profile is clamped to its bay", fatWidth <= 1200 + 0.5, String(fatWidth));
+  check("a width with no centres to sit on states nothing",
+    posts(framed(undefined, undefined, { postWidthMm: 60 })).length === 0);
 }
 
 // --- a junction wedge belongs to no wall, so it draws what its walls agree on ---
@@ -1078,7 +1117,7 @@ function rectFloor(wallTh = 100) {
   check("a wedge names the walls that meet there",
     all.junctions[0]!.walls.length === 3, String(all.junctions[0]!.walls.length));
   check("a wedge between glazed walls is glazed",
-    junctionPen(all.junctions[0]!, all.walls).glazed);
+    junctionPen(all.junctions[0]!, all.walls).infill);
 
   // Glass meeting masonry: the masonry is what actually runs through.
   const mixedFloor = tee("glass");
@@ -1094,7 +1133,7 @@ function rectFloor(wallTh = 100) {
   const a = nodeAt(f, v(0, 0)).id, b = nodeAt(f, v(4000, 0)).id;
   const w: Wall = {
     id: newId("w"), a, b, thickness: 150, bulge: 0, openings: [],
-    material: "glass", mullionMm: MULLION_DEFAULT_MM, color: "#d0342c",
+    material: "glass", postMm: POST_DEFAULT_MM, postWidthMm: POST_WIDTH_DEFAULT, color: "#d0342c",
     loadBearing: true, height: 2600, fireRating: { kind: "wbdbo", minutes: 60 },
   };
   f.walls.push(w);
@@ -1109,7 +1148,8 @@ function rectFloor(wallTh = 100) {
   splitWall(f, w, 2000);
   const far = f.walls.find(x => x.id !== w.id)!;
   check("a split keeps both halves glazed", far.material === "glass");
-  check("and keeps the stijl spacing", far.mullionMm === MULLION_DEFAULT_MM);
+  check("and keeps the frame it carries",
+    far.postMm === POST_DEFAULT_MM && far.postWidthMm === POST_WIDTH_DEFAULT);
   check("and keeps the pen", far.color === "#d0342c");
   check("and keeps the fire rating", far.fireRating?.minutes === 60);
   check("and keeps load-bearing and the wall's own height",
@@ -1132,6 +1172,553 @@ function rectFloor(wallTh = 100) {
     route.points[1]!.wallId === undefined
     && route.points[1]!.x === 3000 && route.points[1]!.y === 500,
     JSON.stringify(route.points[1]));
+}
+
+// --- facade: a skin outside the structure, and the gross area over it ---
+{
+  // A 7975 x 6225 unit clad all round, like a bedrijfsunit: 100 structure plus
+  // 100 cladding. The ring runs clockwise under y-down, so the outside is the
+  // walls' own right.
+  const unit = (facadeMm?: number) => {
+    const f = emptyDoc().floors[0]!;
+    const ids = [v(0, 0), v(7975, 0), v(7975, 6225), v(0, 6225)].map(p => nodeAt(f, p).id);
+    for (let i = 0; i < 4; i++) {
+      f.walls.push({
+        id: newId("w"), a: ids[i]!, b: ids[(i + 1) % 4]!, thickness: 100, bulge: 0, openings: [],
+        material: "sandwich",
+        ...(facadeMm !== undefined ? { facadeMm, facadeSide: "right" as const } : {}),
+      });
+    }
+    return f;
+  };
+
+  const clad = unit(100);
+  const bands = [...resolveFloor(clad).walls.values()];
+  check("every clad wall carries a band", bands.every(rw => rw.facade.length === 1));
+  check("an unclad plan carries none",
+    [...resolveFloor(unit()).walls.values()].every(rw => rw.facade.length === 0));
+
+  // The band is the stated thickness, and it is OUTSIDE the structure: the
+  // structural face of the top wall is at y = -50, its outer skin at y = -150.
+  const top = [...resolveFloor(clad).walls.values()][0]!;
+  const ys = top.facade[0]!.poly.map(pt => pt.y);
+  check("the band spans structure face to cladding face",
+    near(Math.max(...ys), -50, 0.6) && near(Math.min(...ys), -150, 0.6), JSON.stringify(ys));
+
+  // Two clad walls miter their skins, so the corner closes rather than leaving
+  // a notch: the outer corner reaches the full 150 out on both axes.
+  const corner = top.facade[0]!.poly.reduce((best, pt) =>
+    (pt.x < best.x || pt.y < best.y) && pt.x <= 0.5 ? pt : best, { x: 1e9, y: 1e9 });
+  check("clad walls miter their skins at a corner",
+    near(corner.x, -150, 1) && near(corner.y, -150, 1), JSON.stringify(corner));
+
+  // Structure is untouched: net and centerline read exactly as before cladding.
+  const bare = detectRooms(unit())[0]!, dressed = detectRooms(clad)[0]!;
+  check("cladding does not move the net area", near(dressed.netAreaMm2, bare.netAreaMm2, 1));
+  check("nor the centerline area", near(dressed.areaMm2, bare.areaMm2, 1));
+
+  // BVO is measured over the cladding: 8275 x 6525 against 7975 x 6225.
+  check("gross is measured to the outer face",
+    near(dressed.bvoAreaMm2, 8275 * 6525, 1000), String(dressed.bvoAreaMm2));
+  check("and is larger than both other conventions",
+    dressed.bvoAreaMm2 > dressed.areaMm2 && dressed.areaMm2 > dressed.netAreaMm2);
+  // With nothing clad there is no gross boundary to speak of, so BVO IS the
+  // centerline figure -- what NEN 2580 says about a wall shared with a neighbour.
+  check("an unclad plan's gross equals its centerline area",
+    near(bare.bvoAreaMm2, bare.areaMm2, 1), `${bare.bvoAreaMm2} vs ${bare.areaMm2}`);
+
+  check("roomArea reports the mode's own figure",
+    roomArea(dressed, "net") === dressed.netAreaMm2
+    && roomArea(dressed, "centerline") === dressed.areaMm2
+    && roomArea(dressed, "bvo") === dressed.bvoAreaMm2);
+
+  // The crop has to reach the cladding, or every elevation exports shaved off.
+  const box = planBounds(clad, resolveFloor(clad))!;
+  check("plan bounds reach the cladding",
+    near(box.min.x, -150, 1) && near(box.max.x, 8125, 1), JSON.stringify(box));
+
+  // An opening goes through the cladding as well as the structure.
+  const holed = unit(100);
+  holed.walls[0]!.openings.push({ id: newId("o"), kind: "door", t: 4000, width: 900, sashes: [] });
+  check("an opening splits the band the way it splits the wall",
+    [...resolveFloor(holed).walls.values()][0]!.facade.length === 2);
+
+  // A wall teeing into a clad one is not itself clad, so the skin runs past it.
+  const teed = unit(100);
+  const mid = nodeAt(teed, v(4000, 0)).id;
+  teed.walls.push({
+    id: newId("w"), a: mid, b: nodeAt(teed, v(4000, 3000)).id,
+    thickness: 200, bulge: 0, openings: [], material: "concrete",
+  });
+  const tee = [...resolveFloor(teed).walls.values()].find(rw => rw.wall.thickness === 200)!;
+  check("an unclad party wall carries no band", tee.facade.length === 0);
+}
+
+// --- joining two walls that nearly meet ---
+{
+  // Two walls stopping short of a corner: horizontal ends at x=3800, vertical
+  // starts at y=200, so the corner they imply is (4000, 0).
+  const gap = () => {
+    const f = emptyDoc().floors[0]!;
+    f.walls.push({
+      id: "h", a: nodeAt(f, v(0, 0)).id, b: nodeAt(f, v(3800, 0)).id,
+      thickness: 100, bulge: 0, openings: [],
+    });
+    f.walls.push({
+      id: "v", a: nodeAt(f, v(4000, 200)).id, b: nodeAt(f, v(4000, 3000)).id,
+      thickness: 100, bulge: 0, openings: [],
+    });
+    return f;
+  };
+
+  check("a selection that is not two walls is not a refusal, just nothing",
+    planWallJoin(gap(), ["h"]) === null);
+
+  const plan = planWallJoin(gap(), ["h", "v"]);
+  check("two nearly-meeting walls can be joined", isJoinPlan(plan));
+  if (isJoinPlan(plan)) {
+    // Extend to intersection, not weld to the nearest point: the corner is
+    // where the two directions cross, which neither end currently sits on.
+    check("they meet where their directions cross",
+      near(plan.at.x, 4000, 1) && near(plan.at.y, 0, 1), JSON.stringify(plan.at));
+    check("and it is a crossing, not a parallel weld", plan.parallel === false);
+
+    const f = gap();
+    applyWallJoin(f, planWallJoin(f, ["h", "v"]) as never);
+    const h = f.walls.find(w => w.id === "h")!, vw = f.walls.find(w => w.id === "v")!;
+    const shared = [h.a, h.b].filter(id => id === vw.a || id === vw.b);
+    check("after joining the two walls share one node", shared.length === 1, JSON.stringify(shared));
+    check("the corner sits at the crossing", (() => {
+      const n = f.nodes.find(x => x.id === shared[0])!;
+      return near(n.x, 4000, 1) && near(n.y, 0, 1);
+    })());
+    check("joining leaves no orphan node behind", f.nodes.length === 3, String(f.nodes.length));
+    check("a second join has nothing left to close",
+      (planWallJoin(f, ["h", "v"]) as { reason?: string }).reason === "already");
+  }
+
+  // An overlap closes with the same arithmetic: the crossing is behind one end.
+  const over = gap();
+  over.nodes.find(n => n.id === over.walls[0]!.b)!.x = 4300;
+  const overPlan = planWallJoin(over, ["h", "v"]);
+  check("an overlap joins at the same crossing",
+    isJoinPlan(overPlan) && near(overPlan.at.x, 4000, 1) && near(overPlan.at.y, 0, 1));
+
+  // Parallel walls never cross, so they are welded at the midpoint and the plan
+  // says so -- the pane names that as a different edit.
+  const par = emptyDoc().floors[0]!;
+  par.walls.push({ id: "p1", a: nodeAt(par, v(0, 0)).id, b: nodeAt(par, v(2000, 0)).id,
+    thickness: 100, bulge: 0, openings: [] });
+  par.walls.push({ id: "p2", a: nodeAt(par, v(2200, 0)).id, b: nodeAt(par, v(4000, 0)).id,
+    thickness: 100, bulge: 0, openings: [] });
+  const parPlan = planWallJoin(par, ["p1", "p2"]);
+  check("parallel walls weld at their midpoint",
+    isJoinPlan(parPlan) && parPlan.parallel && near(parPlan.at.x, 2100, 1));
+
+  // An end already carrying another wall would drag it along, so it is refused
+  // with a reason rather than silently moving a third wall.
+  const busy = gap();
+  busy.walls.push({ id: "x", a: busy.walls[0]!.b, b: nodeAt(busy, v(3800, -2000)).id,
+    thickness: 100, bulge: 0, openings: [] });
+  check("an end attached to a third wall is refused",
+    (planWallJoin(busy, ["h", "v"]) as { reason?: string }).reason === "busy");
+
+  // A shallow crossing lies a long way off; stretching a wall to reach it is a
+  // different drawing, not a join.
+  const shallow = emptyDoc().floors[0]!;
+  shallow.walls.push({ id: "s1", a: nodeAt(shallow, v(0, 0)).id, b: nodeAt(shallow, v(1000, 0)).id,
+    thickness: 100, bulge: 0, openings: [] });
+  shallow.walls.push({ id: "s2", a: nodeAt(shallow, v(1200, 20)).id, b: nodeAt(shallow, v(2200, 5)).id,
+    thickness: 100, bulge: 0, openings: [] });
+  check("a crossing further off than the walls are long is refused",
+    (planWallJoin(shallow, ["s1", "s2"]) as { reason?: string }).reason === "apart");
+}
+
+// --- reversing a wall must not change the drawing ---
+{
+  // The strongest check available: openingMarks() is what every exporter and
+  // the canvas draw a door from, so if a flip leaves those primitives
+  // unchanged, every frame-relative field was turned correctly -- and if one
+  // was missed, the leaf or its swing lands somewhere else.
+  const withDoor = () => {
+    const f = emptyDoc().floors[0]!;
+    f.walls.push({
+      id: "w", a: nodeAt(f, v(0, 0)).id, b: nodeAt(f, v(4000, 0)).id,
+      thickness: 100, bulge: 0, material: "glass", postMm: 1200,
+      facadeMm: 100, facadeSide: "left",
+      openings: [{
+        id: "o", kind: "door", t: 1200, width: 1800,
+        sashes: [{ action: "turn", hinge: "a", outward: true },
+                 { action: "turn", hinge: "b", outward: true }],
+      }],
+    });
+    return f;
+  };
+  // A line from P to Q is the same line as Q to P, and reversing the wall
+  // reverses the normal the jambs are drawn along -- so endpoints are put in a
+  // fixed order before comparing, and the check stays about geometry.
+  const marksOf = (f: ReturnType<typeof withDoor>): string =>
+    JSON.stringify(openingMarks([...resolveFloor(f).walls.values()][0]!)
+      .map(pr => {
+        if (pr.kind !== "line") return JSON.stringify(pr);
+        const [p, q] = [JSON.stringify(pr.a), JSON.stringify(pr.b)].sort();
+        return `line ${p} ${q}`;
+      }).sort());
+
+  const flipped = withDoor();
+  const before = marksOf(flipped);
+  // An absent `outward` is written out as false on the way round, which states
+  // the same thing, so the comparison reads it rather than the raw bytes. Taken
+  // off THIS document: a freshly built one has different node ids.
+  const canon = (w: Wall): string => JSON.stringify({
+    ...w,
+    openings: w.openings.map(o => ({
+      ...o, sashes: o.sashes.map(sh => ({ ...sh, outward: sh.outward === true })),
+    })),
+  });
+  const original = canon(flipped.walls[0]!);
+  flipWall(flipped, flipped.walls[0]!);
+  check("a flipped wall draws the same door", marksOf(flipped) === before);
+  check("the flip actually reversed the wall", canon(flipped.walls[0]!) !== original);
+  check("and moved the opening to the far end", near(flipped.walls[0]!.openings[0]!.t, 2800, 1),
+    String(flipped.walls[0]!.openings[0]!.t));
+  check("and turned the facade to the same world side",
+    flipped.walls[0]!.facadeSide === "right");
+
+  flipWall(flipped, flipped.walls[0]!);
+  check("flipping twice restores the wall", canon(flipped.walls[0]!) === original);
+  check("and the drawing is unchanged throughout", marksOf(flipped) === before);
+}
+
+// --- a door's swing side is stated by `outward`, not by which jamb hinges ---
+{
+  // Same door, same statement, opposite hinge: both leaves must open the same
+  // way. Taking the side from perp(hinge -> other) made them opposite, which
+  // drew a plain double door as an S with one leaf in and one out.
+  const swingY = (hinge: "a" | "b"): number => {
+    const f = emptyDoc().floors[0]!;
+    f.walls.push({
+      id: "w", a: nodeAt(f, v(0, 0)).id, b: nodeAt(f, v(4000, 0)).id,
+      thickness: 100, bulge: 0,
+      openings: [{ id: "o", kind: "door", t: 2000, width: 900,
+        sashes: [{ action: "turn", hinge, outward: true }] }],
+    });
+    const arc = openingMarks([...resolveFloor(f).walls.values()][0]!)
+      .find(pr => pr.kind === "arc") as { start: number; sweep: number; r: number };
+    return Math.sin((arc.start + arc.sweep) * Math.PI / 180) * arc.r;
+  };
+  check("the hinge jamb does not decide which way a door opens",
+    Math.sign(swingY("a")) === Math.sign(swingY("b")),
+    `${swingY("a").toFixed(0)} vs ${swingY("b").toFixed(0)}`);
+  check("and `outward: true` puts it on the far side from the wall normal",
+    swingY("a") < 0, String(swingY("a")));
+
+  // The side comes from the wall normal, the ANGLE from the leaf's own chord:
+  // on a bowed wall those differ, and a door still opens through a quarter turn.
+  const bowed = emptyDoc().floors[0]!;
+  bowed.walls.push({
+    id: "w", a: nodeAt(bowed, v(0, 0)).id, b: nodeAt(bowed, v(4000, 0)).id,
+    thickness: 100, bulge: 0.3,
+    openings: [{ id: "o", kind: "door", t: 2000, width: 900,
+      sashes: [{ action: "turn", hinge: "b", outward: true }] }],
+  });
+  const bowArc = openingMarks([...resolveFloor(bowed).walls.values()][0]!)
+    .find(pr => pr.kind === "arc") as { sweep: number };
+  check("a door on a bowed wall still swings a quarter turn",
+    near(Math.abs(bowArc.sweep), 90, 0.01), String(bowArc.sweep));
+}
+
+// --- adding and removing nodes ---
+{
+  // splitWall then dissolve is a round trip: one wall, split, back to one wall.
+  const straight = () => {
+    const f = emptyDoc().floors[0]!;
+    f.walls.push({
+      id: "w", a: nodeAt(f, v(0, 0)).id, b: nodeAt(f, v(4000, 0)).id,
+      thickness: 100, bulge: 0,
+      openings: [{ id: "o", kind: "door", t: 800, width: 900,
+        sashes: [{ action: "turn", hinge: "a" }] }],
+    });
+    return f;
+  };
+
+  const f = straight();
+  const mid = splitWall(f, f.walls[0]!, 2000)!;
+  check("splitting a wall makes a second one", f.walls.length === 2);
+  check("and a node between them", f.nodes.some(n => n.id === mid.id));
+
+  const plan = planNodeDissolve(f, mid.id);
+  check("a node between two collinear walls can be removed", isDissolvePlan(plan));
+  if (isDissolvePlan(plan)) {
+    check("the merged wall is the full length", near(plan.length, 4000, 1), String(plan.length));
+    applyNodeDissolve(f, plan);
+    check("removing it leaves one wall", f.walls.length === 1, String(f.walls.length));
+    check("and takes the node with it", !f.nodes.some(n => n.id === mid.id));
+    check("the wall spans what it did before", near(wallLength(f, f.walls[0]!), 4000, 1));
+    // The door was on the near half and has to keep its place along the wall.
+    check("the opening keeps its distance from the same end",
+      near(f.walls[0]!.openings[0]!.t, 800, 1), String(f.walls[0]!.openings[0]!.t));
+  }
+
+  // A door on the FAR half re-bases onto the merged wall's own a.
+  const g = straight();
+  g.walls[0]!.openings[0]!.t = 3200;
+  const gm = splitWall(g, g.walls[0]!, 2000)!;
+  applyNodeDissolve(g, planNodeDissolve(g, gm.id) as never);
+  check("an absorbed opening arrives at the right distance",
+    near(g.walls[0]!.openings[0]!.t, 3200, 1), String(g.walls[0]!.openings[0]!.t));
+
+  // A corner is not redundant: dissolving it would straighten the drawing.
+  const bent = emptyDoc().floors[0]!;
+  const corner = nodeAt(bent, v(4000, 0)).id;
+  bent.walls.push({ id: "b1", a: nodeAt(bent, v(0, 0)).id, b: corner, thickness: 100, bulge: 0, openings: [] });
+  bent.walls.push({ id: "b2", a: corner, b: nodeAt(bent, v(4000, 3000)).id, thickness: 100, bulge: 0, openings: [] });
+  check("a corner node is refused",
+    (planNodeDissolve(bent, corner) as { reason?: string }).reason === "bent");
+
+  // Walls that state different things would lose one of the two.
+  const mixed = straight();
+  const mm = splitWall(mixed, mixed.walls[0]!, 2000)!;
+  mixed.walls[1]!.thickness = 200;
+  check("walls that differ are refused",
+    (planNodeDissolve(mixed, mm.id) as { reason?: string }).reason === "differs");
+
+  // Two walls drawn TOWARD each other still dissolve: one is turned round, and
+  // the choice falls on a wall that survives being turned.
+  const opposed = emptyDoc().floors[0]!;
+  const shared = nodeAt(opposed, v(2000, 0)).id;
+  opposed.walls.push({ id: "o1", a: nodeAt(opposed, v(0, 0)).id, b: shared,
+    thickness: 100, bulge: 0, openings: [] });
+  opposed.walls.push({ id: "o2", a: nodeAt(opposed, v(4000, 0)).id, b: shared,
+    thickness: 100, bulge: 0, openings: [] });
+  const oPlan = planNodeDissolve(opposed, shared);
+  check("walls drawn toward each other still dissolve", isDissolvePlan(oPlan));
+  if (isDissolvePlan(oPlan)) {
+    applyNodeDissolve(opposed, oPlan);
+    check("and leave one wall spanning the run",
+      opposed.walls.length === 1 && near(wallLength(opposed, opposed.walls[0]!), 4000, 1));
+  }
+
+  // A sliding door states no side to slide on, so a wall carrying one cannot be
+  // turned round -- and when both would have to be, the dissolve says so.
+  const slide = emptyDoc().floors[0]!;
+  const sn = nodeAt(slide, v(2000, 0)).id;
+  for (const [id, from] of [["s1", v(0, 0)], ["s2", v(4000, 0)]] as const) {
+    slide.walls.push({
+      id, a: nodeAt(slide, from).id, b: sn, thickness: 100, bulge: 0,
+      openings: [{ id: id + "o", kind: "door", t: 900, width: 900,
+        sashes: [{ action: "slide", slideTo: "b" }] }],
+    });
+  }
+  check("two opposed walls that both carry a sliding door are refused",
+    (planNodeDissolve(slide, sn) as { reason?: string }).reason === "opposed");
+
+  // Selecting the two SECTIONS and asking to merge is the same operation as
+  // removing the node between them -- which is where a drawer actually reaches
+  // for it, having two things selected rather than the dot between them.
+  {
+    const pair = straight();
+    const pm = splitWall(pair, pair.walls[0]!, 2000)!;
+    const ids = pair.walls.map(w => w.id);
+    const plan2 = planWallMerge(pair, ids);
+    check("two sections that meet can be merged from the walls", isDissolvePlan(plan2));
+    check("and it is the same node the pane would dissolve",
+      isDissolvePlan(plan2) && plan2.nodeId === pm.id);
+    if (isDissolvePlan(plan2)) {
+      applyNodeDissolve(pair, plan2);
+      check("merging from the walls leaves one wall", pair.walls.length === 1);
+    }
+    // Not a pair at all, and a pair that shares no node, are both "nothing is
+    // being asked" rather than a refusal -- a corner join is the question then.
+    check("one wall is not a merge", planWallMerge(pair, [ids[0]!]) === null);
+    const apart = emptyDoc().floors[0]!;
+    apart.walls.push({ id: "a1", a: nodeAt(apart, v(0, 0)).id, b: nodeAt(apart, v(1000, 0)).id,
+      thickness: 100, bulge: 0, openings: [] });
+    apart.walls.push({ id: "a2", a: nodeAt(apart, v(2000, 0)).id, b: nodeAt(apart, v(3000, 0)).id,
+      thickness: 100, bulge: 0, openings: [] });
+    check("walls that share no node are not a merge",
+      planWallMerge(apart, ["a1", "a2"]) === null);
+    // A refusal still comes back, so the pane can say why instead of going quiet.
+    check("a corner refuses with its reason",
+      (planWallMerge(bent, ["b1", "b2"]) as { reason?: string }).reason === "bent");
+  }
+
+  // A T-junction node carries three walls and is not redundant at all.
+  const tee = straight();
+  const tm = splitWall(tee, tee.walls[0]!, 2000)!;
+  tee.walls.push({ id: "t", a: tm.id, b: nodeAt(tee, v(2000, 2000)).id,
+    thickness: 100, bulge: 0, openings: [] });
+  check("a junction of three walls is refused",
+    (planNodeDissolve(tee, tm.id) as { reason?: string }).reason === "degree");
+}
+
+// --- insertWall welds an end rather than cutting a stub off it ---
+{
+  // The regression this rule exists for. A wall drawn slightly off square is
+  // redrawn over with a rectangle; the rectangle's edge crosses it 12 mm from
+  // its end. Splitting there left a 12 mm wall with a dangling node on it,
+  // which put a zero-width spur in the boundary of the room around it and made
+  // detectRooms() report that room as having no usable floor at all.
+  const f = emptyDoc().floors[0]!;
+  const a = nodeAt(f, v(6425, 2789)), b = nodeAt(f, v(5199, 2810));
+  insertWall(f, a.id, b.id, 100);
+  const rect = shapeRun("rect", v(5211, 1535), v(9000, 6133))!;
+  insertRun(f, rect.points, rect.bulges, 100);
+
+  const shortest = Math.min(...f.walls.map(w => wallLength(f, w)));
+  check("a crossing near an end leaves no stub behind",
+    shortest >= 100, String(Math.round(shortest)));
+  const degree = (id: string): number => f.walls.filter(w => w.a === id || w.b === id).length;
+  check("and no second node a hair from the crossing",
+    f.nodes.filter(n => near(n.x, 5211, 40) && near(n.y, 2810, 40)).length === 1);
+  const welded = f.nodes.find(n => degree(n.id) === 1 && near(n.x, 6425, 1));
+  check("the wall that was crossed keeps its far end", welded !== undefined);
+  check("and its near end now sits on the wall it met",
+    f.walls.some(w => {
+      const p = f.nodes.find(n => n.id === w.a)!, q = f.nodes.find(n => n.id === w.b)!;
+      const far = near(p.x, 6425, 1) ? q : near(q.x, 6425, 1) ? p : null;
+      return far !== null && near(far.x, 5211, 1) && near(far.y, 2810, 1);
+    }));
+}
+{
+  // The weld must not swallow a legitimate split. A crossing further from the
+  // end than the wall is thick is a junction, and cuts as it always did.
+  const f = emptyDoc().floors[0]!;
+  const a = nodeAt(f, v(0, 0)), b = nodeAt(f, v(4000, 0));
+  insertWall(f, a.id, b.id, 100);
+  const c = nodeAt(f, v(3800, -1000)), d = nodeAt(f, v(3800, 1000));
+  insertWall(f, c.id, d.id, 100);
+  check("a crossing 200 mm from the end still splits",
+    f.walls.some(w => near(wallLength(f, w), 200, 1))
+    && f.walls.some(w => near(wallLength(f, w), 3800, 1)),
+    f.walls.map(w => Math.round(wallLength(f, w))).join(","));
+}
+{
+  // The bound is the wall's own thickness, not a constant: a thicker wall
+  // refuses a longer stub.
+  const thin = emptyDoc().floors[0]!;
+  insertWall(thin, nodeAt(thin, v(0, 0)).id, nodeAt(thin, v(4000, 0)).id, 70);
+  insertWall(thin, nodeAt(thin, v(3900, -500)).id, nodeAt(thin, v(3900, 500)).id, 100);
+  check("a 70 mm wall crossed 100 mm from its end splits",
+    thin.walls.some(w => near(wallLength(thin, w), 100, 1)),
+    thin.walls.map(w => Math.round(wallLength(thin, w))).join(","));
+
+  const fat = emptyDoc().floors[0]!;
+  insertWall(fat, nodeAt(fat, v(0, 0)).id, nodeAt(fat, v(4000, 0)).id, 300);
+  insertWall(fat, nodeAt(fat, v(3900, -500)).id, nodeAt(fat, v(3900, 500)).id, 100);
+  check("a 300 mm wall crossed at the same place welds instead",
+    !fat.walls.some(w => near(wallLength(fat, w), 100, 1)),
+    fat.walls.map(w => Math.round(wallLength(fat, w))).join(","));
+}
+{
+  // What the whole chain was for: the room around the redrawn wall reports a
+  // net floor area again instead of nothing.
+  const f = emptyDoc().floors[0]!;
+  insertWall(f, nodeAt(f, v(6425, 2789)).id, nodeAt(f, v(5199, 2810)).id, 100);
+  const room = shapeRun("rect", v(0, 0), v(5211, 6000))!;
+  insertRun(f, room.points, room.bulges, 100);
+  const biggest = detectRooms(f).sort((p, q) => q.areaMm2 - p.areaMm2)[0]!;
+  check("the room beside a welded end has a net area",
+    biggest.netAreaMm2 > 0 && biggest.netPoly.length >= 4,
+    String(Math.round(biggest.netAreaMm2 / 1e4) / 100));
+}
+
+// --- alignToNeighbours: squaring a dragged node against what it is walled to ---
+{
+  // The node being dragged is at the cursor; its neighbour sits at y = 2789,
+  // which no multiple of the 100 mm grid can reach. Without this the corner
+  // cannot be squared by dragging at all, which is what sends a drawer to the
+  // shape tools and produces the stub above.
+  const f = emptyDoc().floors[0]!;
+  const corner = nodeAt(f, v(5211, 2810)), east = nodeAt(f, v(6425, 2789));
+  const south = nodeAt(f, v(5200, 6133));
+  insertWall(f, corner.id, east.id, 100);
+  insertWall(f, corner.id, south.id, 100);
+
+  const raw = v(5204, 2798);          // cursor, a few mm off both neighbours
+  const grid = v(5200, 2800);         // what the grid alone would give
+  const p = alignToNeighbours(f, corner.id, raw, grid, 20);
+  check("a dragged node takes its neighbour's off-grid y", p.y === 2789, String(p.y));
+  check("and the other axis squares against the other neighbour", p.x === 5200, String(p.x));
+
+  const far = alignToNeighbours(f, corner.id, v(5100, 2600), grid, 20);
+  check("a neighbour out of range leaves the grid position alone",
+    far.x === grid.x && far.y === grid.y, JSON.stringify(far));
+
+  const lone = emptyDoc().floors[0]!;
+  const solo = nodeAt(lone, v(0, 0));
+  check("a node walled to nothing keeps its grid position",
+    alignToNeighbours(lone, solo.id, v(7, 7), v(0, 0), 20).x === 0);
+}
+
+// --- Del on a node takes out the node, not the wall ---
+{
+  // Same rule removeRoutePoint() follows for a run, so the two halves of the
+  // editor behave the same way under the same key.
+  const straightPair = () => {
+    const f = emptyDoc().floors[0]!;
+    f.walls.push({
+      id: "w", a: nodeAt(f, v(0, 0)).id, b: nodeAt(f, v(4000, 0)).id,
+      thickness: 100, bulge: 0,
+      openings: [{ id: "o", kind: "door", t: 800, width: 900, sashes: [] }],
+    });
+    return f;
+  };
+
+  const f = straightPair();
+  const mid = splitWall(f, f.walls[0]!, 2000)!;
+  check("a node between two walls reads as dissolvable", planNodeRemoval(f, mid.id) === "dissolved");
+  check("removing it dissolves", removeNode(f, mid.id) === "dissolved");
+  check("and leaves the wall standing, not deleted", f.walls.length === 1, String(f.walls.length));
+  check("the wall still spans the full run", near(wallLength(f, f.walls[0]!), 4000, 1));
+  check("and keeps its opening", f.walls[0]!.openings.length === 1);
+
+  // A corner dissolves too -- Del says remove this node, and a run's waypoint
+  // answers the same way. The strict MERGE offer still refuses it.
+  const bent2 = emptyDoc().floors[0]!;
+  const corner = nodeAt(bent2, v(4000, 0)).id;
+  bent2.walls.push({ id: "c1", a: nodeAt(bent2, v(0, 0)).id, b: corner,
+    thickness: 100, bulge: 0, openings: [] });
+  bent2.walls.push({ id: "c2", a: corner, b: nodeAt(bent2, v(4000, 3000)).id,
+    thickness: 100, bulge: 0, openings: [] });
+  check("a corner is still refused by the offered merge",
+    (planNodeDissolve(bent2, corner) as { reason?: string }).reason === "bent");
+  check("but Del removes it", removeNode(bent2, corner) === "dissolved");
+  check("straightening leaves one wall", bent2.walls.length === 1);
+  check("spanning the two far ends", near(wallLength(bent2, bent2.walls[0]!), 5000, 1));
+
+  // Straightening shortens the pair, so an opening carried over has to be
+  // clamped back onto the wall it now belongs to rather than left past its end.
+  const bentDoor = emptyDoc().floors[0]!;
+  const bc = nodeAt(bentDoor, v(4000, 0)).id;
+  bentDoor.walls.push({ id: "d1", a: nodeAt(bentDoor, v(0, 0)).id, b: bc,
+    thickness: 100, bulge: 0, openings: [] });
+  bentDoor.walls.push({ id: "d2", a: bc, b: nodeAt(bentDoor, v(4000, 3000)).id,
+    thickness: 100, bulge: 0,
+    openings: [{ id: "o2", kind: "door", t: 2500, width: 900, sashes: [] }] });
+  removeNode(bentDoor, bc);
+  const merged = bentDoor.walls[0]!;
+  const o = merged.openings[0]!;
+  check("a carried opening stays on the wall it lands on",
+    o.t - o.width / 2 >= 0 && o.t + o.width / 2 <= wallLength(bentDoor, merged),
+    `${o.t} on ${Math.round(wallLength(bentDoor, merged))}`);
+
+  // A loose end has no second wall to heal into, so the wall goes with it.
+  const loose = straightPair();
+  const endNode = loose.walls[0]!.b;
+  check("a wall end reads as a cut", planNodeRemoval(loose, endNode) === "cut");
+  check("and removing it takes that one wall", removeNode(loose, endNode) === "cut");
+  check("leaving nothing behind", loose.walls.length === 0);
+
+  // A junction is refused outright: quietly deleting three walls is the very
+  // thing removing-the-node-not-the-wall exists to stop.
+  const tee2 = straightPair();
+  const tm = splitWall(tee2, tee2.walls[0]!, 2000)!;
+  tee2.walls.push({ id: "t", a: tm.id, b: nodeAt(tee2, v(2000, 2000)).id,
+    thickness: 100, bulge: 0, openings: [] });
+  check("a junction reads as one", planNodeRemoval(tee2, tm.id) === "junction");
+  check("and Del does nothing there", removeNode(tee2, tm.id) === "junction");
+  check("every wall is still standing", tee2.walls.length === 3, String(tee2.walls.length));
 }
 
 console.log(failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURES`);

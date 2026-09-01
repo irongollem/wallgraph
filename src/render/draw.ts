@@ -2,9 +2,9 @@
 // this scale render in well under a frame). Layers: grid, rooms, walls,
 // opening decorations, routes, furnishings, symbols, stairs, selection, labels
 // (labels in screen space).
-import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, videsOf, furnishingsOf, fireLabel, Underlay, Wall, Id } from "../model/doc";
+import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, videsOf, furnishingsOf, fireLabel, Underlay, Wall, Id, wallInfill } from "../model/doc";
 import { Resolved, OpeningGeom, Junction, ResolvedWall } from "../core/resolve";
-import { Room, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
+import { Room, roomSize, sizeLabel, looseRoomNames, roomArea } from "../core/rooms";
 import { Selection } from "../model/store";
 import { Viewport } from "./viewport";
 import { Vec, add, sub, scale, perp, v, angleOf, dist, fromAngle } from "../geometry/vec";
@@ -46,8 +46,16 @@ export const COLORS = {
    * enough that the two faces and the stijlen drawn over it stay the thing seen.
    */
   glassFill: "#dfe8ee",
-  /** The faces and stijlen of a glazed wall: the glazing line, not masonry. */
+  /** The faces and posts of a glazed wall: the glazing line, not masonry. */
   glassStroke: "#5b7183",
+  /**
+   * A sandwich panel's body. Infill like glass and drawn the same way — a light
+   * band between two faces rather than poché — but warm rather than cool, so a
+   * beplating and a glazen wand are told apart at a glance on the same sheet.
+   */
+  panelFill: "#e7e1d3",
+  /** The facings and posts of a panelled wall. */
+  panelStroke: "#8a8065",
   opening: "#3d4148",
   symbol: "#4a5568",
   select: "#e05d2d",
@@ -190,18 +198,20 @@ export interface WallPen {
   /** The line around the body. */
   stroke: string;
   /**
-   * What is drawn OVER the body: this wall's openings and its stijlen. Separate
+   * What is drawn OVER the body: this wall's openings and its posts. Separate
    * from `stroke` because an uncoloured wall's decorations are lighter than its
    * outline (COLORS.opening against COLORS.wallStroke) and always have been;
    * only a wall that states a colour pulls both onto one pen.
    */
   mark: string;
-  glazed: boolean;
+  /** True for an infill body (glass or panel), which is drawn as a light band
+   *  between two faces rather than as poché. */
+  infill: boolean;
 }
 
 /** The default masonry pen, and what a junction falls back to. */
 const MASONRY_PEN: WallPen = {
-  fill: COLORS.wallFill, stroke: COLORS.wallStroke, mark: COLORS.opening, glazed: false,
+  fill: COLORS.wallFill, stroke: COLORS.wallStroke, mark: COLORS.opening, infill: false,
 };
 
 /** Outline of a coloured poché: the same pen, darkened, as wallStroke is to wallFill. */
@@ -217,16 +227,21 @@ const GLASS_WASH = 0.82;
  */
 export function wallPen(w: Pick<Wall, "color" | "material">): WallPen {
   const ink = w.color && HEX.test(w.color) ? w.color : null;
-  if (w.material === "glass") {
+  // Infill is a light body between two faces, so the ink goes on the faces and
+  // the body keeps a wash — a solid pane of colour would be poché, which is the
+  // one thing an infill wall is not.
+  if (wallInfill(w)) {
+    const line = w.material === "glass" ? COLORS.glassStroke : COLORS.panelStroke;
+    const body = w.material === "glass" ? COLORS.glassFill : COLORS.panelFill;
     return {
-      fill: ink ? mix(ink, COLORS.bg, GLASS_WASH) : COLORS.glassFill,
-      stroke: ink ?? COLORS.glassStroke,
-      mark: ink ?? COLORS.glassStroke,
-      glazed: true,
+      fill: ink ? mix(ink, COLORS.bg, GLASS_WASH) : body,
+      stroke: ink ?? line,
+      mark: ink ?? line,
+      infill: true,
     };
   }
   return ink
-    ? { fill: ink, stroke: mix(ink, "#000000", STROKE_SHADE), mark: ink, glazed: false }
+    ? { fill: ink, stroke: mix(ink, "#000000", STROKE_SHADE), mark: ink, infill: false }
     : MASONRY_PEN;
 }
 
@@ -447,6 +462,25 @@ export function drawScene(
     ctx.restore();
   }
 
+  // Cladding first, so the structural body draws over the band's inner edge and
+  // the two read as one wall rather than as two stacked ones. Filled with the
+  // paper colour: a facade is outside the building, and the drawing convention
+  // is a white band outlined against the poché rather than a second poché.
+  for (const rw of resolved.walls.values()) {
+    if (rw.facade.length === 0) continue;
+    const pen = wallPen(rw.wall);
+    const line = isSel("wall", rw.wall.id) ? COLORS.select : pen.stroke;
+    for (const band of rw.facade) {
+      ctx.beginPath();
+      tracePoly(ctx, band.poly);
+      ctx.fillStyle = COLORS.bg;
+      ctx.fill();
+      ctx.strokeStyle = line;
+      ctx.lineWidth = px;
+      ctx.stroke();
+    }
+  }
+
   // Walls.
   for (const rw of resolved.walls.values()) {
     const wallSel = isSel("wall", rw.wall.id);
@@ -461,13 +495,27 @@ export function drawScene(
       ctx.lineWidth = (wallSel ? 2 : 1) * px;
       ctx.stroke();
     }
-    // Stijlen, over the glazing they divide. Empty for every solid wall.
-    if (rw.mullions.length > 0) {
+    // Posts, over the body they divide. Empty where the wall states no frame.
+    // A stated profile is a member with a footprint, so it is filled at the size
+    // it is built to; without one the post is a hairline, which is the drawing
+    // saying the centres are known and the section is not.
+    if (rw.posts.length > 0) {
+      const postInk = wallSel ? COLORS.select : pen.mark;
       ctx.beginPath();
-      for (const m of rw.mullions) { ctx.moveTo(m.a.x, m.a.y); ctx.lineTo(m.b.x, m.b.y); }
-      ctx.strokeStyle = wallSel ? COLORS.select : pen.mark;
+      for (const m of rw.posts) if (!m.poly) { ctx.moveTo(m.a.x, m.a.y); ctx.lineTo(m.b.x, m.b.y); }
+      ctx.strokeStyle = postInk;
       ctx.lineWidth = px;
       ctx.stroke();
+      for (const m of rw.posts) {
+        if (!m.poly) continue;
+        ctx.beginPath();
+        tracePoly(ctx, m.poly);
+        ctx.fillStyle = postInk;
+        ctx.fill();
+        ctx.strokeStyle = postInk;
+        ctx.lineWidth = px;
+        ctx.stroke();
+      }
     }
     // An opening states the same work its wall does, so it draws in the wall's
     // pen: a new door in a new wall is red throughout, not red with a black door.
@@ -598,7 +646,7 @@ export function drawScene(
     const c = vp.toScreen(r.centroid);
     // Which number this is, is stated in the legend — a bare "12.0 m²" that
     // silently means centerline is the whole problem this addresses.
-    const mm2 = areaMode === "net" ? r.netAreaMm2 : r.areaMm2;
+    const mm2 = roomArea(r, areaMode);
     const area = (mm2 / 1e6).toFixed(1) + " m²";
     // The clear size, where the room has one to state. Skipped once the room is
     // narrower on screen than the figures themselves, which would smear them
@@ -912,8 +960,15 @@ function drawDoorLeaf(
   const hingeAtA = (leaf.hinge ?? "a") !== "b";
   const hinge = hingeAtA ? a : b;
   const other = hingeAtA ? b : a;
+  // A quarter turn whose SIDE comes from the wall's normal. The side must not
+  // come from perp(hinge -> other) -- that reverses with the hinge jamb, which
+  // drew a plain double door as an S -- and the tip must not come from the
+  // normal either, or a leaf on a bowed wall swings through more or less than
+  // 90 degrees. See addSwing() in io/marks.ts, which this must agree with.
   const dir = scale(sub(other, hinge), 1 / w);
-  const swing = outward ? scale(perp(dir), -1) : perp(dir);
+  const across = perp(dir);
+  const face = outward ? scale(n, -1) : n;
+  const swing = across.x * face.x + across.y * face.y >= 0 ? across : scale(across, -1);
   const tip = add(hinge, scale(swing, w));
   ctx.setLineDash([]);
   if (glazed) {

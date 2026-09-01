@@ -57,6 +57,7 @@
 import {
   PlanDoc, Floor, Wall, projectOf, floorElevation, floorHeight, areaModeOf, dimModeOf, DimMode, Sash, sashSpecsOf,
   openingHeight, videsOf, stairsOf, furnishingsOf, routesOf, SymbolInstance, wallHeight, fireLabel, WallMaterial,
+  wallPostMm, wallFacadeMm,
 } from "../model/doc";
 import {
   Discipline, Route, routeDiameter, routeDuctDiameter, routeHeat, routeHeatDiameter,
@@ -67,7 +68,7 @@ import { arcFlatten } from "../geometry/arc";
 import { ifcGuid } from "../model/guid";
 import { wallLength } from "../model/ops";
 import { floorSolids } from "../core/solids";
-import { detectRooms, roomSize, sizeLabel, Room } from "../core/rooms";
+import { detectRooms, roomSize, sizeLabel, Room, roomArea } from "../core/rooms";
 import { resolveStair, stairBox } from "../core/stair";
 import { StairKind, stairParams } from "../model/stair";
 import { furnishingHeight, furnishingClass, furnishingKind, type Furnishing, type FurnishingClass } from "../model/furnishing";
@@ -445,6 +446,7 @@ function wallIsExternal(floor: Floor, wall: Wall, roomPolys: readonly Vec[][]): 
  */
 const IFC_MATERIAL_NAME: Record<WallMaterial, string> = {
   masonry: "Masonry", concrete: "Concrete", timber: "Wood", steel: "Steel", glass: "Glass",
+  sandwich: "SandwichPanel",
 };
 
 /* ── services ───────────────────────────────────────────────────────────────
@@ -866,14 +868,23 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
     const contained: number[] = []; // walls + door/window fillers; NOT openings
     // Walls of this storey by their stated material, for the associations
     // emitted once the loop has built every wall entity.
-    const byMaterial = new Map<WallMaterial, number[]>();
+    // Keyed on material AND cladding, because those are two different
+    // statements in IFC: a bare material is an IFCMATERIAL, a clad wall is an
+    // IFCMATERIALLAYERSET. Walls agreeing on both share one relation.
+    const byBuild = new Map<string,
+      { material?: WallMaterial; thickness: number; facadeMm?: number; elements: number[] }>();
 
     for (const ws of wallSolids) {
       const wall = floor.walls.find(x => x.id === ws.wallId)!;
       const bodyIds = ws.body.map(p => extrudedSolid(p.poly, p.z0, p.z1));
+      // A wall carrying posts is IFC4's ELEMENTEDWALL: a wall assembled from
+      // components. That is the honest predefined type for a curtain-walled or
+      // portal-framed wall, and it states the fact without inventing the
+      // assembly itself — the components are not modelled (see IFC_MATERIAL_NAME).
       const wallEntity = w.entity("IFCWALL",
         [str(ifcGuid(seed, wall.id)), ref(ownerHistory), str(`Wall ${wall.thickness}`), UNSET, UNSET,
-          ref(levelPlacement), bodyShape(bodyIds), UNSET, UNSET]);
+          ref(levelPlacement), bodyShape(bodyIds), UNSET,
+          wallPostMm(wall) !== undefined ? enumv("ELEMENTEDWALL") : UNSET]);
       contained.push(wallEntity);
 
       // ── Pset_WallCommon ──────────────────────────────────────────────────
@@ -887,10 +898,18 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
       // ── material ─────────────────────────────────────────────────────────
       // Absent means not stated, so nothing is associated rather than a guess
       // at masonry -- the same reading Pset_WallCommon gives loadBearing above.
-      if (wall.material !== undefined) {
-        const list0 = byMaterial.get(wall.material) ?? [];
-        list0.push(wallEntity);
-        byMaterial.set(wall.material, list0);
+      const facadeMm = wallFacadeMm(wall);
+      if (wall.material !== undefined || facadeMm !== undefined) {
+        // Thickness is part of the key only for a clad wall: it is a layer of
+        // the build-up there, and irrelevant to a bare material association,
+        // which would otherwise split into one relation per thickness.
+        const key = facadeMm === undefined
+          ? `${wall.material}|`
+          : `${wall.material ?? ""}|${wall.thickness}|${facadeMm}`;
+        const bucket = byBuild.get(key)
+          ?? { material: wall.material, thickness: wall.thickness, facadeMm, elements: [] };
+        bucket.elements.push(wallEntity);
+        byBuild.set(key, bucket);
       }
 
       // ── Qto_WallBaseQuantities ───────────────────────────────────────────
@@ -956,10 +975,27 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
     // per material per storey rather than one per wall -- the latter would write
     // the same statement once for every wall. The GlobalId is keyed on the
     // storey and the material name, both stable, so a re-export keeps it.
-    for (const [material, elements] of byMaterial) {
+    for (const [key, build] of byBuild) {
+      // A clad wall is a build-up, and IFC says so with a layer set: the
+      // structure and the cladding as ordered layers, inside out. The facade
+      // layer names no material because the document stores only its thickness
+      // -- IfcMaterialLayer.Material is optional in IFC4 precisely for this.
+      // An unclad wall keeps the plain IFCMATERIAL association it had.
+      const relating = build.facadeMm === undefined
+        ? materialEntity(IFC_MATERIAL_NAME[build.material!])
+        : w.entity("IFCMATERIALLAYERSET", [
+            list(
+              ref(w.entity("IFCMATERIALLAYER", [
+                build.material !== undefined ? ref(materialEntity(IFC_MATERIAL_NAME[build.material])) : UNSET,
+                real(build.thickness), UNSET, str("Structure"), UNSET, UNSET, UNSET])),
+              ref(w.entity("IFCMATERIALLAYER", [
+                UNSET, real(build.facadeMm), UNSET, str("Facade"), UNSET, UNSET, UNSET])),
+            ),
+            str("Wall"), UNSET,
+          ]);
       w.entity("IFCRELASSOCIATESMATERIAL",
-        [str(ifcGuid(seed, `${floor.id}:material:${material}`)), ref(ownerHistory), UNSET, UNSET,
-          list(...elements.map(e => ref(e))), ref(materialEntity(IFC_MATERIAL_NAME[material]))]);
+        [str(ifcGuid(seed, `${floor.id}:material:${key}`)), ref(ownerHistory), UNSET, UNSET,
+          list(...build.elements.map(e => ref(e))), ref(relating)]);
     }
 
     // ── slab and vide voids ─────────────────────────────────────────────────
@@ -1138,7 +1174,7 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
 
       // NetFloorArea on the document's own declared basis (areaModeOf), not
       // a claim of NEN 2580 conformance — MethodOfMeasurement stays $.
-      const areaMm2 = areaModeOf(doc) === "net" ? r.netAreaMm2 : r.areaMm2;
+      const areaMm2 = roomArea(r, areaModeOf(doc));
       const areaQty = w.entity("IFCQUANTITYAREA", [str("NetFloorArea"), UNSET, UNSET, real(areaMm2 / 1e6), UNSET]);
       const heightQty = w.entity("IFCQUANTITYLENGTH", [str("Height"), UNSET, UNSET, real(fh), UNSET]);
       const qset = w.entity("IFCELEMENTQUANTITY",

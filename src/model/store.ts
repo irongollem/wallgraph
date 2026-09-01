@@ -2,7 +2,9 @@
 // command-object migration path exists if they ever aren't) + change notification.
 import { PlanDoc, emptyDoc, Floor, Id, newId } from "./doc";
 
-export type SelKind = "wall" | "node" | "opening" | "symbol" | "stair" | "vide" | "furnishing" | "route";
+export type SelKind =
+  | "wall" | "node" | "opening" | "symbol" | "stair" | "vide" | "furnishing"
+  | "route" | "routePoint";
 /**
  * One picked object. `sel` plus `selMore` below is the WHOLE selection, and it
  * is always same-kind: a mixed bag of a wall and a table has no field in
@@ -12,12 +14,23 @@ export type SelKind = "wall" | "node" | "opening" | "symbol" | "stair" | "vide" 
  * is a graph junction, not an object a plan bulk-edits, so the select tool's
  * shift-click and marquee paths both skip it (see input/tools.ts).
  */
-export interface Selection { kind: SelKind; id: Id; wallId?: Id } // opening carries wallId
+export interface Selection {
+  kind: SelKind;
+  id: Id;
+  /** Openings carry the wall they are cut into. */
+  wallId?: Id;
+  /**
+   * Route points carry the run they belong to. `routePoint` is `node` one layer
+   * over: a waypoint picked so Del takes out the point rather than the whole
+   * run, and grouped no more than a node is.
+   */
+  routeId?: Id;
+}
 
 /**
  * The kinds a multi-select gesture (shift-click, touch hold, marquee) may
- * gather into a group. Every SelKind except "node" -- see the comment on
- * Selection above.
+ * gather into a group. Every SelKind except "node" and "routePoint" -- see the
+ * comment on Selection above.
  */
 export const MULTI_SELECT_KINDS: ReadonlySet<SelKind> =
   new Set(["wall", "opening", "symbol", "stair", "vide", "furnishing", "route"]);

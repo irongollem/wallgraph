@@ -6,7 +6,7 @@
 // there is no box, and a route can run the whole diagonal of a plan, where a
 // frame around its bounds would highlight everything between its ends.
 import { ResolvedRoute, ResolvedRouteSegment } from "../core/route";
-import { RoutePoint, routeKind, routeWater, routeVent } from "../model/route";
+import { RoutePoint, Route, routeKind, routeWater, routeVent, routeBoreMm } from "../model/route";
 import { Vec } from "../geometry/vec";
 import type { ResolvedRiserMark } from "../core/continuation";
 import { arcInfo } from "../geometry/arc";
@@ -46,6 +46,60 @@ export const ROUTE_AFVOER_EXTRA_MM = 15;
  * entity, so this has no DXF counterpart.
  */
 export const ROUTE_VENT_EXTRA_MM = 20;
+
+/**
+ * The width one run's own line draws at, mm. The line states the KIND of run --
+ * a drain reads heavier than a supply leg, a duct heavier again -- which is a
+ * separate signal from how big the thing actually is; see routeBandMm below
+ * for that. One function so the canvas, the SVG and the draft preview cannot
+ * drift apart.
+ */
+export function routeLineWidthMm(r: Route): number {
+  if (r.discipline === "vent") return LINE_WIDTH_MM + ROUTE_VENT_EXTRA_MM;
+  if (r.discipline === "water" && routeWater(r) === "afvoer") {
+    return LINE_WIDTH_MM + ROUTE_AFVOER_EXTRA_MM;
+  }
+  return LINE_WIDTH_MM;
+}
+
+/**
+ * The footprint band, mm: the run drawn at the size it is actually built to,
+ * under its own line.
+ *
+ * A 200 duct occupies 200 mm of a ceiling or a shaft, and a drawing that shows
+ * it as a line the same weight as a 15 mm supply pipe cannot answer whether it
+ * fits. Only returned when the bore EXCEEDS the line already drawn for that
+ * run: below that the band would be narrower than the line covering it and
+ * would state nothing, which is why a 15-28 mm pipe keeps the plain line it
+ * always had and a duct or a soil stack gains a footprint.
+ */
+export function routeBandMm(r: Route): number | undefined {
+  const bore = routeBoreMm(r);
+  if (bore === undefined) return undefined;
+  return bore >= ROUTE_BAND_MIN_MM && bore > routeLineWidthMm(r) ? bore : undefined;
+}
+
+/**
+ * The smallest bore drawn as a footprint, mm.
+ *
+ * Below this a run is something threaded through the construction rather than
+ * something room has to be found for -- a 15-28 mm supply or CV leg goes where
+ * it is told. It also keeps the band from appearing three millimetres wider
+ * than the line covering it, which would read as a printing fault rather than
+ * as a size. From 50 up the run is a duct or a soil stack: a hole gets made for
+ * it, and the drawing has to be able to answer whether it fits.
+ */
+export const ROUTE_BAND_MIN_MM = 50;
+
+/**
+ * The band's ink: the run's own colour at low alpha, as an 8-digit hex so the
+ * one string serves the canvas and the SVG alike. Translucent rather than a
+ * flat tint because runs cross each other and cross the plan beneath them --
+ * a footprint has to show what it passes over, or it reads as a wall.
+ */
+export function routeBandInk(ink: string): string {
+  return /^#[0-9a-fA-F]{6}$/.test(ink) ? ink + "2e" : ink;
+}
 
 export interface RoutePaint {
   ink: string;
@@ -88,9 +142,12 @@ export function drawRoute(
   ctx.save();
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
+  const band = routeBandMm(resolved.route);
   if (paint.selected && paint.wash) {
     ctx.strokeStyle = paint.wash;
-    ctx.lineWidth = LINE_WIDTH_MM + 90;
+    // Clear of the footprint, or a wide duct's own band would swallow the halo
+    // and a selected duct would look no different from an unselected one.
+    ctx.lineWidth = (band ?? LINE_WIDTH_MM) + 90;
     strokePath(ctx, resolved.segments);
   }
   const ink = paint.selected && paint.select ? paint.select : paint.ink;
@@ -109,9 +166,15 @@ export function drawRoute(
   const isVentAfvoer = isVent && routeVent(resolved.route) === "afvoer";
   const dashed = isWaterAfvoer || isVentAfvoer
     || (resolved.route.discipline === "electrical" && routeKind(resolved.route) !== "power");
-  ctx.lineWidth = isWaterAfvoer ? LINE_WIDTH_MM + ROUTE_AFVOER_EXTRA_MM
-    : isVent ? LINE_WIDTH_MM + ROUTE_VENT_EXTRA_MM
-    : LINE_WIDTH_MM;
+  // The footprint first, undashed and under everything: it says how much room
+  // the run needs, while the line over it keeps saying what kind of run it is.
+  if (band !== undefined) {
+    ctx.strokeStyle = routeBandInk(ink);
+    ctx.lineWidth = band;
+    strokePath(ctx, resolved.segments);
+    ctx.strokeStyle = ink;
+  }
+  ctx.lineWidth = routeLineWidthMm(resolved.route);
   if (dashed) ctx.setLineDash([...(isWaterAfvoer || isVentAfvoer ? ROUTE_AFVOER_DASH : ROUTE_DATA_DASH)]);
   strokePath(ctx, resolved.segments);
   if (dashed) ctx.setLineDash([]);

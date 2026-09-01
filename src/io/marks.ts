@@ -14,13 +14,16 @@ import { Vec } from "../geometry/vec";
 import { Prim } from "./record";
 
 /**
- * The stijlen across a glazed wall, as lines face to face. Empty for a solid
- * wall and for glazing that states no spacing. core/resolve.ts has already done
- * the dividing — including pushing the stijlen of a run aside around a door —
- * so both exporters and the canvas place them identically.
+ * A wall's posts: the member's own footprint where a profile width is stated,
+ * a line across the body where it is not. Empty for a wall stating no frame.
+ * core/resolve.ts has already done the dividing — including pushing the posts
+ * of a run aside around a door — so both exporters and the canvas place them
+ * identically.
  */
-export function mullionMarks(rw: ResolvedWall): Prim[] {
-  return rw.mullions.map(m => ({ kind: "line", a: m.a, b: m.b } as const));
+export function postMarks(rw: ResolvedWall): Prim[] {
+  return rw.posts.map((m): Prim => m.poly
+    ? { kind: "poly", pts: m.poly, closed: true }
+    : { kind: "line", a: m.a, b: m.b });
 }
 
 export function openingMarks(rw: ResolvedWall): Prim[] {
@@ -94,7 +97,7 @@ export function openingMarks(rw: ResolvedWall): Prim[] {
       if (sash.action === "turn" || sash.action === "turn-tilt" || sash.action === "turn-slide"
           || sash.action === "double-acting") {
         const signs = sash.action === "double-acting" ? [1, -1] : [sash.outward === true ? -1 : 1];
-        for (const sign of signs) addSwing(out, sash.width, sash.hinge, a, b, sign);
+        for (const sign of signs) addSwing(out, sash.width, sash.hinge, a, b, mul(n, sign));
       }
 
       if (sash.action === "fold") {
@@ -167,11 +170,26 @@ export function openingMarks(rw: ResolvedWall): Prim[] {
   return out;
 }
 
-function addSwing(out: Prim[], width: number, hingeEdge: string | undefined, a: Vec, b: Vec, sign: number): void {
+/**
+ * One leaf and its quarter swing arc. `face` is the side the leaf opens toward,
+ * as a unit vector across the wall.
+ *
+ * It has to come from the WALL's normal, not from perp(hinge -> other): that
+ * direction reverses with the choice of hinge jamb, so taking the side from it
+ * made the same door swing opposite ways depending on which jamb it hung from,
+ * and drew a plain double door (hinge a + hinge b) as an S with one leaf
+ * opening in and the other out.
+ */
+function addSwing(out: Prim[], width: number, hingeEdge: string | undefined, a: Vec, b: Vec, face: Vec): void {
   const hingeAtA = (hingeEdge ?? "a") !== "b";
   const hinge = hingeAtA ? a : b, other = hingeAtA ? b : a;
-  const dir = mul({ x: other.x - hinge.x, y: other.y - hinge.y }, 1 / width);
-  const tip = plus(hinge, mul(perp(dir), width * sign));
+  // A quarter turn, so the tip is square to the closed leaf -- `face` chooses
+  // only WHICH square, not the angle. Taking the tip from `face` directly would
+  // open a door on a bowed wall through more or less than 90 degrees, since the
+  // wall's normal there is not perpendicular to this leaf's own chord.
+  const across = perp(mul({ x: other.x - hinge.x, y: other.y - hinge.y }, 1 / width));
+  const sign = across.x * face.x + across.y * face.y >= 0 ? 1 : -1;
+  const tip = plus(hinge, mul(across, width * sign));
   addLine(out, hinge, tip);
   const start = degrees(Math.atan2(other.y - hinge.y, other.x - hinge.x));
   let sweep = degrees(Math.atan2(tip.y - hinge.y, tip.x - hinge.x)) - start;

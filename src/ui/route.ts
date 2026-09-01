@@ -33,6 +33,7 @@ import type { ServiceKey } from "../model/service";
 import {
   planRouteMerge, mergeRoutes, removeRoutePoint, insertRoutePoint, disconnectDevice,
 } from "../core/routegraph";
+import { routeVerticesUnder } from "../core/attach";
 import type { Vec } from "../geometry/vec";
 import { serviceNetworkLength, issuesForRoute, storeyServices } from "../core/continuation";
 import { t } from "../i18n";
@@ -564,6 +565,19 @@ export function deviceConnectionRows(
     }));
   }
   const legs = routeLegsUnder(floor, device, takes);
+  // A bend or junction the device stands on: connecting adopts that point
+  // rather than splitting a leg, so the run turns AT the device. Offered here
+  // rather than taken automatically -- see routeVerticesUnder in core/attach.ts.
+  const vertices = routeVerticesUnder(floor, device, takes);
+  for (const point of vertices) {
+    const route = routesOf(floor).find(r => r.points.some(p => p.id === point.id));
+    if (!route) continue;
+    rows.btnRow(t("panel.deviceConnectHere", { run: routeLabel(route) }), () => store.mutate(doc => {
+      const target = routesOf(store.floorOf(doc)).find(r => r.id === route.id)
+        ?.points.find(p => p.id === point.id);
+      if (target) target.anchor = device.id;
+    }));
+  }
   if (legs.length === 0) return;
   // Named only when there is a choice to make; a lone candidate the placement
   // did not take is one the device was moved onto afterwards.

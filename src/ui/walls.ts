@@ -8,7 +8,7 @@ import { Tools } from "../input/tools";
 import {
   WALL_SHAPES, POLYGON_MIN_SIDES, POLYGON_MAX_SIDES, type WallShape,
 } from "../model/shape";
-import { WALL_MATERIALS, MULLION_DEFAULT_MM, type WallMaterial } from "../model/doc";
+import { WALL_MATERIALS, POST_DEFAULT_MM, POST_WIDTH_DEFAULT, type WallMaterial } from "../model/doc";
 import { icon, type IconName } from "./icons";
 import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
@@ -49,14 +49,18 @@ export function renderWallTool(
     [["", t("panel.materialUnknown")],
       ...WALL_MATERIALS.map(m => [m, t("panel.material_" + m)] as [string, string])],
     value => tools.setWallPen({ wallMaterial: value ? value as WallMaterial : null }));
-  if (tools.wallMaterial === "glass") {
-    rows.checkRow(t("panel.mullionsOn"), tools.wallMullionMm !== null,
-      on => tools.setWallPen({ wallMullionMm: on ? MULLION_DEFAULT_MM : null }));
-    if (tools.wallMullionMm !== null) {
-      rows.numRow(t("panel.mullions"), tools.wallMullionMm,
-        n => tools.setWallPen({ wallMullionMm: Math.max(100, Math.round(n)) }), 100);
-      rows.noteRow(t("panel.mullionsHelp"));
+  rows.checkRow(t("panel.postsOn"), tools.wallPostMm !== null,
+    on => tools.setWallPen({ wallPostMm: on ? POST_DEFAULT_MM : null }));
+  if (tools.wallPostMm !== null) {
+    rows.numRow(t("panel.posts"), tools.wallPostMm,
+      n => tools.setWallPen({ wallPostMm: Math.max(100, Math.round(n)) }), 100);
+    rows.checkRow(t("panel.postWidthOn"), tools.wallPostWidthMm !== null,
+      on => tools.setWallPen({ wallPostWidthMm: on ? POST_WIDTH_DEFAULT : null }));
+    if (tools.wallPostWidthMm !== null) {
+      rows.numRow(t("panel.postWidth"), tools.wallPostWidthMm,
+        n => tools.setWallPen({ wallPostWidthMm: Math.max(10, Math.round(n)) }), 10);
     }
+    rows.noteRow(t("panel.postsHelp"));
   }
   rows.colorRow(t("panel.newWallColor"), tools.wallColor,
     hex => tools.setWallPen({ wallColor: hex }));

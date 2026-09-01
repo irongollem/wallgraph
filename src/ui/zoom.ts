@@ -12,7 +12,7 @@
 // divided in two appears as two rows with no bookkeeping.
 import { Store } from "../model/store";
 import { Tools } from "../input/tools";
-import { Room, roomKey, unattachedRoomNames } from "../core/rooms";
+import { Room, roomKey, unattachedRoomNames, roomArea } from "../core/rooms";
 import { ROOM_NAMES, ROOM_USES, type RoomName, type RoomUse } from "../model/room";
 import { areaModeOf, roomNamesOf } from "../model/doc";
 import { roomFigures, roomVentRouted, type RoomFigures, type RoomVentRouted } from "../core/fitout";
@@ -55,7 +55,7 @@ export function renderZoomTool(
   const loose = unattachedRoomNames(store.floor, rooms);
   if (rooms.length > 0 || loose.length > 0) {
     rows.secHead(t("panel.zoomZones"), { later: true });
-    const net = areaModeOf(store.doc) === "net";
+    const mode = areaModeOf(store.doc);
     const list = el("div", "zone-list");
     // Plan order, top-left first, rather than named-first-then-by-size: this is
     // now the list a plan is named from, and a row that jumps to the top the
@@ -63,7 +63,7 @@ export function renderZoomTool(
     const sorted = [...rooms].sort((a, b) =>
       a.centroid.y - b.centroid.y || a.centroid.x - b.centroid.x);
     for (const r of sorted) {
-      const area = ((net ? r.netAreaMm2 : r.areaMm2) / 1e6).toFixed(1) + " m²";
+      const area = (roomArea(r, mode) / 1e6).toFixed(1) + " m²";
       list.append(edit.key === roomKey(r)
         ? nameRow(tools, edit, r, area, store)
         : roomItem(tools, edit, store, r, area));

@@ -32,21 +32,54 @@ check("an empty document produces nothing", toDxf(emptyDoc(), 0) === null);
   check("standard symbol code text reaches DXF", symbolsOnly.includes("\r\nRM\r\n"));
 }
 
-// A glazed wall is not masonry, and DXF colour is per-layer rather than
-// per-entity, so the distinction can only survive as the layer it lands on.
+// An infill body is not masonry and a frame is not either, and DXF colour is
+// per-layer rather than per-entity, so each distinction can only survive as the
+// layer it lands on.
 {
+  const onLayer = (out: string, layer: string): number =>
+    out.split("\r\n").filter(l => l === layer).length;
+
   const doc = emptyDoc();
   const f = doc.floors[0]!;
   f.nodes.push({ id: "gn0", x: 0, y: 0 }, { id: "gn1", x: 6000, y: 0 });
   f.walls.push({
     id: "gw", a: "gn0", b: "gn1", thickness: 100, bulge: 0, openings: [],
-    material: "glass", mullionMm: 1200,
+    material: "glass", postMm: 1200,
   });
   const out = toDxf(doc, 0) ?? "";
-  check("GLAZING is declared as a layer", out.includes("\r\nGLAZING\r\n"));
-  // Four stijlen across a 6000 run at 1200, plus the wall body itself.
-  const onGlazing = out.split("\r\n").filter(l => l === "GLAZING").length;
-  check("the glazed body and its stijlen land on GLAZING", onGlazing >= 5, String(onGlazing));
+  for (const layer of ["GLAZING", "PANELS", "POSTS"])
+    check(`${layer} is declared as a layer`, out.includes(`\r\n${layer}\r\n`));
+  check("the glazed body lands on GLAZING", onLayer(out, "GLAZING") === 2);  // table + body
+  // Four posts across a 6000 run at 1200, each on POSTS.
+  check("its posts land on POSTS", onLayer(out, "POSTS") === 5, String(onLayer(out, "POSTS")));
+
+  // The same frame on a steel-framed sandwich panel wall: a different body
+  // layer, the same POSTS.
+  const panelDoc = emptyDoc();
+  const pf = panelDoc.floors[0]!;
+  pf.nodes.push({ id: "pn0", x: 0, y: 0 }, { id: "pn1", x: 6000, y: 0 });
+  pf.walls.push({
+    id: "pw", a: "pn0", b: "pn1", thickness: 100, bulge: 0, openings: [],
+    material: "sandwich", postMm: 1200, postWidthMm: 100, loadBearing: true,
+  });
+  const panelOut = toDxf(panelDoc, 0) ?? "";
+  check("a sandwich panel body lands on PANELS", onLayer(panelOut, "PANELS") === 2);
+  check("and nothing of it on GLAZING", onLayer(panelOut, "GLAZING") === 1);
+  check("its posts land on POSTS too", onLayer(panelOut, "POSTS") === 5);
+
+  // Cladding is a different trade and a different set of dimensions, so it gets
+  // its own layer rather than sharing the structural one.
+  const cladDoc = emptyDoc();
+  const cf = cladDoc.floors[0]!;
+  cf.nodes.push({ id: "cn0", x: 0, y: 0 }, { id: "cn1", x: 6000, y: 0 });
+  cf.walls.push({
+    id: "cw", a: "cn0", b: "cn1", thickness: 100, bulge: 0, openings: [],
+    material: "sandwich", facadeMm: 100, facadeSide: "right",
+  });
+  const cladOut = toDxf(cladDoc, 0) ?? "";
+  check("FACADE is declared as a layer", cladOut.includes("\r\nFACADE\r\n"));
+  check("the cladding band lands on FACADE", onLayer(cladOut, "FACADE") === 2);  // table + band
+  check("and the structure stays on its own layer", onLayer(cladOut, "PANELS") === 2);
 
   const solid = emptyDoc();
   solid.floors[0]!.nodes.push({ id: "sn0", x: 0, y: 0 }, { id: "sn1", x: 6000, y: 0 });
@@ -54,8 +87,8 @@ check("an empty document produces nothing", toDxf(emptyDoc(), 0) === null);
     id: "sw", a: "sn0", b: "sn1", thickness: 100, bulge: 0, openings: [],
   });
   const solidOut = toDxf(solid, 0) ?? "";
-  check("a solid wall puts nothing on GLAZING",
-    solidOut.split("\r\n").filter(l => l === "GLAZING").length === 1);  // the layer table only
+  check("a plain wall puts nothing on GLAZING, PANELS, POSTS or FACADE",
+    ["GLAZING", "PANELS", "POSTS", "FACADE"].every(l => onLayer(solidOut, l) === 1));  // table only
 }
 
 const lines = (dxf ?? "").split("\r\n").filter(l => l !== "");

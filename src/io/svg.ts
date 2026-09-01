@@ -16,15 +16,18 @@
 import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, stairsOf, videsOf, furnishingsOf, roomNamesOf } from "../model/doc";
 import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
-import { detectRooms, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
+import { detectRooms, roomSize, sizeLabel, looseRoomNames, roomArea } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
 import { mountMarkOf } from "../core/mount";
 import { COLORS, routeInk, routeMapLabel, symbolInk, wallPen, junctionPen, type WallPen } from "../render/draw";
-import { ROUTE_DATA_DASH, ROUTE_AFVOER_DASH, ROUTE_AFVOER_EXTRA_MM, ROUTE_VENT_EXTRA_MM, LINE_WIDTH_MM } from "../render/route";
+import {
+  ROUTE_DATA_DASH, ROUTE_AFVOER_DASH, ROUTE_AFVOER_EXTRA_MM, ROUTE_VENT_EXTRA_MM, LINE_WIDTH_MM,
+  routeBandMm, routeBandInk,
+} from "../render/route";
 import { stairBox } from "../core/stair";
 import { recordSymbol, Prim } from "./record";
 import { Group, Item, Look, ROOT, arcSteps, group, onCircle, poly, resolve, text } from "./scene";
-import { openingMarks, mullionMarks } from "./marks";
+import { openingMarks, postMarks } from "./marks";
 import { stairPrims, stairRegionPrims } from "./stair";
 import { videPrims } from "./vide";
 import { furnishingPrims } from "./furnishing";
@@ -189,7 +192,7 @@ export function planScene(doc: PlanDoc, floor: Floor, resolved: ReturnType<typeo
   const out: Group[] = [];
 
   // Rooms beneath everything, as the editor draws them.
-  const net = areaModeOf(doc) === "net";
+  const areaMode = areaModeOf(doc);
   const dim = dimModeOf(doc);
   const rooms = detectRooms(floor);
   if (rooms.length > 0)
@@ -221,13 +224,30 @@ export function planScene(doc: PlanDoc, floor: Floor, resolved: ReturnType<typeo
     if (!b) { b = { pen, pieces: [], wedges: [] }; buckets.set(key, b); }
     return b;
   };
-  const mullions: Item[] = [];
+  // Cladding under the masonry, as on the canvas: a white band outlined against
+  // the poché, so the two read as one wall.
+  const facades: Item[] = [];
+  for (const rw of resolved.walls.values()) {
+    if (rw.facade.length === 0) continue;
+    facades.push(group(rw.facade.map(band => poly(band.poly, true)),
+      { ink: wallPen(rw.wall).stroke }));
+  }
+  if (facades.length > 0)
+    out.push(group(facades,
+      { fill: COLORS.bg, ink: COLORS.wallStroke, width: W_WALL }, "facade"));
+
+  const posts: Item[] = [];
   for (const rw of resolved.walls.values()) {
     const pen = wallPen(rw.wall);
     const b = bucketFor(pen);
     for (const piece of rw.pieces) b.pieces.push(poly(piece.poly, true));
-    const stijlen = mullionMarks(rw);
-    if (stijlen.length > 0) mullions.push(group(stijlen, { ink: pen.mark }));
+    const stijlen = postMarks(rw);
+    // A post with a stated profile is a member, so it is filled at the size it
+    // is built to; one without is a line, and a fill would flood its open path.
+    if (stijlen.length > 0) {
+      const profiled = rw.posts.some(pp => pp.poly !== undefined);
+      posts.push(group(stijlen, { ink: pen.mark, fill: profiled ? pen.mark : "none" }));
+    }
   }
   // Junction fill closes the wedge a T-junction leaves; no stroke, its edges are
   // interior to the masonry.
@@ -240,11 +260,11 @@ export function planScene(doc: PlanDoc, floor: Floor, resolved: ReturnType<typeo
   }
   out.push(group(walls, { fill: COLORS.wallFill, ink: COLORS.wallStroke, width: W_WALL }, "walls"));
 
-  // Stijlen over the glazing they divide, in their own group: they are lines,
-  // and the wall groups above carry a fill that would flood an open path.
-  if (mullions.length > 0)
-    out.push(group(mullions,
-      { fill: "none", ink: COLORS.glassStroke, width: W_OPENING, cap: "round" }, "glazing"));
+  // The frame, over the body it divides, in its own group: the wall groups
+  // above carry a body fill that has nothing to do with a member's own.
+  if (posts.length > 0)
+    out.push(group(posts,
+      { fill: "none", ink: COLORS.glassStroke, width: W_OPENING, cap: "round" }, "posts"));
 
   // Openings take their wall's pen, so a door in a wall marked as new work is
   // drawn as new work too rather than in the default ink.
@@ -302,7 +322,7 @@ export function planScene(doc: PlanDoc, floor: Floor, resolved: ReturnType<typeo
   if (rooms.length > 0 || roomNamesOf(floor).length > 0) {
     const items: Item[] = [];
     for (const r of rooms) {
-      const mm2 = net ? r.netAreaMm2 : r.areaMm2;
+      const mm2 = roomArea(r, areaMode);
       const area = `${(mm2 / 1e6).toFixed(1)} m²`;
       // Name over area over clear size, the way the canvas stacks them. The
       // 150 mm offsets are the screen-space 8 px at the same 220 mm label size,
@@ -346,6 +366,25 @@ export function routeScene(floor: Floor, marks: readonly ResolvedRiserMark[] = [
     if (all.length === 0) continue;
     const prims = (rs: typeof all): Prim[] => rs.flatMap(routePrims);
     const items: Item[] = [];
+
+    // Footprint bands first, so every line of this discipline draws over them.
+    // Grouped by width AND ink, because two runs of one discipline can be built
+    // to different sizes and warm water carries its own tint -- see
+    // routeBandMm() in render/route.ts for when a run earns a band at all.
+    const bands = new Map<string, { width: number; ink: string; runs: typeof all }>();
+    for (const rr of all) {
+      const width = routeBandMm(rr.route);
+      if (width === undefined) continue;
+      const ink = routeBandInk(routeInk(discipline,
+        discipline === "water" ? routeWater(rr.route) : undefined));
+      const key = `${width}|${ink}`;
+      const bucket = bands.get(key) ?? { width, ink, runs: [] as unknown as typeof all };
+      bucket.runs = [...bucket.runs, rr] as typeof all;
+      bands.set(key, bucket);
+    }
+    for (const bucket of bands.values()) {
+      items.push(group(prims(bucket.runs), { width: bucket.width, ink: bucket.ink }));
+    }
     if (discipline === "electrical") {
       // A data run (utp/coax) is dashed here rather than in its recorded
       // geometry: the recorder discards dash patterns, so the group carries
