@@ -25,6 +25,8 @@ import { t } from "../i18n";
 import { gridSteps, GridSteps } from "./grid";
 import { LAYER_OF_CATEGORY, layerAlpha, type LayerFlags, type LayerKey } from "./layers";
 import { mountMarkOf } from "../core/mount";
+import { resolveBoard, BOARD_TYPE } from "../core/board";
+import { worldPoint } from "../core/placed";
 
 export const COLORS = {
   bg: "#f4f2ec",
@@ -550,6 +552,7 @@ export function drawScene(
     const key = cat ? LAYER_OF_CATEGORY[cat] : "furnishing";
     onLayer(key, () => {
       drawSymbol(ctx, s, px, isSel("symbol", s.id));
+      if (s.type === BOARD_TYPE) drawBoardGroups(ctx, s, isSel("symbol", s.id));
       const gaps = extras.incomplete?.get(s.id);
       if (gaps) drawIncomplete(ctx, gaps, px, extras.pulse ?? 0);
       const mark = mountMarks ? mountMarkOf(floor, s) : null;
@@ -1144,6 +1147,41 @@ function line(ctx: CanvasRenderingContext2D, a: Vec, b: Vec): void {
   ctx.moveTo(a.x, a.y);
   ctx.lineTo(b.x, b.y);
   ctx.stroke();
+}
+
+/**
+ * The groepen of a groepenkast: a stub down from the kast's front edge to each
+ * groep's connection point, the point itself, and its label.
+ *
+ * Drawn because a groep is a thing a cable hooks onto — a fan of numbered
+ * points is what makes "which groep is this run on" a question the drawing can
+ * answer by looking. The kast's own mark is unchanged and stays one fixed
+ * picture; this is what it distributes, not part of the mark.
+ */
+function drawBoardGroups(ctx: CanvasRenderingContext2D, board: SymbolInstance, selected: boolean): void {
+  const groups = resolveBoard(board);
+  if (groups.length === 0) return;
+  const ink = selected ? COLORS.select : symbolInk(board);
+  const def = getSymbol(board.type);
+  const edge = worldPoint(board, { x: 0, y: def?.depth ?? 0 });
+  ctx.save();
+  ctx.strokeStyle = ink;
+  ctx.fillStyle = ink;
+  ctx.lineWidth = 20;
+  ctx.font = "90px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  for (const { group, at } of groups) {
+    ctx.beginPath();
+    ctx.moveTo(edge.x, edge.y);
+    ctx.lineTo(at.x, at.y);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(at.x, at.y, 45, 0, Math.PI * 2);
+    ctx.fill();
+    if (group.name) ctx.fillText(group.name, at.x, at.y + 130);
+  }
+  ctx.restore();
 }
 
 /** How long one pulse takes, ms. Slow enough to read as breathing rather than

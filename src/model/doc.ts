@@ -1,6 +1,7 @@
 // The document is a planar graph of wall centerlines. All lengths/coords are
 // integer millimetres. Everything visible is derived from this at render time.
 import type { Stair } from "./stair";
+import type { BoardData } from "./board";
 import type { Vide } from "./vide";
 import type { Furnishing } from "./furnishing";
 import type { Route } from "./route";
@@ -199,6 +200,13 @@ export interface SymbolInstance {
    * says so rather than guessing.
    */
   height?: number;
+  /**
+   * What this kast is called and the groepen it distributes. Only read for
+   * type "dist-board" — the same "a field the form has no use for is simply
+   * not read" shape Furnishing uses for a toilet's cistern or a basin's bowl
+   * count. See model/board.ts.
+   */
+  board?: BoardData;
 }
 
 /**

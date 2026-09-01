@@ -32,9 +32,7 @@ import { icon, type IconName } from "./icons";
 import { docHref, DOC_IDS } from "../links";
 import { openMenu, type MenuEntry } from "./menu";
 import { Palette } from "./palette";
-import {
-  categoriesIn, getSymbol, SECTION_OF, type SymbolCategory, type SymbolSection,
-} from "../render/symbols";
+import { categoriesIn, getSymbol, type SymbolCategory } from "../render/symbols";
 import { LAYER_KEYS, LAYER_OF_CATEGORY, type LayerKey } from "../render/layers";
 import { renderStairTool, renderStairProps, renderStairBulk, type PaneRows } from "./stairs";
 import { routeTakesSymbol } from "../core/attach";
@@ -44,7 +42,11 @@ import { renderZoomTool, type RoomEdit } from "./zoom";
 import { renderOpeningTool } from "./openings";
 import { renderWallTool } from "./walls";
 import { renderVideTool, renderVideProps, renderVideBulk } from "./vide";
-import { renderRouteTool, renderRouteProps, renderRouteBulk, deviceConnectionRows } from "./route";
+import {
+  renderRouteTool, renderRouteProps, renderRouteBulk, deviceConnectionRows, boardRows,
+} from "./route";
+import { BOARD_TYPE } from "../core/board";
+import { servicesPaneActive, fitoutPaneActive } from "./panes";
 import { scrubbable } from "./scrub";
 import { watchLayout, isTouchPrimary, type LayoutMode } from "./layout";
 import { Sheet } from "./sheet";
@@ -73,11 +75,6 @@ function layersPresent(floor: Floor): LayerKey[] {
 }
 
 /** Which pane's palette a symbol type belongs to, or null for an unknown id. */
-function sectionOfSymbol(type: string): SymbolSection | null {
-  const def = getSymbol(type);
-  return def ? SECTION_OF[def.category] : null;
-}
-
 /**
  * The symbol category a run of each discipline terminates at, so arming a
  * discipline opens the terminals that go with it. Gas has no marks of its own;
@@ -594,9 +591,8 @@ export class Panel {
     // A section stays open while its own marks are being placed: arming a
     // socket from the Installaties pane must not throw away the run's
     // properties, and the same for a blusser and the fit-out picker.
-    const armedSection = this.tools.tool === "symbol" ? sectionOfSymbol(this.tools.symbolType) : null;
-    const servicesMode = this.tools.tool === "route" || armedSection === "services";
-    const fitoutMode = this.tools.tool === "furnishing" || armedSection === "fitout";
+    const servicesMode = servicesPaneActive(this.tools.tool, this.tools.symbolType);
+    const fitoutMode = fitoutPaneActive(this.tools.tool, this.tools.symbolType);
     const routeMode = servicesMode;
     const paneTool = fitoutMode
       || this.tools.tool === "zoom" || this.tools.tool === "door"
@@ -1746,7 +1742,7 @@ export class Panel {
     // the way the stair tool does: placing a piece selects it, so the next one
     // has to be reachable without deselecting first. The safety palette below
     // is part of the same section, so arming a mark from it keeps the picker.
-    if (this.tools.tool === "furnishing") {
+    if (fitoutPaneActive(this.tools.tool, this.tools.symbolType)) {
       if (sel?.kind === "furnishing") renderFurnishingProps(this.store, this.tools, rows, sel.id);
       renderFurnishingTool(p, this.store, this.tools, rows, () => this.refreshToolbar());
       return;
@@ -1794,8 +1790,10 @@ export class Panel {
     }
 
     // The route tool, like the stair and vide tools, keeps its fields in the
-    // property area.
-    if (this.tools.tool === "route" || sectionOfSymbol(this.tools.symbolType) === "services") {
+    // property area, and so does the services palette that sits with it. The
+    // same predicate the toolbar uses to decide which palette to show — see
+    // ui/panes.ts for what went wrong when these two answered separately.
+    if (servicesPaneActive(this.tools.tool, this.tools.symbolType)) {
       if (sel?.kind === "route") {
         const group = this.store.selectedOf("route");
         if (group.length > 1) renderRouteBulk(this.store, this.tools, rows, group);
@@ -2030,6 +2028,8 @@ export class Panel {
       // What this device is wired, plumbed or ducted to, and what it is
       // standing on but not yet joined to -- see deviceConnectionRows().
       deviceConnectionRows(rows, this.store, s, d => routeTakesSymbol(d, s.type));
+      // A groepenkast additionally declares what it distributes.
+      if (s.type === BOARD_TYPE) boardRows(rows, this.store, s);
       dangerRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());
       return;
     }

@@ -31,6 +31,7 @@ import {
 } from "../core/attach";
 import { riserMarks, type ResolvedRiserMark } from "../core/continuation";
 import { connectionPoint, type Device } from "../core/port";
+import { resolveBoards } from "../core/board";
 import { serviceKeyOf } from "../model/service";
 import { autoRoutePath } from "../core/autoroute";
 import {
@@ -1893,6 +1894,15 @@ export class Tools {
     };
     for (const s of f.symbols) consider(s, routeTakesSymbol(discipline, s.type));
     for (const fn of furnishingsOf(f)) consider(fn, routeTakesFurnishing(discipline, waterKind, fn));
+    // A groep of a groepenkast is a connection point in its own right, and the
+    // one a circuit is supposed to start at: anchoring there is what makes the
+    // run's groep the kast's own label rather than a typed string.
+    if (discipline === "electrical") {
+      for (const resolved of resolveBoards(f)) {
+        const d = dist(resolved.at, raw);
+        if (d <= tol) anchors.push({ id: resolved.group.id, x: resolved.at.x, y: resolved.at.y, d });
+      }
+    }
     anchors.sort((a, b) => a.d - b.d);
     const anchorHit = anchors[0] ?? null;
 

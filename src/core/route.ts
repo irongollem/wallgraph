@@ -8,7 +8,8 @@ import {
   RouteInstallation, routeInstallation, routeServiceKey,
 } from "../model/route";
 import { symbolMountHeight } from "./mount";
-import { connectionPoint, deviceById } from "./port";
+import { anchorPoint } from "./port";
+import { routeGroup } from "./board";
 import { Vec, v, add, sub, scale, cross, dot, dist, perp, distToSeg } from "../geometry/vec";
 import { arcLength, arcFlatten, arcPointAt, arcTangentAt } from "../geometry/arc";
 import { wallLength } from "../model/ops";
@@ -25,11 +26,12 @@ export function resolveRoutePoints(floor: Floor, route: Route): Vec[] {
   const key = routeServiceKey(route);
   return route.points.map(p => {
     if (p.anchor) {
-      // Where THIS run reaches the device, which for a fixture with several
-      // services is not its anchor: a douche's afvoer is in the middle of the
-      // tray while its koud and warm are on the wall. See core/port.ts.
-      const device = deviceById(floor, p.anchor);
-      if (device) return connectionPoint(device, key);
+      // Where THIS run reaches whatever it follows: for a fixture with several
+      // services, not its anchor -- a douche's afvoer is in the middle of the
+      // tray while its koud and warm are on the wall -- and for a groepenkast,
+      // the point of the groep itself. See core/port.ts.
+      const at = anchorPoint(floor, p.anchor, key);
+      if (at) return at;
     }
     if (p.wallId && p.wallT !== undefined) {
       const wall = floor.walls.find(w => w.id === p.wallId);
@@ -307,11 +309,15 @@ export interface RouteGroupSummary {
 export function routeGroupSummaries(floor: Floor): RouteGroupSummary[] {
   const byGroup = new Map<string, { lengthMm: number; devices: Set<string> }>();
   for (const r of routesOf(floor)) {
-    if (r.discipline !== "electrical" || !r.group) continue;
-    const entry = byGroup.get(r.group) ?? { lengthMm: 0, devices: new Set<string>() };
+    // The kast's own label where the run is connected to a groep, the typed
+    // field otherwise -- so two runs on groep 3 of the meterkast are one line
+    // of the takeoff whatever anyone typed. See core/board.ts.
+    const group = routeGroup(floor, r);
+    if (r.discipline !== "electrical" || !group) continue;
+    const entry = byGroup.get(group) ?? { lengthMm: 0, devices: new Set<string>() };
     entry.lengthMm += routeTakeoffLength(floor, r);
     for (const p of r.points) if (p.anchor) entry.devices.add(p.anchor);
-    byGroup.set(r.group, entry);
+    byGroup.set(group, entry);
   }
   return [...byGroup.entries()]
     .map(([group, e]) => ({ group, lengthMm: e.lengthMm, devices: e.devices.size }))

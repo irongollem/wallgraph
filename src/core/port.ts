@@ -15,6 +15,7 @@ import { routeServiceKey } from "../model/route";
 import { ServiceKey, ServicePort, portFor, unmetPorts } from "../model/service";
 import { getSymbol } from "../render/symbols";
 import { worldPoint } from "./placed";
+import { groupById } from "./board";
 import { Vec, v } from "../geometry/vec";
 
 /** Anything a run may terminate at: a placed symbol or a piece of fit-out. */
@@ -60,6 +61,21 @@ export function connectionPoint(device: Device, key: ServiceKey): Vec {
     x: (u - 0.5) * box.width,
     y: box.wallMounted ? p * box.depth : (p - 0.5) * box.depth,
   });
+}
+
+/**
+ * Where a run carrying `key` attaches to whatever `id` names — a symbol, a
+ * piece of fit-out, or one groep of a groepenkast — or null when nothing on
+ * the floor answers to it.
+ *
+ * The one lookup every anchored waypoint goes through. A groep is not a device
+ * and has no ports of its own: it IS a connection point, so it resolves
+ * directly (core/board.ts).
+ */
+export function anchorPoint(floor: Floor, id: Id, key: ServiceKey): Vec | null {
+  const device = deviceById(floor, id);
+  if (device) return connectionPoint(device, key);
+  return groupById(floor, id)?.at ?? null;
 }
 
 /** Every place a run could reach this device — the ports, or just the anchor. */

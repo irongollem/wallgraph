@@ -26,6 +26,9 @@ import {
 } from "../core/route";
 import { nearestDeviceFor, routeLegsUnder } from "../core/attach";
 import { deviceServiceGaps, type Device } from "../core/port";
+import { groupLoad, groupNames, routeBoard, routeGroupOf } from "../core/board";
+import { boardOf, nextGroup, clampBoardName, type BoardData } from "../model/board";
+import type { SymbolInstance } from "../model/doc";
 import type { ServiceKey } from "../model/service";
 import {
   planRouteMerge, mergeRoutes, removeRoutePoint, insertRouteTap, disconnectDevice,
@@ -103,8 +106,10 @@ const ROUTE_OFFSET_CHIPS: readonly number[] = [0, 100, 200, 300];
  * clicks on the same groep, not repeated typing of it.
  */
 function recentGroups(floor: Floor): string[] {
+  // The groepen a kast DECLARES come first: those are the real ones, and
+  // offering them is how a typed groep comes to match a modelled one.
+  const seen = groupNames(floor).slice(0, 6);
   const routes = routesOf(floor);
-  const seen: string[] = [];
   for (let i = routes.length - 1; i >= 0 && seen.length < 6; i--) {
     const g = routes[i]!.group;
     if (g && !seen.includes(g)) seen.push(g);
@@ -117,6 +122,13 @@ interface ElectricalFields {
   veins: number;
   group: string;
   spec: string;
+  /**
+   * The kast groep the run is connected to, when it is. Derived, so it is
+   * stated rather than offered: renaming groep 3 in the meterkast renames it on
+   * every run hanging off it, and typing over it here would only produce a
+   * second name for the same circuit. See core/board.ts.
+   */
+  locked?: { group: string; board?: string };
 }
 
 /**
@@ -133,10 +145,17 @@ function electricalRows(
   if (fields.kind === "power") {
     rows.numRow(t("panel.routeVeins"), fields.veins, n => commit({ veins: n }), 1);
     rows.chipRow(t("panel.routeVeins"), VEINS_CHIPS, fields.veins, n => commit({ veins: n }));
-    rows.textRow(t("panel.routeGroup"), fields.group, s => commit({ group: s.trim() }));
-    const recent = recentGroups(floor);
-    if (recent.length > 0) {
-      rows.chipRow(t("panel.routeGroup"), recent, fields.group, g => commit({ group: g }));
+    if (fields.locked) {
+      rows.infoRow(t("panel.routeGroup"), fields.locked.board
+        ? `${fields.locked.board} \u00b7 ${fields.locked.group}`
+        : fields.locked.group);
+      rows.noteRow(t("panel.routeGroupFromBoard"));
+    } else {
+      rows.textRow(t("panel.routeGroup"), fields.group, s => commit({ group: s.trim() }));
+      const recent = recentGroups(floor);
+      if (recent.length > 0) {
+        rows.chipRow(t("panel.routeGroup"), recent, fields.group, g => commit({ group: g }));
+      }
     }
   } else {
     rows.textRow(t("panel.routeSpec"), fields.spec, s => commit({ spec: s.trim() }));
@@ -431,6 +450,54 @@ export function serviceLabel(key: ServiceKey): string {
   return `${name} ${t(kindKey + cap(kind)).toLowerCase()}`;
 }
 
+/**
+ * The groepenkast rows: what the kast is called, and the groepen it carries.
+ *
+ * Each groep gets a name and a note on what it feeds, and reports how many
+ * runs hang off it — an empty groep on a finished drawing is usually one that
+ * was planned and forgotten. Adding a groep re-fans the connection points; the
+ * kast's own mark does not change, since it is one fixed picture.
+ */
+export function boardRows(rows: RouteRows, store: Store, board: SymbolInstance): void {
+  const data = boardOf(board);
+  const mut = (fn: (d: BoardData) => void): void => store.mutate(doc => {
+    const live = store.floorOf(doc).symbols.find(s => s.id === board.id);
+    if (!live) return;
+    const next = live.board ?? { groups: [] };
+    fn(next);
+    live.board = next;
+  });
+
+  rows.secHead(t("panel.board"));
+  rows.textRow(t("panel.boardName"), data.name ?? "", value => mut(d => {
+    const name = clampBoardName(value);
+    if (name) d.name = name; else delete d.name;
+  }));
+
+  const load = groupLoad(store.floor, board);
+  for (let index = 0; index < data.groups.length; index++) {
+    const group = data.groups[index]!;
+    rows.textRow(t("panel.boardGroup", { n: index + 1 }), group.name, value => mut(d => {
+      const found = d.groups.find(g => g.id === group.id);
+      if (found) found.name = clampBoardName(value);
+    }));
+    rows.textRow(t("panel.boardGroupLabel"), group.label ?? "", value => mut(d => {
+      const found = d.groups.find(g => g.id === group.id);
+      if (!found) return;
+      const label = value.trim();
+      if (label) found.label = label; else delete found.label;
+    }));
+    const runs = load.get(group.id) ?? 0;
+    rows.infoRow(t("panel.boardGroupRuns"), runs === 0
+      ? t("panel.boardGroupEmpty") : t("panel.boardGroupRunCount", { n: runs }));
+    rows.btnRow(t("panel.boardGroupRemove", { name: group.name }), () => mut(d => {
+      d.groups = d.groups.filter(g => g.id !== group.id);
+    }));
+  }
+  rows.btnRow(t("panel.boardGroupAdd"), () => mut(d => { d.groups.push(nextGroup(d.groups)); }));
+  if (data.groups.length === 0) rows.noteRow(t("panel.boardNote"));
+}
+
 /** How a run is named where one has to be picked out of several. */
 export function routeLabel(route: Route): string {
   if (route.tag) return route.tag;
@@ -583,8 +650,12 @@ export function renderRouteProps(store: Store, tools: Tools, rows: RouteRows, id
     }
   }));
   if (route.discipline === "electrical") {
+    const onBoard = routeGroupOf(store.floor, route);
     electricalRows(rows, store.floor, {
       kind: routeKind(route), veins: routeVeins(route), group: route.group ?? "", spec: route.spec ?? "",
+      locked: onBoard
+        ? { group: onBoard.group.name, board: routeBoard(store.floor, route) }
+        : undefined,
     }, patch => mut(r => {
       if (patch.kind !== undefined) {
         if (patch.kind === "power") delete r.kind; else r.kind = patch.kind;

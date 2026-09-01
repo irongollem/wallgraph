@@ -669,6 +669,33 @@ export function planSchema(siteUrl: string): JsonSchema {
               "1050 for a schakelaar, the storey height for a light point -- and a type " +
               "with no convention reads as not stated rather than as zero.",
           },
+          board: { $ref: "#/$defs/board" },
+        },
+      },
+      board: {
+        type: "object",
+        description:
+          "What a groepenkast is called and the groepen it distributes. Only read for " +
+          "symbol type \"dist-board\". Each groep is a connection point a run anchors " +
+          "to, so a run's groep is the kast's own label rather than typed text.",
+        required: ["groups"],
+        additionalProperties: false,
+        properties: {
+          name: { type: "string", maxLength: 16, description: "What the drawing calls this kast." },
+          groups: {
+            type: "array", items: { $ref: "#/$defs/boardGroup" },
+            description: "In the order the kast lists them; the order the plan fans them in.",
+          },
+        },
+      },
+      boardGroup: {
+        type: "object",
+        required: ["id", "name"],
+        additionalProperties: false,
+        properties: {
+          id: { $ref: "#/$defs/id" },
+          name: { type: "string", maxLength: 16, description: "What the kast labels it: \"1\", \"K1\"." },
+          label: { type: "string", description: "What it feeds. Absent means nobody said." },
         },
       },
     },
