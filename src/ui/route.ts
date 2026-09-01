@@ -17,7 +17,7 @@ import {
   clampRouteDiameter, defaultRouteDiameter,
   RouteVent, ROUTE_VENTS, routeVent, VENT_DIAMETERS, VENT_DIAMETER_DEFAULT,
   routeDuctDiameter, clampDuctDiameter, routeFlow, clampRouteFlow,
-  RouteInstallation, ROUTE_INSTALLATIONS, routeInstallation, type RoutePoint,
+  RouteInstallation, ROUTE_INSTALLATIONS, routeInstallation, type RoutePoint, type RouteTerminal,
 } from "../model/route";
 import {
   resolveRoutePoints, routeLength, routeDrops, routePlaneHeight, defaultRouteHeight,
@@ -26,7 +26,7 @@ import {
 import { nearestDeviceFor } from "../core/attach";
 import { planRouteMerge, mergeRoutes, removeRoutePoint } from "../core/routegraph";
 import type { Vec } from "../geometry/vec";
-import { serviceNetworkLength } from "../core/continuation";
+import { serviceNetworkLength, issuesForRoute, storeyServices } from "../core/continuation";
 import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
 
@@ -195,6 +195,42 @@ function ventRows(
 }
 
 /**
+ * What the cross-floor topology says about itself that does not add up, for
+ * the run in hand. Reported, never enforced -- the same rule the permit
+ * checklist follows. A dangling port is the one that matters most: riserMembers()
+ * skips it silently, so the riser mark simply vanishes from both storeys and
+ * nothing else would ever say why.
+ */
+function issueRows(rows: RouteRows, store: Store, routeId: Id): void {
+  const issues = issuesForRoute(store.doc, store.floor.id, routeId);
+  if (issues.length === 0) return;
+  rows.noteRow(t("panel.routeIssues"));
+  for (const issue of issues) {
+    const key = "panel.routeIssue" + issue.kind[0]!.toUpperCase() + issue.kind.slice(1);
+    rows.warnRow(t(key, { values: (issue.values ?? []).join(", ") }));
+  }
+}
+
+/**
+ * What crosses this storey's floor and ceiling, per discipline. The vertical
+ * length is charged to the LOWEST storey a link reaches and to no other, so
+ * reading every storey's schedule in turn counts each shaft once rather than
+ * once per floor it is visible from.
+ */
+function storeyServiceRows(rows: RouteRows, store: Store): void {
+  const services = storeyServices(store.doc, store.activeFloor);
+  if (services.length === 0) return;
+  rows.noteRow(t("panel.storeyServices"));
+  for (const row of services) {
+    rows.infoRow(t("panel.discipline" + row.discipline[0]!.toUpperCase() + row.discipline.slice(1)),
+      t("panel.storeyServicesValue", { in: row.incoming, out: row.outgoing, through: row.through }));
+    if (row.verticalLengthMm > 0) {
+      rows.infoRow(t("panel.storeyVerticalLength"), `${Math.round(row.verticalLengthMm)} mm`);
+    }
+  }
+}
+
+/**
  * The floor's electrical runs, reported as a materials list: total length and
  * anchored-device count per groep, total cable length per kind (and, for
  * power, per aders count). Purely a read-out of what is drawn -- never
@@ -322,11 +358,12 @@ function endpointRows(rows: RouteRows, store: Store, tools: Tools, route: Route)
       ["open", t("panel.routeEndpointOpen")],
       ["source", t("panel.routeEndpointSource")],
       ["capped", t("panel.routeEndpointCapped")],
+      ["external", t("panel.routeEndpointExternal")],
     ], value => store.mutate(doc => {
       const current = routesOf(store.floorOf(doc)).find(r => r.id === route.id)?.points.find(p => p.id === point.id);
       if (!current) return;
       if (value === "open") delete current.terminal;
-      else current.terminal = value as "source" | "capped";
+      else current.terminal = value as RouteTerminal;
     }));
     const at = positions.get(point.id);
     if (at) linkRow(rows, store, route, point, at);
@@ -410,6 +447,7 @@ export function renderRouteTool(store: Store, tools: Tools, rows: RouteRows): vo
     gasRows(rows, tools.routeGasDiameter, diameter => tools.setRouteGasDiameter(diameter));
   }
   rows.noteRow(t("panel.routeNote"));
+  storeyServiceRows(rows, store);
   materialsRows(rows, store.floor);
 }
 
@@ -530,6 +568,7 @@ export function renderRouteProps(store: Store, tools: Tools, rows: RouteRows, id
   }
   rows.noteRow(t("panel.routePoints", { n: route.points.length }));
   endpointRows(rows, store, tools, route);
+  issueRows(rows, store, route.id);
   materialsRows(rows, store.floor);
   rows.dangerRow(t("panel.deleteOpening"), () => tools.deleteSelected());
 }

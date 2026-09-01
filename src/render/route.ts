@@ -146,6 +146,21 @@ export function drawRoute(
         const q = { x: -d.y * 55, y: d.x * 55 };
         ctx.beginPath(); ctx.moveTo(p.x - q.x, p.y - q.y); ctx.lineTo(p.x + q.x, p.y + q.y); ctx.stroke();
       }
+    } else if (n === 1 && point.terminal === "external") {
+      // Leaves the modelled storeys: an open arrowhead pointing the way out,
+      // the same reading the riser marks give a service crossing a slab, minus
+      // the circle -- there is no floor at the other end to name.
+      const segment = resolved.segments.find(s => s.pointA === point.id || s.pointB === point.id);
+      if (segment) {
+        const other = segment.pointA === point.id ? segment.b : segment.a;
+        const d = VecNorm({ x: p.x - other.x, y: p.y - other.y });
+        const back = 70, spread = 42;
+        ctx.beginPath();
+        ctx.moveTo(p.x - d.x * back - d.y * spread, p.y - d.y * back + d.x * spread);
+        ctx.lineTo(p.x, p.y);
+        ctx.lineTo(p.x - d.x * back + d.y * spread, p.y - d.y * back - d.x * spread);
+        ctx.stroke();
+      }
     } else if (n === 1 && point.terminal === "source") {
       const r = 52;
       ctx.beginPath();

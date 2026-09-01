@@ -29,6 +29,7 @@ import {
 import {
   routeTakesSymbol, routeTakesFurnishing, routeEndsUnder, linkDeviceToRouteEnds, ROUTE_LINK_MM,
 } from "../core/attach";
+import { riserMarks, type ResolvedRiserMark } from "../core/continuation";
 import {
   nodeAt, splitWall, nearestWall, wallOnRay, wallLength, mergeNodes, deleteWall, clampOpening,
   cleanOrphanNodes, insertWall, insertRun, deleteRoomNames, cloneOnFloor, MIN_WALL_MM,
@@ -95,6 +96,9 @@ const WALL_SNAP_MIN_MM = 150;
 /** Shortest step the route tool accepts between two waypoints, mm -- same
  *  figure the wall tool uses for the same reason (MIN_WALL_MM). */
 const MIN_ROUTE_STEP_MM = MIN_WALL_MM;
+
+/** Grab radius for a riser mark, mm. The mark itself draws at r = 78. */
+const RISER_PICK_MM = 90;
 
 export interface SnapResult { p: Vec; kind: "node" | "wall" | "grid" | "free"; wall?: Wall; tMm?: number; node?: PlanNode }
 
@@ -2050,6 +2054,28 @@ export class Tools {
     this.requestRender();
   }
 
+  /**
+   * The route to select for a press on a cross-floor riser mark, or undefined
+   * when the press is not on one. Coincident services share one mark with a
+   * count badge, so the member selected is the one AFTER whatever is selected
+   * now: pressing the mark again walks the group. The badge groups the
+   * drawing; it is not a merged cable, and every member stays individually
+   * selectable.
+   */
+  private riserPick(w: Vec): Id | undefined {
+    const marks = riserMarks(this.store.doc, this.store.activeFloor);
+    const tol = Math.max(RISER_PICK_MM, 14 / this.vp.pxPerMm);
+    let best: ResolvedRiserMark | undefined, bestD = Infinity;
+    for (const mark of marks) {
+      const d = dist(mark.at, w);
+      if (d <= tol && d < bestD) { best = mark; bestD = d; }
+    }
+    if (!best) return undefined;
+    const ids = [...new Set(best.members.map(m => m.routeId))];
+    const current = this.store.sel?.kind === "route" ? ids.indexOf(this.store.sel.id) : -1;
+    return ids[(current + 1) % ids.length];
+  }
+
   /** Visually nearest route within the grab margin. Corridor lanes often have
    * overlapping hit areas, so document order is only a final exact-tie break. */
   private routeAt(w: Vec): { route: Route; resolved: ResolvedRoute } | undefined {
@@ -2340,6 +2366,13 @@ export class Tools {
       }
       return;
     }
+    // A riser mark, before the runs themselves: it is drawn on top of the point
+    // it belongs to, and where several coincident services share one mark, a
+    // repeated click steps through its members -- a shaft carrying five
+    // circuits is reachable without pixel hunting for the fourth. The count
+    // badge is a grouping of the drawing, never a merged cable.
+    const riser = this.riserPick(w);
+    if (riser) { this.pick({ kind: "route", id: riser }); return; }
     // Routes, over the masonry and under whatever stands on them -- the same
     // order they draw in (see render/draw.ts). Never draggable from a plain
     // press (see routeVertex above), grouped or not -- an anchored point

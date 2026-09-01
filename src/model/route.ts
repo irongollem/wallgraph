@@ -55,7 +55,18 @@ export const ROUTE_INSTALLATIONS: readonly RouteInstallation[] = [
   "concealed", "surface", "floor", "ceiling", "free",
 ];
 
-export type RouteTerminal = "source" | "capped";
+/**
+ * What an unconnected end of a run IS.
+ *
+ * "source" is where the service comes from, "capped" a deliberately closed
+ * end. "external" is the third honest answer: a riser that leaves the top or
+ * the bottom of what has been modelled -- up through a roof, down into a crawl
+ * space or a street connection -- and so has no storey in this document to be
+ * continued to. It is stated rather than linked to a fictional floor, and
+ * unlike an unclassified end it is not incomplete: it says the drawing stops
+ * here on purpose.
+ */
+export type RouteTerminal = "source" | "capped" | "external";
 
 export function routeInstallation(r: Route): RouteInstallation {
   return r.installation ?? "concealed";

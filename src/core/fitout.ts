@@ -12,6 +12,7 @@ import type { Room } from "./rooms";
 import type { RoomUse } from "../model/room";
 import { routeVent, routeFlow } from "../model/route";
 import { resolveRoutePoints } from "./route";
+import { isContinuationPort } from "./continuation";
 import { pointInPolygon } from "../geometry/vec";
 
 /**
@@ -133,13 +134,21 @@ export interface RoomVentRouted {
  * is counted in the matching *Unstated field instead, so the total this
  * returns never claims a number nobody entered.
  */
-export function roomVentRouted(floor: Floor, room: Room): RoomVentRouted {
+export function roomVentRouted(floor: Floor, room: Room, doc?: PlanDoc): RoomVentRouted {
   const out: RoomVentRouted = { toevoer: 0, afvoer: 0, toevoerUnstated: 0, afvoerUnstated: 0 };
   for (const r of routesOf(floor)) {
     if (r.discipline !== "vent") continue;
     const pts = resolveRoutePoints(floor, r);
     const last = pts[pts.length - 1];
     if (!last || !pointInPolygon(last, room.netPoly)) continue;
+    // A duct that carries on to another storey does not terminate here: its
+    // last waypoint on this plan is a riser port, not a grille. Counting it
+    // would credit the room with air that is only passing through its ceiling.
+    // Only checkable with the document in hand, since a continuation is a
+    // document-level link; called without one, the per-floor reading stands.
+    const lastPoint = r.points[r.points.length - 1];
+    if (doc && lastPoint
+      && isContinuationPort(doc, { floorId: floor.id, routeId: r.id, pointId: lastPoint.id })) continue;
     const kind = routeVent(r);
     const flow = routeFlow(r);
     if (flow === undefined) {

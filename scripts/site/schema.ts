@@ -402,7 +402,13 @@ export function planSchema(siteUrl: string): JsonSchema {
           wallId: { $ref: "#/$defs/id", description: "Wall followed by this point." },
           wallT: mm("Distance from wall node a, mm."),
           wallSide: { enum: [-1, 1], description: "Wall face for surface-mounted work." },
-          terminal: { enum: ["source", "capped"], description: "Explicit state of a free endpoint." },
+          terminal: {
+            enum: ["source", "capped", "external"],
+            description:
+              "Explicit state of a free endpoint. \"external\" is a riser leaving the " +
+              "modelled storeys -- through the roof, into a crawl space, out to the " +
+              "street -- stated rather than linked to a floor that is not in the document.",
+          },
         },
       },
       routeSegment: {

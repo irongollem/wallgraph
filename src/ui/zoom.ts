@@ -132,7 +132,7 @@ function roomItem(tools: Tools, edit: RoomEdit, store: Store, r: Room, area: str
   const item = el("div", "zone-item");
   item.append(zoneRow(tools, edit, r, area));
   const figures = roomFigures(store.floor, r, store.doc);
-  if (figures) item.append(figuresBlock(figures, roomVentRouted(store.floor, r)));
+  if (figures) item.append(figuresBlock(figures, roomVentRouted(store.floor, r, store.doc)));
   return item;
 }
 
