@@ -56,8 +56,14 @@
 // cannot collide with that element's own id.
 import {
   PlanDoc, Floor, Wall, projectOf, floorElevation, floorHeight, areaModeOf, dimModeOf, DimMode, Sash, sashSpecsOf,
-  openingHeight, videsOf, stairsOf, furnishingsOf, SymbolInstance, wallHeight, fireLabel, WallMaterial,
+  openingHeight, videsOf, stairsOf, furnishingsOf, routesOf, SymbolInstance, wallHeight, fireLabel, WallMaterial,
 } from "../model/doc";
+import {
+  Discipline, Route, routeDiameter, routeDuctDiameter, routeInstallation, routeKind,
+  routeVeins, routeVent, routeWater,
+} from "../model/route";
+import { resolveRoutePoints, routePlaneHeight } from "../core/route";
+import { arcFlatten } from "../geometry/arc";
 import { ifcGuid } from "../model/guid";
 import { wallLength } from "../model/ops";
 import { floorSolids } from "../core/solids";
@@ -441,6 +447,112 @@ const IFC_MATERIAL_NAME: Record<WallMaterial, string> = {
   masonry: "Masonry", concrete: "Concrete", timber: "Wood", steel: "Steel", glass: "Glass",
 };
 
+/* ── services ───────────────────────────────────────────────────────────────
+ * A route's IFC4 occurrence class, nominal cross-section and system identity.
+ * All three are decisions about how a 2D run is stated in a model that expects
+ * 3D products, and they are kept together so the reasoning reads as one.
+ */
+
+/** IFC4 occurrence class per discipline. Gas runs in pipe, like water. */
+const ROUTE_IFC_ENTITY: Record<Discipline, string> = {
+  electrical: "IFCCABLECARRIERSEGMENT",
+  water: "IFCPIPESEGMENT",
+  gas: "IFCPIPESEGMENT",
+  vent: "IFCDUCTSEGMENT",
+};
+
+/**
+ * Nominal cross-section of a run, mm -- the side of the square box its legs
+ * are extruded as.
+ *
+ * A pipe and a duct state their own diameter, so that is what is used. A cable
+ * run states none: the document knows a conductor count and a cable spec, not
+ * an outside dimension, and CABLE_CARRIER_MM is a placeholder for a
+ * cable-carrier's size rather than a measurement. It exists so the segment has
+ * a body at all; nothing should read a load or a fill ratio off it.
+ */
+const CABLE_CARRIER_MM = 50;
+
+function routeIfcSize(route: Route): number {
+  switch (route.discipline) {
+    case "vent": return routeDuctDiameter(route);
+    case "water": return routeDiameter(route);
+    case "gas": return route.diameter ?? 15;
+    case "electrical": return CABLE_CARRIER_MM;
+  }
+}
+
+/** Chord tolerance a bowed route leg is flattened at, mm. */
+const ROUTE_FLATTEN_MM = 5;
+
+/** The rectangle one straight leg extrudes from, or null for a zero-length leg. */
+function legQuad(a: Vec, b: Vec, size: number): Vec[] | null {
+  const along = sub(b, a);
+  const length = Math.hypot(along.x, along.y);
+  if (length < 1) return null;
+  const half = scale(perp(scale(along, 1 / length)), size / 2);
+  return [add(a, half), add(b, half), sub(b, half), sub(a, half)];
+}
+
+/**
+ * Which distribution system a run belongs to. A groep is what an electrician
+ * selects by, so an electrical run with one is grouped by it; everything else
+ * groups by the service it carries, which is the finest distinction the
+ * document actually makes.
+ */
+function routeSystemKey(route: Route): { id: string; name: string; predefined: string } {
+  switch (route.discipline) {
+    case "electrical": {
+      const group = route.group?.trim();
+      return group
+        ? { id: `electrical:${group}`, name: `Groep ${group}`, predefined: "ELECTRICAL" }
+        : { id: "electrical", name: "Elektra", predefined: "ELECTRICAL" };
+    }
+    case "water": {
+      const kind = routeWater(route);
+      const predefined = kind === "afvoer" ? "DRAINAGE"
+        : kind === "warm" ? "DOMESTICHOTWATER" : "DOMESTICCOLDWATER";
+      return { id: `water:${kind}`, name: `Water ${kind}`, predefined };
+    }
+    case "vent": {
+      const kind = routeVent(route);
+      return { id: `vent:${kind}`, name: `Ventilatie ${kind}`, predefined: "VENTILATION" };
+    }
+    case "gas":
+      return { id: "gas", name: "Gas", predefined: "GAS" };
+  }
+}
+
+/** The service metadata a run states, as IFC properties. Absent stays absent:
+ *  a run that named no groep says nothing about one. */
+function routeProps(route: Route): Array<{ name: string; value: string | number; kind: "label" | "count" | "length" | "real" }> {
+  const out: Array<{ name: string; value: string | number; kind: "label" | "count" | "length" | "real" }> = [];
+  const label = (name: string, value: string | undefined): void => {
+    if (value && value.trim()) out.push({ name, value: value.trim(), kind: "label" });
+  };
+  label("Tag", route.tag);
+  label("Name", route.name);
+  label("Installation", routeInstallation(route));
+  if (route.discipline === "electrical") {
+    label("Board", route.board);
+    label("Group", route.group);
+    out.push({ name: "Kind", value: routeKind(route), kind: "label" });
+    if (routeKind(route) === "power") out.push({ name: "Conductors", value: routeVeins(route), kind: "count" });
+    else label("CableSpec", route.spec);
+  } else if (route.discipline === "water") {
+    out.push({ name: "Kind", value: routeWater(route), kind: "label" });
+    out.push({ name: "NominalDiameter", value: routeDiameter(route), kind: "length" });
+  } else if (route.discipline === "vent") {
+    out.push({ name: "Kind", value: routeVent(route), kind: "label" });
+    out.push({ name: "NominalDiameter", value: routeDuctDiameter(route), kind: "length" });
+    // Only when someone stated one -- see routeFlow() in model/route.ts.
+    if (route.flow !== undefined) out.push({ name: "DesignFlowRate", value: route.flow, kind: "real" });
+  } else {
+    out.push({ name: "NominalDiameter", value: route.diameter ?? 15, kind: "length" });
+  }
+  return out;
+}
+
 /**
  * The plan as an IFC4 spatial spine: project, site, building, one storey per
  * floor (bottom-up, matching floors[0] = ground), aggregated together.
@@ -596,6 +708,14 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
     return ref(pds);
   }
 
+  /**
+   * The distribution systems the file will declare, filled in as the storeys
+   * are written and emitted once at the end: a service network is a property
+   * of the BUILDING, not of the storey a leg of it happens to cross, so a
+   * groep that runs up two floors is one system with segments on both.
+   */
+  const systems = new Map<string, { name: string; predefined: string; segments: number[] }>();
+
   // ── property sets and quantities ──────────────────────────────────────────
   //
   // Every Pset_*Common/Qto_* attachment below funnels through these two: an
@@ -620,12 +740,20 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
    * pset's own GlobalId is ifcGuid(seed, guidKey); the rel's is the same key
    * suffixed ':rel' so it cannot collide with the pset's own id.
    */
-  function attachPropertySet(elementId: number, guidKey: string, psetName: string, props: IfcArg[]): void {
+  function attachPropertySet(
+    element: number | readonly number[], guidKey: string, psetName: string, props: IfcArg[],
+  ): void {
     if (props.length === 0) return;
+    // Several elements may share one pset -- every leg of one service run
+    // states the same groep and diameter, and one set related to all of them
+    // says that once instead of once per leg.
+    const elements = typeof element === "number" ? [element] : element;
+    if (elements.length === 0) return;
     const pset = w.entity("IFCPROPERTYSET",
       [str(ifcGuid(seed, guidKey)), ref(ownerHistory), str(psetName), UNSET, list(...props)]);
     w.entity("IFCRELDEFINESBYPROPERTIES",
-      [str(ifcGuid(seed, `${guidKey}:rel`)), ref(ownerHistory), UNSET, UNSET, list(ref(elementId)), ref(pset)]);
+      [str(ifcGuid(seed, `${guidKey}:rel`)), ref(ownerHistory), UNSET, UNSET,
+        list(...elements.map(ref)), ref(pset)]);
   }
 
   /**
@@ -922,6 +1050,65 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
       contained.push(symbolEntity);
     }
 
+    // ── services: one MEP segment per straight leg of every route ──────────
+    //
+    // The plan-space run, extruded to a nominal cross-section at the plane the
+    // route states it is installed in (routePlaneHeight). Deliberately NOT the
+    // fanned resolution the canvas draws: the corridor lanes in core/route.ts
+    // are a legibility device for a 2D sheet, and offsetting a duct sideways
+    // by 60 mm so it reads clearly beside another one would be a false claim
+    // about where it is. Anchored points still resolve, so a run ends at the
+    // socket it follows.
+    //
+    // Known cuts, carried from the issue: no fittings, no risers (a vertical
+    // continuation is a document-level link, not an element), and the
+    // cross-section is nominal rather than a product's. The one semantic worth
+    // having is the grouping below -- an IFCDISTRIBUTIONSYSTEM per groep or
+    // per service kind, so a receiving model can select a circuit.
+    for (const route of routesOf(floor)) {
+      const points = resolveRoutePoints(floor, route);
+      const byId = new Map(route.points.map((p, index) => [p.id, points[index]!]));
+      const size = routeIfcSize(route);
+      const plane = routePlaneHeight(floor, route);
+      const z0 = Math.max(0, plane - size / 2);
+      const ifcEntity = ROUTE_IFC_ENTITY[route.discipline];
+      const name = route.tag ?? route.name ?? route.discipline;
+      const legs: number[] = [];
+      for (const segment of route.segments) {
+        const a = byId.get(segment.a), b = byId.get(segment.b);
+        if (!a || !b) continue;
+        // A bowed leg becomes the straight legs it flattens to -- one IFC
+        // segment each, which is what "one segment per polyline leg" means for
+        // a run that curves.
+        const pts = (segment.bulge ?? 0) === 0 ? [a, b] : arcFlatten(a, b, segment.bulge!, ROUTE_FLATTEN_MM);
+        for (let k = 0; k + 1 < pts.length; k++) {
+          const quad = legQuad(pts[k]!, pts[k + 1]!, size);
+          if (!quad) continue;
+          const shape = bodyShape([extrudedSolid(quad, z0, z0 + size)]);
+          const key = pts.length === 2 ? segment.id : `${segment.id}:${k}`;
+          legs.push(w.entity(ifcEntity, [
+            str(ifcGuid(seed, key)), ref(ownerHistory), str(name), UNSET, UNSET,
+            ref(levelPlacement), shape, UNSET, enumv("NOTDEFINED"),
+          ]));
+        }
+      }
+      if (legs.length === 0) continue;
+      contained.push(...legs);
+      // One pset for the whole run rather than one per leg: every leg states
+      // the same groep, diameter and design flow.
+      attachPropertySet(legs, `${route.id}:pset`, "Pset_WallgraphService",
+        routeProps(route).map(prop => ref(propValue(prop.name,
+          prop.kind === "label" ? labelValue(String(prop.value))
+          : prop.kind === "count" ? typed("IFCCOUNTMEASURE", int(Number(prop.value)))
+          : prop.kind === "length" ? typed("IFCPOSITIVELENGTHMEASURE", real(Number(prop.value)))
+          : typed("IFCREAL", real(Number(prop.value)))))));
+      const systemKey = routeSystemKey(route);
+      const system = systems.get(systemKey.id)
+        ?? { name: systemKey.name, predefined: systemKey.predefined, segments: [] };
+      system.segments.push(...legs);
+      systems.set(systemKey.id, system);
+    }
+
     if (contained.length > 0) {
       w.entity("IFCRELCONTAINEDINSPATIALSTRUCTURE",
         [str(ifcGuid(seed, `${floor.id}:contains`)), ref(ownerHistory), UNSET, UNSET,
@@ -957,6 +1144,28 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
         [str(ifcGuid(seed, `${floor.id}:spaces`)), ref(ownerHistory), UNSET, UNSET, ref(storeys[i]!),
           list(...spaceEntities.map(ref))]);
     }
+  }
+
+  // ── distribution systems ──────────────────────────────────────────────────
+  //
+  // Emitted after every storey, since a system spans them: an IFCRELASSIGNS-
+  // TOGROUP naming its segments and an IFCRELSERVICESBUILDINGS tying it to the
+  // building it serves. This is the one piece of system topology the export
+  // carries -- there is no upstream/downstream ordering, no ports and no
+  // connectivity, because the document holds none.
+  for (const [key, system] of [...systems.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const entity = w.entity("IFCDISTRIBUTIONSYSTEM", [
+      str(ifcGuid(seed, `system:${key}`)), ref(ownerHistory), str(system.name), UNSET, UNSET,
+      UNSET, enumv(system.predefined),
+    ]);
+    w.entity("IFCRELASSIGNSTOGROUP", [
+      str(ifcGuid(seed, `system:${key}:members`)), ref(ownerHistory), UNSET, UNSET,
+      list(...system.segments.map(ref)), UNSET, ref(entity),
+    ]);
+    w.entity("IFCRELSERVICESBUILDINGS", [
+      str(ifcGuid(seed, `system:${key}:serves`)), ref(ownerHistory), UNSET, UNSET,
+      ref(entity), list(ref(building)),
+    ]);
   }
 
   return renderStepFile(w.data, meta.author ?? "", nowMs);
