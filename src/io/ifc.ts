@@ -59,8 +59,8 @@ import {
   openingHeight, videsOf, stairsOf, furnishingsOf, routesOf, SymbolInstance, wallHeight, fireLabel, WallMaterial,
 } from "../model/doc";
 import {
-  Discipline, Route, routeDiameter, routeDuctDiameter, routeInstallation, routeKind,
-  routeVeins, routeVent, routeWater,
+  Discipline, Route, routeDiameter, routeDuctDiameter, routeHeat, routeHeatDiameter,
+  routeInstallation, routeKind, routeVeins, routeVent, routeWater,
 } from "../model/route";
 import { resolveRoutePoints, routePlaneHeight } from "../core/route";
 import { arcFlatten } from "../geometry/arc";
@@ -457,6 +457,7 @@ const IFC_MATERIAL_NAME: Record<WallMaterial, string> = {
 const ROUTE_IFC_ENTITY: Record<Discipline, string> = {
   electrical: "IFCCABLECARRIERSEGMENT",
   water: "IFCPIPESEGMENT",
+  heating: "IFCPIPESEGMENT",
   gas: "IFCPIPESEGMENT",
   vent: "IFCDUCTSEGMENT",
 };
@@ -477,6 +478,7 @@ function routeIfcSize(route: Route): number {
   switch (route.discipline) {
     case "vent": return routeDuctDiameter(route);
     case "water": return routeDiameter(route);
+    case "heating": return routeHeatDiameter(route);
     case "gas": return route.diameter ?? 15;
     case "electrical": return CABLE_CARRIER_MM;
   }
@@ -514,6 +516,10 @@ function routeSystemKey(route: Route): { id: string; name: string; predefined: s
         : kind === "warm" ? "DOMESTICHOTWATER" : "DOMESTICCOLDWATER";
       return { id: `water:${kind}`, name: `Water ${kind}`, predefined };
     }
+    case "heating": {
+      const kind = routeHeat(route);
+      return { id: `heating:${kind}`, name: `CV ${kind}`, predefined: "HEATING" };
+    }
     case "vent": {
       const kind = routeVent(route);
       return { id: `vent:${kind}`, name: `Ventilatie ${kind}`, predefined: "VENTILATION" };
@@ -542,6 +548,9 @@ function routeProps(route: Route): Array<{ name: string; value: string | number;
   } else if (route.discipline === "water") {
     out.push({ name: "Kind", value: routeWater(route), kind: "label" });
     out.push({ name: "NominalDiameter", value: routeDiameter(route), kind: "length" });
+  } else if (route.discipline === "heating") {
+    out.push({ name: "Kind", value: routeHeat(route), kind: "label" });
+    out.push({ name: "NominalDiameter", value: routeHeatDiameter(route), kind: "length" });
   } else if (route.discipline === "vent") {
     out.push({ name: "Kind", value: routeVent(route), kind: "label" });
     out.push({ name: "NominalDiameter", value: routeDuctDiameter(route), kind: "length" });

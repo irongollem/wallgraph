@@ -15,10 +15,10 @@ import {
   routeKind, routeVeins, clampRouteVeins,
   RouteWater, ROUTE_WATERS, routeWater, routeDiameter, routeDiameterLadder,
   clampRouteDiameter, defaultRouteDiameter,
+  RouteHeat, ROUTE_HEATS, routeHeat, routeHeatDiameter, HEAT_DIAMETERS, HEAT_DIAMETER_DEFAULT,
   RouteVent, ROUTE_VENTS, routeVent, VENT_DIAMETERS, VENT_DIAMETER_DEFAULT,
   routeDuctDiameter, clampDuctDiameter, routeFlow, clampRouteFlow,
   RouteInstallation, ROUTE_INSTALLATIONS, routeInstallation, type RoutePoint, type RouteTerminal,
-  type RouteWater as WaterKind,
 } from "../model/route";
 import {
   resolveRoutePoints, routeLength, routeDrops, routePlaneHeight, defaultRouteHeight,
@@ -184,6 +184,25 @@ function waterRows(
   rows.selRow(t("panel.routeKind"), fields.water, waterOptions(), v => commit({ water: v as RouteWater }));
   rows.numRow(t("panel.routeDiameter"), fields.diameter, n => commit({ diameter: n }), 1);
   rows.chipRow(t("panel.routeDiameter"), routeDiameterLadder(fields.water), fields.diameter, n => commit({ diameter: n }));
+}
+
+function heatOptions(): Array<[string, string]> {
+  return ROUTE_HEATS.map(v => [v, t("panel.routeHeat" + v[0]!.toUpperCase() + v.slice(1))]);
+}
+
+interface HeatFields { heat: RouteHeat; diameter: number }
+
+/**
+ * The verwarming rows: which leg of the CV circuit, and the pipe size. Two
+ * legs rather than one line, because a radiator is reached by both -- a plan
+ * that drew only the aanvoer would be short by half the pipe in the takeoff.
+ */
+function heatRows(
+  rows: RouteRows, fields: HeatFields, commit: (patch: Partial<HeatFields>) => void,
+): void {
+  rows.selRow(t("panel.routeKind"), fields.heat, heatOptions(), v => commit({ heat: v as RouteHeat }));
+  rows.numRow(t("panel.routeDiameter"), fields.diameter, n => commit({ diameter: n }), 1);
+  rows.chipRow(t("panel.routeDiameter"), HEAT_DIAMETERS, fields.diameter, n => commit({ diameter: n }));
 }
 
 function gasRows(rows: RouteRows, diameter: number, commit: (diameter: number) => void): void {
@@ -446,7 +465,10 @@ export function serviceLabel(key: ServiceKey): string {
   const cap = (word: string): string => word[0]!.toUpperCase() + word.slice(1);
   const name = t("panel.discipline" + cap(discipline!));
   if (!kind) return name;
-  const kindKey = discipline === "water" ? "panel.routeWater" : "panel.routeVent";
+  const kindKey = discipline === "water" ? "panel.routeWater"
+    : discipline === "heating" ? "panel.routeHeat"
+    : discipline === "electrical" ? "panel.routeKind"
+    : "panel.routeVent";
   return `${name} ${t(kindKey + cap(kind)).toLowerCase()}`;
 }
 
@@ -520,7 +542,7 @@ export function routeLabel(route: Route): string {
  */
 export function deviceConnectionRows(
   rows: RouteRows, store: Store, device: Device,
-  takes: (discipline: Discipline, water: WaterKind) => boolean,
+  takes: (key: ServiceKey) => boolean,
 ): void {
   const floor = store.floor;
   // What the fixture needs and nobody has drawn. A statement about the
@@ -590,6 +612,11 @@ export function renderRouteTool(store: Store, tools: Tools, rows: RouteRows): vo
       if (patch.ductDiameter !== undefined) tools.setRouteDuctDiameter(patch.ductDiameter);
       if ("flow" in patch) tools.setRouteFlow(patch.flow);
     });
+  } else if (tools.routeDiscipline === "heating") {
+    heatRows(rows, { heat: tools.routeHeat, diameter: tools.routeHeatDiameter }, patch => {
+      if (patch.heat !== undefined) tools.setRouteHeat(patch.heat);
+      if (patch.diameter !== undefined) tools.setRouteHeatDiameter(patch.diameter);
+    });
   } else if (tools.routeDiscipline === "gas") {
     gasRows(rows, tools.routeGasDiameter, diameter => tools.setRouteGasDiameter(diameter));
   }
@@ -628,8 +655,10 @@ export function renderRouteProps(store: Store, tools: Tools, rows: RouteRows, id
       // rewrites every field the old preset wrote.
       if (r.discipline !== "electrical") { delete r.kind; delete r.veins; delete r.group; delete r.spec; }
       if (r.discipline !== "water") delete r.water;
-      if (r.discipline !== "water" && r.discipline !== "gas") delete r.diameter;
+      if (r.discipline !== "water" && r.discipline !== "gas" && r.discipline !== "heating")
+        delete r.diameter;
       if (r.discipline !== "vent") { delete r.vent; delete r.ductDiameter; delete r.flow; }
+      if (r.discipline !== "heating") delete r.heat;
     }));
   identityRows(rows, route.discipline, {
     tag: route.tag ?? "", name: route.name ?? "", board: route.board ?? "",
@@ -704,6 +733,16 @@ export function renderRouteProps(store: Store, tools: Tools, rows: RouteRows, id
         if (patch.flow === undefined) delete r.flow; else r.flow = clampRouteFlow(patch.flow);
       }
     }));
+  } else if (route.discipline === "heating") {
+    heatRows(rows, { heat: routeHeat(route), diameter: routeHeatDiameter(route) }, patch => mut(r => {
+      if (patch.heat !== undefined) {
+        if (patch.heat === "aanvoer") delete r.heat; else r.heat = patch.heat;
+      }
+      if (patch.diameter !== undefined) {
+        const d = clampRouteDiameter(patch.diameter);
+        if (d === HEAT_DIAMETER_DEFAULT) delete r.diameter; else r.diameter = d;
+      }
+    }));
   } else if (route.discipline === "gas") {
     gasRows(rows, route.diameter ?? 15, diameter => mut(r => {
       const d = clampRouteDiameter(diameter);
@@ -776,6 +815,14 @@ export function renderRouteBulk(store: Store, tools: Tools, rows: RouteRows, ids
       if (patch.diameter !== undefined) {
         const d = clampRouteDiameter(patch.diameter);
         if (d === defaultRouteDiameter(routeWater(r))) delete r.diameter; else r.diameter = d;
+      }
+    }));
+  } else if (primary.discipline === "heating") {
+    heatRows(rows, { heat: routeHeat(primary), diameter: routeHeatDiameter(primary) }, patch => mutAll(r => {
+      if (patch.heat !== undefined) { if (patch.heat === "aanvoer") delete r.heat; else r.heat = patch.heat; }
+      if (patch.diameter !== undefined) {
+        const d = clampRouteDiameter(patch.diameter);
+        if (d === HEAT_DIAMETER_DEFAULT) delete r.diameter; else r.diameter = d;
       }
     }));
   } else if (primary.discipline === "vent") {

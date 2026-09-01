@@ -17,6 +17,7 @@ import { resolveRoutes, resolveRoutePoints } from "../core/route";
 import type { ResolvedRiserMark } from "../core/continuation";
 import {
   routeWater, routeKind, routeVeins, routeDiameter, routeVent, routeDuctDiameter,
+  routeHeat, routeHeatDiameter,
   routeFlow, type Route, type Discipline, type RouteWater,
 } from "../model/route";
 import { ROOM_NAME_PX } from "../model/room";
@@ -87,6 +88,9 @@ export const COLORS = {
    * and afvoer stay on COLORS.routeWater; only warm overrides.
    */
   routeWaterWarm: "#c33f3f",
+  /** Verwarming: a violet of its own, distinct from water's green -- CV pipe
+   *  is not tapwater pipe, and on a sheet carrying both that has to read. */
+  routeHeating: "#7d4fbf",
   routeVent: "#9c7a1f",
   routeGas: "#b8860b",
 };
@@ -101,6 +105,7 @@ export function routeInk(d: Discipline, water?: RouteWater): string {
   if (d === "water" && water === "warm") return COLORS.routeWaterWarm;
   return d === "electrical" ? COLORS.routeElectrical
        : d === "water" ? COLORS.routeWater
+       : d === "heating" ? COLORS.routeHeating
        : d === "vent" ? COLORS.routeVent
        : COLORS.routeGas;
 }
@@ -116,6 +121,8 @@ export function routeMapLabel(route: Route): string {
   } else if (route.discipline === "water") {
     const kind = routeWater(route) === "koud" ? "KW" : routeWater(route) === "warm" ? "WW" : "AF";
     head.push(`${kind} Ø${routeDiameter(route)}`);
+  } else if (route.discipline === "heating") {
+    head.push(`${routeHeat(route) === "aanvoer" ? "CV-A" : "CV-R"} Ø${routeHeatDiameter(route)}`);
   } else if (route.discipline === "vent") {
     head.push(`${routeVent(route) === "toevoer" ? "TV" : "AV"} Ø${routeDuctDiameter(route)}`);
     const flow = routeFlow(route);

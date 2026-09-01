@@ -614,6 +614,7 @@ const distBoard: SymbolDef = {
   wallMounted: true,
   width: 500,
   depth: 250,
+  ports: [{ key: "electrical:power" }],
   mountHeight: 1600,
   draw(ctx) {
     withCtx(ctx, () => {

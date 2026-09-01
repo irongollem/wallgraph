@@ -21,6 +21,7 @@ import {
   Route, RoutePoint, RouteSegment, Discipline, RouteKind, ROUTE_VEINS_DEFAULT, clampRouteVeins,
   RouteWater, routeWater, clampRouteDiameter, defaultRouteDiameter,
   RouteVent, VENT_DIAMETER_DEFAULT, clampDuctDiameter, clampRouteFlow,
+  RouteHeat, HEAT_DIAMETER_DEFAULT, routeHeat,
   RouteInstallation, routeInstallation, routeVent, routeKind,
 } from "../model/route";
 import {
@@ -230,6 +231,9 @@ export class Tools {
    * one, the next run is very often at the same figure (a row of identical
    * grilles), so it stays armed until changed rather than clearing itself.
    */
+  /** Heating-only fields for the next run -- sticky like routeDiscipline. */
+  routeHeat: RouteHeat = "aanvoer";
+  routeHeatDiameter: number = HEAT_DIAMETER_DEFAULT;
   routeVent: RouteVent = "toevoer";
   routeDuctDiameter: number = VENT_DIAMETER_DEFAULT;
   routeFlow: number | undefined = undefined;
@@ -1411,10 +1415,10 @@ export class Tools {
     const lands = ids.some(id => {
       if (d.kind === "symbol") {
         const sym = live.symbols.find(x => x.id === id);
-        return !!sym && deviceConnects(live, sym, disc => routeTakesSymbol(disc, sym.type));
+        return !!sym && deviceConnects(live, sym, key => routeTakesSymbol(key, sym.type));
       }
       const fn = furnishingsOf(live).find(x => x.id === id);
-      return !!fn && deviceConnects(live, fn, (disc, water) => routeTakesFurnishing(disc, water, fn));
+      return !!fn && deviceConnects(live, fn, key => routeTakesFurnishing(key, fn));
     });
     if (!lands) return;
     this.store.mutate(doc => {
@@ -1422,10 +1426,10 @@ export class Tools {
       for (const id of ids) {
         if (d.kind === "symbol") {
           const sym = f.symbols.find(x => x.id === id);
-          if (sym) connectDevice(f, sym, disc => routeTakesSymbol(disc, sym.type));
+          if (sym) connectDevice(f, sym, key => routeTakesSymbol(key, sym.type));
         } else {
           const fn = furnishingsOf(f).find(x => x.id === id);
-          if (fn) connectDevice(f, fn, (disc, water) => routeTakesFurnishing(disc, water, fn));
+          if (fn) connectDevice(f, fn, key => routeTakesFurnishing(key, fn));
         }
       }
     });
@@ -1616,7 +1620,7 @@ export class Tools {
     this.store.mutate(doc => {
       const f = this.store.floorOf(doc);
       f.symbols.push(sym);
-      connectDevice(f, sym, d => routeTakesSymbol(d, sym.type));
+      connectDevice(f, sym, key => routeTakesSymbol(key, sym.type));
     });
     this.store.select({ kind: "symbol", id });
   }
@@ -1743,6 +1747,19 @@ export class Tools {
     this.onToolChange();
   }
 
+  /** Arm which CV leg the next heating run is. Sticky, like routeDiscipline. */
+  setRouteHeat(v: RouteHeat): void {
+    this.routeHeat = v;
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  setRouteHeatDiameter(n: number): void {
+    this.routeHeatDiameter = clampRouteDiameter(n);
+    this.onToolChange();
+    this.requestRender();
+  }
+
   /** Arm the toevoer/afvoer kind for the next vent run. Sticky, like routeDiscipline. */
   setRouteVent(v: RouteVent): void {
     this.routeVent = v;
@@ -1851,6 +1868,7 @@ export class Tools {
     installation: RouteInstallation = this.routeInstallation,
     ventKind: RouteVent = this.routeVent,
     kindOfRun: RouteKind = this.routeKind,
+    heatLeg: RouteHeat = this.routeHeat,
   ): {
     p: Vec; anchor?: Id; wallId?: Id; wallT?: number; wallSide?: 1 | -1;
     routeId?: Id; routePointId?: Id;
@@ -1884,7 +1902,8 @@ export class Tools {
     // Measured at the PORT this run would reach, not at the device's anchor:
     // a douche's afvoer is in the middle of its tray, most of a tray away from
     // the wall it stands against. core/port.ts is the one answer to that.
-    const key = serviceKeyOf(discipline, { water: waterKind, vent: ventKind, power: kindOfRun });
+    const key = serviceKeyOf(discipline,
+      { water: waterKind, vent: ventKind, power: kindOfRun, heat: heatLeg });
     const anchors: Array<{ id: Id; x: number; y: number; d: number }> = [];
     const consider = (item: Device, compatible: boolean): void => {
       if (!compatible && !this.altKey) return;
@@ -1892,8 +1911,8 @@ export class Tools {
       const d = dist(at, raw);
       if (d <= tol) anchors.push({ id: item.id, x: at.x, y: at.y, d });
     };
-    for (const s of f.symbols) consider(s, routeTakesSymbol(discipline, s.type));
-    for (const fn of furnishingsOf(f)) consider(fn, routeTakesFurnishing(discipline, waterKind, fn));
+    for (const s of f.symbols) consider(s, routeTakesSymbol(key, s.type));
+    for (const fn of furnishingsOf(f)) consider(fn, routeTakesFurnishing(key, fn));
     // A groep of a groepenkast is a connection point in its own right, and the
     // one a circuit is supposed to start at: anchoring there is what makes the
     // run's groep the kast's own label rather than a typed string.
@@ -2078,6 +2097,9 @@ export class Tools {
         if (this.routeVent !== "toevoer") route.vent = this.routeVent;
         if (this.routeDuctDiameter !== VENT_DIAMETER_DEFAULT) route.ductDiameter = this.routeDuctDiameter;
         if (this.routeFlow !== undefined) route.flow = this.routeFlow;
+      } else if (this.routeDiscipline === "heating") {
+        if (this.routeHeat !== "aanvoer") route.heat = this.routeHeat;
+        if (this.routeHeatDiameter !== HEAT_DIAMETER_DEFAULT) route.diameter = this.routeHeatDiameter;
       } else if (this.routeDiscipline === "gas") {
         if (this.routeGasDiameter !== 15) route.diameter = this.routeGasDiameter;
       }
@@ -2248,7 +2270,7 @@ export class Tools {
       (f.furnishings ??= []).push(c);
       // A run ends at a fornuis or a wastafel as readily as at a socket, so
       // fit-out connects the same way a symbol does.
-      connectDevice(f, c, (d, water) => routeTakesFurnishing(d, water, c));
+      connectDevice(f, c, key => routeTakesFurnishing(key, c));
     });
     this.store.select({ kind: "furnishing", id: c.id });
   }
@@ -2854,7 +2876,8 @@ export class Tools {
         currentRoute?.discipline === "water" ? routeWater(currentRoute) : this.routeWater,
         currentRoute ? routeInstallation(currentRoute) : this.routeInstallation,
         currentRoute?.discipline === "vent" ? routeVent(currentRoute) : this.routeVent,
-        currentRoute?.discipline === "electrical" ? routeKind(currentRoute) : this.routeKind);
+        currentRoute?.discipline === "electrical" ? routeKind(currentRoute) : this.routeKind,
+        currentRoute?.discipline === "heating" ? routeHeat(currentRoute) : this.routeHeat);
       this.store.mutate(doc => {
         const route = routesOf(this.store.floorOf(doc)).find(x => x.id === d.id);
         const pt = route?.points[idx];

@@ -269,12 +269,20 @@ const socket = (over: Partial<SymbolInstance> = {}): SymbolInstance =>
   ({ id: "sock", type: "socket-single", x: 0, y: 0, rotation: 0, ...over });
 
 {
-  check("an electrical run ends at an electrical symbol",
-    routeTakesSymbol("electrical", "socket-single"));
-  check("but not at a tap", !routeTakesSymbol("electrical", "water-point"));
-  check("a water run ends at a tap", routeTakesSymbol("water", "water-point"));
-  check("a gas run ends at the heating symbols", routeTakesSymbol("gas", "cv-boiler"));
-  check("an unknown type is nobody's terminal", !routeTakesSymbol("electrical", "nope"));
+  // A RUN always carries a specific key; the bare-discipline keys exist only
+  // for a port that is genuinely indifferent (see model/service.ts).
+  check("a power run ends at a socket",
+    routeTakesSymbol("electrical:power", "socket-single"));
+  check("but not at a tap", !routeTakesSymbol("electrical:power", "water-point"));
+  check("a cold-water run ends at a koudwaterpunt",
+    routeTakesSymbol("water:koud", "water-point"));
+  check("but a drain run does not", !routeTakesSymbol("water:afvoer", "water-point"));
+  check("a gas run ends at the cv-ketel", routeTakesSymbol("gas", "cv-boiler"));
+  check("an unknown type is nobody's terminal", !routeTakesSymbol("electrical:power", "nope"));
+  // A bare-discipline PORT takes either leg: a ventiel that could be supply
+  // or extract, an afsluiter sitting in whichever line it sits in.
+  check("a ventiel takes supply or extract",
+    routeTakesSymbol("vent:toevoer", "vent-valve") && routeTakesSymbol("vent:afvoer", "vent-valve"));
 }
 
 {
@@ -284,10 +292,10 @@ const socket = (over: Partial<SymbolInstance> = {}): SymbolInstance =>
   const device = socket({ x: 2000, y: 0 });
   f.symbols.push(device);
 
-  const ends = routeEndsUnder(f, device, d => routeTakesSymbol(d, device.type));
+  const ends = routeEndsUnder(f, device, key => routeTakesSymbol(key, device.type));
   check("a device on a run's loose end finds it", ends.length === 1 && ends[0]!.id === "rp2");
   check("linking writes the anchor",
-    linkDeviceToRouteEnds(f, device, d => routeTakesSymbol(d, device.type)) === 1
+    linkDeviceToRouteEnds(f, device, key => routeTakesSymbol(key, device.type)) === 1
     && routesOf(f)[0]!.points[2]!.anchor === "sock");
   // The user-visible consequence: the run now follows the device.
   device.x = 5000;
@@ -303,13 +311,13 @@ const socket = (over: Partial<SymbolInstance> = {}): SymbolInstance =>
   // silently captures; that would reroute a trunk by accident.
   const mid = socket({ x: 1000, y: 0 });
   check("a device over a mid-run point captures nothing",
-    routeEndsUnder(f, mid, d => routeTakesSymbol(d, mid.type)).length === 0);
+    routeEndsUnder(f, mid, key => routeTakesSymbol(key, mid.type)).length === 0);
 
   // An end already following another device keeps it.
   routesOf(f)[0]!.points[2]!.anchor = "other";
   const late = socket({ id: "late", x: 2000, y: 0 });
   check("an end already connected is not taken over",
-    routeEndsUnder(f, late, d => routeTakesSymbol(d, late.type)).length === 0);
+    routeEndsUnder(f, late, key => routeTakesSymbol(key, late.type)).length === 0);
 }
 
 {
@@ -318,7 +326,7 @@ const socket = (over: Partial<SymbolInstance> = {}): SymbolInstance =>
   f.routes = [chain("r", 3, 0, { discipline: "water" })];
   const device = socket({ x: 2000, y: 0 });
   check("a socket does not connect itself to a water run",
-    routeEndsUnder(f, device, d => routeTakesSymbol(d, device.type)).length === 0);
+    routeEndsUnder(f, device, key => routeTakesSymbol(key, device.type)).length === 0);
 }
 
 {
@@ -337,13 +345,13 @@ const socket = (over: Partial<SymbolInstance> = {}): SymbolInstance =>
   f.routes = [r];
   const far = socket({ x: 2000, y: 300, wallId: "w1" });
   check("a device on the same wall reaches across the masonry",
-    routeEndsUnder(f, far, d => routeTakesSymbol(d, far.type)).length === 1);
+    routeEndsUnder(f, far, key => routeTakesSymbol(key, far.type)).length === 1);
   const distant = socket({ id: "d", x: 1000, y: 300, wallId: "w1" });
   check("a device does not capture a distant endpoint on the same wall",
-    routeEndsUnder(f, distant, d => routeTakesSymbol(d, distant.type)).length === 0);
+    routeEndsUnder(f, distant, key => routeTakesSymbol(key, distant.type)).length === 0);
   const elsewhere = socket({ id: "e", x: 2000, y: 300, wallId: "w2" });
   check("a device on a different wall does not",
-    routeEndsUnder(f, elsewhere, d => routeTakesSymbol(d, elsewhere.type)).length === 0);
+    routeEndsUnder(f, elsewhere, key => routeTakesSymbol(key, elsewhere.type)).length === 0);
 }
 
 {
@@ -362,8 +370,8 @@ const socket = (over: Partial<SymbolInstance> = {}): SymbolInstance =>
 {
   // The fit-out side of the same rule.
   const hood = { id: "h", form: "appliance", mark: "hood", x: 0, y: 0, rotation: 0, width: 600, depth: 500 } as never;
-  check("a vent run ends at an afzuigkap", routeTakesFurnishing("vent", "koud", hood));
-  check("but a water run does not", !routeTakesFurnishing("vent", "koud",
+  check("a vent run ends at an afzuigkap", routeTakesFurnishing("vent:afvoer", hood));
+  check("but a koelkast does not", !routeTakesFurnishing("vent:afvoer",
     { ...(hood as object), mark: "fridge" } as never));
 }
 
@@ -377,13 +385,13 @@ const socket = (over: Partial<SymbolInstance> = {}): SymbolInstance =>
   const device = socket({ x: 500, y: 0 });
   f.symbols.push(device);
 
-  const legs = routeLegsUnder(f, device, d => routeTakesSymbol(d, device.type));
+  const legs = routeLegsUnder(f, device, key => routeTakesSymbol(key, device.type));
   check("a device on a run's line finds the leg it stands on",
     legs.length === 1 && legs[0]!.segmentId === "rs0", JSON.stringify(legs));
   check("and where along it", Math.abs(legs[0]!.t - 0.5) < 1e-6, String(legs[0]!.t));
 
   check("connecting splices a junction into that leg",
-    connectDevice(f, device, d => routeTakesSymbol(d, device.type)) === 1);
+    connectDevice(f, device, key => routeTakesSymbol(key, device.type)) === 1);
   const r = routesOf(f)[0]!;
   check("the leg became two", r.segments.length === 3, String(r.segments.length));
   const tap = r.points.find(p => p.anchor === "sock")!;
@@ -405,10 +413,10 @@ const socket = (over: Partial<SymbolInstance> = {}): SymbolInstance =>
   const device = socket({ x: 500, y: 0 });
   f.symbols.push(device);
 
-  const legs = routeLegsUnder(f, device, d => routeTakesSymbol(d, device.type));
+  const legs = routeLegsUnder(f, device, key => routeTakesSymbol(key, device.type));
   check("both runs under the device are offered", legs.length === 2, String(legs.length));
   check("placing it joins neither of them",
-    connectDevice(f, device, d => routeTakesSymbol(d, device.type)) === 0);
+    connectDevice(f, device, key => routeTakesSymbol(key, device.type)) === 0);
   check("and neither run was touched",
     routesOf(f).every(r => r.segments.length === 2 && r.points.every(p => !p.anchor)));
 
@@ -417,7 +425,7 @@ const socket = (over: Partial<SymbolInstance> = {}): SymbolInstance =>
   check("picking one splices only that run",
     routesOf(f)[1]!.segments.length === 3 && routesOf(f)[0]!.segments.length === 2);
   check("and the other is not offered again",
-    routeLegsUnder(f, device, d => routeTakesSymbol(d, device.type))
+    routeLegsUnder(f, device, key => routeTakesSymbol(key, device.type))
       .map(l => l.routeId).join() === "a");
 }
 
@@ -430,12 +438,12 @@ const socket = (over: Partial<SymbolInstance> = {}): SymbolInstance =>
   // millimetre from it would leave a zero-length leg.
   const onCorner = socket({ x: 1000, y: 0 });
   check("a device on a vertex splits nothing",
-    routeLegsUnder(f, onCorner, d => routeTakesSymbol(d, onCorner.type)).length === 0);
+    routeLegsUnder(f, onCorner, key => routeTakesSymbol(key, onCorner.type)).length === 0);
   // The far end is a loose end, so that is a takeover rather than a split.
   const onEnd = socket({ id: "e", x: 2000, y: 0 });
   f.symbols.push(onEnd);
   check("a device on a loose end takes the end over rather than splitting",
-    connectDevice(f, onEnd, d => routeTakesSymbol(d, onEnd.type)) === 1
+    connectDevice(f, onEnd, key => routeTakesSymbol(key, onEnd.type)) === 1
     && routesOf(f)[0]!.segments.length === 2
     && routesOf(f)[0]!.points[2]!.anchor === "e");
 }
@@ -446,10 +454,10 @@ const socket = (over: Partial<SymbolInstance> = {}): SymbolInstance =>
   f.routes = [chain("w", 3, 0, { discipline: "water" })];
   const device = socket({ x: 500, y: 0 });
   check("a socket does not splice itself into a water run",
-    routeLegsUnder(f, device, d => routeTakesSymbol(d, device.type)).length === 0);
+    routeLegsUnder(f, device, key => routeTakesSymbol(key, device.type)).length === 0);
   const tap = { id: "tap", type: "water-point", x: 500, y: 0, rotation: 0 };
   check("but a tappunt does",
-    routeLegsUnder(f, tap, d => routeTakesSymbol(d, tap.type)).length === 1);
+    routeLegsUnder(f, tap, key => routeTakesSymbol(key, tap.type)).length === 1);
 }
 
 {
@@ -482,7 +490,7 @@ const socket = (over: Partial<SymbolInstance> = {}): SymbolInstance =>
   f.routes = [chain("r", 3)];
   const device = socket({ x: 500, y: 0 });
   f.symbols.push(device);
-  connectDevice(f, device, d => routeTakesSymbol(d, device.type));
+  connectDevice(f, device, key => routeTakesSymbol(key, device.type));
   device.x = 500; device.y = 900;
   check("disconnecting clears one anchor", disconnectDevice(f, "sock") === 1);
   const r = routesOf(f)[0]!;

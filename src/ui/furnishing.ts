@@ -190,7 +190,7 @@ export function renderFurnishingProps(store: Store, tools: Tools, rows: PaneRows
   // one as readily too -- same rows a symbol gets.
   if (group.length === 1) {
     deviceConnectionRows(rows, store, piece,
-      (discipline, water) => routeTakesFurnishing(discipline, water, piece));
+      key => routeTakesFurnishing(key, piece));
   }
   rows.dangerRow(t("panel.deleteOpening"), () => tools.deleteSelected());
 }

@@ -3,7 +3,7 @@
 import { SYMBOL_TYPES } from "../../src/render/symbols";
 import { STAIR_KINDS } from "../../src/model/stair";
 import {
-  DISCIPLINES, ROUTE_KINDS, ROUTE_WATERS, ROUTE_VENTS, ROUTE_INSTALLATIONS,
+  DISCIPLINES, ROUTE_KINDS, ROUTE_WATERS, ROUTE_HEATS, ROUTE_VENTS, ROUTE_INSTALLATIONS,
 } from "../../src/model/route";
 
 export type JsonSchema = Record<string, unknown>;
@@ -361,8 +361,14 @@ export function planSchema(siteUrl: string): JsonSchema {
           diameter: {
             type: "integer", minimum: 8, maximum: 200,
             description:
-              "Water/gas nominal pipe diameter, mm. Water defaults per kind -- 15 for " +
-              "koud/warm, 50 for afvoer; gas defaults to 15.",
+              "Water, heating or gas nominal pipe diameter, mm. Water defaults per " +
+              "kind -- 15 for koud/warm, 50 for afvoer; heating defaults to 16; gas to 15.",
+          },
+          heat: {
+            enum: [...ROUTE_HEATS],
+            description:
+              "Heating-only: which leg of the CV circuit. Meaningful only when " +
+              "discipline is \"heating\". Absent means \"aanvoer\", the flow leg.",
           },
           vent: {
             enum: [...ROUTE_VENTS],

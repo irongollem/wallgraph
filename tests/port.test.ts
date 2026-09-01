@@ -12,7 +12,7 @@ import { furnishingPorts } from "../src/model/furnishing";
 import {
   serviceKeyOf, serviceMatches, unmetPorts, type ServicePort,
 } from "../src/model/service";
-import type { Route } from "../src/model/route";
+import { routeServiceKey, type Route } from "../src/model/route";
 import {
   connectionPoint, connectedKeys, deviceServiceGaps, incompleteDevices,
 } from "../src/core/port";
@@ -78,14 +78,30 @@ const bath = (over: Partial<Furnishing> = {}): Furnishing => ({
     getSymbol("mixer-tap")?.ports?.length === 2);
   check("an afvoerpunt needs drainage",
     getSymbol("waste-point")?.ports?.[0]?.key === "water:afvoer");
-  // A groepenkast is where power comes FROM; it must not report itself as
-  // waiting for a supply.
-  check("a verdeelkast declares no required supply",
-    (getSymbol("dist-board")?.ports ?? []).length === 0);
-  // Only where the answer is knowable: a rookmelder may be wired or on a
-  // battery, and the drawing cannot tell.
-  check("a smoke detector declares nothing",
-    (getSymbol("smoke-detector")?.ports ?? []).length === 0);
+  // A groepenkast is where power comes FROM: it takes an incoming supply, but
+  // must not report itself as waiting for one -- that supply is often outside
+  // the drawing altogether.
+  check("a verdeelkast takes a supply without requiring one",
+    (getSymbol("dist-board")?.ports ?? []).every(p => !p.required)
+    && (getSymbol("dist-board")?.ports ?? []).length > 0);
+  // Required only where the answer is knowable: a rookmelder may be wired or
+  // on a battery, and the drawing cannot tell.
+  check("a smoke detector may be wired but is never reported unwired",
+    (getSymbol("smoke-detector")?.ports ?? []).every(p => !p.required));
+  // A cv-ketel is the one appliance that needs nearly everything at once.
+  check("a cv-ketel needs power, gas, water in and out, and both CV legs",
+    (getSymbol("cv-boiler")?.ports ?? []).map(p => p.key).sort().join()
+      === "electrical:power,gas,heating:aanvoer,heating:retour,water:koud,water:warm",
+    (getSymbol("cv-boiler")?.ports ?? []).map(p => p.key).join());
+  check("a radiator is reached by both CV legs",
+    (getSymbol("radiator")?.ports ?? []).map(p => p.key).sort().join()
+      === "heating:aanvoer,heating:retour");
+  // The bug the ports rule fixes: a gas-point sits in the WATER category, so
+  // the old category table let no gas run reach the one mark meant for it.
+  check("a gas point takes gas", routeTakesSymbol("gas", "gas-point"));
+  check("and a cv-ketel takes power, which no category rule allowed",
+    routeTakesSymbol("electrical:power", "cv-boiler"));
+  check("a sign takes nothing", !routeTakesSymbol("electrical:power", "assembly-point"));
   check("every declared port names a service the model has",
     SYMBOLS.flatMap(d => d.ports ?? []).every(p => typeof p.key === "string" && p.key.length > 0));
 }
@@ -110,6 +126,71 @@ const bath = (over: Partial<Furnishing> = {}): Furnishing => ({
     furnishingPorts({ ...bath(), form: "counter", basins: 1 } as Furnishing).length === 3);
   check("a bed needs nothing",
     furnishingPorts({ ...bath(), form: "bed" } as Furnishing).length === 0);
+}
+
+/* ── verwarming is its own discipline ── */
+
+{
+  check("a CV run names which leg it is",
+    serviceKeyOf("heating") === "heating:aanvoer"
+    && serviceKeyOf("heating", { heat: "retour" }) === "heating:retour");
+  // CV pipe is not tapwater pipe: the two must never satisfy each other.
+  check("a CV run does not satisfy a tapwater port",
+    !serviceMatches("water:warm", "heating:aanvoer"));
+  check("nor a tapwater run a CV port",
+    !serviceMatches("heating:aanvoer", "water:warm"));
+  check("a bare heating port takes either leg",
+    serviceMatches("heating", "heating:aanvoer") && serviceMatches("heating", "heating:retour"));
+
+  const route: Route = {
+    id: "cv", discipline: "heating", heat: "retour",
+    points: [{ id: "a", x: 0, y: 0 }, { id: "b", x: 1000, y: 0 }],
+    segments: [{ id: "s", a: "a", b: "b" }],
+  };
+  check("a heating route reports its own key", routeServiceKey(route) === "heating:retour");
+  check("and defaults to the flow leg",
+    routeServiceKey({ ...route, heat: undefined }) === "heating:aanvoer");
+}
+
+{
+  // The modern heating marks, and what each of them takes.
+  for (const type of ["airco-wall", "airco-ceiling", "heat-pump-ground"]) {
+    check(`${type} is in the registry`, getSymbol(type) !== undefined);
+  }
+  check("a split unit needs power and a condensate drain",
+    (getSymbol("airco-wall")?.ports ?? []).map(p => p.key).sort().join()
+      === "electrical:power,water:afvoer");
+  check("a ceiling cassette needs the same",
+    (getSymbol("airco-ceiling")?.ports ?? []).map(p => p.key).sort().join()
+      === "electrical:power,water:afvoer");
+  check("a ceiling cassette hangs at the ceiling",
+    getSymbol("airco-ceiling")?.mountHeight === "ceiling");
+  check("a bodemwarmtepomp needs power and both CV legs",
+    (getSymbol("heat-pump-ground")?.ports ?? []).map(p => p.key).sort().join()
+      === "electrical:power,heating:aanvoer,heating:retour");
+  check("a vloerverwarming circuit is reached by both legs",
+    routeTakesSymbol("heating:aanvoer", "floor-heating")
+    && routeTakesSymbol("heating:retour", "floor-heating"));
+  check("and so is its verdeler", routeTakesSymbol("heating:retour", "cv-manifold"));
+  // An afsluiter sits IN a line rather than being fed by one.
+  check("a shut-off valve takes whichever line it sits in",
+    routeTakesSymbol("water:koud", "shutoff-valve")
+    && routeTakesSymbol("heating:aanvoer", "shutoff-valve")
+    && routeTakesSymbol("gas", "shutoff-valve"));
+  check("and is never reported as missing one",
+    (getSymbol("shutoff-valve")?.ports ?? []).every(p => !p.required));
+}
+
+{
+  // Every symbol either declares what it takes or is a sign / loose equipment.
+  const silent = SYMBOLS.filter(d => (d.ports ?? []).length === 0).map(d => d.type).sort();
+  check("only signs and loose equipment declare nothing",
+    silent.every(t => d_isPassive(t)), silent.join(","));
+}
+
+function d_isPassive(type: string): boolean {
+  return ["emergency-exit", "fire-ext-co2", "fire-ext-powder", "fire-ext-foam",
+    "first-aid", "assembly-point", "fire-blanket"].includes(type);
 }
 
 /* ── where a run actually reaches the device ── */
@@ -199,7 +280,7 @@ const bath = (over: Partial<Furnishing> = {}): Furnishing => ({
   const piece = bath();
   f.furnishings = [piece];
   check("a run ending at the waste connects to the fixture",
-    connectDevice(f, piece, d => d === "water") === 1);
+    connectDevice(f, piece, key => key.startsWith("water")) === 1);
   check("and the anchored end is the drain's own end",
     routesOf(f)[0]!.points[1]!.anchor === "bath");
 }

@@ -11,7 +11,12 @@
 import type { Discipline } from "../model/route";
 import type { SymbolCategory } from "./symbols";
 
-export type LayerKey = Discipline | "heating" | "safety" | "furnishing";
+/**
+ * Verwarming is a Discipline now, so it is here through that rather than as a
+ * key of its own: the layer that used to carry only the CV symbols carries the
+ * CV runs with them.
+ */
+export type LayerKey = Discipline | "safety" | "furnishing";
 
 export const LAYER_KEYS: readonly LayerKey[] = [
   "electrical", "water", "heating", "vent", "gas", "safety", "furnishing",

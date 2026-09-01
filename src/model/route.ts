@@ -22,9 +22,20 @@
 import type { Id } from "./doc";
 import { serviceKeyOf, type ServiceKey } from "./service";
 
-export type Discipline = "electrical" | "water" | "vent" | "gas";
+/**
+ * The trades a run can belong to.
+ *
+ * Verwarming is its own discipline rather than a kind of water, because that is
+ * how it is built and drawn: CV pipe is not tapwater pipe, it is sized on a
+ * different basis, it is ordered separately, and an installatietekening carries
+ * verwarming and sanitair as separate systems even where one installateur lays
+ * both. The layer vocabulary already had a "heating" key for the symbols, which
+ * no run could be drawn on -- this is what that key was always missing.
+ */
+export type Discipline = "electrical" | "water" | "heating" | "vent" | "gas";
 
-export const DISCIPLINES: readonly Discipline[] = ["electrical", "water", "vent", "gas"];
+export const DISCIPLINES: readonly Discipline[] =
+  ["electrical", "water", "heating", "vent", "gas"];
 
 export interface RoutePoint {
   id: Id;
@@ -165,6 +176,31 @@ export function clampRouteDiameter(n: number): number {
  * through routeVent(), never r.vent directly, so a route that predates this
  * field reads as an ordinary supply run.
  */
+/**
+ * Which leg of the CV circuit a run is. Meaningless outside discipline
+ * "heating". Absent = "aanvoer", the flow leg. Read through routeHeat().
+ *
+ * Two legs rather than one line: a radiator is reached by both, and a plan
+ * that drew only one would be short by half the pipe in the takeoff.
+ */
+export type RouteHeat = "aanvoer" | "retour";
+
+export const ROUTE_HEATS: readonly RouteHeat[] = ["aanvoer", "retour"];
+
+/** The run's CV leg, defaulted. See RouteHeat. */
+export function routeHeat(r: Route): RouteHeat {
+  return r.heat ?? "aanvoer";
+}
+
+/** Ordinary CV pipe sizes, mm: 15/22 in copper, 16 in alupex. */
+export const HEAT_DIAMETERS: readonly number[] = [15, 16, 22, 28];
+export const HEAT_DIAMETER_DEFAULT = 16;
+
+/** The run's CV pipe diameter, mm, defaulted. Heating-only. */
+export function routeHeatDiameter(r: Route): number {
+  return r.diameter ?? HEAT_DIAMETER_DEFAULT;
+}
+
 export type RouteVent = "toevoer" | "afvoer";
 
 export const ROUTE_VENTS: readonly RouteVent[] = ["toevoer", "afvoer"];
@@ -216,7 +252,9 @@ export function clampRouteFlow(n: number): number {
 
 /** The service key a run carries -- see model/service.ts. */
 export function routeServiceKey(r: Route): ServiceKey {
-  return serviceKeyOf(r.discipline, { water: routeWater(r), vent: routeVent(r), power: routeKind(r) });
+  return serviceKeyOf(r.discipline, {
+    water: routeWater(r), vent: routeVent(r), power: routeKind(r), heat: routeHeat(r),
+  });
 }
 
 export interface Route {
@@ -266,6 +304,11 @@ export interface Route {
    * koud/warm and 50 for afvoer; gas defaults to 15.
    */
   diameter?: number;
+  /**
+   * Heating-only: which leg of the CV circuit. See RouteHeat. Absent means
+   * "aanvoer".
+   */
+  heat?: RouteHeat;
   /**
    * Vent-only: toevoer/afvoer. See RouteVent. Meaningful only when
    * discipline is "vent"; an electrical or water route ignores it.

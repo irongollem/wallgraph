@@ -179,7 +179,10 @@ const ventUnit: SymbolDef = {
   wallMounted: true,
   width: 600,
   depth: 400,
-  ports: [{ key: "vent", required: true }],
+  ports: [
+      { key: "electrical:power", required: true },
+      { key: "vent:afvoer", required: true },
+    ],
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.rect(-300, 0, 600, 400);
@@ -202,7 +205,11 @@ const wtwUnit: SymbolDef = {
   wallMounted: true,
   width: 600,
   depth: 600,
-  ports: [{ key: "vent", required: true }],
+  ports: [
+      { key: "electrical:power", required: true },
+      { key: "vent:toevoer", required: true },
+      { key: "vent:afvoer", required: true },
+    ],
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.rect(-300, 0, 600, 600);
@@ -226,7 +233,10 @@ const fan: SymbolDef = {
   wallMounted: true,
   width: 500,
   depth: 300,
-  ports: [{ key: "vent", required: true }],
+  ports: [
+      { key: "electrical:power", required: true },
+      { key: "vent:afvoer", required: true },
+    ],
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.rect(-250, 0, 500, 300);

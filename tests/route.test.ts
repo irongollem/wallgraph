@@ -605,8 +605,9 @@ const route = (over: Partial<Route> = {}): Route =>
   check("a network without explicit graph edges is rejected", validate(schema, missingSegments).length > 0);
 }
 
-check("every discipline is offered", DISCIPLINES.length === 4
+check("every discipline is offered", DISCIPLINES.length === 5
   && DISCIPLINES.includes("electrical") && DISCIPLINES.includes("water")
+  && DISCIPLINES.includes("heating")
   && DISCIPLINES.includes("vent") && DISCIPLINES.includes("gas"));
 
 for (const lng of ["nl", "en"] as const) {

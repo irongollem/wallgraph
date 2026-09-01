@@ -531,7 +531,9 @@ function appliancePorts(mark: ApplianceMark): ServicePort[] {
     case "freezer":
       return [{ key: "electrical:power", required: true }];
     default:
-      return [];
+      // An unmarked toestel: connectable, since the standard's own outline
+      // carries a supply stub, but nothing here knows what it needs.
+      return [{ key: "electrical:power" }];
   }
 }
 export const toiletCistern = (f: Furnishing): ToiletCistern => f.cistern ?? "exposed";

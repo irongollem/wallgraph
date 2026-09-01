@@ -161,6 +161,7 @@ const washingMachine: SymbolDef = {
   width: 600,
   depth: 600,
   ports: [
+      { key: "electrical:power", required: true },
       { key: "water:koud", required: true },
       { key: "water:afvoer", required: true, v: 0.5 },
     ],
@@ -182,6 +183,10 @@ const dryer: SymbolDef = {
   wallMounted: true,
   width: 600,
   depth: 600,
+  ports: [
+      { key: "electrical:power", required: true },
+      { key: "water:afvoer", v: 0.5 },
+    ],
   draw(ctx) {
     withCtx(ctx, () => {
       // Wasdroger: two small marks over one large one. The sizes carry the
@@ -204,6 +209,7 @@ const dishwasher: SymbolDef = {
   width: 600,
   depth: 600,
   ports: [
+      { key: "electrical:power", required: true },
       { key: "water:koud", required: true },
       { key: "water:afvoer", required: true, v: 0.5 },
     ],
@@ -228,7 +234,11 @@ const boiler: SymbolDef = {
   wallMounted: true,
   width: 500,
   depth: 500,
-  ports: [{ key: "water:koud", required: true }, { key: "water:warm" }],
+  ports: [
+      { key: "water:koud", required: true },
+      { key: "water:warm" },
+      { key: "electrical:power" },
+    ],
   draw(ctx) {
     withCtx(ctx, () => {
       const cy = 250;

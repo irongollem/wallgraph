@@ -32,7 +32,7 @@ import { resolveStair } from "../core/stair";
 import { resolveRoutes } from "../core/route";
 import { riserPrims, routePrims } from "./route";
 import { riserMarks } from "../core/continuation";
-import { routeKind, routeWater, routeVent, type Discipline } from "../model/route";
+import { routeHeat, routeKind, routeWater, routeVent, type Discipline } from "../model/route";
 import { saveViaHost, downloadBlob } from "./save";
 import { t } from "../i18n";
 import { routeMapLabel, junctionPen } from "../render/draw";
@@ -81,7 +81,8 @@ const FURNISHING_LAYER: Record<FurnishingClass, { solid: string; overhead: strin
  *  all (see toDxf) -- unlike every other layer above, which is always
  *  declared even when its own kind of object is absent from the plan. */
 const ROUTE_LAYER: Record<Discipline, string> = {
-  electrical: "ROUTES-ELECTRICAL", water: "ROUTES-WATER", vent: "ROUTES-VENT", gas: "ROUTES-GAS",
+  electrical: "ROUTES-ELECTRICAL", water: "ROUTES-WATER", heating: "ROUTES-HEATING",
+  vent: "ROUTES-VENT", gas: "ROUTES-GAS",
 };
 
 /**
@@ -118,11 +119,21 @@ const ROUTE_AFVOER_LAYER = "ROUTES-WATER-AFVOER";
  */
 const ROUTE_VENT_AFVOER_LAYER = "ROUTES-VENT-AFVOER";
 
+/**
+ * The CV return leg, separated from the flow for the reason a fitter needs
+ * rather than a drawing one: aanvoer and retour are two runs of pipe ordered
+ * and laid separately, and a DXF that put them on one layer would hand on a
+ * single length nobody can split again. Registered only when the floor has a
+ * return run; aanvoer stays on ROUTE_LAYER.heating.
+ */
+const ROUTE_HEAT_RETOUR_LAYER = "ROUTES-HEATING-RETOUR";
+
 /** ACI colour indices — 7 is "by background", i.e. black on white paper. */
 const LAYER_COLOR: Record<string, number> = {
   WALLS: 7, GLAZING: 4, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, ROOMS: 8,
   CABINETS: 6, "CABINETS-OVERHEAD": 6,
   "ROUTES-ELECTRICAL": 1, "ROUTES-WATER": 5, "ROUTES-VENT": 2, "ROUTES-GAS": 2,
+  "ROUTES-HEATING": 6, "ROUTES-HEATING-RETOUR": 6,
   "ROUTES-ELECTRICAL-DATA": 1, "ROUTES-WATER-AFVOER": 5, "ROUTES-VENT-AFVOER": 2,
 };
 
@@ -289,6 +300,7 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
   const hasRoutes = routesOf(floor).length > 0;
   const hasElectricalData = routesOf(floor).some(r => r.discipline === "electrical" && routeKind(r) !== "power");
   const hasAfvoer = routesOf(floor).some(r => r.discipline === "water" && routeWater(r) === "afvoer");
+  const hasRetour = routesOf(floor).some(r => r.discipline === "heating" && routeHeat(r) === "retour");
   const hasVentAfvoer = routesOf(floor).some(r => r.discipline === "vent" && routeVent(r) === "afvoer");
   const resolved = resolveFloor(floor);
   const w = new DxfWriter();
@@ -298,6 +310,7 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
     ...(hasRoutes ? Object.values(ROUTE_LAYER) : []),
     ...(hasElectricalData ? [ROUTE_DATA_LAYER] : []),
     ...(hasAfvoer ? [ROUTE_AFVOER_LAYER] : []),
+    ...(hasRetour ? [ROUTE_HEAT_RETOUR_LAYER] : []),
     ...(hasVentAfvoer ? [ROUTE_VENT_AFVOER_LAYER] : []),
   ]);
   w.section("ENTITIES", () => {
@@ -327,6 +340,8 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
           ? ROUTE_AFVOER_LAYER
           : rr.route.discipline === "vent" && routeVent(rr.route) === "afvoer"
           ? ROUTE_VENT_AFVOER_LAYER
+          : rr.route.discipline === "heating" && routeHeat(rr.route) === "retour"
+          ? ROUTE_HEAT_RETOUR_LAYER
           : ROUTE_LAYER[rr.route.discipline];
         emitPrims(w, layer, routePrims(rr));
         const longest = [...rr.segments].sort((a, b) =>

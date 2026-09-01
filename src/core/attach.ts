@@ -11,11 +11,11 @@
 // as though it is not: the run does not follow the device when it moves, and
 // the panel still calls the end loose.
 import { Floor, Id, furnishingsOf, routesOf, type SymbolInstance } from "../model/doc";
-import { furnishingClass, type Furnishing } from "../model/furnishing";
+import { furnishingPorts, type Furnishing } from "../model/furnishing";
 import {
-  Discipline, RoutePoint, RouteWater, RouteVent, RouteKind, routeWater, routeServiceKey,
+  Discipline, RoutePoint, RouteWater, RouteVent, RouteKind, routeServiceKey,
 } from "../model/route";
-import { serviceKeyOf } from "../model/service";
+import { serviceKeyOf, serviceMatches, type ServiceKey } from "../model/service";
 import { getSymbol } from "../render/symbols";
 import { Vec, add, sub, scale, dist, distToSeg, v } from "../geometry/vec";
 import { arcFlatten, arcPointAt } from "../geometry/arc";
@@ -23,30 +23,29 @@ import { resolveRoutePoints } from "./route";
 import { insertRouteTap } from "./routegraph";
 import { connectionPoint, type Device } from "./port";
 
-/** Whether a run of this discipline ends at a symbol of this type. */
-export function routeTakesSymbol(discipline: Discipline, type: string): boolean {
-  const category = getSymbol(type)?.category;
-  if (!category) return false;
-  return (discipline === "electrical" && category === "electrical")
-    || (discipline === "water" && category === "water")
-    || (discipline === "vent" && category === "ventilation")
-    || (discipline === "gas" && category === "heating");
+/**
+ * Whether a run carrying `key` may end at a symbol of this type.
+ *
+ * The device's own PORTS answer it. This used to be a table keyed on the
+ * symbol's CATEGORY -- electrical runs end at electrical marks, gas runs at the
+ * heating group -- which was both too coarse and wrong in places: a gas-point
+ * sits in the water category, so a gas run could not reach the one mark that
+ * exists for it, and no electrical run could reach a cv-ketel or a warmtepomp,
+ * which plainly need power. A device that declares what it takes cannot be
+ * wrong about it in one place and right in another.
+ *
+ * A symbol declaring nothing takes nothing. That is the honest reading for the
+ * seven that have it -- a blusser, a blusdeken, an EHBO-kast, the signs -- and
+ * the route tool's Alt override still reaches anything this did not anticipate.
+ */
+export function routeTakesSymbol(key: ServiceKey, type: string): boolean {
+  const ports = getSymbol(type)?.ports ?? [];
+  return ports.some(port => serviceMatches(port.key, key));
 }
 
-/**
- * Whether a run of this discipline ends at this piece of fit-out. Drainage
- * reaches the fixtures; supply reaches the appliances too, which is why the
- * water kind is part of the question.
- */
-export function routeTakesFurnishing(
-  discipline: Discipline, water: RouteWater, fn: Furnishing,
-): boolean {
-  const trade = furnishingClass(fn.form);
-  return (discipline === "water" && trade === "sanitary")
-    || (discipline === "water" && water !== "afvoer" && trade === "appliance")
-    || (discipline === "electrical" && trade === "appliance")
-    || (discipline === "vent" && fn.form === "appliance" && fn.mark === "hood")
-    || (discipline === "gas" && fn.form === "appliance");
+/** The same question for a piece of fit-out, answered by its own ports. */
+export function routeTakesFurnishing(key: ServiceKey, fn: Furnishing): boolean {
+  return furnishingPorts(fn).some(port => serviceMatches(port.key, key));
 }
 
 /**
@@ -77,11 +76,12 @@ export const ROUTE_LINK_MM = 200;
  */
 export function routeEndsUnder(
   floor: Floor, device: Device & { wallId?: Id },
-  takes: (discipline: Discipline, water: RouteWater) => boolean,
+  takes: (key: ServiceKey) => boolean,
 ): RoutePoint[] {
   const found: RoutePoint[] = [];
   for (const route of routesOf(floor)) {
-    if (!takes(route.discipline, routeWater(route))) continue;
+    const key = routeServiceKey(route);
+    if (!takes(key)) continue;
     // Measured from where THIS run would attach, not from the device's anchor:
     // a run drawn to a bath's waste is at the bath's waste, which is most of a
     // bath away from the wall the bath is anchored to.
@@ -147,13 +147,14 @@ export interface RouteLegUnder {
  */
 export function routeLegsUnder(
   floor: Floor, device: Device & { wallId?: Id },
-  takes: (discipline: Discipline, water: RouteWater) => boolean,
+  takes: (key: ServiceKey) => boolean,
 ): RouteLegUnder[] {
   const found: RouteLegUnder[] = [];
   for (const route of routesOf(floor)) {
-    if (!takes(route.discipline, routeWater(route))) continue;
+    const key = routeServiceKey(route);
+    if (!takes(key)) continue;
     if (route.points.some(p => p.anchor === device.id)) continue;
-    const at = connectionPoint(device, routeServiceKey(route));
+    const at = connectionPoint(device, key);
     const resolved = resolveRoutePoints(floor, route);
     const byId = new Map(route.points.map((p, i) => [p.id, { point: p, at: resolved[i]! }]));
     let best: RouteLegUnder | undefined;
@@ -216,7 +217,7 @@ function projectOntoLeg(
 /** Apply what routeEndsUnder found. Returns how many ends changed hands. */
 export function linkDeviceToRouteEnds(
   floor: Floor, device: Device & { wallId?: Id },
-  takes: (discipline: Discipline, water: RouteWater) => boolean,
+  takes: (key: ServiceKey) => boolean,
 ): number {
   const ends = routeEndsUnder(floor, device, takes);
   for (const point of ends) {
@@ -247,12 +248,10 @@ export function nearestDeviceFor(
     if (d <= within) found.push({ ...named, d });
   };
   for (const s of floor.symbols as SymbolInstance[]) {
-    if (routeTakesSymbol(route.discipline, s.type))
-      consider({ id: s.id, kind: "symbol", name: s.type }, s);
+    if (routeTakesSymbol(key, s.type)) consider({ id: s.id, kind: "symbol", name: s.type }, s);
   }
   for (const fn of furnishingsOf(floor)) {
-    if (routeTakesFurnishing(route.discipline, water, fn))
-      consider({ id: fn.id, kind: "furnishing", name: fn.mark ?? fn.form }, fn);
+    if (routeTakesFurnishing(key, fn)) consider({ id: fn.id, kind: "furnishing", name: fn.mark ?? fn.form }, fn);
   }
   found.sort((a, b) => a.d - b.d);
   const best = found[0];
@@ -276,7 +275,7 @@ export function nearestDeviceFor(
  */
 export function connectDevice(
   floor: Floor, device: Device & { wallId?: Id },
-  takes: (discipline: Discipline, water: RouteWater) => boolean,
+  takes: (key: ServiceKey) => boolean,
 ): number {
   const linked = linkDeviceToRouteEnds(floor, device, takes);
   if (linked > 0) return linked;
@@ -290,7 +289,7 @@ export function connectDevice(
  *  mutation, so a placement that connected nothing pushes no undo step. */
 export function deviceConnects(
   floor: Floor, device: Device & { wallId?: Id },
-  takes: (discipline: Discipline, water: RouteWater) => boolean,
+  takes: (key: ServiceKey) => boolean,
 ): boolean {
   return routeEndsUnder(floor, device, takes).length > 0
     || routeLegsUnder(floor, device, takes).length === 1;

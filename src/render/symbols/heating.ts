@@ -37,6 +37,7 @@ const radiator: SymbolDef = {
   wallMounted: true,
   width: 800,
   depth: 100,
+  ports: [{ key: "heating:aanvoer", required: true }, { key: "heating:retour", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.rect(-400, 0, 800, 100);
@@ -53,6 +54,7 @@ const floorHeating: SymbolDef = {
   wallMounted: false,
   width: 600,
   depth: 600,
+  ports: [{ key: "heating:aanvoer", required: true }, { key: "heating:retour", required: true }],
   mountHeight: 0,
   draw(ctx) {
     withCtx(ctx, () => {
@@ -82,6 +84,14 @@ const cvBoiler: SymbolDef = {
   wallMounted: true,
   width: 500,
   depth: 500,
+  ports: [
+      { key: "electrical:power", required: true },
+      { key: "gas", required: true },
+      { key: "water:koud", required: true },
+      { key: "water:warm", required: true },
+      { key: "heating:aanvoer", required: true },
+      { key: "heating:retour", required: true },
+    ],
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.rect(-250, 0, 500, 500);
@@ -110,6 +120,11 @@ const heatPump: SymbolDef = {
   wallMounted: true,
   width: 600,
   depth: 600,
+  ports: [
+      { key: "electrical:power", required: true },
+      { key: "heating:aanvoer", required: true },
+      { key: "heating:retour", required: true },
+    ],
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.rect(-300, 0, 600, 600);
@@ -126,6 +141,7 @@ const expansionVessel: SymbolDef = {
   wallMounted: true,
   width: 400,
   depth: 400,
+  ports: [{ key: "heating:retour", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.moveTo(180, 200);
@@ -144,6 +160,7 @@ const convector: SymbolDef = {
   wallMounted: true,
   width: 800,
   depth: 120,
+  ports: [{ key: "heating:aanvoer", required: true }, { key: "heating:retour", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       // Shallow casing with the element drawn as a wedge across it.
@@ -162,6 +179,7 @@ const convectorPit: SymbolDef = {
   wallMounted: false,
   width: 1000,
   depth: 200,
+  ports: [{ key: "heating:aanvoer", required: true }, { key: "heating:retour", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       // Sunk in the floor rather than hung on a wall, so it is free-standing:
@@ -180,6 +198,7 @@ const cvManifold: SymbolDef = {
   wallMounted: true,
   width: 600,
   depth: 200,
+  ports: [{ key: "heating:aanvoer", required: true }, { key: "heating:retour", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.rect(-300, 0, 600, 200);
@@ -196,6 +215,7 @@ const tempSensor: SymbolDef = {
   wallMounted: true,
   width: 300,
   depth: 300,
+  ports: [{ key: "electrical:power" }],
   mountHeight: 1500,
   draw(ctx) {
     withCtx(ctx, () => {
@@ -217,6 +237,7 @@ const storageHeater: SymbolDef = {
   wallMounted: true,
   width: 800,
   depth: 220,
+  ports: [{ key: "heating:aanvoer", required: true }, { key: "heating:retour", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       // The heating appliance's hatched band, boxed: the outer casing is the
@@ -236,6 +257,7 @@ const heatPumpOutdoor: SymbolDef = {
   wallMounted: true,
   width: 900,
   depth: 350,
+  ports: [{ key: "electrical:power", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.rect(-450, 0, 900, 350);
@@ -250,6 +272,116 @@ const heatPumpOutdoor: SymbolDef = {
   },
 };
 
+/**
+ * Split-unit airco / lucht-lucht warmtepomp, binnendeel on a wall: the shallow
+ * casing with its louvred discharge and the air leaving it.
+ *
+ * Drawn as one mark for both duties because it is one appliance: a modern
+ * split unit heats and cools, and a plan that had a separate "airco" and
+ * "lucht-lucht warmtepomp" mark would be drawing the same box twice.
+ */
+const aircoWall: SymbolDef = {
+  type: "airco-wall",
+  label: "Split unit (wall)",
+  category: "heating",
+  wallMounted: true,
+  mountHeight: 2200,
+  width: 900,
+  depth: 200,
+  ports: [
+    { key: "electrical:power", required: true },
+    // The condensate drain, which is the thing forgotten on a wall unit.
+    { key: "water:afvoer", required: true, v: 0.5 },
+  ],
+  draw(ctx) {
+    withCtx(ctx, () => {
+      ctx.rect(-450, 0, 900, 200);
+      // Louvred discharge along the room-facing edge.
+      for (const x of [-300, -150, 0, 150, 300]) {
+        ctx.moveTo(x, 60);
+        ctx.lineTo(x, 140);
+      }
+      // The air leaving it, into the room.
+      ctx.moveTo(-120, 260);
+      ctx.lineTo(0, 200);
+      ctx.lineTo(120, 260);
+      ctx.stroke();
+    });
+  },
+};
+
+/**
+ * Plafondcassette: the four-way ceiling unit. A square in a square is the
+ * standard's own reading -- the casing and the discharge grille within it --
+ * and the four arrows say which way it blows.
+ */
+const aircoCeiling: SymbolDef = {
+  type: "airco-ceiling",
+  label: "Ceiling cassette",
+  category: "heating",
+  wallMounted: false,
+  mountHeight: "ceiling",
+  width: 840,
+  depth: 840,
+  ports: [
+    { key: "electrical:power", required: true },
+    { key: "water:afvoer", required: true },
+  ],
+  draw(ctx) {
+    withCtx(ctx, () => {
+      ctx.rect(-420, -420, 840, 840);
+      ctx.rect(-240, -240, 480, 480);
+      // Four-way discharge, one arrowhead per side, pointing out of the casing.
+      for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]] as const) {
+        const tipX = dx * 380, tipY = dy * 380;
+        const backX = dx * 280, backY = dy * 280;
+        ctx.moveTo(backX - dy * 70, backY - dx * 70);
+        ctx.lineTo(tipX, tipY);
+        ctx.lineTo(backX + dy * 70, backY + dx * 70);
+      }
+      ctx.stroke();
+    });
+  },
+};
+
+/**
+ * Bodemwarmtepomp: the appliance with the ground it draws from. The hatched
+ * line is the ground surface and the loop below it the bron -- what tells this
+ * apart from the lucht/water unit is where the heat comes from, so that is
+ * what the mark says.
+ */
+const heatPumpGround: SymbolDef = {
+  type: "heat-pump-ground",
+  label: "Ground-source heat pump",
+  category: "heating",
+  wallMounted: true,
+  width: 700,
+  depth: 700,
+  ports: [
+    { key: "electrical:power", required: true },
+    { key: "heating:aanvoer", required: true },
+    { key: "heating:retour", required: true },
+  ],
+  draw(ctx) {
+    withCtx(ctx, () => {
+      ctx.rect(-350, 0, 700, 700);
+      fan(ctx, 0, 260, 150);
+      // Ground line with its hatch, and the bron loop reaching below it.
+      ctx.moveTo(-260, 500);
+      ctx.lineTo(260, 500);
+      for (const x of [-200, -100, 0, 100, 200]) {
+        ctx.moveTo(x, 500);
+        ctx.lineTo(x - 45, 570);
+      }
+      ctx.moveTo(-90, 500);
+      ctx.lineTo(-90, 640);
+      ctx.lineTo(90, 640);
+      ctx.lineTo(90, 500);
+      ctx.stroke();
+    });
+  },
+};
+
 const heatExchanger: SymbolDef = {
   type: "heat-exchanger",
   label: "Heat exchanger",
@@ -257,6 +389,7 @@ const heatExchanger: SymbolDef = {
   wallMounted: true,
   width: 400,
   depth: 400,
+  ports: [{ key: "heating:aanvoer", required: true }, { key: "heating:retour", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.rect(-200, 0, 400, 400);
@@ -282,6 +415,10 @@ const circulationPump: SymbolDef = {
   wallMounted: false,
   width: 460,
   depth: 280,
+  ports: [
+      { key: "electrical:power", required: true },
+      { key: "heating", required: true },
+    ],
   draw(ctx) {
     withCtx(ctx, () => {
       circle(ctx, 0, 0, 130);
@@ -306,6 +443,7 @@ const shutoffValve: SymbolDef = {
   wallMounted: false,
   width: 400,
   depth: 200,
+  ports: [{ key: "water" }, { key: "heating" }, { key: "gas" }],
   draw(ctx) {
     withCtx(ctx, () => {
       // Two triangles apex to apex on the pipe run.
@@ -331,7 +469,10 @@ export const SYMBOLS_HEATING: SymbolDef[] = [
   cvManifold,
   storageHeater,
   heatPump,
+  heatPumpGround,
   heatPumpOutdoor,
+  aircoWall,
+  aircoCeiling,
   heatExchanger,
   expansionVessel,
   circulationPump,

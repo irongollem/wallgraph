@@ -86,6 +86,7 @@ const fireHose: SymbolDef = {
   wallMounted: true,
   width: 600,
   depth: 400,
+  ports: [{ key: "water", required: true }],
   draw(ctx) {
     withCtx(ctx, () => {
       // brandslanghaspel: a crossed circle with the hose run leading off it.
@@ -114,6 +115,7 @@ const sprinkler: SymbolDef = {
   wallMounted: false,
   width: 400,
   depth: 240,
+  ports: [{ key: "water", required: true }],
   mountHeight: "ceiling",
   draw(ctx) {
     withCtx(ctx, () => {
@@ -139,6 +141,7 @@ const fireAlarm: SymbolDef = {
   wallMounted: true,
   width: 300,
   depth: 300,
+  ports: [{ key: "electrical:power" }],
   mountHeight: 1400,
   draw(ctx) {
     withCtx(ctx, () => {
@@ -159,6 +162,7 @@ const smokeDetector: SymbolDef = {
   wallMounted: false,
   width: 400,
   depth: 400,
+  ports: [{ key: "electrical:power" }],
   mountHeight: "ceiling",
   draw(ctx) {
     withCtx(ctx, () => {
@@ -177,6 +181,7 @@ const heatDetector: SymbolDef = {
   wallMounted: false,
   width: 300,
   depth: 300,
+  ports: [{ key: "electrical:power" }],
   mountHeight: "ceiling",
   draw(ctx) {
     withCtx(ctx, () => {
@@ -214,6 +219,7 @@ const coDetector: SymbolDef = {
   wallMounted: false,
   width: 300,
   depth: 300,
+  ports: [{ key: "electrical:power" }],
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.moveTo(130, 0);
@@ -236,6 +242,7 @@ const alarmSounder: SymbolDef = {
   wallMounted: true,
   width: 300,
   depth: 300,
+  ports: [{ key: "electrical:power" }],
   draw(ctx) {
     withCtx(ctx, () => {
       // quarter-fan loudspeaker cone: two lines from a point near the wall,
@@ -273,6 +280,7 @@ const alarmBeacon: SymbolDef = {
   wallMounted: true,
   width: 300,
   depth: 300,
+  ports: [{ key: "electrical:power" }],
   draw(ctx) {
     withCtx(ctx, () => {
       const cx = 0;

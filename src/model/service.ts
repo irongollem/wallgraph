@@ -12,7 +12,7 @@
 // footprint. That a fixture has several is not a complication to be flattened —
 // a douche genuinely needs koud, warm and afvoer, and saying so is what lets a
 // plan report the one nobody drew.
-import type { Discipline, RouteKind, RouteVent, RouteWater } from "./route";
+import type { Discipline, RouteHeat, RouteKind, RouteVent, RouteWater } from "./route";
 
 /**
  * What a port takes, or what a run carries.
@@ -22,14 +22,16 @@ import type { Discipline, RouteKind, RouteVent, RouteWater } from "./route";
  * A port keyed "water:afvoer" takes drainage and nothing else.
  */
 export type ServiceKey =
-  | "electrical" | "gas" | "water" | "vent"
+  | "electrical" | "gas" | "water" | "heating" | "vent"
   | "electrical:power" | "electrical:utp" | "electrical:coax"
   | "water:koud" | "water:warm" | "water:afvoer"
+  | "heating:aanvoer" | "heating:retour"
   | "vent:toevoer" | "vent:afvoer";
 
 export const SERVICE_KEYS: readonly ServiceKey[] = [
   "electrical", "electrical:power", "electrical:utp", "electrical:coax",
   "gas", "water", "water:koud", "water:warm", "water:afvoer",
+  "heating", "heating:aanvoer", "heating:retour",
   "vent", "vent:toevoer", "vent:afvoer",
 ];
 
@@ -37,6 +39,8 @@ export const SERVICE_KEYS: readonly ServiceKey[] = [
 export interface ServiceKinds {
   water?: RouteWater;
   vent?: RouteVent;
+  /** Heating only: which leg of the CV circuit. */
+  heat?: RouteHeat;
   /** Electrical only: power, utp or coax. */
   power?: RouteKind;
 }
@@ -50,6 +54,7 @@ export interface ServiceKinds {
  */
 export function serviceKeyOf(discipline: Discipline, kinds: ServiceKinds = {}): ServiceKey {
   if (discipline === "water") return `water:${kinds.water ?? "koud"}` as ServiceKey;
+  if (discipline === "heating") return `heating:${kinds.heat ?? "aanvoer"}` as ServiceKey;
   if (discipline === "vent") return `vent:${kinds.vent ?? "toevoer"}` as ServiceKey;
   if (discipline === "electrical") return `electrical:${kinds.power ?? "power"}` as ServiceKey;
   return discipline;

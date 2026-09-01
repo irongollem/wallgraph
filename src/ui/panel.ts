@@ -83,6 +83,7 @@ function layersPresent(floor: Floor): LayerKey[] {
 const DISCIPLINE_CATEGORY: Record<Discipline, SymbolCategory> = {
   electrical: "electrical",
   water: "water",
+  heating: "heating",
   vent: "ventilation",
   gas: "heating",
 };
@@ -2027,7 +2028,7 @@ export class Panel {
       }), t("panel.mirrorTitle"), "M");
       // What this device is wired, plumbed or ducted to, and what it is
       // standing on but not yet joined to -- see deviceConnectionRows().
-      deviceConnectionRows(rows, this.store, s, d => routeTakesSymbol(d, s.type));
+      deviceConnectionRows(rows, this.store, s, key => routeTakesSymbol(key, s.type));
       // A groepenkast additionally declares what it distributes.
       if (s.type === BOARD_TYPE) boardRows(rows, this.store, s);
       dangerRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());

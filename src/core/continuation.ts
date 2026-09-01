@@ -4,7 +4,7 @@
 import { floorElevation, routesOf, type PlanDoc } from "../model/doc";
 import { continuationsOf, samePort, type RouteContinuation, type RoutePort } from "../model/continuation";
 import { resolveRoutePoints, routeLength, routePlaneHeight } from "./route";
-import { routeKind, routeVent, routeWater, type Discipline, type Route } from "../model/route";
+import { routeHeat, routeKind, routeVent, routeWater, type Discipline, type Route } from "../model/route";
 import type { Vec } from "../geometry/vec";
 
 export type RiserDirection = "up" | "down" | "through";
@@ -171,6 +171,10 @@ function serviceKey(route: Route): string {
       return [routeKind(route), route.group ?? "", route.board ?? "", route.spec ?? ""].join("|");
     case "water":
       return [routeWater(route), route.diameter ?? ""].join("|");
+    case "heating":
+      // Aanvoer and retour are different pipes; a riser must not join one to
+      // the other and call it the same service.
+      return [routeHeat(route), route.diameter ?? ""].join("|");
     case "vent":
       return [routeVent(route), route.ductDiameter ?? ""].join("|");
     case "gas":
