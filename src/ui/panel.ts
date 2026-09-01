@@ -2,6 +2,7 @@
 import { Store, type Selection } from "../model/store";
 import { roomKey, orphanedRoomNames, type Room } from "../core/rooms";
 import { isMixed } from "../core/mixed";
+import { defaultMountHeight, clampMountHeight } from "../core/mount";
 import { Tools, ToolName } from "../input/tools";
 import { clampOpening, wallLength, deleteWall, deleteRoomNames } from "../model/ops";
 import type { SymbolDef } from "../render/symbols";
@@ -17,7 +18,7 @@ import { exportPermit, PermitFormat } from "../io/permit";
 import { permitChecklist, PermitCheck } from "../core/permit";
 import { seedDoc } from "../seed";
 import {
-  emptyDoc, areaModeOf, dimModeOf, floorHeight, wallHeight, openingSill, openingHeight, projectOf,
+  emptyDoc, areaModeOf, dimModeOf, mountMarksOn, floorHeight, wallHeight, openingSill, openingHeight, projectOf,
   sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS,
   doorKindOf, DOOR_KINDS, widthsFor, DOOR_WIDTHS_DOUBLE, FIRE_KINDS, FIRE_MINUTES,
   FIRE_MINUTES_DEFAULT, routesOf, furnishingsOf, WALL_MATERIALS, wallGlazed, MULLION_DEFAULT_MM,
@@ -1311,6 +1312,11 @@ export class Panel {
        ["both", t("panel.dimBoth")]],
       m => this.store.mutate(d => { d.dimMode = m as DimMode; }));
     if (dimModeOf(this.store.doc) !== "centerline") noteRow(t("panel.dimNote"));
+    // Whether the plan writes each device's mounting height beside it. Stored
+    // on the document rather than held as editor state, so the SVG, DXF and
+    // PNG carry the same annotation the screen does -- see mountMarksOn().
+    checkRow(t("panel.showHeights"), mountMarksOn(this.store.doc), on =>
+      this.store.mutate(d => { if (on) d.mountMarks = true; else delete d.mountMarks; }));
 
     // Per-layer visibility, and only for the layers this storey actually
     // carries: an empty floor showing seven toggles for drawings it does not
@@ -1635,6 +1641,24 @@ export class Panel {
         for (const s of this.store.floorOf(d).symbols) if (group.includes(s.id)) { if (hex) s.color = hex; else delete s.color; }
       }, "color:" + group.join(","));
     }, { mixed });
+    // Mounting height across the group. Types may differ, so the "own height"
+    // toggle writes each symbol's OWN conventional figure rather than one
+    // number for the lot; the number row appears only once every member
+    // carries a stated height, and then edits them together.
+    const ownMixed = isMixed(syms, s => s.height !== undefined);
+    rows.checkRow(t("panel.symbolOwnHeight"), first.height !== undefined, on => this.store.mutate(d => {
+      for (const s of this.store.floorOf(d).symbols) {
+        if (!group.includes(s.id)) continue;
+        if (on) s.height = clampMountHeight(f, defaultMountHeight(f, s.type) ?? 0); else delete s.height;
+      }
+    }), { mixed: ownMixed });
+    if (!ownMixed && first.height !== undefined) {
+      rows.numRow(t("panel.symbolHeight"), first.height, n => this.store.mutate(d => {
+        for (const s of this.store.floorOf(d).symbols) {
+          if (group.includes(s.id)) s.height = clampMountHeight(f, n);
+        }
+      }), 50, { mixed: isMixed(syms, s => s.height ?? -1) });
+    }
     rows.dangerRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());
   }
 
@@ -1953,6 +1977,28 @@ export class Panel {
         const s2 = this.store.floorOf(d).symbols.find(x => x.id === sel.id);
         if (s2) s2.rotation = (n * Math.PI) / 180;
       }), 15);
+      // Mounting height above this storey's floor. The type's own convention
+      // shows until someone states otherwise, so a wandcontactdoos reads 300
+      // and a light point follows the storey height without anyone typing a
+      // figure (core/mount.ts). The check is the override, the same shape a
+      // wall's own height uses -- and it is offered even for a type with no
+      // convention, which is exactly where a stated height says the most.
+      const conventional = defaultMountHeight(f, s.type);
+      checkRow(t("panel.symbolOwnHeight"), s.height !== undefined, on => this.store.mutate(d => {
+        const s2 = this.store.floorOf(d).symbols.find(x => x.id === sel.id);
+        if (!s2) return;
+        if (on) s2.height = clampMountHeight(f, conventional ?? 0); else delete s2.height;
+      }));
+      if (s.height !== undefined) {
+        numRow(t("panel.symbolHeight"), s.height, n => this.store.mutate(d => {
+          const s2 = this.store.floorOf(d).symbols.find(x => x.id === sel.id);
+          if (s2) s2.height = clampMountHeight(f, n);
+        }), 50);
+      } else {
+        infoRow(t("panel.symbolHeight"), conventional === undefined
+          ? t("panel.symbolHeightNone")
+          : t("panel.symbolHeightStandard", { mm: conventional }));
+      }
       // Changing a symbol's colour also arms the pen, the way editing a wall's
       // thickness sets the thickness of the next wall: recolouring one socket is
       // nearly always the first of a run of them.

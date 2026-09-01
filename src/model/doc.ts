@@ -190,6 +190,15 @@ export interface SymbolInstance {
    * meaning as a fire rating — it is part of what the symbol states.
    */
   color?: string;
+  /**
+   * Mounting height above this storey's finished floor, mm. Absent means the
+   * type's own conventional height (SymbolDef.mountHeight), which is what the
+   * panel shows and the cable takeoff assumes; a socket above a worktop or a
+   * light on a lowered ceiling states its own. Absent is not "zero": a device
+   * whose type carries no convention either reads as unstated, and the takeoff
+   * says so rather than guessing.
+   */
+  height?: number;
 }
 
 /**
@@ -344,6 +353,8 @@ export interface PlanDoc {
   areaMode?: AreaMode;
   /** Absent means "centerline": the convention the editor drew before this. */
   dimMode?: DimMode;
+  /** Write each device's mounting height beside it. See mountMarksOn(). */
+  mountMarks?: boolean;
   /** Title-block data. Absent means nothing has been filled in. */
   project?: ProjectMeta;
   /**
@@ -390,6 +401,15 @@ export const areaModeOf = (d: PlanDoc): AreaMode => d.areaMode ?? AREA_MODE_DEFA
 
 export const DIM_MODE_DEFAULT: DimMode = "centerline";
 export const dimModeOf = (d: PlanDoc): DimMode => d.dimMode ?? DIM_MODE_DEFAULT;
+
+/**
+ * Whether the plan writes each device's mounting height beside it. A drawing
+ * convention like `areaMode` and `dimMode`, and stored for the same reason: an
+ * export has no editor to ask, and a sheet that shows the heights on screen
+ * and not on paper is two different drawings. Absent means off -- a
+ * plattegrond is not an installatietekening until someone says it is.
+ */
+export const mountMarksOn = (d: PlanDoc): boolean => d.mountMarks === true;
 
 let seq = 0;
 export const newId = (p: string): Id => `${p}${(++seq).toString(36)}${Date.now().toString(36).slice(-4)}`;

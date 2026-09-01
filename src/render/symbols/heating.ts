@@ -53,6 +53,7 @@ const floorHeating: SymbolDef = {
   wallMounted: false,
   width: 600,
   depth: 600,
+  mountHeight: 0,
   draw(ctx) {
     withCtx(ctx, () => {
       // square outline
@@ -195,6 +196,7 @@ const tempSensor: SymbolDef = {
   wallMounted: true,
   width: 300,
   depth: 300,
+  mountHeight: 1500,
   draw(ctx) {
     withCtx(ctx, () => {
       // The probe runs through the body and out. Stopping it at the rim, as

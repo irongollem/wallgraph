@@ -11,7 +11,7 @@ import { SYMBOLS_HEATING } from "./heating";
 import { SYMBOLS_VENTILATION } from "./ventilation";
 import { SYMBOLS_SAFETY } from "./safety";
 
-export type { SymbolDef, SymbolCategory } from "./defs";
+export type { SymbolDef, SymbolCategory, MountHeight } from "./defs";
 
 export const CATEGORIES: Array<[SymbolCategory, string]> = [
   ["electrical", "Electrical"], ["water", "Water"],

@@ -41,6 +41,9 @@ function socket(type: string, label: string, cups: number, earthed: boolean): Sy
     wallMounted: true,
     width: socketWidth(earthed),
     depth: socketDepth(cups),
+    // The ordinary Dutch wandcontactdoos height. A socket above a worktop or
+    // behind an appliance states its own; see SymbolDef.mountHeight.
+    mountHeight: 300,
     draw(ctx) {
       withCtx(ctx, () => socketPath(ctx, cups, earthed));
     },
@@ -61,6 +64,7 @@ const socketShaver: SymbolDef = {
   wallMounted: true,
   width: socketWidth(true),
   depth: socketDepth(1),
+  mountHeight: 1300,
   draw(ctx) {
     withCtx(ctx, () => {
       // Scheerapparaat: the socket stem and crossbar, with the isolating
@@ -83,6 +87,7 @@ const socketFloor: SymbolDef = {
   wallMounted: false,
   width: 320,
   depth: 320,
+  mountHeight: 0,
   draw(ctx) {
     withCtx(ctx, () => {
       // Vloercontactdoos: the single-socket wine-glass form, re-centred, set
@@ -128,6 +133,7 @@ const switchSingle: SymbolDef = {
   wallMounted: true,
   width: 240,
   depth: 240,
+  mountHeight: 1050,
   draw(ctx) {
     withCtx(ctx, () => {
       switchMark(ctx);
@@ -143,6 +149,7 @@ const switchDouble: SymbolDef = {
   wallMounted: true,
   width: 240,
   depth: 240,
+  mountHeight: 1050,
   draw(ctx) {
     withCtx(ctx, () => {
       const cx = 0;
@@ -180,6 +187,7 @@ const switchSeries: SymbolDef = {
   wallMounted: true,
   width: 260,
   depth: 260,
+  mountHeight: 1050,
   draw(ctx) {
     withCtx(ctx, () => {
       const cx = 0;
@@ -215,6 +223,7 @@ const switchTwoWay: SymbolDef = {
   wallMounted: true,
   width: 260,
   depth: 260,
+  mountHeight: 1050,
   draw(ctx) {
     withCtx(ctx, () => {
       const cx = 0;
@@ -251,6 +260,7 @@ const switchCross: SymbolDef = {
   wallMounted: true,
   width: 260,
   depth: 260,
+  mountHeight: 1050,
   draw(ctx) {
     withCtx(ctx, () => {
       const cx = 0;
@@ -287,6 +297,7 @@ const dimmer: SymbolDef = {
   wallMounted: true,
   width: 260,
   depth: 260,
+  mountHeight: 1050,
   draw(ctx) {
     withCtx(ctx, () => {
       const cx = 0;
@@ -369,6 +380,7 @@ const pushButton: SymbolDef = {
   wallMounted: true,
   width: 200,
   depth: 200,
+  mountHeight: 1050,
   draw(ctx) {
     withCtx(ctx, () => {
       const cx = 0;
@@ -389,6 +401,7 @@ const doorbell: SymbolDef = {
   wallMounted: true,
   width: 240,
   depth: 200,
+  mountHeight: 1050,
   draw(ctx) {
     withCtx(ctx, () => {
       // bell dome bulging into the room, chord (mounting side) toward the wall
@@ -413,6 +426,7 @@ const lightPoint: SymbolDef = {
   wallMounted: false,
   width: 300,
   depth: 300,
+  mountHeight: "ceiling",
   draw(ctx) {
     withCtx(ctx, () => {
       const half = 150;
@@ -436,6 +450,7 @@ const lightWall: SymbolDef = {
   wallMounted: true,
   width: 300,
   depth: 300,
+  mountHeight: 1800,
   draw(ctx) {
     withCtx(ctx, () => {
       const cy = 150;
@@ -464,6 +479,7 @@ const lightFluor: SymbolDef = {
   wallMounted: false,
   width: 1200,
   depth: 120,
+  mountHeight: "ceiling",
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.rect(-600, -60, 1200, 120);
@@ -481,6 +497,7 @@ const lightSpot: SymbolDef = {
   wallMounted: false,
   width: 240,
   depth: 240,
+  mountHeight: "ceiling",
   draw(ctx) {
     withCtx(ctx, () => {
       const r = 80;
@@ -505,6 +522,7 @@ const lightEmergency: SymbolDef = {
   wallMounted: false,
   width: 320,
   depth: 320,
+  mountHeight: 2200,
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.rect(-160, -160, 320, 320);
@@ -527,6 +545,7 @@ const outletTv: SymbolDef = {
   wallMounted: true,
   width: 240,
   depth: 260,
+  mountHeight: 300,
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.moveTo(0, 0);
@@ -551,6 +570,7 @@ const outletData: SymbolDef = {
   wallMounted: true,
   width: 240,
   depth: 260,
+  mountHeight: 300,
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.moveTo(0, 0);
@@ -573,6 +593,7 @@ const distBoard: SymbolDef = {
   wallMounted: true,
   width: 500,
   depth: 250,
+  mountHeight: 1600,
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.rect(-250, 0, 500, 250);
@@ -592,6 +613,7 @@ const thermostat: SymbolDef = {
   wallMounted: true,
   width: 240,
   depth: 240,
+  mountHeight: 1500,
   draw(ctx) {
     withCtx(ctx, () => {
       const cx = 0;
@@ -617,6 +639,7 @@ const motionSensor: SymbolDef = {
   wallMounted: true,
   width: 280,
   depth: 220,
+  mountHeight: "ceiling",
   draw(ctx) {
     withCtx(ctx, () => {
       const apexX = 0;

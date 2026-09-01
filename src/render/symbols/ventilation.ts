@@ -48,6 +48,7 @@ const mvSwitch: SymbolDef = {
   wallMounted: true,
   width: 280,
   depth: 400,
+  mountHeight: 1050,
   draw(ctx) {
     withCtx(ctx, () => {
       switchMark(ctx);
@@ -64,6 +65,7 @@ const ventExhaustCeiling: SymbolDef = {
   wallMounted: false,
   width: 340,
   depth: 340,
+  mountHeight: "ceiling",
   draw(ctx) {
     withCtx(ctx, () => {
       // The terminal, with the duct leaving it for the ceiling above.

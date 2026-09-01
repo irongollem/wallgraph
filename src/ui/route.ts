@@ -20,7 +20,8 @@ import {
   RouteInstallation, ROUTE_INSTALLATIONS, routeInstallation,
 } from "../model/route";
 import {
-  resolveRoutePoints, routeLength, routeGroupSummaries, routeKindSummaries, routeWaterSummaries, routeGasSummaries,
+  resolveRoutePoints, routeLength, routeDrops, routePlaneHeight, defaultRouteHeight,
+  routeGroupSummaries, routeKindSummaries, routeWaterSummaries, routeGasSummaries,
 } from "../core/route";
 import { serviceNetworkLength } from "../core/continuation";
 import { t } from "../i18n";
@@ -59,6 +60,14 @@ interface IdentityFields {
   height: number;
 }
 
+/**
+ * `height` is the run's installed plane, mm above this storey's finished
+ * floor, already defaulted per installation by the caller -- a ceiling run
+ * offers the storey height rather than 0, since "in / boven plafond" at zero
+ * would put the run on the floor of the room it crosses. Committing the
+ * offered figure back drops the stored field again, the way the water
+ * diameter row does; anything else is authored and kept.
+ */
 function identityRows(
   rows: RouteRows, discipline: Discipline, fields: IdentityFields,
   commit: (patch: Partial<IdentityFields>) => void,
@@ -373,7 +382,7 @@ export function renderRouteProps(store: Store, tools: Tools, rows: RouteRows, id
     }));
   identityRows(rows, route.discipline, {
     tag: route.tag ?? "", name: route.name ?? "", board: route.board ?? "",
-    installation: routeInstallation(route), height: route.height ?? 0,
+    installation: routeInstallation(route), height: routePlaneHeight(store.floor, route),
   }, patch => mut(r => {
     if (patch.tag !== undefined) { if (patch.tag) r.tag = patch.tag; else delete r.tag; }
     if (patch.name !== undefined) { if (patch.name) r.name = patch.name; else delete r.name; }
@@ -381,7 +390,13 @@ export function renderRouteProps(store: Store, tools: Tools, rows: RouteRows, id
     if (patch.installation !== undefined) {
       if (patch.installation === "concealed") delete r.installation; else r.installation = patch.installation;
     }
-    if (patch.height !== undefined) { if (patch.height > 0) r.height = patch.height; else delete r.height; }
+    // Read AFTER the installation patch above has landed, so switching to
+    // "in / boven plafond" leaves the height absent and it reads as the storey
+    // height on the next render rather than as a stored zero.
+    if (patch.height !== undefined) {
+      const fallback = defaultRouteHeight(store.floor, routeInstallation(r));
+      if (patch.height === fallback) delete r.height; else r.height = patch.height;
+    }
   }));
   if (route.discipline === "electrical") {
     electricalRows(rows, store.floor, {
@@ -440,7 +455,17 @@ export function renderRouteProps(store: Store, tools: Tools, rows: RouteRows, id
       if (d === 15) delete r.diameter; else r.diameter = d;
     }));
   }
-  rows.infoRow(t("panel.routeLength"), `${Math.round(routeLength(store.floor, route))} mm`);
+  const planLength = routeLength(store.floor, route);
+  rows.infoRow(t("panel.routeLength"), `${Math.round(planLength)} mm`);
+  // The drops to the devices this run is anchored to are real cable, but they
+  // are not on the plan -- so they are stated beside the drawn length rather
+  // than folded into it. See routeDrops() in core/route.ts.
+  const drops = routeDrops(store.floor, route);
+  if (drops.lengthMm > 0) {
+    rows.infoRow(t("panel.routeDropLength"), `${Math.round(drops.lengthMm)} mm`);
+    rows.infoRow(t("panel.routeTotalLength"), `${Math.round(planLength + drops.lengthMm)} mm`);
+  }
+  if (drops.unstated > 0) rows.noteRow(t("panel.routeDropUnstated", { n: drops.unstated }));
   const networkLength = serviceNetworkLength(store.doc, { floorId: store.floor.id, routeId: route.id });
   if (networkLength.routes > 1) {
     rows.infoRow(t("panel.routeNetworkLength"), `${Math.round(networkLength.totalLengthMm)} mm`);

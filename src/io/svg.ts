@@ -13,11 +13,12 @@
 // The drawing itself is assembled as a scene (io/scene.ts) rather than as
 // markup, because io/pdf.ts renders the same scene onto the permit sheet.
 // This module is the SVG renderer for it plus the scene the plan makes.
-import { PlanDoc, Floor, areaModeOf, dimModeOf, stairsOf, videsOf, furnishingsOf, roomNamesOf } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, stairsOf, videsOf, furnishingsOf, roomNamesOf } from "../model/doc";
 import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
+import { mountMarkOf } from "../core/mount";
 import { COLORS, routeInk, routeMapLabel, symbolInk, wallPen, junctionPen, type WallPen } from "../render/draw";
 import { ROUTE_DATA_DASH, ROUTE_AFVOER_DASH, ROUTE_AFVOER_EXTRA_MM, ROUTE_VENT_EXTRA_MM, LINE_WIDTH_MM } from "../render/route";
 import { stairBox } from "../core/stair";
@@ -274,8 +275,12 @@ export function planScene(doc: PlanDoc, floor: Floor, resolved: ReturnType<typeo
   for (const s of floor.symbols) {
     const def = getSymbol(s.type);
     if (!def) continue;
-    symbols.push(group(recordSymbol(def, s.x, s.y, s.rotation, s.mirrored === true),
-      { ink: symbolInk(s) }));
+    const prims = recordSymbol(def, s.x, s.y, s.rotation, s.mirrored === true);
+    // The mounting-height figure, when the plan states heights at all, is part
+    // of the drawing rather than an editor overlay -- see mountMarksOn().
+    const mark = mountMarksOn(doc) ? mountMarkOf(floor, s) : null;
+    if (mark) prims.push({ kind: "text", at: mark.at, size: mark.size, text: mark.text });
+    symbols.push(group(prims, { ink: symbolInk(s) }));
   }
   out.push(group(symbols,
     { fill: "none", width: W_SYMBOL, cap: "round", join: "round" }, "symbols"));

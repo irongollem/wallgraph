@@ -46,6 +46,14 @@ export function planSchema(siteUrl: string): JsonSchema {
           "the default when absent; 'clear' measures face to face (dagmaat); 'both' draws " +
           "each as its own chain.",
       },
+      mountMarks: {
+        type: "boolean",
+        description:
+          "Write each device's mounting height beside it, in mm above the finished " +
+          "floor. Absent means off: a plattegrond is not an installatietekening until " +
+          "the drawing says so. The figure itself is derived -- a symbol's own height " +
+          "if it states one, otherwise the conventional height for its type.",
+      },
       project: {
         type: "object",
         additionalProperties: false,
@@ -646,6 +654,14 @@ export function planSchema(siteUrl: string): JsonSchema {
             description:
               "Pen colour. Absent means the plan's default ink. Not decoration: a " +
               "verbouwtekening states existing work in black, new in red, removed in yellow.",
+          },
+          height: {
+            type: "integer", minimum: 0,
+            description:
+              "Mounting height above this storey's finished floor, mm. Absent means the " +
+              "conventional height for the symbol's type -- 300 for a wandcontactdoos, " +
+              "1050 for a schakelaar, the storey height for a light point -- and a type " +
+              "with no convention reads as not stated rather than as zero.",
           },
         },
       },

@@ -1,11 +1,10 @@
 // Derived positions and directions for the vertical-service marks on one
 // storey. Broken references are ignored here and remain available to a future
 // validation report; rendering a pasted document must never throw.
-import { floorElevation, floorHeight, routesOf, type Floor, type PlanDoc } from "../model/doc";
+import { floorElevation, routesOf, type PlanDoc } from "../model/doc";
 import { continuationsOf, type RouteContinuation, type RoutePort } from "../model/continuation";
-import { resolveRoutePoints, routeLength } from "./route";
+import { resolveRoutePoints, routeLength, routePlaneHeight } from "./route";
 import type { Discipline } from "../model/route";
-import { routeInstallation, type Route } from "../model/route";
 import type { Vec } from "../geometry/vec";
 
 export type RiserDirection = "up" | "down" | "through";
@@ -26,14 +25,6 @@ export interface ResolvedRiserMark {
   discipline: Discipline;
   tag?: string;
   members: ResolvedRiserMember[];
-}
-
-/** Authored/derived elevation of a route plane above its own finished floor. */
-export function routePlaneHeight(floor: Floor, route: Route): number {
-  const installation = routeInstallation(route);
-  if (installation === "floor") return 0;
-  if (installation === "ceiling") return floorHeight(floor);
-  return route.height ?? 0;
 }
 
 /** Every valid continuation port on one floor, before coincident marks group. */

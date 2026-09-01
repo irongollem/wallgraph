@@ -19,6 +19,7 @@ const emergencyExit: SymbolDef = {
   wallMounted: true,
   width: 500,
   depth: 280,
+  mountHeight: 2200,
   draw(ctx) {
     withCtx(ctx, () => {
       // richtingaanwijzer nooduitgang: a plain box split by a rule, with the
@@ -113,6 +114,7 @@ const sprinkler: SymbolDef = {
   wallMounted: false,
   width: 400,
   depth: 240,
+  mountHeight: "ceiling",
   draw(ctx) {
     withCtx(ctx, () => {
       // the pipe run, with the head hanging off it as an open V
@@ -137,6 +139,7 @@ const fireAlarm: SymbolDef = {
   wallMounted: true,
   width: 300,
   depth: 300,
+  mountHeight: 1400,
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.rect(-150, 0, 300, 300);
@@ -156,6 +159,7 @@ const smokeDetector: SymbolDef = {
   wallMounted: false,
   width: 400,
   depth: 400,
+  mountHeight: "ceiling",
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.moveTo(170, 0);
@@ -173,6 +177,7 @@ const heatDetector: SymbolDef = {
   wallMounted: false,
   width: 300,
   depth: 300,
+  mountHeight: "ceiling",
   draw(ctx) {
     withCtx(ctx, () => {
       const r = 130;

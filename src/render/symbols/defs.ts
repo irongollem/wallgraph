@@ -21,6 +21,21 @@
 export type SymbolCategory =
   | "electrical" | "water" | "heating" | "ventilation" | "safety";
 
+/**
+ * The height a device of this type is ordinarily mounted at, mm above the
+ * finished floor, or "ceiling" for one fixed to the soffit -- a light point
+ * sits at the storey height, whatever that storey's height happens to be.
+ *
+ * A CONVENTION, not a rule the drawing enforces: it is what the panel offers
+ * and what the takeoff assumes when nobody typed a figure, and any instance
+ * may state its own (SymbolInstance.height). It is set only where a single
+ * ordinary height genuinely exists -- 300 for a wandcontactdoos, 1050 for a
+ * schakelaar, the ceiling for a light point. A device whose height follows the
+ * fixture it serves rather than a convention (a tappunt, a radiator, a
+ * cv-ketel) carries none, and reads as unstated until someone says otherwise.
+ */
+export type MountHeight = number | "ceiling";
+
 export interface SymbolDef {
   type: string;          // unique kebab-case id
   label: string;         // short English palette label
@@ -28,6 +43,8 @@ export interface SymbolDef {
   wallMounted: boolean;
   width: number;         // mm along the wall (or footprint width)
   depth: number;         // mm away from the wall (or footprint depth)
+  /** Ordinary mounting height for this type; absent means no convention. */
+  mountHeight?: MountHeight;
   draw(ctx: CanvasRenderingContext2D): void;
 }
 

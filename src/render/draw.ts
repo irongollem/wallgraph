@@ -24,6 +24,7 @@ import { resolveStair } from "../core/stair";
 import { t } from "../i18n";
 import { gridSteps, GridSteps } from "./grid";
 import { LAYER_OF_CATEGORY, layerAlpha, type LayerFlags, type LayerKey } from "./layers";
+import { mountMarkOf } from "../core/mount";
 
 export const COLORS = {
   bg: "#f4f2ec",
@@ -358,6 +359,7 @@ export function drawScene(
   ctx: CanvasRenderingContext2D, vp: Viewport, canvasW: number, canvasH: number,
   floor: Floor, resolved: Resolved, rooms: Room[], sel: Selection | null,
   extras: DrawExtras, gridMm: number, areaMode: AreaMode, dimMode: DimMode,
+  mountMarks: boolean,
 ): void {
   // True for the primary selection AND every member `extras.selMore` carries
   // alongside it -- a shift-click, a touch hold, or a marquee's catch all
@@ -529,11 +531,26 @@ export function drawScene(
     }
   });
 
-  // Symbols, each on the layer of its own discipline.
+  // Symbols, each on the layer of its own discipline. The mounting-height
+  // figure rides the same layer as the device it belongs to -- switching the
+  // electrical layer off takes its heights with it -- and is drawn in world
+  // space at the riser mark's size, so the SVG and DXF exports write the same
+  // annotation in the same place (core/mount.ts).
   for (const s of floor.symbols) {
     const cat = getSymbol(s.type)?.category;
     const key = cat ? LAYER_OF_CATEGORY[cat] : "furnishing";
-    onLayer(key, () => drawSymbol(ctx, s, px, isSel("symbol", s.id)));
+    onLayer(key, () => {
+      drawSymbol(ctx, s, px, isSel("symbol", s.id));
+      const mark = mountMarks ? mountMarkOf(floor, s) : null;
+      if (!mark) return;
+      ctx.save();
+      ctx.fillStyle = isSel("symbol", s.id) ? COLORS.select : symbolInk(s);
+      ctx.font = mark.size + "px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(mark.text, mark.at.x, mark.at.y);
+      ctx.restore();
+    });
   }
 
   // Stairs last, over the symbols. Their own wash goes down first, so whatever

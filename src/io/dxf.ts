@@ -16,11 +16,12 @@
 // context (see recordSymbol) because the library draws them with canvas calls;
 // their arcs flatten to polylines, which is exact enough at symbol scale and
 // avoids guessing how a mirrored, rotated transform maps onto an ARC.
-import { PlanDoc, Floor, areaModeOf, dimModeOf, stairsOf, videsOf, furnishingsOf, routesOf, roomNamesOf, wallGlazed } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, stairsOf, videsOf, furnishingsOf, routesOf, roomNamesOf, wallGlazed } from "../model/doc";
 import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
+import { mountMarkOf } from "../core/mount";
 import { recordSymbol, Prim } from "./record";
 import { openingMarks, mullionMarks } from "./marks";
 import { stairPrims } from "./stair";
@@ -347,12 +348,15 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
       emitPrims(w, furnishingOverhead(fn) ? layer.overhead : layer.solid, furnishingPrims(fn));
     }
 
-    // Symbols, replayed through the recorder at their placed transform.
+    // Symbols, replayed through the recorder at their placed transform, with
+    // the mounting-height figure beside them when the plan states heights.
     for (const s of floor.symbols) {
       const def = getSymbol(s.type);
       if (!def) continue;
-      emitPrims(w, LAYER.symbols,
-        recordSymbol(def, s.x, s.y, s.rotation, s.mirrored === true));
+      const prims = recordSymbol(def, s.x, s.y, s.rotation, s.mirrored === true);
+      const mark = mountMarksOn(doc) ? mountMarkOf(floor, s) : null;
+      if (mark) prims.push({ kind: "text", at: mark.at, size: mark.size, text: mark.text });
+      emitPrims(w, LAYER.symbols, prims);
     }
 
     // Room areas, in the convention the document says it is using.

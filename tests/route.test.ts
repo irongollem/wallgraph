@@ -320,8 +320,10 @@ const route = (over: Partial<Route> = {}): Route =>
   const groups = routeGroupSummaries(f);
   check("one summary per groep", groups.length === 1, JSON.stringify(groups));
   const g1 = groups[0]!;
-  check("groep length sums both runs sharing it",
-    Math.abs(g1.lengthMm - (2000 + 1000)) < 1e-6, String(g1.lengthMm));
+  // A takeoff, not a plan measurement: the two 300 mm drops to the sockets p1
+  // is anchored to are cable the drawing does not show. See routeDrops().
+  check("groep length sums both runs sharing it, plus the drops to their devices",
+    Math.abs(g1.lengthMm - (2000 + 1000 + 300 + 300)) < 1e-6, String(g1.lengthMm));
   check("groep device count is the distinct anchored symbols on it", g1.devices === 2, String(g1.devices));
 
   const kinds = routeKindSummaries(f);
@@ -330,8 +332,9 @@ const route = (over: Partial<Route> = {}): Route =>
   const utp = kinds.find(k => k.kind === "utp");
   check("power runs are split by veins count", power3 !== undefined && power4 !== undefined,
     JSON.stringify(kinds));
-  check("the 3-aders power total is that one run's length",
-    power3 !== undefined && Math.abs(power3.lengthMm - 2000) < 1e-6);
+  check("the 3-aders power total is that one run's length plus its drops",
+    power3 !== undefined && Math.abs(power3.lengthMm - (2000 + 300 + 300)) < 1e-6,
+    String(power3?.lengthMm));
   check("a data run's summary carries no veins count",
     utp !== undefined && utp.veins === undefined, JSON.stringify(utp));
 }

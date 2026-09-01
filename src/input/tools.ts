@@ -23,7 +23,9 @@ import {
   RouteVent, VENT_DIAMETER_DEFAULT, clampDuctDiameter, clampRouteFlow,
   RouteInstallation, routeInstallation,
 } from "../model/route";
-import { resolveRoutePoints, resolveRoutes, routeDistance, ResolvedRoute } from "../core/route";
+import {
+  resolveRoutePoints, resolveRoutes, routeDistance, defaultRouteHeight, ResolvedRoute,
+} from "../core/route";
 import {
   nodeAt, splitWall, nearestWall, wallOnRay, wallLength, mergeNodes, deleteWall, clampOpening,
   cleanOrphanNodes, insertWall, insertRun, deleteRoomNames, cloneOnFloor, MIN_WALL_MM,
@@ -1684,7 +1686,18 @@ export class Tools {
     this.onToolChange();
   }
 
+  /**
+   * Arm where the next run is installed. The armed height follows, but only
+   * while it is still whatever the previous installation offered: switching to
+   * "in / boven plafond" raises it to the storey height, and back down to the
+   * floor again -- a figure the user actually typed is left alone. Same
+   * "only reset when nothing was overridden" rule setRouteWater applies to the
+   * water diameter.
+   */
   setRouteInstallation(value: RouteInstallation): void {
+    if (this.routeHeight === defaultRouteHeight(this.floor, this.routeInstallation)) {
+      this.routeHeight = defaultRouteHeight(this.floor, value);
+    }
     this.routeInstallation = value;
     this.onToolChange();
     this.requestRender();
@@ -1907,7 +1920,8 @@ export class Tools {
       if (this.routeName) route.name = this.routeName;
       if (this.routeBoard && this.routeDiscipline === "electrical") route.board = this.routeBoard;
       if (this.routeInstallation !== "concealed") route.installation = this.routeInstallation;
-      if (this.routeHeight > 0) route.height = this.routeHeight;
+      if (this.routeHeight !== defaultRouteHeight(this.floor, this.routeInstallation))
+        route.height = this.routeHeight;
       // Electrical vocabulary, only when it applies and only when it says
       // something a reader would not already assume -- the armed defaults
       // (power, 3 aders) are left unstated, the way an absent Cabinet.hinge

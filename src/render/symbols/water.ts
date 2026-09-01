@@ -100,6 +100,7 @@ const waterPointFloor: SymbolDef = {
   wallMounted: false,
   width: BOX_R * 2 + 20,
   depth: BOX_R * 2 + 20,
+  mountHeight: 0,
   draw(ctx) {
     withCtx(ctx, () => floorWaterPath(ctx, false));
   },
@@ -112,6 +113,7 @@ const waterPointFloorHot: SymbolDef = {
   wallMounted: false,
   width: BOX_R * 2 + 20,
   depth: BOX_R * 2 + 20,
+  mountHeight: 0,
   draw(ctx) {
     withCtx(ctx, () => floorWaterPath(ctx, true));
   },
@@ -261,6 +263,7 @@ const floorDrain: SymbolDef = {
   wallMounted: false,
   width: 240,
   depth: 240,
+  mountHeight: 0,
   draw(ctx) {
     withCtx(ctx, () => {
       ctx.moveTo(110, 0);

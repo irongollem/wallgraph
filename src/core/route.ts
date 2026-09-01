@@ -2,11 +2,12 @@
 // waypoints (model/route.ts): where an anchored point currently sits, how
 // long the run is, and where several routes bundle through the same corridor
 // are all recomputed on every call, exactly like a room's boundary.
-import { Floor, furnishingsOf, routesOf } from "../model/doc";
+import { Floor, floorHeight, furnishingsOf, routesOf } from "../model/doc";
 import {
   Route, RouteKind, routeKind, routeVeins, RouteWater, routeWater, routeDiameter, ROUTE_WATERS,
-  routeInstallation,
+  RouteInstallation, routeInstallation,
 } from "../model/route";
+import { symbolMountHeight } from "./mount";
 import { Vec, v, add, sub, scale, cross, dot, dist, perp, distToSeg } from "../geometry/vec";
 import { arcLength, arcFlatten, arcPointAt, arcTangentAt } from "../geometry/arc";
 import { wallLength } from "../model/ops";
@@ -62,6 +63,69 @@ export function routeLength(floor: Floor, route: Route): number {
     if (a && b) total += arcLength(a, b, segment.bulge ?? 0);
   }
   return total;
+}
+
+/**
+ * The height of the plane a run is installed in, mm above this storey's
+ * finished floor.
+ *
+ * An authored height always wins -- a duct hung 200 mm below the slab in a
+ * "ceiling" run is exactly that, and a pipe bedded in the screed of a "floor"
+ * run is not always at zero. Absent, the installation supplies the ordinary
+ * figure: a ceiling run sits at the storey height, everything else at the
+ * floor. That is why the row in the panel offers the storey height rather than
+ * 0 once the installation is set to ceiling; 0 would put a soil stack's
+ * horizontal leg on the floor of the room it crosses above.
+ */
+export function defaultRouteHeight(floor: Floor, installation: RouteInstallation): number {
+  return installation === "ceiling" ? floorHeight(floor) : 0;
+}
+
+export function routePlaneHeight(floor: Floor, route: Route): number {
+  return route.height ?? defaultRouteHeight(floor, routeInstallation(route));
+}
+
+/**
+ * The vertical drops a run makes to reach the devices it is anchored to: a
+ * socket at 300 and a switch at 1050 fed from the same trunk are not the same
+ * length of cable, and the difference is real material.
+ *
+ * Only ANCHORED points count, and only where the device has a height at all
+ * (its own, or its type's convention -- see core/mount.ts). A run drawn to a
+ * spot rather than to a device makes no claim about where it rises to, and an
+ * anchored device whose type carries no conventional height is reported as
+ * excluded rather than assumed to sit in the route's own plane. A furnishing
+ * anchor -- a fornuis, a wastafel -- carries no mounting height and is counted
+ * as unstated for the same reason.
+ *
+ * Kept apart from routeLength(), which measures what is DRAWN: the length row
+ * has to keep matching the polyline on the plan, while a takeoff wants both.
+ */
+export interface RouteDrops {
+  lengthMm: number;
+  /** Anchored devices whose height is known, and so counted above. */
+  counted: number;
+  /** Anchored devices with no height at all, left out of lengthMm. */
+  unstated: number;
+}
+
+export function routeDrops(floor: Floor, route: Route): RouteDrops {
+  const plane = routePlaneHeight(floor, route);
+  let lengthMm = 0, counted = 0, unstated = 0;
+  for (const p of route.points) {
+    if (!p.anchor) continue;
+    const symbol = floor.symbols.find(s => s.id === p.anchor);
+    const height = symbol && symbolMountHeight(floor, symbol);
+    if (height === undefined) { unstated++; continue; }
+    lengthMm += Math.abs(height - plane);
+    counted++;
+  }
+  return { lengthMm, counted, unstated };
+}
+
+/** Plan length plus the drops to the devices on it -- what a takeoff orders. */
+export function routeTakeoffLength(floor: Floor, route: Route): number {
+  return routeLength(floor, route) + routeDrops(floor, route).lengthMm;
 }
 
 /** One drawn segment of a resolved route: straight, or a preserved arc. */
@@ -223,7 +287,8 @@ export function resolveRoutes(floor: Floor): ResolvedRoute[] {
 }
 
 /**
- * Per groep, across the floor's electrical runs: total resolved length and
+ * Per groep, across the floor's electrical runs: total takeoff length --
+ * plan run plus the drops to its devices, see routeDrops() -- and
  * how many distinct anchored devices (sockets, switches -- whatever symbol a
  * waypoint follows) sit somewhere on a run carrying that groep. A materials-
  * list shape for the person wiring the meterkast to check their own count
@@ -241,7 +306,7 @@ export function routeGroupSummaries(floor: Floor): RouteGroupSummary[] {
   for (const r of routesOf(floor)) {
     if (r.discipline !== "electrical" || !r.group) continue;
     const entry = byGroup.get(r.group) ?? { lengthMm: 0, devices: new Set<string>() };
-    entry.lengthMm += routeLength(floor, r);
+    entry.lengthMm += routeTakeoffLength(floor, r);
     for (const p of r.points) if (p.anchor) entry.devices.add(p.anchor);
     byGroup.set(r.group, entry);
   }
@@ -252,7 +317,8 @@ export function routeGroupSummaries(floor: Floor): RouteGroupSummary[] {
 
 /**
  * Per kind -- and for power, per aders count -- total cable length across the
- * floor's electrical runs: "120 m of 3-aders, 40 m Cat6". Same reported,
+ * floor's electrical runs: "120 m of 3-aders, 40 m Cat6". Takeoff length, so
+ * the drops to the devices are in it (routeDrops()). Same reported,
  * never-validated shape as routeGroupSummaries above.
  */
 export interface RouteKindSummary {
@@ -270,7 +336,7 @@ export function routeKindSummaries(floor: Floor): RouteKindSummary[] {
     const veins = kind === "power" ? routeVeins(r) : undefined;
     const key = kind + (veins !== undefined ? ":" + veins : "");
     const entry = by.get(key) ?? { kind, veins, lengthMm: 0 };
-    entry.lengthMm += routeLength(floor, r);
+    entry.lengthMm += routeTakeoffLength(floor, r);
     by.set(key, entry);
   }
   return [...by.values()].sort((a, b) =>
@@ -298,7 +364,7 @@ export function routeWaterSummaries(floor: Floor): RouteWaterSummary[] {
     const diameter = routeDiameter(r);
     const key = water + ":" + diameter;
     const entry = by.get(key) ?? { water, diameter, lengthMm: 0 };
-    entry.lengthMm += routeLength(floor, r);
+    entry.lengthMm += routeTakeoffLength(floor, r);
     by.set(key, entry);
   }
   return [...by.values()].sort((a, b) =>
@@ -312,7 +378,7 @@ export function routeGasSummaries(floor: Floor): RouteGasSummary[] {
   for (const route of routesOf(floor)) {
     if (route.discipline !== "gas") continue;
     const diameter = route.diameter ?? 15;
-    byDiameter.set(diameter, (byDiameter.get(diameter) ?? 0) + routeLength(floor, route));
+    byDiameter.set(diameter, (byDiameter.get(diameter) ?? 0) + routeTakeoffLength(floor, route));
   }
   return [...byDiameter.entries()].map(([diameter, lengthMm]) => ({ diameter, lengthMm }))
     .sort((a, b) => a.diameter - b.diameter);
