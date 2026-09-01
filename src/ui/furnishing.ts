@@ -29,6 +29,8 @@ import { stairAngle } from "../model/stair";
 import { COLORS } from "../render/draw";
 import { t } from "../i18n";
 import { foldOut } from "./foldout";
+import { deviceConnectionRows } from "./route";
+import { routeTakesFurnishing } from "../core/attach";
 import type { PaneRows } from "./stairs";
 
 /** Which group the picker has open. Kept across rebuilds of the pane. */
@@ -184,6 +186,12 @@ export function renderFurnishingProps(store: Store, tools: Tools, rows: PaneRows
     t("panel.mirrorTitle"), "M");
   rows.infoRow(t("panel.furnishingFootprint"),
     `${piece.width} × ${piece.depth} × ${furnishingHeight(piece)} mm`);
+  // A run ends at a fornuis or a wastafel as readily as at a socket, and passes
+  // one as readily too -- same rows a symbol gets.
+  if (group.length === 1) {
+    deviceConnectionRows(rows, store, piece,
+      (discipline, water) => routeTakesFurnishing(discipline, water, piece));
+  }
   rows.dangerRow(t("panel.deleteOpening"), () => tools.deleteSelected());
 }
 

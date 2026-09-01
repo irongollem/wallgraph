@@ -18,13 +18,16 @@ import {
   RouteVent, ROUTE_VENTS, routeVent, VENT_DIAMETERS, VENT_DIAMETER_DEFAULT,
   routeDuctDiameter, clampDuctDiameter, routeFlow, clampRouteFlow,
   RouteInstallation, ROUTE_INSTALLATIONS, routeInstallation, type RoutePoint, type RouteTerminal,
+  type RouteWater as WaterKind,
 } from "../model/route";
 import {
   resolveRoutePoints, routeLength, routeDrops, routePlaneHeight, defaultRouteHeight,
   routeGroupSummaries, routeKindSummaries, routeWaterSummaries, routeGasSummaries,
 } from "../core/route";
-import { nearestDeviceFor } from "../core/attach";
-import { planRouteMerge, mergeRoutes, removeRoutePoint } from "../core/routegraph";
+import { nearestDeviceFor, routeLegsUnder } from "../core/attach";
+import {
+  planRouteMerge, mergeRoutes, removeRoutePoint, insertRouteTap, disconnectDevice,
+} from "../core/routegraph";
 import type { Vec } from "../geometry/vec";
 import { serviceNetworkLength, issuesForRoute, storeyServices } from "../core/continuation";
 import { t } from "../i18n";
@@ -410,6 +413,54 @@ function mergeRow(rows: RouteRows, store: Store, ids: readonly Id[]): void {
     store.mutate(doc => { survivor = mergeRoutes(doc, store.activeFloor, ids); });
     if (survivor) store.select({ kind: "route", id: survivor });
   });
+}
+
+/** How a run is named where one has to be picked out of several. */
+export function routeLabel(route: Route): string {
+  if (route.tag) return route.tag;
+  if (route.name) return route.name;
+  const discipline = t("panel.discipline" + route.discipline[0]!.toUpperCase() + route.discipline.slice(1));
+  return route.group ? `${discipline} \u00b7 ${route.group}` : discipline;
+}
+
+/**
+ * A placed device's connections to the service networks around it: what it is
+ * already on, and what it is standing on but not yet joined to.
+ *
+ * Placing a device already connects it where the answer is unambiguous (see
+ * connectDevice in core/attach.ts). These rows are for the case it deliberately
+ * leaves alone: a device standing on the line of SEVERAL compatible runs, where
+ * which circuit it belongs to is not something the drawing knows. Two runs
+ * stored along one wall are equally under a socket placed on it, however far
+ * apart the corridor fan draws them, so the choice is offered rather than
+ * guessed -- a guess would look exactly like a deliberate connection.
+ */
+export function deviceConnectionRows(
+  rows: RouteRows, store: Store, device: { id: Id; x: number; y: number; wallId?: Id },
+  takes: (discipline: Discipline, water: WaterKind) => boolean,
+): void {
+  const floor = store.floor;
+  const connected = routesOf(floor).filter(r => r.points.some(p => p.anchor === device.id));
+  for (const route of connected) {
+    rows.infoRow(t("panel.deviceConnected"), routeLabel(route));
+  }
+  if (connected.length > 0) {
+    rows.btnRow(t("panel.deviceDisconnect"), () => store.mutate(doc => {
+      disconnectDevice(store.floorOf(doc), device.id);
+    }));
+  }
+  const legs = routeLegsUnder(floor, device, takes);
+  if (legs.length === 0) return;
+  // Named only when there is a choice to make; a lone candidate the placement
+  // did not take is one the device was moved onto afterwards.
+  if (legs.length > 1) rows.noteRow(t("panel.deviceConnectPick"));
+  for (const leg of legs) {
+    const route = routesOf(floor).find(r => r.id === leg.routeId);
+    if (!route) continue;
+    rows.btnRow(t("panel.deviceConnectTo", { run: routeLabel(route) }), () => store.mutate(doc => {
+      insertRouteTap(store.floorOf(doc), leg.routeId, leg.segmentId, device.id, leg.t);
+    }));
+  }
 }
 
 /** The discipline the next run will be drawn in, plus its armed properties. */

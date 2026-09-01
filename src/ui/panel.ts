@@ -37,12 +37,13 @@ import {
 } from "../render/symbols";
 import { LAYER_KEYS, LAYER_OF_CATEGORY, type LayerKey } from "../render/layers";
 import { renderStairTool, renderStairProps, renderStairBulk, type PaneRows } from "./stairs";
+import { routeTakesSymbol } from "../core/attach";
 import { renderFurnishingTool, renderFurnishingProps } from "./furnishing";
 import { renderZoomTool, type RoomEdit } from "./zoom";
 import { renderOpeningTool } from "./openings";
 import { renderWallTool } from "./walls";
 import { renderVideTool, renderVideProps, renderVideBulk } from "./vide";
-import { renderRouteTool, renderRouteProps, renderRouteBulk } from "./route";
+import { renderRouteTool, renderRouteProps, renderRouteBulk, deviceConnectionRows } from "./route";
 import { scrubbable } from "./scrub";
 import { watchLayout, isTouchPrimary, type LayoutMode } from "./layout";
 import { Sheet } from "./sheet";
@@ -2014,6 +2015,9 @@ export class Panel {
         const s2 = this.store.floorOf(d).symbols.find(x => x.id === sel.id);
         if (s2) s2.mirrored = !s2.mirrored;
       }), t("panel.mirrorTitle"), "M");
+      // What this device is wired, plumbed or ducted to, and what it is
+      // standing on but not yet joined to -- see deviceConnectionRows().
+      deviceConnectionRows(rows, this.store, s, d => routeTakesSymbol(d, s.type));
       dangerRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());
       return;
     }

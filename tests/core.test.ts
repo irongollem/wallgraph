@@ -4,8 +4,9 @@ import { Store } from "../src/model/store";
 import { sashesOf, sashSpecsOf, doorKindOf, windowKindOf, DOOR_KINDS, WINDOW_KINDS, type Opening } from "../src/model/doc";
 import { detectRooms, rectSize, roomSize } from "../src/core/rooms";
 import {
-  insertWall, insertRun, nodeAt, wallLength, wallOnRay, cloneOnFloor, splitWall,
+  insertWall, insertRun, nodeAt, wallLength, wallOnRay, cloneOnFloor, splitWall, deleteWall,
 } from "../src/model/ops";
+import { resolveRoutePoints } from "../src/core/route";
 import { shapeRun } from "../src/model/shape";
 import { dimensionChains } from "../src/core/dimensions";
 import { seedDoc } from "../src/seed";
@@ -398,6 +399,13 @@ function rectFloor(wallTh = 100) {
   st.mutate(d => {
     const f = st.floorOf(d);
     f.roomNames = [{ id: newId("r"), x: 500, y: 100, name: "Woonkamer" }];
+    f.furnishings = [{
+      id: "sink", form: "basin", x: 500, y: 100, rotation: 0, width: 600, depth: 450,
+    }];
+    f.routes = [{
+      id: "water", discipline: "water",
+      points: [{ id: "tap", x: 500, y: 100, anchor: "sink" }], segments: [],
+    }];
   });
   st.duplicateFloor("Copy");
   const src = st.doc.floors[0]!, copy = st.doc.floors[1]!;
@@ -409,6 +417,9 @@ function rectFloor(wallTh = 100) {
   check("duplicate re-ids everything", !shared);
   check("duplicate rewires walls to its own nodes",
     copy.walls.every(w => copy.nodes.some(n => n.id === w.a) && copy.nodes.some(n => n.id === w.b)));
+  check("duplicate rewires furnishing route anchors",
+    copy.routes?.[0]?.points[0]?.anchor === copy.furnishings?.[0]?.id
+    && copy.routes[0]!.points[0]!.anchor !== src.furnishings?.[0]?.id);
 
   // Undo can shrink floors[]; the index must never dangle.
   st.setActiveFloor(st.doc.floors.length - 1);
@@ -1085,6 +1096,14 @@ function rectFloor(wallTh = 100) {
     loadBearing: true, height: 2600, fireRating: { kind: "wbdbo", minutes: 60 },
   };
   f.walls.push(w);
+  f.routes = [{
+    id: "rt", discipline: "electrical",
+    points: [
+      { id: "near", x: 1000, y: 0, wallId: w.id, wallT: 1000 },
+      { id: "far", x: 3000, y: 0, wallId: w.id, wallT: 3000 },
+    ],
+    segments: [{ id: "seg", a: "near", b: "far" }],
+  }];
   splitWall(f, w, 2000);
   const far = f.walls.find(x => x.id !== w.id)!;
   check("a split keeps both halves glazed", far.material === "glass");
@@ -1097,6 +1116,20 @@ function rectFloor(wallTh = 100) {
   far.fireRating!.minutes = 30;
   check("the two halves' ratings are not the same object", w.fireRating?.minutes === 60,
     String(w.fireRating?.minutes));
+  const route = f.routes[0]!;
+  check("a split remaps route points on the far half",
+    route.points[1]!.wallId === far.id && route.points[1]!.wallT === 1000
+    && resolveRoutePoints(f, route)[1]!.x === 3000);
+
+  // A wall-attached point follows edits until the wall is removed, then keeps
+  // its last resolved position as an ordinary waypoint.
+  const farA = f.nodes.find(n => n.id === far.a)!, farB = f.nodes.find(n => n.id === far.b)!;
+  farA.y = 500; farB.y = 500;
+  deleteWall(f, far.id);
+  check("deleting a wall preserves an attached route point's current position",
+    route.points[1]!.wallId === undefined
+    && route.points[1]!.x === 3000 && route.points[1]!.y === 500,
+    JSON.stringify(route.points[1]));
 }
 
 console.log(failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURES`);

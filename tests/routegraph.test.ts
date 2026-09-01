@@ -9,12 +9,14 @@ import type { Route } from "../src/model/route";
 import type { RouteContinuation } from "../src/model/continuation";
 import {
   removeRoutePoint, planRouteMerge, canMergeRoutes, mergeRoutes, routeDegrees, ROUTE_WELD_MM,
+  insertRouteTap, disconnectDevice,
 } from "../src/core/routegraph";
 import {
   routeTakesSymbol, routeTakesFurnishing, routeEndsUnder, linkDeviceToRouteEnds,
-  nearestDeviceFor, ROUTE_LINK_MM,
+  routeLegsUnder, connectDevice, nearestDeviceFor, ROUTE_LINK_MM,
 } from "../src/core/attach";
-import { resolveRoutePoints } from "../src/core/route";
+import { resolveRoutePoints, routeLength } from "../src/core/route";
+import { resources } from "../src/i18n";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ""): void {
@@ -321,18 +323,25 @@ const socket = (over: Partial<SymbolInstance> = {}): SymbolInstance =>
 
 {
   // Half a wall apart, which is where a wall-mounted socket and a concealed
-  // run's centerline endpoint actually sit. Too far for the plan distance, so
-  // the shared wall is what matches them.
+  // run's centerline endpoint actually sit. The shared wall admits that
+  // perpendicular gap, but must not match an endpoint far along the wall.
   const doc = emptyDoc();
   const f = doc.floors[0]!;
+  f.nodes.push({ id: "n1", x: 0, y: 0 }, { id: "n2", x: 5000, y: 0 });
+  f.walls.push({
+    id: "w1", a: "n1", b: "n2", thickness: 600, bulge: 0, openings: [],
+  });
   const r = chain("r", 2);
   r.points[1]!.wallId = "w1";
   r.points[1]!.wallT = 2000;
   f.routes = [r];
-  const far = socket({ x: 1000, y: ROUTE_LINK_MM * 2, wallId: "w1" });
+  const far = socket({ x: 2000, y: 300, wallId: "w1" });
   check("a device on the same wall reaches across the masonry",
     routeEndsUnder(f, far, d => routeTakesSymbol(d, far.type)).length === 1);
-  const elsewhere = socket({ id: "e", x: 1000, y: ROUTE_LINK_MM * 2, wallId: "w2" });
+  const distant = socket({ id: "d", x: 1000, y: 300, wallId: "w1" });
+  check("a device does not capture a distant endpoint on the same wall",
+    routeEndsUnder(f, distant, d => routeTakesSymbol(d, distant.type)).length === 0);
+  const elsewhere = socket({ id: "e", x: 2000, y: 300, wallId: "w2" });
   check("a device on a different wall does not",
     routeEndsUnder(f, elsewhere, d => routeTakesSymbol(d, elsewhere.type)).length === 0);
 }
@@ -356,6 +365,143 @@ const socket = (over: Partial<SymbolInstance> = {}): SymbolInstance =>
   check("a vent run ends at an afzuigkap", routeTakesFurnishing("vent", "koud", hood));
   check("but a water run does not", !routeTakesFurnishing("vent", "koud",
     { ...(hood as object), mark: "fridge" } as never));
+}
+
+/* ── a device standing ON a run's line ── */
+
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.routes = [chain("r", 3)];
+  // Part-way along the first leg, not at either end.
+  const device = socket({ x: 500, y: 0 });
+  f.symbols.push(device);
+
+  const legs = routeLegsUnder(f, device, d => routeTakesSymbol(d, device.type));
+  check("a device on a run's line finds the leg it stands on",
+    legs.length === 1 && legs[0]!.segmentId === "rs0", JSON.stringify(legs));
+  check("and where along it", Math.abs(legs[0]!.t - 0.5) < 1e-6, String(legs[0]!.t));
+
+  check("connecting splices a junction into that leg",
+    connectDevice(f, device, d => routeTakesSymbol(d, device.type)) === 1);
+  const r = routesOf(f)[0]!;
+  check("the leg became two", r.segments.length === 3, String(r.segments.length));
+  const tap = r.points.find(p => p.anchor === "sock")!;
+  check("the new point follows the device", tap !== undefined);
+  check("and is a junction the run passes through, not a loose end",
+    degreeOf(r, tap.id) === 2, String(degreeOf(r, tap.id)));
+  // The user-visible consequence, same as for an endpoint: the run follows.
+  device.x = 500; device.y = 400;
+  const at = resolveRoutePoints(f, r)[r.points.indexOf(tap)]!;
+  check("the run bends to reach the device once tapped", at.y === 400, JSON.stringify(at));
+}
+
+{
+  // The ambiguous case: two circuits stored along the same line. Which one a
+  // socket belongs to is not something the drawing knows.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.routes = [chain("a", 3, 0, { tag: "E-01" }), chain("b", 3, 0, { tag: "E-02" })];
+  const device = socket({ x: 500, y: 0 });
+  f.symbols.push(device);
+
+  const legs = routeLegsUnder(f, device, d => routeTakesSymbol(d, device.type));
+  check("both runs under the device are offered", legs.length === 2, String(legs.length));
+  check("placing it joins neither of them",
+    connectDevice(f, device, d => routeTakesSymbol(d, device.type)) === 0);
+  check("and neither run was touched",
+    routesOf(f).every(r => r.segments.length === 2 && r.points.every(p => !p.anchor)));
+
+  // Picking one is the panel's job; the op itself is unambiguous.
+  insertRouteTap(f, "b", "bs0", device.id, legs[0]!.t);
+  check("picking one splices only that run",
+    routesOf(f)[1]!.segments.length === 3 && routesOf(f)[0]!.segments.length === 2);
+  check("and the other is not offered again",
+    routeLegsUnder(f, device, d => routeTakesSymbol(d, device.type))
+      .map(l => l.routeId).join() === "a");
+}
+
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.routes = [chain("r", 3)];
+  // Standing on a CORNER of the run is the endpoint's business: taking the
+  // corner over is what routeEndsUnder does, and splicing a second point a
+  // millimetre from it would leave a zero-length leg.
+  const onCorner = socket({ x: 1000, y: 0 });
+  check("a device on a vertex splits nothing",
+    routeLegsUnder(f, onCorner, d => routeTakesSymbol(d, onCorner.type)).length === 0);
+  // The far end is a loose end, so that is a takeover rather than a split.
+  const onEnd = socket({ id: "e", x: 2000, y: 0 });
+  f.symbols.push(onEnd);
+  check("a device on a loose end takes the end over rather than splitting",
+    connectDevice(f, onEnd, d => routeTakesSymbol(d, onEnd.type)) === 1
+    && routesOf(f)[0]!.segments.length === 2
+    && routesOf(f)[0]!.points[2]!.anchor === "e");
+}
+
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.routes = [chain("w", 3, 0, { discipline: "water" })];
+  const device = socket({ x: 500, y: 0 });
+  check("a socket does not splice itself into a water run",
+    routeLegsUnder(f, device, d => routeTakesSymbol(d, device.type)).length === 0);
+  const tap = { id: "tap", type: "water-point", x: 500, y: 0, rotation: 0 };
+  check("but a tappunt does",
+    routeLegsUnder(f, tap, d => routeTakesSymbol(d, tap.type)).length === 1);
+}
+
+{
+  // A bowed leg keeps its shape: splitting gives two arcs, not two chords.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  const bowed: Route = {
+    id: "r", discipline: "electrical",
+    points: [{ id: "a", x: 0, y: 0 }, { id: "b", x: 2000, y: 0 }],
+    segments: [{ id: "s", a: "a", b: "b", bulge: 0.5 }],
+  };
+  f.routes = [bowed];
+  const before = routeLength(f, bowed);
+  const id = insertRouteTap(f, "r", "s", "dev", 0.5);
+  check("a bowed leg splices", id !== null);
+  const after = routesOf(f)[0]!;
+  check("into two bowed halves",
+    after.segments.length === 2 && after.segments.every(s => (s.bulge ?? 0) !== 0),
+    JSON.stringify(after.segments.map(s => s.bulge)));
+  // Same arc, split -- so the run is the length it was, not the chord.
+  check("and the run keeps the length it was drawn with",
+    Math.abs(routeLength(f, after) - before) < 1, `${routeLength(f, after)}/${before}`);
+}
+
+{
+  // Disconnecting leaves the waypoint where it stands rather than springing
+  // the run back to wherever the point was first drawn.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.routes = [chain("r", 3)];
+  const device = socket({ x: 500, y: 0 });
+  f.symbols.push(device);
+  connectDevice(f, device, d => routeTakesSymbol(d, device.type));
+  device.x = 500; device.y = 900;
+  check("disconnecting clears one anchor", disconnectDevice(f, "sock") === 1);
+  const r = routesOf(f)[0]!;
+  const moved = r.points.find(p => p.y === 900);
+  check("and leaves the waypoint where the device had taken it",
+    moved !== undefined && moved.anchor === undefined, JSON.stringify(r.points));
+  check("the run keeps its shape", r.segments.length === 3);
+}
+
+/* ── both languages name what the panel shows ── */
+
+{
+  const keys = ["deviceConnected", "deviceDisconnect", "deviceConnectTo", "deviceConnectPick"];
+  for (const lang of ["nl", "en"] as const) {
+    const panel = resources[lang].translation.panel as Record<string, string>;
+    check(`${lang} names every connection field`,
+      keys.every(k => typeof panel[k] === "string" && panel[k]!.length > 0),
+      keys.filter(k => !panel[k]).join(","));
+  }
 }
 
 console.log(failures === 0 ? "ALL ROUTEGRAPH TESTS PASSED" : `${failures} FAILURES`);

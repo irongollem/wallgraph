@@ -18,6 +18,7 @@ import {
 import { continuationsOf } from "../model/continuation";
 import { Route, RoutePoint, RouteSegment } from "../model/route";
 import { Vec, dist, distToSeg } from "../geometry/vec";
+import { arcPointAt } from "../geometry/arc";
 import { resolveRoutePoints } from "./route";
 
 /** Undirected edge key, so a duplicate segment is recognised either way round. */
@@ -86,6 +87,74 @@ export function removeRoutePoint(doc: PlanDoc, floorIndex: number, routeId: Id, 
   }
   if (route.points.length === 0) floor.routes = routesOf(floor).filter(r => r.id !== routeId);
   return true;
+}
+
+/**
+ * Splice a junction into one leg of a run, anchored to a device: the leg
+ * becomes two, meeting at a point that follows the device from then on.
+ *
+ * This is what placing a socket ON a circuit means -- the run reaches it and
+ * carries on past, so the device is a vertex of the network rather than the
+ * end of a branch drawn to it. The point's stored x/y is the projection onto
+ * the leg, which is only the fallback for an anchor that stops resolving; while
+ * the device is there the run bends to reach it, which is the tap.
+ *
+ * A bowed leg splits into two arcs rather than two chords. bulge = tan(theta/4)
+ * (invariant 3), so a leg of sweep theta split at fraction t gives tan(t*theta/4)
+ * and tan((1-t)*theta/4) -- the two halves meet at exactly the point `t` names,
+ * and the run keeps the shape it was drawn with instead of being straightened
+ * by the act of connecting something to it.
+ *
+ * Returns the new point's id, or null when the leg is not there to split.
+ */
+export function insertRouteTap(
+  floor: Floor, routeId: Id, segmentId: Id, deviceId: Id, t: number,
+): Id | null {
+  const route = routesOf(floor).find(r => r.id === routeId);
+  const index = route?.segments.findIndex(s => s.id === segmentId) ?? -1;
+  const segment = route?.segments[index];
+  if (!route || !segment || index < 0) return null;
+  const resolved = resolveRoutePoints(floor, route);
+  const byId = new Map(route.points.map((p, i) => [p.id, resolved[i]!]));
+  const a = byId.get(segment.a), b = byId.get(segment.b);
+  if (!a || !b) return null;
+
+  const bulge = segment.bulge ?? 0;
+  const clamped = Math.max(0, Math.min(1, t));
+  const at = arcPointAt(a, b, bulge, clamped);
+  const point: RoutePoint = {
+    id: newId("rp"), x: Math.round(at.x), y: Math.round(at.y), anchor: deviceId,
+  };
+  route.points.push(point);
+
+  const sweep = 4 * Math.atan(bulge);
+  const first = { id: newId("rse"), a: segment.a, b: point.id } as RouteSegment;
+  const second = { id: newId("rse"), a: point.id, b: segment.b } as RouteSegment;
+  if (bulge !== 0) {
+    first.bulge = Math.tan((clamped * sweep) / 4);
+    second.bulge = Math.tan(((1 - clamped) * sweep) / 4);
+  }
+  route.segments.splice(index, 1, first, second);
+  pruneTerminals(route);
+  return point.id;
+}
+
+/** Undo a connection: the point stops following the device. Where the point
+ *  stands is kept -- the run does not spring back to wherever it was first
+ *  drawn -- so this leaves an ordinary waypoint exactly where it was. */
+export function disconnectDevice(floor: Floor, deviceId: Id): number {
+  let cleared = 0;
+  for (const route of routesOf(floor)) {
+    const resolved = resolveRoutePoints(floor, route);
+    route.points.forEach((point, i) => {
+      if (point.anchor !== deviceId) return;
+      point.x = Math.round(resolved[i]!.x);
+      point.y = Math.round(resolved[i]!.y);
+      delete point.anchor;
+      cleared++;
+    });
+  }
+  return cleared;
 }
 
 /**

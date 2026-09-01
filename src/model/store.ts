@@ -137,7 +137,10 @@ export class Store {
       }
       for (const st of copy.stairs ?? []) st.id = newId("t");
       for (const vd of copy.vides ?? []) vd.id = newId("v");
-      for (const fn of copy.furnishings ?? []) fn.id = newId("i");
+      const furnishingMap = new Map<Id, Id>();
+      for (const fn of copy.furnishings ?? []) {
+        const id = newId("i"); furnishingMap.set(fn.id, id); fn.id = id;
+      }
       for (const rt of copy.routes ?? []) {
         rt.id = newId("rt");
         const pointMap = new Map<Id, Id>();
@@ -149,7 +152,7 @@ export class Store {
             else { delete p.wallId; delete p.wallT; delete p.wallSide; }
           }
           if (!p.anchor) continue;
-          const mapped = symMap.get(p.anchor);
+          const mapped = symMap.get(p.anchor) ?? furnishingMap.get(p.anchor);
           // A dangling anchor stays dangling rather than pointing at whatever
           // fresh symbol id happens to come next; it falls back to its stored
           // x/y at derive time, same as on the original floor.

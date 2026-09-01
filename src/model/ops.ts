@@ -2,8 +2,9 @@
 // welded wall insertion, opening placement bounds, orphan cleanup. All take the
 // floor mutably; callers wrap them in store.mutate().
 import { Floor, PlanNode, Wall, Opening, Id, newId, roomNamesOf, routesOf, Underlay } from "./doc";
+import { routeInstallation } from "./route";
 import { Vec, dist, distToSeg, v, add, sub, scale, dot, cross, norm, perp, lineIntersect } from "../geometry/vec";
-import { arcLength, arcPointAt, arcFlatten } from "../geometry/arc";
+import { arcLength, arcPointAt, arcFlatten, arcTangentAt } from "../geometry/arc";
 
 export const NODE_MERGE_TOL = 1; // mm
 
@@ -62,6 +63,16 @@ export function splitWall(f: Floor, w: Wall, tMm: number): PlanNode | null {
   }
   w.openings = keep;
   w2.openings = moved;
+  // A wall attachment is parameterised from node a just like an opening. Keep
+  // points beyond the cut on the same physical part of the wall rather than
+  // letting their old wallT clamp them to the new end of the first half.
+  for (const route of routesOf(f)) {
+    for (const point of route.points) {
+      if (point.wallId !== w.id || point.wallT === undefined || point.wallT <= tt) continue;
+      point.wallId = w2.id;
+      point.wallT -= tt;
+    }
+  }
   f.walls.push(w2);
   return mid;
 }
@@ -74,8 +85,34 @@ export function clampOpening(f: Floor, w: Wall, o: Opening): void {
 }
 
 export function deleteWall(f: Floor, id: Id): void {
+  const wall = f.walls.find(w => w.id === id);
+  if (wall) unanchorWallRoutePoints(f, wall);
   f.walls = f.walls.filter(w => w.id !== id);
   cleanOrphanNodes(f);
+}
+
+/** Preserve the current resolved position of points whose wall is going away. */
+function unanchorWallRoutePoints(f: Floor, wall: Wall): void {
+  const a = f.nodes.find(n => n.id === wall.a), b = f.nodes.find(n => n.id === wall.b);
+  if (!a || !b) return;
+  const A = v(a.x, a.y), B = v(b.x, b.y);
+  const length = wallLength(f, wall);
+  for (const route of routesOf(f)) {
+    for (const point of route.points) {
+      if (point.wallId !== wall.id || point.wallT === undefined) continue;
+      const frac = length > 0 ? Math.max(0, Math.min(1, point.wallT / length)) : 0;
+      let at = arcPointAt(A, B, wall.bulge, frac);
+      if (routeInstallation(route) === "surface") {
+        const normal = perp(arcTangentAt(A, B, wall.bulge, frac));
+        at = add(at, scale(normal, (point.wallSide ?? 1) * wall.thickness / 2));
+      }
+      point.x = Math.round(at.x);
+      point.y = Math.round(at.y);
+      delete point.wallId;
+      delete point.wallT;
+      delete point.wallSide;
+    }
+  }
 }
 
 export function cleanOrphanNodes(f: Floor): void {

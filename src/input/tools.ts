@@ -27,7 +27,7 @@ import {
   resolveRoutePoints, resolveRoutes, routeDistance, defaultRouteHeight, ResolvedRoute,
 } from "../core/route";
 import {
-  routeTakesSymbol, routeTakesFurnishing, routeEndsUnder, linkDeviceToRouteEnds, ROUTE_LINK_MM,
+  routeTakesSymbol, routeTakesFurnishing, connectDevice, deviceConnects, ROUTE_LINK_MM,
 } from "../core/attach";
 import { riserMarks, type ResolvedRiserMark } from "../core/continuation";
 import { autoRoutePath } from "../core/autoroute";
@@ -1397,10 +1397,10 @@ export class Tools {
     const lands = ids.some(id => {
       if (d.kind === "symbol") {
         const sym = live.symbols.find(x => x.id === id);
-        return !!sym && routeEndsUnder(live, sym, disc => routeTakesSymbol(disc, sym.type)).length > 0;
+        return !!sym && deviceConnects(live, sym, disc => routeTakesSymbol(disc, sym.type));
       }
       const fn = furnishingsOf(live).find(x => x.id === id);
-      return !!fn && routeEndsUnder(live, fn, (disc, water) => routeTakesFurnishing(disc, water, fn)).length > 0;
+      return !!fn && deviceConnects(live, fn, (disc, water) => routeTakesFurnishing(disc, water, fn));
     });
     if (!lands) return;
     this.store.mutate(doc => {
@@ -1408,10 +1408,10 @@ export class Tools {
       for (const id of ids) {
         if (d.kind === "symbol") {
           const sym = f.symbols.find(x => x.id === id);
-          if (sym) linkDeviceToRouteEnds(f, sym, disc => routeTakesSymbol(disc, sym.type));
+          if (sym) connectDevice(f, sym, disc => routeTakesSymbol(disc, sym.type));
         } else {
           const fn = furnishingsOf(f).find(x => x.id === id);
-          if (fn) linkDeviceToRouteEnds(f, fn, (disc, water) => routeTakesFurnishing(disc, water, fn));
+          if (fn) connectDevice(f, fn, (disc, water) => routeTakesFurnishing(disc, water, fn));
         }
       }
     });
@@ -1602,12 +1602,7 @@ export class Tools {
     this.store.mutate(doc => {
       const f = this.store.floorOf(doc);
       f.symbols.push(sym);
-      // A device dropped on a run's loose end takes that end over, in the same
-      // mutation that places it: otherwise the run reads as wired and behaves
-      // as though it is not -- it would not follow the socket when the socket
-      // moves, and the panel would still call the end loose. See
-      // linkDeviceToRouteEnds().
-      linkDeviceToRouteEnds(f, sym, d => routeTakesSymbol(d, sym.type));
+      connectDevice(f, sym, d => routeTakesSymbol(d, sym.type));
     });
     this.store.select({ kind: "symbol", id });
   }
@@ -2216,8 +2211,8 @@ export class Tools {
       const f = this.store.floorOf(doc);
       (f.furnishings ??= []).push(c);
       // A run ends at a fornuis or a wastafel as readily as at a socket, so
-      // fit-out picks up a loose end the same way a symbol does.
-      linkDeviceToRouteEnds(f, c, (d, water) => routeTakesFurnishing(d, water, c));
+      // fit-out connects the same way a symbol does.
+      connectDevice(f, c, (d, water) => routeTakesFurnishing(d, water, c));
     });
     this.store.select({ kind: "furnishing", id: c.id });
   }
