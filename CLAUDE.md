@@ -82,12 +82,16 @@ Use concise, neutral and technical prose in source files and generated pages.
 Stored: nodes (junctions), walls (centerline edges with thickness + optional arc bulge),
 openings parameterised along a wall, symbol instances, and the objects that are built to
 a size rather than being one fixed picture — stairs, vides and cabinets, each carrying its
-own dimensions. Plus room NAMES, which are authored and so cannot be derived.
+own dimensions. Plus room NAMES, which are authored and so cannot be derived, and the
+service networks: a `Route` per discipline as its own point/segment graph, and a
+document-level `RouteContinuation` naming the endpoints one service joins across storeys.
 
-Not stored: wall faces, mitered corners, room polygons, areas and dimension labels. These
-are recomputed by `src/core/` on every document revision. Derived geometry may be cached
-against the revision counter but must not be added to the document (see `derived()` in
-[src/main.ts](src/main.ts)).
+Not stored: wall faces, mitered corners, room polygons, areas and dimension labels, and
+everything a service network implies rather than states — where an anchored waypoint
+currently sits, how long a run is, the plane it is installed in, the drop from that plane
+to a device, and the riser marks. These are recomputed by `src/core/` on every document
+revision. Derived geometry may be cached against the revision counter but must not be
+added to the document (see `derived()` in [src/main.ts](src/main.ts)).
 
 **A room is derived; its name is not.** There is no room object to hang a name on, so
 `Floor.roomNames` stores the name and the point it was written at, and `attachNames()` in
@@ -95,6 +99,14 @@ against the revision counter but must not be added to the document (see `derived
 its net boundary. Move a wall so the point lands elsewhere and the name goes with the
 point. Do not add a stored room to make the association durable — that puts derived
 geometry back in the document.
+
+**A connection is stored; where it lands is not.** A route waypoint may follow a symbol
+or a piece of fit-out (`RoutePoint.anchor`) or a wall (`wallId`/`wallT`), and
+`resolveRoutePoints()` in [route.ts](src/core/route.ts) reads the CURRENT position at
+derive time — nothing writes the point's x/y when the device moves. The stored x/y is the
+fallback for an anchor that no longer resolves, which is why deleting a device has to
+write its last position into every point following it, in the same mutation
+(`unanchorRoutePoints()`).
 
 This model supports wall openings, room detection and future direct extrusion to 3D.
 
@@ -150,6 +162,24 @@ the net inner-face boundary; `PlanDoc.areaMode` selects which area is reported.
 Both are verified by [tests/core.test.ts](tests/core.test.ts), including the sign
 convention, junction finiteness and opening segmentation.
 
+**`resolveRoutes()`** — waypoints resolved through their anchors, then straight legs that
+share a corridor with another run fanned into parallel lanes. The fan is drawn legibility
+ONLY: it is applied per segment, and anything that makes a geometric claim about where a
+run is — the IFC export, a length, a hit test against the true vertex — reads
+`resolveRoutePoints()` instead. Arcs are excluded from bundling.
+
+**`routePlaneHeight()`** — the plane a run is installed in. An authored `Route.height`
+always wins; absent, the installation supplies it, and "in / boven plafond" means the
+storey height rather than zero. `routeDrops()` measures the vertical run from that plane
+to each anchored device's mounting height (`core/mount.ts`), which is real cable the plan
+does not draw — so it is reported beside `routeLength()`, never folded into it.
+
+**`riserMembers()` / `riserMarks()`** — the vertical marks one storey shows, grouped where
+several continuations coincide. `continuationIssues()` reports what the cross-floor
+topology says about itself that does not add up (a dangling port, a link that never leaves
+one storey, disagreeing disciplines or service data). It reports; it never enforces, and
+never repairs.
+
 ## Adding a symbol
 
 Symbols live in `src/render/symbols/<category>.ts` and are aggregated by
@@ -179,6 +209,11 @@ The `draw(ctx)` contract in [defs.ts](src/render/symbols/defs.ts) is strict:
   the glyph. Never call `ctx.fillText` directly, and never for a name or caption *we* chose
   to add — those stay in screen space, drawn by the caller.
 - Wrap in `withCtx()`, which handles `save`/`restore` and sets `lineWidth = 20`.
+- **`mountHeight` is a convention, not a rule** — the ordinary height a device of this type
+  is mounted at, or `"ceiling"` for one fixed to the soffit, which resolves against the
+  storey rather than a constant. Set it only where a single ordinary height genuinely
+  exists; a device whose height follows the fixture it serves carries none, and reads as
+  unstated rather than as zero. An instance overrides it (`SymbolInstance.height`).
 
 No separate published representation is required: `/symbolen/` replays
 `draw()` through `recordSymbol` at build time, so a new symbol appears there, in the SVG
@@ -260,6 +295,27 @@ the SVG group and its own DXF layer instead.
     pinch never leaves an object behind; a tool that must act on contact (select, zoom)
     is listed explicitly in `onDown`.
   - Check a change at 390×844 and 844×390, not only at desktop width.
+- **What a run may end at is stated once**, in [attach.ts](src/core/attach.ts). The route
+  tool asks it while drawing, and a device asks it while being placed or dropped — a
+  socket landing on a loose end takes that end over, in the same mutation. Two copies of
+  the rule would let the two gestures disagree, and the state they would disagree into is
+  the bad one: an unanchored endpoint under a socket LOOKS wired, does not follow the
+  socket when it moves, and still reports itself as loose. A wall-mounted device sits on
+  the wall FACE while a concealed run hugs the centerline, so matching allows for half a
+  wall and matches on a shared `wallId` regardless of the plan distance.
+- **Every route-graph edit goes through [routegraph.ts](src/core/routegraph.ts)**, because
+  a continuation names a point by (floorId, routeId, pointId): removing a point or folding
+  one run into another has to drop or re-point the ports that named it. A port left naming
+  something that is gone is skipped in silence, so the riser mark disappears from both
+  storeys with nothing to say why.
+- **Auto-routing proposes; it never owns.** [autoroute.ts](src/core/autoroute.ts) searches
+  the wall graph and hands back plain waypoints the caller writes into an ordinary Route.
+  Nothing records that a run was proposed, and nothing re-derives it afterwards — a
+  proposed run is dragged, extended and deleted like any other.
+- **A drawing convention belongs on the document, not on `Tools`.** `areaMode`, `dimMode`
+  and `mountMarks` are read by the canvas AND by every export, so a sheet cannot show one
+  thing on screen and another on paper. Editor state (`snapGrid`, `showUnderlay`, the
+  layer toggles) is the opposite case and stays out of the document.
 - **`store.floor` is the ACTIVE storey**, `doc.floors[store.activeFloor]`, not
   `floors[0]`. A mutation must go through `store.floorOf(doc)` to land on the right
   one; reaching for `doc.floors[0]` edits the ground floor from whatever storey the
@@ -324,3 +380,14 @@ before changing one:
   a base unit is the normal case).
 - A room takes one name; a second name in the same room stays unattached rather than
   merging.
+- A mounting height is a convention where one exists and unstated where it does not; the
+  takeoff reports what it excluded rather than assuming a figure. Nothing checks a height
+  against the storey's own geometry, or against what NEN 1010 would accept.
+- Auto-routing is shortest-along-walls with a stand-off. It knows nothing about vides,
+  corridors or anything else it should prefer or avoid, and it will not route between two
+  pieces of fabric that do not touch.
+- The IFC export states route legs as MEP segments at a nominal cross-section, grouped
+  into a distribution system per groep. No fittings, no risers as elements, no port
+  connectivity — the document holds none of it — and a cable run's section is a
+  placeholder, not a measurement.
+- The permit sheet is bouwkundig and carries no services at all.
