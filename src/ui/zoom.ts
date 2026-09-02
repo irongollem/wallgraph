@@ -147,8 +147,13 @@ function roomItem(
   const item = el("div", "zone-item");
   item.append(zoneRow(tools, edit, r, area));
   const box = el("div", "zone-figures");
-  if (surface && surface.netMm2 > 0) {
+  if (surface && surface.finishMm2 > 0) {
     line(box, t("panel.roomWallSurface", { area: sqm(surface.netMm2) }));
+    if (surface.revealsMm2 > 0) {
+      line(box, t("panel.roomWallReveals", {
+        area: sqm(surface.revealsMm2), total: sqm(surface.finishMm2),
+      }));
+    }
     if (surface.ceilingMm !== undefined) {
       line(box, t("panel.roomWallSurfaceCeiling", { mm: surface.ceilingMm }));
     }

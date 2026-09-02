@@ -301,11 +301,18 @@ krijgt haar eigen totaal, met daarnaast <b>in ruimtes</b>: wat de ruimtes samen 
 Gemeten wordt de <em>versneden vlaklengte</em> maal de hoogte, aan beide zijden: een muur tussen twee
 dikkere muren heeft een binnenvlak dat korter is dan zijn hartlijn en een buitenvlak dat langer is, en
 het is het vlak dat wordt afgewerkt. Sparingen worden op ware grootte van beide zijden afgetrokken, tot
-niet meer dan het vlak zelf; dagkanten tellen niet mee, want die staan haaks op de vlakken die hier
-worden gemeten. Draagt een muur gevelbekleding, dan staat er ook een regel <b>binnenzijden</b>:
+niet meer dan het vlak zelf. Draagt een muur gevelbekleding, dan staat er ook een regel <b>binnenzijden</b>:
 hetzelfde netto zonder de beklede zijde, die per definitie buiten ligt. Een muur die geen gevelblad
 opgeeft telt met beide zijden mee, want het document zegt dan niet welke zijde buiten is. Zoals elke
 maat hier wordt dit gemeld en niet gecontroleerd.</p>
+<p>De <b>dagkanten</b> staan als eigen regel naast het netto oppervlak, en samen vormen ze
+<b>af te werken</b>. Een dagkant is het vlak van de sparing zelf, door de dikte van de muur heen: twee
+neggen en een bovendorpel. Géén onderdorpel — onder een deur ligt de vloer en onder een raam komt een
+vensterbank in plaats van stucwerk. Eén dag wordt door de twee zijden gedeeld, elk de helft, en dat is
+geen benadering die goedgepraat moet worden: bij een raam in de gevel is de binnendag stucwerk en de
+buitendag gevelwerk, en de verdeling zet beide waar ze horen. Gemeten wordt over de constructieve dikte;
+gevelbekleding maakt de dag dieper, maar dat is gevelwerk. Zit er een verlaagd plafond onder de
+bovendorpel, dan telt die dorpel niet mee en stoppen de neggen bij het plafond.</p>
 <p>De hoogte wordt <em>per vlak</em> genomen, want de twee zijden van één muur staan in twee ruimtes.
 Zonder verlaagd plafond is dat vloer tot vloer; met een verlaagd plafond wordt elk vlak gemeten tot het
 plafond van de ruimte waarin het staat. Het plafond van de verdieping staat in het Plan-paneel, een
@@ -601,11 +608,18 @@ selected wall; each room's appears under its row in the room list; the storey ca
 with an <b>in rooms</b> line beside it for what the rooms take between them. What is measured is the
 <em>mitered face length</em> times the height, on both faces: a wall running between two thicker walls
 has an inner face shorter than its centreline and an outer face longer, and it is the face that gets
-finished. Openings are deducted at their stated size from both faces, clamped to the face itself;
-reveals are not counted, being perpendicular to the faces measured here. Where a wall carries cladding
-an <b>inner faces</b> line appears beside it: the same net area without the clad side, which is by
+finished. Openings are deducted at their stated size from both faces, clamped to the face itself.
+Where a wall carries cladding an <b>inner faces</b> line appears beside it: the same net area without the clad side, which is by
 definition outside. A wall that states no cladding counts with both faces, since the document does not
 then say which side is outside. Like every figure here, this is reported and not checked.</p>
+<p><b>Reveals</b> — dagkanten — stand as their own line beside the net area, and together they make
+<b>to finish</b>. A reveal is the surface of the opening itself, through the wall's thickness: two jambs
+and a head. No sill — under a door that is the floor, and under a window it takes a window board rather
+than plaster. One reveal is shared by the two sides, half each, and that is not an approximation to
+apologise for: on a window in the facade the inner reveal is plasterwork and the outer one is facade
+detail, and the split puts each where it belongs. It is measured over the structural thickness;
+cladding makes the reveal deeper, but that is facade work. Where a suspended ceiling sits below the
+head, the head does not count and the jambs stop at the ceiling.</p>
 <p>The height is taken <em>per face</em>, because the two sides of one wall stand in two rooms. With no
 suspended ceiling that is floor to floor; with one, each face is measured to the ceiling of the room it
 stands in. The storey's ceiling is set in the Plan pane, and a room states its own in the room list —

@@ -68,7 +68,8 @@ const theRoom = (f: Floor) => surfaceOf(f).rooms[0]!;
   check("the storey's gross area is both faces of the whole perimeter",
     near(s.grossMm2, 2 * perimeter * h, 10), String(s.grossMm2));
   check("with no openings, net equals gross", s.netMm2 === s.grossMm2);
-  check("with no cladding, the inner figure is the net one", s.innerMm2 === s.netMm2);
+  check("no openings means no reveals", s.revealsMm2 === 0 && s.finishMm2 === s.netMm2);
+  check("with no cladding, the inner figure is the whole one", s.innerMm2 === s.finishMm2);
   check("nothing is reported as clad", s.cladFaces === 0);
   check("every wall is listed", s.walls.length === 4);
   check("the per-wall figures sum to the storey's",
@@ -124,6 +125,116 @@ const theRoom = (f: Floor) => surfaceOf(f).rooms[0]!;
     one.openingsMm2 === 0, String(one.openingsMm2));
 }
 
+// ---- reveals (dagkanten) ----------------------------------------------------
+
+const DOOR_H = 2315;
+/** Two jambs and a head at the wall's thickness -- never a sill. */
+const reveal = (w: number, h: number, th = TH): number => (2 * h + w) * th;
+
+{
+  const f = rectFloor();
+  const w = f.walls[0]!;
+  w.openings.push(opening({ kind: "door", t: 2000, width: 900, height: DOOR_H }));
+  const s = surfaceOf(f);
+  const one = s.walls.find(x => x.wallId === w.id)!;
+
+  check("a door opens two jambs and a head",
+    near(one.revealsMm2, reveal(900, DOOR_H), 1), String(one.revealsMm2));
+  check("counted once across the two faces, half each",
+    one.faces.every(x => near(x.revealsMm2, reveal(900, DOOR_H) / 2, 1)),
+    one.faces.map(x => x.revealsMm2).join("/"));
+  check("the net figure does not carry them",
+    near(one.netMm2, one.grossMm2 - 2 * 900 * DOOR_H, 1));
+  check("the finishing figure is net plus reveals",
+    near(one.finishMm2, one.netMm2 + one.revealsMm2, 1));
+  check("and the storey's is too", near(s.finishMm2, s.netMm2 + s.revealsMm2, 1));
+  check("a wall with no openings has none",
+    s.walls.filter(x => x.wallId !== w.id).every(x => x.revealsMm2 === 0));
+}
+
+{
+  // No sill, so a window of the same clear size opens the same reveal as a
+  // door: under a door the sill is the floor, under a window a vensterbank.
+  const f = rectFloor();
+  f.walls[0]!.openings.push(
+    opening({ kind: "window", t: 2000, width: 900, sillHeight: 0, height: DOOR_H }));
+  const win = surfaceOf(f).walls.find(x => x.wallId === f.walls[0]!.id)!;
+  check("a window opens the same reveal as a door of its size",
+    near(win.revealsMm2, reveal(900, DOOR_H), 1), String(win.revealsMm2));
+}
+
+{
+  // The reveal runs through the wall, so it scales with the thickness.
+  const thin = rectFloor();
+  thin.walls[0]!.openings.push(opening({ kind: "door", t: 2000, width: 900, height: DOOR_H }));
+  const thick = rectFloor();
+  thick.walls[0]!.thickness = 2 * TH;
+  thick.walls[0]!.openings.push(opening({ kind: "door", t: 2000, width: 900, height: DOOR_H }));
+  const a = surfaceOf(thin).revealsMm2, b = surfaceOf(thick).revealsMm2;
+  check("twice the wall is twice the reveal", near(b, 2 * a, 1), `${a} -> ${b}`);
+}
+
+{
+  // A ceiling below the opening's head takes the head with it: what is above
+  // the ceiling is not finished on that side, and the jambs stop at it.
+  const f = rectFloor();
+  f.ceilingMm = 2000;
+  const w = f.walls[0]!;
+  w.openings.push(opening({ kind: "door", t: 2000, width: 900, height: DOOR_H }));
+  const one = surfaceOf(f).walls.find(x => x.wallId === w.id)!;
+  const inside = one.faces.find(x => x.roomKey !== undefined)!;
+  const outside = one.faces.find(x => x.roomKey === undefined)!;
+  check("the lowered face keeps jambs to the ceiling and no head",
+    near(inside.revealsMm2, (2 * 2000 * TH) / 2, 1), String(inside.revealsMm2));
+  check("while the face at full height keeps the whole reveal",
+    near(outside.revealsMm2, reveal(900, DOOR_H) / 2, 1), String(outside.revealsMm2));
+}
+
+{
+  // The two rooms either side of a doorway each finish their half of it.
+  const f = rectFloor();
+  const t0 = newId("n"), b0 = newId("n");
+  f.nodes.push({ id: t0, x: 2000, y: 0 }, { id: b0, x: 2000, y: D });
+  const top = f.walls[0]!, bottom = f.walls[2]!;
+  const topB = top.b, bottomB = bottom.b;
+  top.b = t0;
+  bottom.b = b0;
+  f.walls.push(
+    { id: newId("w"), a: t0, b: topB, thickness: TH, bulge: 0, openings: [] },
+    { id: newId("w"), a: b0, b: bottomB, thickness: TH, bulge: 0, openings: [] },
+    { id: newId("w"), a: t0, b: b0, thickness: TH, bulge: 0, openings: [] },
+  );
+  const partition = f.walls[6]!;
+  partition.openings.push(opening({ kind: "passage", t: 1500, width: 900, height: DOOR_H }));
+  const s = surfaceOf(f);
+  check("the doorway is in two rooms", s.rooms.length === 2);
+  const half = reveal(900, DOOR_H) / 2;
+  check("each room finishes half the doorway's reveal",
+    s.rooms.every(r => near(r.revealsMm2, half, 1)),
+    s.rooms.map(r => r.revealsMm2).join("/"));
+  check("and the two halves are the whole reveal",
+    near(s.rooms.reduce((n, r) => n + r.revealsMm2, 0), reveal(900, DOOR_H), 1));
+  // An internal doorway has no face outside, so no part of its reveal escapes
+  // into the storey's unroomed figure -- unlike the window two blocks down.
+  check("an internal doorway leaves no reveal outside",
+    near(s.revealsMm2, s.rooms.reduce((n, r) => n + r.revealsMm2, 0), 1),
+    String(s.revealsMm2));
+}
+
+{
+  // An exterior window: the inner reveal is plastered inside, the outer half
+  // belongs to the facade -- and lands outside, not in the room.
+  const f = rectFloor();
+  f.walls[0]!.openings.push(opening({ kind: "window", t: 2000, width: 1200, height: 1400 }));
+  const s = surfaceOf(f);
+  const room = theRoom(f);
+  const whole = reveal(1200, 1400);
+  check("the room takes half the window's reveal",
+    near(room.revealsMm2, whole / 2, 1), String(room.revealsMm2));
+  check("the other half is outside",
+    near(s.revealsMm2 - room.revealsMm2, whole / 2, 1));
+}
+
 // ---- cladding ---------------------------------------------------------------
 
 {
@@ -139,16 +250,16 @@ const theRoom = (f: Floor) => surfaceOf(f).rooms[0]!;
   check("the clad face is the stated one", left.clad && !right.clad);
   check("the storey counts one clad face", s.cladFaces === 1);
   check("the clad face is left out of the wall's inner figure",
-    near(one.innerMm2, right.netMm2, 1), `${one.innerMm2} vs ${right.netMm2}`);
+    near(one.innerMm2, right.finishMm2, 1), `${one.innerMm2} vs ${right.finishMm2}`);
   check("but stays in its net area", one.netMm2 === left.netMm2 + right.netMm2);
   check("the storey's inner figure drops by that one face",
-    near(s.innerMm2, s.netMm2 - left.netMm2, 1));
+    near(s.innerMm2, s.finishMm2 - left.finishMm2, 1));
 
   // A wall that states no cladding says nothing about which face is outside,
   // so it keeps both -- the interior figure never guesses.
   const plain = s.walls.find(x => x.wallId === f.walls[1]!.id)!;
   check("a wall with no cladding contributes both faces",
-    plain.innerMm2 === plain.netMm2);
+    plain.innerMm2 === plain.finishMm2);
 }
 
 {
@@ -167,8 +278,8 @@ const theRoom = (f: Floor) => surfaceOf(f).rooms[0]!;
 {
   const f = rectFloor();
   const s = surfaceOf(f);
-  const nets = s.walls.map(x => x.netMm2);
-  check("walls are listed largest net area first",
+  const nets = s.walls.map(x => x.finishMm2);
+  check("walls are listed largest finishing area first",
     nets.every((n, i) => i === 0 || nets[i - 1]! >= n), nets.join(" / "));
 }
 
@@ -216,9 +327,9 @@ const theRoom = (f: Floor) => surfaceOf(f).rooms[0]!;
   check("its wall area is the inner perimeter, full height",
     near(room.netMm2, innerPerimeter * h, 10), String(room.netMm2));
   check("the outer faces belong to no room",
-    near(s.unroomedMm2, s.netMm2 - room.netMm2, 10), String(s.unroomedMm2));
+    near(s.unroomedMm2, s.finishMm2 - room.finishMm2, 10), String(s.unroomedMm2));
   check("room and unroomed together are the whole storey",
-    near(room.netMm2 + s.unroomedMm2, s.netMm2, 1));
+    near(room.finishMm2 + s.unroomedMm2, s.finishMm2, 1));
   check("no ceiling is stated", room.ceilingMm === undefined);
 }
 
@@ -246,7 +357,7 @@ const theRoom = (f: Floor) => surfaceOf(f).rooms[0]!;
   f.walls.pop();
   const s = surfaceOf(f);
   check("an open plan reports no rooms", s.rooms.length === 0);
-  check("and puts all of its face area outside", near(s.unroomedMm2, s.netMm2, 1));
+  check("and puts all of its face area outside", near(s.unroomedMm2, s.finishMm2, 1));
 }
 
 // ---- suspended ceilings -----------------------------------------------------

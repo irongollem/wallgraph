@@ -182,6 +182,14 @@ on, that face being outside by definition; a wall with no cladding keeps both, s
 does not then say which side is outside. Reported, never enforced — nothing here decides what is
 finished. Verified by [tests/surface.test.ts](tests/surface.test.ts).
 
+**A reveal is one surface through the wall, so the two sides get half each.** `revealsMm2` is the
+dagkanten — two jambs and a head at the wall's THICKNESS, never a sill (under a door that is the
+floor, under a window a vensterbank). It stays out of `netMm2` and is added in `finishMm2`, because
+a stucadoor prices it separately and a plan that wants the wall alone still has it. The half-and-half
+split is not an approximation to apologise for: on an exterior window the inner half genuinely is
+plasterwork and the outer half genuinely is facade detail, and the split puts each where it belongs.
+A head above a suspended ceiling does not count, and the jambs stop at the ceiling.
+
 **A wall's two faces stand in two different rooms, so the HEIGHT is per face.** `detectRooms()`
 records which side of each wall a room is on (`Room.boundingFaces`), read off the direction the
 half-edge walk traverses it in: a bounded face lies on the `perp(direction)` side of its edges under
@@ -444,6 +452,6 @@ before changing one:
   connectivity — the document holds none of it — and a cable run's section is a
   placeholder, not a measurement.
 - The permit sheet is bouwkundig and carries no services at all.
-- Wall surface counts the two faces of a wall and nothing else: the reveals (dagkanten) around an
-  opening are not added, and a floor build-up is not modelled. A ceiling is one height per room,
-  not a plenum with its own geometry.
+- Wall surface counts the two faces of a wall plus the reveals through it. A reveal is measured over
+  the structural thickness only — cladding makes it deeper, but that is facade work — and a floor
+  build-up is not modelled. A ceiling is one height per room, not a plenum with its own geometry.

@@ -19,9 +19,13 @@
 //            build-up.
 //   openings each opening is deducted at its stated size (width x height,
 //            clamped to the face's own height) from BOTH faces, which is what a
-//            kozijn schedule states. The reveals -- the dagkanten around the
-//            opening -- are not added: they are perpendicular to the faces this
-//            measures.
+//            kozijn schedule states.
+//   reveals  the dagkanten: the surface of the hole itself, through the wall's
+//            thickness. Two jambs and a head, never a sill -- under a door the
+//            sill is the floor, and under a window it takes a vensterbank
+//            rather than plaster. Reported as its own figure and added to
+//            `finishMm2`, never folded into `netMm2`, so a quantity that
+//            excludes it stays readable beside one that includes it.
 //
 // Reported, never enforced, like every other figure in this product. Nothing
 // here decides what is finished; it states what area the walls present.
@@ -46,6 +50,13 @@ export interface WallFaceSurface {
   openingsMm2: number;
   netMm2: number;
   /**
+   * Half the reveal of this face's openings -- see openingOn(). A reveal is one
+   * surface through the wall, and the two sides finish half of it each.
+   */
+  revealsMm2: number;
+  /** `netMm2` plus `revealsMm2`: everything this face costs to finish. */
+  finishMm2: number;
+  /**
    * This face carries the wall's cladding, and so is the outside of the
    * building. A wall that states no cladding has neither face marked, because
    * the document does not then say which of them is outside -- see `innerMm2`.
@@ -69,13 +80,18 @@ export interface WallSurface {
   openings: number;
   grossMm2: number;
   openingsMm2: number;
-  /** Both faces, openings deducted. */
+  /** Both faces, openings deducted. Reveals are NOT in this figure. */
   netMm2: number;
+  /** The reveals of this wall's openings, counted once each across the two
+   *  faces. Its own figure so a quantity that excludes them stays readable. */
+  revealsMm2: number;
+  /** `netMm2` plus `revealsMm2`: everything this wall costs to finish. */
+  finishMm2: number;
   /**
-   * Net area over the faces that are NOT the clad side -- the finishing figure
-   * for a wall that states a facade. A wall with no cladding contributes both
-   * of its faces here, since nothing in the document says either one is
-   * outside; on a plan where no wall is clad this equals `netMm2`.
+   * Finish area over the faces that are NOT the clad side -- the interior
+   * figure for a wall that states a facade. A wall with no cladding contributes
+   * both of its faces here, since nothing in the document says either one is
+   * outside; on a plan where no wall is clad this equals `finishMm2`.
    */
   innerMm2: number;
 }
@@ -99,6 +115,10 @@ export interface RoomSurface {
   grossMm2: number;
   openingsMm2: number;
   netMm2: number;
+  /** The room's half of the reveals of the openings around it. */
+  revealsMm2: number;
+  /** `netMm2` plus `revealsMm2`: what finishing this room is quoted at. */
+  finishMm2: number;
 }
 
 export interface FloorSurface {
@@ -109,21 +129,43 @@ export interface FloorSurface {
   grossMm2: number;
   openingsMm2: number;
   netMm2: number;
+  revealsMm2: number;
+  finishMm2: number;
   innerMm2: number;
-  /** Net area of the faces that look into no room -- the outside of the
+  /** Finish area of the faces that look into no room -- the outside of the
    *  building, and anything the walls do not close around. */
   unroomedMm2: number;
   /** Faces left out of `innerMm2` because they carry cladding. */
   cladFaces: number;
 }
 
-/** The area one opening takes out of one face, mm². Clamped to the face: an
- *  opening taller than the face it cuts takes the face, not more. */
-function openingCut(heightMm: number, o: Opening): number {
+/**
+ * What one opening does to one face, mm²: the area it takes out, and the reveal
+ * it opens up.
+ *
+ * Both are clamped to the face. An opening taller than the face it cuts takes
+ * the face and not more, and the part of a reveal above a suspended ceiling is
+ * above the ceiling -- so the jambs are measured over the height that shows,
+ * and the head counts only where the opening's own head is below the face.
+ *
+ * `thicknessMm` is the STRUCTURAL body. A clad wall's reveal is deeper by its
+ * facade, but that depth is an exterior detail rather than plasterwork, and
+ * this figure is read by the trades working inside.
+ */
+function openingOn(heightMm: number, thicknessMm: number, o: Opening): {
+  cutMm2: number; revealMm2: number;
+} {
   const sill = openingSill(o);
-  const top = Math.min(sill + openingHeight(o), heightMm);
+  const head = sill + openingHeight(o);
+  const top = Math.min(head, heightMm);
   const bottom = Math.min(sill, top);
-  return Math.max(0, o.width) * Math.max(0, top - bottom);
+  const width = Math.max(0, o.width);
+  const clear = Math.max(0, top - bottom);
+  const jambs = 2 * clear * thicknessMm;
+  // No sill: under a door or a passage it is the floor, and under a window a
+  // vensterbank rather than plaster. A head clipped by the ceiling is above it.
+  const headArea = head <= heightMm ? width * thicknessMm : 0;
+  return { cutMm2: width * clear, revealMm2: jambs + headArea };
 }
 
 /** The room each wall face looks into, keyed "wallId:side". A face belongs to
@@ -146,13 +188,26 @@ function wallSurface(f: Floor, rw: ResolvedWall, byFace: ReadonlyMap<string, Roo
     // A ceiling is a finish under the slab, so it can only lower the face.
     const faceHeight = Math.min(room?.ceilingMm ?? heightMm, heightMm);
     const grossMm2 = lengthMm * faceHeight;
-    const cut = w.openings.reduce((sum, o) => sum + openingCut(faceHeight, o), 0);
+    let cut = 0, reveal = 0;
+    for (const o of w.openings) {
+      const on = openingOn(faceHeight, w.thickness, o);
+      cut += on.cutMm2;
+      reveal += on.revealMm2;
+    }
     // A face shorter than its openings is a wall the openings do not fit in;
     // it reports no area rather than a negative one.
     const openingsMm2 = Math.min(cut, grossMm2);
+    // Half, because a reveal is ONE surface through the wall and the two sides
+    // finish half of it each. Where one side is outside, that half genuinely is
+    // exterior work -- the inner reveal of a window is plastered, the outer one
+    // belongs to the facade detail -- so the split is the fact, not a fudge.
+    const netMm2 = grossMm2 - openingsMm2;
+    const revealsMm2 = reveal / 2;
     return {
       side, lengthMm, heightMm: faceHeight, grossMm2, openingsMm2,
-      netMm2: grossMm2 - openingsMm2,
+      netMm2,
+      revealsMm2,
+      finishMm2: netMm2 + revealsMm2,
       clad: side === cladSide,
       ...(room ? { roomKey: roomKey(room) } : {}),
       ...(room?.name !== undefined ? { roomName: room.name } : {}),
@@ -171,7 +226,9 @@ function wallSurface(f: Floor, rw: ResolvedWall, byFace: ReadonlyMap<string, Roo
     grossMm2: sum(x => x.grossMm2),
     openingsMm2: sum(x => x.openingsMm2),
     netMm2: sum(x => x.netMm2),
-    innerMm2: faces.reduce((n, x) => n + (x.clad ? 0 : x.netMm2), 0),
+    revealsMm2: sum(x => x.revealsMm2),
+    finishMm2: sum(x => x.finishMm2),
+    innerMm2: faces.reduce((n, x) => n + (x.clad ? 0 : x.finishMm2), 0),
   };
 }
 
@@ -189,7 +246,7 @@ export function floorSurface(f: Floor, resolved: Resolved, rooms: readonly Room[
     const rw = resolved.walls.get(w.id);
     if (rw) walls.push(wallSurface(f, rw, byFace));
   }
-  walls.sort((a, b) => b.netMm2 - a.netMm2);
+  walls.sort((a, b) => b.finishMm2 - a.finishMm2);
 
   // Per room, over the faces that named it. Built from the faces rather than
   // from each room's boundingFaces so the two cannot count different things.
@@ -199,18 +256,20 @@ export function floorSurface(f: Floor, resolved: Resolved, rooms: readonly Room[
       key: roomKey(r),
       ...(r.name !== undefined ? { name: r.name } : {}),
       ...(r.ceilingMm !== undefined ? { ceilingMm: r.ceilingMm } : {}),
-      faces: 0, grossMm2: 0, openingsMm2: 0, netMm2: 0,
+      faces: 0, grossMm2: 0, openingsMm2: 0, netMm2: 0, revealsMm2: 0, finishMm2: 0,
     });
   }
   let unroomedMm2 = 0;
   for (const s of walls) {
     for (const x of s.faces) {
       const entry = x.roomKey === undefined ? undefined : perRoom.get(x.roomKey);
-      if (!entry) { unroomedMm2 += x.netMm2; continue; }
+      if (!entry) { unroomedMm2 += x.finishMm2; continue; }
       entry.faces++;
       entry.grossMm2 += x.grossMm2;
       entry.openingsMm2 += x.openingsMm2;
       entry.netMm2 += x.netMm2;
+      entry.revealsMm2 += x.revealsMm2;
+      entry.finishMm2 += x.finishMm2;
     }
   }
 
@@ -218,10 +277,12 @@ export function floorSurface(f: Floor, resolved: Resolved, rooms: readonly Room[
     walls.reduce((n, s) => n + pick(s), 0);
   return {
     walls,
-    rooms: [...perRoom.values()].sort((a, b) => b.netMm2 - a.netMm2),
+    rooms: [...perRoom.values()].sort((a, b) => b.finishMm2 - a.finishMm2),
     grossMm2: total(s => s.grossMm2),
     openingsMm2: total(s => s.openingsMm2),
     netMm2: total(s => s.netMm2),
+    revealsMm2: total(s => s.revealsMm2),
+    finishMm2: total(s => s.finishMm2),
     innerMm2: total(s => s.innerMm2),
     unroomedMm2,
     cladFaces: walls.reduce((n, s) => n + s.faces.filter(x => x.clad).length, 0),

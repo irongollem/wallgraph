@@ -104,23 +104,34 @@ export function sqm(mm2: number): string {
 }
 
 /**
- * The four figures a face area is read in, shared by the storey total and the
+ * The figures a face area is read in, shared by the storey total and the
  * selected wall's own pane so the two cannot state it differently.
  *
- * Gross and the deduction are stated only where there is a deduction to make:
- * on a wall with no openings they repeat the net figure. `inner` appears only
- * where cladding takes a face out of it -- see WallSurface.innerMm2.
+ * Every row but the net one is conditional, because a row that repeats the one
+ * above it is noise: gross and the deduction only where there is a deduction to
+ * make, the reveals and the total only where there are openings to have any,
+ * and `inner` only where cladding takes a face out of it.
  */
 function surfaceRows(
   rows: PaneRows,
-  s: { grossMm2: number; openingsMm2: number; netMm2: number; innerMm2: number },
+  s: {
+    grossMm2: number; openingsMm2: number; netMm2: number;
+    revealsMm2: number; finishMm2: number; innerMm2: number;
+  },
+  clad: boolean,
 ): void {
   if (s.openingsMm2 > 0) {
     rows.infoRow(t("panel.wallSurfaceGross"), sqm(s.grossMm2));
     rows.infoRow(t("panel.wallSurfaceOpenings"), "\u2212" + sqm(s.openingsMm2));
   }
   rows.infoRow(t("panel.wallSurfaceNet"), sqm(s.netMm2));
-  if (s.innerMm2 !== s.netMm2) rows.infoRow(t("panel.wallSurfaceInner"), sqm(s.innerMm2));
+  // Kept beside the net figure rather than inside it: a stucadoor prices the
+  // dagkanten separately, and a plan that wants the wall alone still has it.
+  if (s.revealsMm2 > 0) {
+    rows.infoRow(t("panel.wallSurfaceReveals"), "+" + sqm(s.revealsMm2));
+    rows.infoRow(t("panel.wallSurfaceFinish"), sqm(s.finishMm2));
+  }
+  if (clad) rows.infoRow(t("panel.wallSurfaceInner"), sqm(s.innerMm2));
 }
 
 /**
@@ -134,16 +145,18 @@ function surfaceRows(
  * area, and the row naming the room says which is which.
  */
 export function renderWallSurface(rows: PaneRows, s: WallSurface): void {
-  surfaceRows(rows, s);
+  const clad = s.faces.some(x => x.clad);
+  surfaceRows(rows, s, clad);
   const lowered = s.faces.some(x => x.heightMm < s.heightMm);
   if (lowered) {
     for (const face of s.faces) {
       rows.infoRow(faceLabel(face),
-        t("panel.wallSurfaceFaceValue", { area: sqm(face.netMm2), mm: face.heightMm }));
+        t("panel.wallSurfaceFaceValue", { area: sqm(face.finishMm2), mm: face.heightMm }));
     }
   }
   rows.noteRow(lowered ? t("panel.wallSurfaceCeilingNote") : t("panel.wallSurfaceNote"));
-  if (s.innerMm2 !== s.netMm2) rows.noteRow(t("panel.wallSurfaceCladNote"));
+  if (s.revealsMm2 > 0) rows.noteRow(t("panel.wallSurfaceRevealNote"));
+  if (clad) rows.noteRow(t("panel.wallSurfaceCladNote"));
 }
 
 /** What to call one face: the room it looks into, named or not, or the outside
@@ -160,17 +173,18 @@ function faceLabel(face: WallSurface["faces"][number]): string {
 function renderStoreySurface(rows: PaneRows, total: FloorSurface): void {
   if (total.walls.length === 0) return;
   rows.secHead(t("panel.wallSurface"), { later: true });
-  surfaceRows(rows, total);
+  surfaceRows(rows, total, total.cladFaces > 0);
   // What the rooms of this storey take between them: the figure a quote for
   // the whole floor is written against, and the one the room list breaks down.
   // Stated only where a wall loop closes -- with none, every face is outside
   // and the row would read zero for a storey that plainly has walls.
   if (total.rooms.length > 0) {
     rows.infoRow(t("panel.wallSurfaceRooms"),
-      sqm(total.rooms.reduce((n, r) => n + r.netMm2, 0)));
+      sqm(total.rooms.reduce((n, r) => n + r.finishMm2, 0)));
   }
   const lowered = total.walls.some(s => s.faces.some(x => x.heightMm < s.heightMm));
   rows.noteRow(lowered ? t("panel.wallSurfaceCeilingNote") : t("panel.wallSurfaceNote"));
+  if (total.revealsMm2 > 0) rows.noteRow(t("panel.wallSurfaceRevealNote"));
   if (total.cladFaces > 0) rows.noteRow(t("panel.wallSurfaceCladNote"));
 }
 
@@ -244,7 +258,7 @@ function wallRow(
       { textContent: t("panel.wallListLength", { mm: len }) }),
     Object.assign(el("span", "zone-area"), {
       textContent: surface
-        ? t("panel.wallListMeta", { mm: w.thickness, area: sqm(surface.netMm2) })
+        ? t("panel.wallListMeta", { mm: w.thickness, area: sqm(surface.finishMm2) })
         : t("panel.wallListThickness", { mm: w.thickness }),
     }),
   );
