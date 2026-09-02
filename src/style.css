@@ -27,6 +27,14 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 }
 .canvas-wrap canvas.loupe[hidden] { display: none; }
 
+/* The 3D view's canvas. Covers the plan canvas and takes the pointer while
+   the mode is on, but stays under the compact chrome (z-index 2) and the
+   loupe (3); the [hidden] rule is load-bearing for the same reason the
+   loupe's is. */
+.canvas-wrap canvas.view3d { z-index: 1; cursor: grab; }
+.canvas-wrap canvas.view3d:active { cursor: grabbing; }
+.canvas-wrap canvas.view3d[hidden] { display: none; }
+
 :root {
   --dur-tap: 90ms;
   --dur-quick: 140ms;

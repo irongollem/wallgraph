@@ -485,6 +485,14 @@ staan. Een regel noemt de oppervlakte en, zodra die er is, de naam; de knop erna
 een invoerveld. De lijst volgt de muren: een ruimte die in tweeën wordt gedeeld verschijnt als twee
 regels, zonder dat er iets bijgehouden hoeft te worden.</p>
 
+<h2 id="3d">3D-weergave</h2>
+<p><kbd>3</kbd> zet de 3D-weergave aan: het hele gebouw, rechtstreeks opgetrokken uit de getekende
+muren — met deur- en raamopeningen, vloerplaten met vides, trappen als volume en elke verdieping op
+haar eigen peil. Slepen draait het beeld, scrollen zoomt, <kbd>Shift</kbd>+slepen verschuift;
+<kbd>F</kbd> brengt alles in beeld en <kbd>Esc</kbd> of nogmaals <kbd>3</kbd> keert terug naar de
+plattegrond. Net als de ruimtes is het beeld afgeleid: er staat niets driedimensionaals in het
+document.</p>
+
 <h2 id="ruimtenamen">Ruimtenamen</h2>
 <p>Een naam wordt in die lijst geschreven, of door op de tekening op de oppervlakte van een ruimte te
 klikken — dat opent dezelfde regel. Een leeg veld haalt de naam weer weg.</p>
@@ -532,6 +540,7 @@ applicatieserver vereist. De plattegrond blijft na het sluiten van het tabblad b
 <tr><td><kbd>Z</kbd></td><td>ruimtes: kader slepen, ruimte aanklikken, ruimte benoemen</td></tr>
 <tr><td><kbd>F</kbd></td><td>alles in beeld</td></tr>
 <tr><td><kbd>Shift</kbd>+<kbd>F</kbd></td><td>selectie in beeld</td></tr>
+<tr><td><kbd>3</kbd></td><td>3D-weergave aan/uit</td></tr>
 <tr><td><kbd>O</kbd></td><td>hoeksnapping aan/uit</td></tr>
 <tr><td><kbd>Shift</kbd></td><td>hoek vasthouden tijdens het tekenen</td></tr>
 <tr><td><kbd>G</kbd></td><td>rastersnapping aan/uit</td></tr>
@@ -783,6 +792,13 @@ it.</p>
 and, once it has one, the name; the button beside it turns the row into an input. The list follows the
 walls: a room divided in two shows as two rows, with nothing to keep in step.</p>
 
+<h2 id="3d">3D view</h2>
+<p><kbd>3</kbd> switches to the 3D view: the whole building, extruded directly from the drawn walls —
+door and window openings cut out, floor slabs with their voids, stairs as volumes, every storey at its
+own level. Dragging orbits, scrolling zooms, <kbd>Shift</kbd>+drag pans; <kbd>F</kbd> fits everything
+and <kbd>Esc</kbd> or <kbd>3</kbd> again returns to the plan. Like the rooms, the view is derived:
+nothing three-dimensional is stored in the document.</p>
+
 <h2 id="roomnames">Room names</h2>
 <p>A name is written in that list, or by clicking a room's area figure on the drawing, which opens the
 same row. An empty field takes the name off again.</p>
@@ -829,6 +845,7 @@ server. The plan remains available after the tab is closed.</p>
 <tr><td><kbd>Z</kbd></td><td>rooms: drag a box, click a room, name a room</td></tr>
 <tr><td><kbd>F</kbd></td><td>fit everything in view</td></tr>
 <tr><td><kbd>Shift</kbd>+<kbd>F</kbd></td><td>fit the selection</td></tr>
+<tr><td><kbd>3</kbd></td><td>3D view on/off</td></tr>
 <tr><td><kbd>O</kbd></td><td>angle snap on/off</td></tr>
 <tr><td><kbd>Shift</kbd></td><td>hold the angle while drawing</td></tr>
 <tr><td><kbd>G</kbd></td><td>grid snap on/off</td></tr>

@@ -15,6 +15,7 @@ import type { Vec } from "./geometry/vec";
 import { riserMarks } from "./core/continuation";
 import { v } from "./geometry/vec";
 import { language, on as onI18n } from "./i18n";
+import { View3D } from "./render3d/view3d";
 
 /**
  * What a caller holds after mounting: enough to put a plan in and take one out,
@@ -107,6 +108,20 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
     () => derived().resolved, () => panel.refreshToolbar(), () => derived().rooms,
   );
   const panel = new Panel(side, store, tools);
+
+  // The 3D extrusion view: its canvas covers the 2D one while the mode is on,
+  // so the pointer is its own and the 2D tools go quiet without being told.
+  // The keyboard is window-level and does need telling -- see the view3d
+  // guard in Tools.onKey().
+  const view3d = new View3D({
+    doc: () => store.doc,
+    revision: () => store.revision,
+    insets: () => panel.canvasInsets(),
+  });
+  view3d.canvas.classList.add("view3d");
+  canvasWrap.append(view3d.canvas);
+  tools.onView3d = on => view3d.setActive(on);
+  tools.onView3dFit = () => view3d.fit();
 
   function render(): void {
     const ctx = canvas.getContext("2d")!;
@@ -204,8 +219,8 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
     lctx.stroke();
   }
 
-  store.onChange(() => { scheduleAutosave(store.doc); requestRender(); });
-  window.addEventListener("resize", requestRender);
+  store.onChange(() => { scheduleAutosave(store.doc); requestRender(); view3d.requestRender(); });
+  window.addEventListener("resize", () => { requestRender(); view3d.requestRender(); });
 
   // Initial document: autosave if present, else the demo plan.
   const saved = tryLoadAutosave();
@@ -226,8 +241,8 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
   // selected; this is the whole of the connection between the two.
   tools.onRoomLabel = room => panel.editRoom(room);
   // A shell change re-frames: what was centred beside a sidebar is centred
-  // under a sheet.
-  panel.onLayoutChange = () => { tools.fitAll(); };
+  // under a sheet. The 3D view re-frames for the same reason.
+  panel.onLayoutChange = () => { tools.fitAll(); if (view3d.active) view3d.fit(); };
   tools.fitAll();
 
   requestRender();

@@ -379,6 +379,16 @@ export class Tools {
    * underlay unconditionally regardless of this flag (see DrawExtras.showUnderlay).
    */
   showUnderlay = true;
+  /**
+   * Whether the 3D extrusion view covers the canvas. Editor state, like
+   * snapGrid — a sheet has no 3D mode and no export reads it. While on, the
+   * 3D canvas sits over the 2D one and takes the pointer; onKey() passes only
+   * the keys that leave or reframe the view (see the view3d guard there).
+   */
+  view3d = false;
+  /** Host hooks for the 3D view: show/hide it, and reframe it on F. */
+  onView3d: ((on: boolean) => void) | null = null;
+  onView3dFit: (() => void) | null = null;
   /** Shift, as the last pointer or key event reported it. */
   private shiftKey = false;
   /** Alt at the last press: a drag that starts under it copies rather than moves. */
@@ -1906,6 +1916,17 @@ export class Tools {
     this.requestRender();
   }
 
+  /** Enter or leave the 3D view. Cancels any half-made gesture first: the
+   *  canvas it was drawing on is about to stop taking the pointer. */
+  setView3d(on: boolean): void {
+    if (this.view3d === on) return;
+    this.cancel();
+    this.view3d = on;
+    this.updateHint();
+    this.onToolChange();
+    this.onView3d?.(on);
+  }
+
   setRouteOffset(n: number): void {
     this.routeOffset = Math.max(0, Math.round(n));
     this.onToolChange();
@@ -3117,6 +3138,15 @@ export class Tools {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); this.store.redo(); return; }
     if (e.ctrlKey || e.metaKey) return;
 
+    // The 3D view is modal for the keyboard the way calibration is: the plan
+    // is not the thing on screen, so a tool shortcut would arm a tool nothing
+    // can see. Undo/redo stay live above -- a mutation rebuilds the mesh.
+    if (this.view3d) {
+      if (e.key === "Escape" || e.key === "3") this.setView3d(false);
+      else if (e.key === "f" || e.key === "F") this.onView3dFit?.();
+      return;
+    }
+
     // Typed mm entry, in the two states typingLength describes. The keypad
     // calls the same methods, so the keyboard and the touch pad cannot drift.
     if (this.typingLength) {
@@ -3167,6 +3197,8 @@ export class Tools {
       case "l": case "L": this.showDims = !this.showDims; this.onToolChange(); this.requestRender(); break;
       case "r": case "R": this.rotateSelected(); break;
       case "m": case "M": this.mirrorSelected(); break;
+      // 3 for the third dimension: the extruded view of the whole building.
+      case "3": this.setView3d(true); break;
       // Nothing else reads Enter without a typed length in the buffer, and
       // closing the ring is what a chain is usually four clicks away from.
       case "Enter": if (this.tool === "wall") this.closeChain(); break;
@@ -3433,6 +3465,9 @@ export class Tools {
 
   updateHint(): void {
     const h = (base: string, vars?: Record<string, string | number>): string => t(this.hintKey(base), vars);
+    // The 3D view replaces the canvas, so its navigation wording wins over
+    // whatever tool stays armed underneath it.
+    if (this.view3d) { this.hint = h("view3d"); return; }
     // Calibration overrides whatever the active tool would say: it captures
     // on top of it, so its own next-step instruction has to win.
     if (this.calibArmed) {
