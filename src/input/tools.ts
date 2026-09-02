@@ -2506,6 +2506,17 @@ export class Tools {
     });
   }
 
+  /** This room's own finished ceiling height, or undefined to fall back to the
+   *  storey's. Rides on the name for the reason the use does -- see RoomName. */
+  setRoomCeiling(id: string, mm: number | undefined): void {
+    this.store.mutate(doc => {
+      const f = this.store.floorOf(doc);
+      const rn = roomNamesOf(f).find(r => r.id === id);
+      if (!rn) return;
+      if (mm === undefined) delete rn.ceilingMm; else rn.ceilingMm = Math.max(100, Math.round(mm));
+    });
+  }
+
   /**
    * The room whose label on the canvas covers screen point `s`. The box is
    * generous horizontally because a label is as wide as the word in it, and

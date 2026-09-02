@@ -174,13 +174,29 @@ the net inner-face boundary; `PlanDoc.areaMode` selects which area is reported.
 Both are verified by [tests/core.test.ts](tests/core.test.ts), including the sign
 convention, junction finiteness and opening segmentation.
 
-**`floorSurface()`** — the face area of a storey's walls, per wall and summed, for the trades
-ordered by the square metre (stucwerk, verf, behang). It measures the MITERED face length from
-`resolveFloor()` rather than the centerline, times `wallHeight()`, on both faces; an opening is
-deducted at its stated size from each face and clamped to the wall. `innerMm2` leaves out the face
-a wall states cladding on, that face being outside by definition; a wall with no cladding keeps
-both, since the document does not then say which side is outside. Reported, never enforced —
-nothing here decides what is finished. Verified by [tests/surface.test.ts](tests/surface.test.ts).
+**`floorSurface()`** — the face area of a storey's walls, per wall, per room and summed, for the
+trades ordered by the square metre (stucwerk, verf, behang). It measures the MITERED face length
+from `resolveFloor()` rather than the centerline, on both faces; an opening is deducted at its
+stated size from each face and clamped to it. `innerMm2` leaves out the face a wall states cladding
+on, that face being outside by definition; a wall with no cladding keeps both, since the document
+does not then say which side is outside. Reported, never enforced — nothing here decides what is
+finished. Verified by [tests/surface.test.ts](tests/surface.test.ts).
+
+**A wall's two faces stand in two different rooms, so the HEIGHT is per face.** `detectRooms()`
+records which side of each wall a room is on (`Room.boundingFaces`), read off the direction the
+half-edge walk traverses it in: a bounded face lies on the `perp(direction)` side of its edges under
+y-down, which is the wall's `left` face when the edge runs a→b. That mapping is what makes a
+suspended ceiling work — a face is finished to the ceiling of the room it looks into, so the wall
+between a badkamer at 2300 and a slaapkamer at storey height is two different areas. Get the
+direction backwards and every room reports its neighbours' outer faces, which
+[tests/surface.test.ts](tests/surface.test.ts) checks by asserting a room always looks into the
+SHORTER of its walls' two faces.
+
+**A ceiling is a finish, not structure.** `Floor.ceilingMm` and `RoomName.ceilingMm` change nothing
+a stair climbs, nothing IFC calls a space, and no area — only `floorSurface()`. A figure at or above
+the storey height finishes nothing extra and reads as absent (`storeyCeiling()`), rather than as a
+ceiling inside the slab. The per-room one rides on the name for the reason `RoomName.use` does:
+there is no stored room to hang it on, so an unnamed room falls back to the storey's.
 
 **`resolveRoutes()`** — waypoints resolved through their anchors, then straight legs that
 share a corridor with another run fanned into parallel lanes. The fan is drawn legibility
@@ -428,6 +444,6 @@ before changing one:
   connectivity — the document holds none of it — and a cable run's section is a
   placeholder, not a measurement.
 - The permit sheet is bouwkundig and carries no services at all.
-- Wall surface is measured floor to floor over both faces. Nothing knows about a suspended
-  ceiling, a floor build-up, or the reveals around an opening, and no face is attributed to the
-  room on its side — a per-room finishing quantity is not derived.
+- Wall surface counts the two faces of a wall and nothing else: the reveals (dagkanten) around an
+  opening are not added, and a floor build-up is not modelled. A ceiling is one height per room,
+  not a plenum with its own geometry.

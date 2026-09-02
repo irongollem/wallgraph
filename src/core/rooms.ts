@@ -13,7 +13,7 @@
 // The net boundary is derived by offsetting each face edge inward by half the
 // thickness of the wall it lies on, then intersecting adjacent offset lines —
 // the same miter construction resolve.ts uses at junctions.
-import { Floor, DimMode, AreaMode, roomNamesOf, wallFacadeMm } from "../model/doc";
+import { Floor, DimMode, AreaMode, roomNamesOf, wallFacadeMm, floorHeight, storeyCeiling } from "../model/doc";
 import type { Id } from "../model/doc";
 import type { RoomName } from "../model/room";
 import {
@@ -50,22 +50,48 @@ export interface Room {
   /** The RoomName the name came from, so the name can be rewritten. */
   nameId?: Id;
   /**
-   * Walls whose centerline forms part of this room's boundary, deduplicated.
+   * The wall FACES that look into this room, deduplicated: which wall, and
+   * which of its two faces (in the wall's own a->b frame, "left" being
+   * +perp(tangent) -- invariant 2).
+   *
    * Follows straight from the half-edge walk below: every boundary edge is
    * one wall's own segment (a wall drawn through another's midpoint splits it
-   * at that node first, so there is no wall a room edge could straddle), so
+   * at that node first, so there is no wall a room edge could straddle), and
+   * the direction the walk traverses it in says which side the room is on. So
    * this is read off the same trace that finds the room rather than by
-   * re-matching geometry afterward. What core/fitout.ts sums window area over
-   * for the daylight ratio.
+   * re-matching geometry afterward.
+   *
+   * The side matters because a wall's two faces belong to two different rooms,
+   * and each is finished to its own room's ceiling -- see core/surface.ts. A
+   * wall that bounds one room on BOTH sides (a peninsula) appears twice, once
+   * per side, which is what a finishing quantity has to count.
+   *
+   * core/fitout.ts sums window area over the walls named here for the daylight
+   * ratio; that figure is side-agnostic, so it dedupes them itself.
    */
-  boundingWallIds: Id[];
+  boundingFaces: RoomFace[];
+  /**
+   * The height this room's wall faces are finished to, mm, where a suspended
+   * ceiling is stated -- the room's own (RoomName.ceilingMm) or the storey's
+   * (Floor.ceilingMm) -- and undefined where none is. Derived, like the name
+   * it may have come from: the document stores the ceiling, not which room it
+   * belongs to.
+   */
+  ceilingMm?: number;
 }
 
-interface HalfEdge { from: number; to: number; visited: boolean; half: number; wallId: Id }
+/** One face of one wall, in the wall's own a->b frame. */
+export interface RoomFace { wallId: Id; side: "left" | "right" }
+
+/** `forward` is true where this half-edge runs in its wall's own a->b
+ *  direction, which is what says which face of that wall a room is on. */
+interface HalfEdge {
+  from: number; to: number; visited: boolean; half: number; wallId: Id; forward: boolean;
+}
 
 /** One traced face of the flattened wall graph, before it is classified as a
- *  room or the outer boundary. */
-interface Face { poly: Vec[]; halves: number[]; wallIds: Id[]; area: number }
+ *  room or the outer boundary. `faces` runs parallel to `halves`. */
+interface Face { poly: Vec[]; halves: number[]; faces: RoomFace[]; area: number }
 
 /**
  * Walk every face of the flattened wall graph by the sharpest-left turn rule:
@@ -98,9 +124,13 @@ function walkFaces(f: Floor): Face[] {
     const ek = Math.min(ia, ib) + "-" + Math.max(ia, ib);
     if (edgeSet.has(ek)) return;
     edgeSet.add(ek);
-    for (const [from, to] of [[ia, ib], [ib, ia]] as const) {
+    // ia->ib is the wall's own a->b direction: `flat` was built in it. A face
+    // traced with positive shoelace area under this walk's turn rule lies on
+    // the perp(direction) side of each of its edges (y-down, invariant 2),
+    // which is the wall's LEFT face when the edge runs forward.
+    for (const [from, to, forward] of [[ia, ib, true], [ib, ia, false]] as const) {
       const idx = halfEdges.length;
-      halfEdges.push({ from, to, visited: false, half, wallId });
+      halfEdges.push({ from, to, visited: false, half, wallId, forward });
       const arr = outgoing.get(from);
       if (arr) arr.push(idx); else outgoing.set(from, [idx]);
     }
@@ -127,7 +157,7 @@ function walkFaces(f: Floor): Face[] {
     if (halfEdges[start]!.visited) continue;
     const polyIdx: number[] = [];
     const halves: number[] = []; // half-thickness of the wall carrying each edge
-    const wallIds: Id[] = []; // which wall carries each edge, same order as halves
+    const faceOf: RoomFace[] = []; // the wall face this side of each edge, same order
     let cur = start;
     let guard = 0;
     while (guard++ < 100000) {
@@ -136,7 +166,7 @@ function walkFaces(f: Floor): Face[] {
       he.visited = true;
       polyIdx.push(he.from);
       halves.push(he.half);
-      wallIds.push(he.wallId);
+      faceOf.push({ wallId: he.wallId, side: he.forward ? "left" : "right" });
       // Next: at he.to, pick the edge just CW of twin(cur) in the sorted order.
       const outs = outgoing.get(he.to)!;
       const tw = twin(cur);
@@ -147,7 +177,7 @@ function walkFaces(f: Floor): Face[] {
     }
     if (polyIdx.length < 3) continue;
     const poly = polyIdx.map(i => verts[i]!);
-    faces.push({ poly, halves, wallIds, area: polygonArea(poly) });
+    faces.push({ poly, halves, faces: faceOf, area: polygonArea(poly) });
   }
   return faces;
 }
@@ -164,8 +194,8 @@ export function detectRooms(f: Floor): Room[] {
     // carrying that edge is clad. An exterior wall bounds one room and its
     // facade is by definition on the far side of it, so no side check is needed
     // -- a facade drawn on the room side is a document error, not a case.
-    const bvoPoly = insetPolygon(face.poly, face.wallIds.map((id, i) => {
-      const w = f.walls.find(x => x.id === id);
+    const bvoPoly = insetPolygon(face.poly, face.faces.map(({ wallId }, i) => {
+      const w = f.walls.find(x => x.id === wallId);
       const fm = w ? wallFacadeMm(w) : undefined;
       return fm === undefined ? 0 : -((face.halves[i] ?? 0) + fm);
     }));
@@ -174,11 +204,45 @@ export function detectRooms(f: Floor): Room[] {
       netPoly, netAreaMm2: netArea,
       bvoPoly, bvoAreaMm2: Math.max(0, polygonArea(bvoPoly)),
       centroid: polygonCentroid(face.poly),
-      boundingWallIds: Array.from(new Set(face.wallIds)),
+      boundingFaces: dedupeFaces(face.faces),
     });
   }
   attachNames(f, rooms);
+  attachCeilings(f, rooms);
   return rooms;
+}
+
+/** One entry per (wall, side): an arc contributes a flattened segment per
+ *  chord, and all of them are the same face of the same wall. */
+function dedupeFaces(list: RoomFace[]): RoomFace[] {
+  const seen = new Set<string>();
+  const out: RoomFace[] = [];
+  for (const rf of list) {
+    const key = rf.wallId + ":" + rf.side;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(rf);
+  }
+  return out;
+}
+
+/**
+ * The finished ceiling each room's faces are measured to: the room's own where
+ * its name states one, the storey's otherwise, and nothing at all where neither
+ * does. A figure at or above the storey height states nothing a face is not
+ * already finished to and is dropped, the way storeyCeiling() drops it.
+ */
+function attachCeilings(f: Floor, rooms: Room[]): void {
+  const storey = storeyCeiling(f);
+  const limit = floorHeight(f);
+  const names = roomNamesOf(f);
+  for (const r of rooms) {
+    const own = r.nameId === undefined
+      ? undefined
+      : names.find(rn => rn.id === r.nameId)?.ceilingMm;
+    const c = own !== undefined && own > 0 && own < limit ? own : storey;
+    if (c !== undefined) r.ceilingMm = c;
+  }
 }
 
 /**

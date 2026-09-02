@@ -8,7 +8,8 @@ import {
   Wall, Opening, Floor,
 } from "../src/model/doc";
 import { resolveFloor } from "../src/core/resolve";
-import { floorSurface, wallSurface } from "../src/core/surface";
+import { detectRooms, roomKey } from "../src/core/rooms";
+import { floorSurface } from "../src/core/surface";
 import { v } from "../src/geometry/vec";
 
 let failures = 0;
@@ -39,7 +40,9 @@ function opening(over: Partial<Opening> & Pick<Opening, "kind" | "t" | "width">)
   return { id: newId("o"), sashes: [], ...over };
 }
 
-const surfaceOf = (f: Floor) => floorSurface(f, resolveFloor(f));
+const surfaceOf = (f: Floor) => floorSurface(f, resolveFloor(f), detectRooms(f));
+/** The one room a closed rectangle encloses. */
+const theRoom = (f: Floor) => surfaceOf(f).rooms[0]!;
 
 // ---- face lengths -----------------------------------------------------------
 
@@ -187,16 +190,180 @@ const surfaceOf = (f: Floor) => floorSurface(f, resolveFloor(f));
     s.walls.length === 0 && s.grossMm2 === 0 && s.netMm2 === 0 && s.cladFaces === 0);
 }
 
-// ---- one wall, directly -----------------------------------------------------
+// ---- rooms ------------------------------------------------------------------
 
 {
   const f = rectFloor();
-  const resolved = resolveFloor(f);
+  const rooms = detectRooms(f);
+  check("the rectangle encloses one room", rooms.length === 1, String(rooms.length));
+
+  // The face a room looks into is the one eaten in by its neighbours -- the
+  // shorter of the two. This is the whole direction convention in one check:
+  // get it backwards and every room reports its neighbours' outer faces.
+  const s = surfaceOf(f);
+  for (const wall of s.walls) {
+    const inside = wall.faces.find(x => x.roomKey !== undefined);
+    const outside = wall.faces.find(x => x.roomKey === undefined);
+    check("a room looks into the shorter face of each of its walls",
+      inside !== undefined && outside !== undefined && inside.lengthMm < outside.lengthMm,
+      `${inside?.lengthMm} vs ${outside?.lengthMm}`);
+  }
+
+  const room = theRoom(f);
+  check("the room is bounded by one face of each wall", room.faces === 4, String(room.faces));
+  const h = floorHeight(f);
+  const innerPerimeter = 2 * ((W - TH) + (D - TH));
+  check("its wall area is the inner perimeter, full height",
+    near(room.netMm2, innerPerimeter * h, 10), String(room.netMm2));
+  check("the outer faces belong to no room",
+    near(s.unroomedMm2, s.netMm2 - room.netMm2, 10), String(s.unroomedMm2));
+  check("room and unroomed together are the whole storey",
+    near(room.netMm2 + s.unroomedMm2, s.netMm2, 1));
+  check("no ceiling is stated", room.ceilingMm === undefined);
+}
+
+{
+  // A wall standing inside the room bounds it on BOTH sides, and a finishing
+  // quantity has to count both.
+  const f = rectFloor();
+  const mid = newId("n");
+  f.nodes.push({ id: mid, x: 2000, y: 1500 });
+  f.walls.push({
+    id: newId("w"), a: f.nodes[0]!.id, b: mid, thickness: TH, bulge: 0, openings: [],
+  });
+  const rooms = detectRooms(f);
+  check("a peninsula does not divide the room", rooms.length === 1, String(rooms.length));
+  const spur = rooms[0]!.boundingFaces.filter(rf => rf.wallId === f.walls[4]!.id);
+  check("both of its faces look into the room",
+    spur.length === 2 && spur.some(x => x.side === "left") && spur.some(x => x.side === "right"),
+    JSON.stringify(spur));
+  check("and both are counted", theRoom(f).faces === 6);
+}
+
+{
+  // An open chain closes nothing, so every face is outside.
+  const f = rectFloor();
+  f.walls.pop();
+  const s = surfaceOf(f);
+  check("an open plan reports no rooms", s.rooms.length === 0);
+  check("and puts all of its face area outside", near(s.unroomedMm2, s.netMm2, 1));
+}
+
+// ---- suspended ceilings -----------------------------------------------------
+
+{
+  const f = rectFloor();
+  const full = surfaceOf(f);
+  f.ceilingMm = 2400;
+  const s = surfaceOf(f);
+  const h = floorHeight(f);
+
+  check("the room is finished to the storey's ceiling", theRoom(f).ceilingMm === 2400);
+  const inner = s.walls.flatMap(x => x.faces).filter(x => x.roomKey !== undefined);
+  const outer = s.walls.flatMap(x => x.faces).filter(x => x.roomKey === undefined);
+  check("faces looking into it are measured to it",
+    inner.every(x => x.heightMm === 2400), inner.map(x => x.heightMm).join("/"));
+  check("faces looking outside keep the wall's own height",
+    outer.every(x => x.heightMm === h), outer.map(x => x.heightMm).join("/"));
+  check("so the room's area drops in proportion",
+    near(theRoom(f).netMm2, full.rooms[0]!.netMm2 * (2400 / h), 10));
+  check("a wall still reports its structural height", s.walls.every(x => x.heightMm === h));
+  check("and the storey total drops by only the inside",
+    near(s.netMm2, full.netMm2 - (full.rooms[0]!.netMm2 - theRoom(f).netMm2), 10));
+}
+
+{
+  // A ceiling at or above the storey height finishes nothing extra, so it is
+  // not a ceiling: a face is already finished to the floor above.
+  const f = rectFloor();
+  const plain = surfaceOf(f).netMm2;
+  f.ceilingMm = floorHeight(f);
+  check("a ceiling at the storey height states nothing",
+    theRoom(f).ceilingMm === undefined && near(surfaceOf(f).netMm2, plain, 1));
+  f.ceilingMm = floorHeight(f) + 500;
+  check("nor does one above it",
+    theRoom(f).ceilingMm === undefined && near(surfaceOf(f).netMm2, plain, 1));
+}
+
+{
+  // A room's own ceiling overrides the storey's, and only for that room.
+  const f = rectFloor();
+  f.ceilingMm = 2600;
+  const anchor = detectRooms(f)[0]!.centroid;
+  const nameId = newId("rn");
+  f.roomNames = [{
+    id: nameId, x: Math.round(anchor.x), y: Math.round(anchor.y),
+    name: "Badkamer", ceilingMm: 2300,
+  }];
+  const room = theRoom(f);
+  check("the room's own ceiling wins over the storey's", room.ceilingMm === 2300);
+  check("and the row carries its name", room.name === "Badkamer");
+  check("its key matches the room it came from",
+    room.key === roomKey(detectRooms(f)[0]!));
+
+  // Above the storey height it states nothing, and the storey answers instead.
+  f.roomNames[0]!.ceilingMm = 4000;
+  check("a room ceiling above the storey falls back to the storey's",
+    theRoom(f).ceilingMm === 2600);
+  delete f.roomNames[0]!.ceilingMm;
+  check("an unstated room ceiling falls back too", theRoom(f).ceilingMm === 2600);
+}
+
+{
+  // Two rooms, one with a low ceiling: the wall between them is finished to a
+  // different height on each side, which is the whole reason a face carries
+  // its own height rather than the wall carrying one.
+  const f = rectFloor();
+  const t0 = newId("n"), b0 = newId("n");
+  f.nodes.push({ id: t0, x: 2000, y: 0 }, { id: b0, x: 2000, y: D });
+  // Split the top and bottom walls at x=2000 and run a partition between them.
+  const top = f.walls[0]!, bottom = f.walls[2]!;
+  const topB = top.b, bottomB = bottom.b;
+  top.b = t0;
+  bottom.b = b0;
+  f.walls.push(
+    { id: newId("w"), a: t0, b: topB, thickness: TH, bulge: 0, openings: [] },
+    { id: newId("w"), a: b0, b: bottomB, thickness: TH, bulge: 0, openings: [] },
+    { id: newId("w"), a: t0, b: b0, thickness: TH, bulge: 0, openings: [] },
+  );
+  const partition = f.walls[6]!;
+  const rooms = detectRooms(f);
+  check("the partition makes two rooms", rooms.length === 2, String(rooms.length));
+
+  const left = rooms.find(r => r.centroid.x < 2000)!;
+  f.roomNames = [{
+    id: newId("rn"), x: Math.round(left.centroid.x), y: Math.round(left.centroid.y),
+    name: "Badkamer", ceilingMm: 2300,
+  }];
+  const s = surfaceOf(f);
+  const wall = s.walls.find(x => x.wallId === partition.id)!;
+  const heights = wall.faces.map(x => x.heightMm).sort((a, b) => a - b);
+  check("the partition is finished to a different height on each side",
+    heights[0] === 2300 && heights[1] === floorHeight(f), heights.join("/"));
+  const named = s.rooms.find(r => r.name === "Badkamer")!;
+  const other = s.rooms.find(r => r.name === undefined)!;
+  check("only the named room is lowered",
+    named.ceilingMm === 2300 && other.ceilingMm === undefined);
+  check("both rooms are reported", s.rooms.length === 2);
+  check("the partition's two faces land in different rooms",
+    wall.faces[0]!.roomKey !== wall.faces[1]!.roomKey);
+}
+
+{
+  // An opening is clamped to the FACE, so a door taller than a low ceiling is
+  // deducted only down to it.
+  const f = rectFloor();
+  f.ceilingMm = 2000;
   const w = f.walls[0]!;
-  const one = wallSurface(f, resolved.walls.get(w.id)!);
-  const fromFloor = floorSurface(f, resolved).walls.find(x => x.wallId === w.id)!;
-  check("wallSurface() and floorSurface() state the same wall identically",
-    JSON.stringify(one) === JSON.stringify(fromFloor));
+  w.openings.push(opening({ kind: "door", t: 2000, width: 900, height: 2315 }));
+  const s = surfaceOf(f);
+  const wall = s.walls.find(x => x.wallId === w.id)!;
+  const inside = wall.faces.find(x => x.roomKey !== undefined)!;
+  const outside = wall.faces.find(x => x.roomKey === undefined)!;
+  check("the deduction on the lowered face stops at the ceiling",
+    near(inside.openingsMm2, 900 * 2000, 1), String(inside.openingsMm2));
+  check("while the face at full height loses the whole door",
+    near(outside.openingsMm2, 900 * 2315, 1), String(outside.openingsMm2));
 }
 
 console.log(failures === 0 ? "ALL SURFACE TESTS PASSED" : `${failures} FAILURES`);

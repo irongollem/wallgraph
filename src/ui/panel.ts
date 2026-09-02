@@ -18,7 +18,8 @@ import { exportPermit, PermitFormat } from "../io/permit";
 import { permitChecklist, PermitCheck } from "../core/permit";
 import { seedDoc } from "../seed";
 import {
-  emptyDoc, areaModeOf, dimModeOf, mountMarksOn, floorHeight, wallHeight, openingSill, openingHeight, projectOf,
+  emptyDoc, areaModeOf, dimModeOf, mountMarksOn, floorHeight, storeyCeiling, CEILING_DEFAULT_MM,
+  wallHeight, openingSill, openingHeight, projectOf,
   sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS,
   doorKindOf, DOOR_KINDS, widthsFor, DOOR_WIDTHS_DOUBLE, FIRE_KINDS, FIRE_MINUTES,
   FIRE_MINUTES_DEFAULT, routesOf, furnishingsOf, WALL_MATERIALS, POST_DEFAULT_MM, POST_WIDTH_DEFAULT,
@@ -42,6 +43,7 @@ import { renderFurnishingTool, renderFurnishingProps } from "./furnishing";
 import { renderZoomTool, type RoomEdit } from "./zoom";
 import { renderOpeningTool } from "./openings";
 import { renderWallTool, renderWallSurface } from "./walls";
+import { floorSurface } from "../core/surface";
 import {
   planWallJoin, applyWallJoin, isJoinPlan,
   applyNodeDissolve, isDissolvePlan, planWallMerge, planNodeRemoval, removeNode,
@@ -623,7 +625,8 @@ export class Panel {
     // rebuild when an undo changes a value under them -- but not on every
     // store change, or placing a symbol would yank focus out of an open field.
     const paneSig = [this.store.activeFloor, d.floors.map(fl => fl.name).join("\u0001"),
-      d.gridMm, areaModeOf(d), floorHeight(this.store.floor), d.groundMm ?? "", this.tools.lastThickness,
+      d.gridMm, areaModeOf(d), floorHeight(this.store.floor),
+      this.store.floor.ceilingMm ?? "", d.groundMm ?? "", this.tools.lastThickness,
       JSON.stringify(d.project ?? null), d.northDeg ?? "",
       this.store.floor.underlay ? "u1" : "u0", this.tools.calibrating ? "c1" : "c0",
       // The Plan section's per-discipline toggles only show once the floor
@@ -1295,6 +1298,25 @@ export class Panel {
       // one placed would carry the old height as an override of the new one.
       this.tools.followStoreyHeight(h);
     }, 100, { title: t("panel.floorHeightHelp") });
+    // A suspended ceiling under this storey's slab. Set/unset rather than a
+    // bare number, like a wall's own height: absent means there is none, not a
+    // ceiling at zero. It is a finish and nothing else -- no stair climbs to
+    // it, no space is measured by it; it decides only what height a wall FACE
+    // is finished to (core/surface.ts). A room finished lower than the rest
+    // states its own in the room list.
+    checkRow(t("panel.ceilingOn"), this.store.floor.ceilingMm !== undefined, on =>
+      this.store.mutate(d => {
+        const fl = this.store.floorOf(d);
+        if (on) fl.ceilingMm = Math.min(CEILING_DEFAULT_MM, floorHeight(fl) - 100);
+        else delete fl.ceilingMm;
+      }));
+    if (this.store.floor.ceilingMm !== undefined) {
+      numRow(t("panel.ceiling"), this.store.floor.ceilingMm, n => this.store.mutate(d => {
+        this.store.floorOf(d).ceilingMm = Math.max(100, Math.round(n));
+      }), 50, { title: t("panel.ceilingHelp") });
+      if (storeyCeiling(this.store.floor) === undefined) noteRow(t("panel.ceilingAboveStorey"));
+      else noteRow(t("panel.ceilingHelp"));
+    }
     // Ground floor's elevation above project zero (Peil). Plan-wide, not
     // per-floor, so it sits beside the storey height rather than in renderFloors.
     numRow(t("panel.groundMm"), this.store.doc.groundMm ?? 0,
@@ -1962,8 +1984,12 @@ export class Panel {
         }), 50);
       }
       // Face area, straight after the two dimensions it is the product of.
-      const rw = this.tools.resolvedWall(sel.id);
-      if (rw) renderWallSurface(rows, f, rw);
+      // Through the storey's takeoff rather than a wall-sized one of its own:
+      // a face is finished to the ceiling of the room it looks into, and only
+      // the storey's rooms say which room that is.
+      const surface = floorSurface(f, this.tools.resolvedFloor(), this.tools.rooms())
+        .walls.find(x => x.wallId === sel.id);
+      if (surface) renderWallSurface(rows, surface);
       // Tri-state: "" is not stated, not the same fact as "no" for IFC.
       selRow(t("panel.loadBearing"), w.loadBearing === undefined ? "" : w.loadBearing ? "yes" : "no",
         [["", t("panel.loadBearingUnknown")], ["yes", t("panel.loadBearingYes")], ["no", t("panel.loadBearingNo")]],

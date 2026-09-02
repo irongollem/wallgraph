@@ -10,10 +10,9 @@ import {
   WALL_SHAPES, POLYGON_MIN_SIDES, POLYGON_MAX_SIDES, type WallShape,
 } from "../model/shape";
 import { WALL_MATERIALS, POST_DEFAULT_MM, POST_WIDTH_DEFAULT, type WallMaterial } from "../model/doc";
-import type { Floor, Wall } from "../model/doc";
+import type { Wall } from "../model/doc";
 import { wallLength, MIN_WALL_MM } from "../model/ops";
-import { floorSurface, wallSurface, type FloorSurface, type WallSurface } from "../core/surface";
-import type { ResolvedWall } from "../core/resolve";
+import { floorSurface, type FloorSurface, type WallSurface } from "../core/surface";
 import { v } from "../geometry/vec";
 import { foldOut } from "./foldout";
 import { icon, type IconName } from "./icons";
@@ -94,7 +93,7 @@ export function renderWallTool(
 
   // One takeoff for both readers below: the storey total, and the per-wall
   // figure each row of the wall list carries.
-  const surface = floorSurface(store.floor, tools.resolvedFloor());
+  const surface = floorSurface(store.floor, tools.resolvedFloor(), tools.rooms());
   renderStoreySurface(rows, surface);
   renderWallList(host, store, tools, surface);
 }
@@ -126,15 +125,34 @@ function surfaceRows(
 
 /**
  * The face area of one wall, in the pane of the wall that is selected. The
- * measurement basis is stated beside it every time rather than once in a
- * manual: the height is floor to floor, so this is not the area up to a
- * suspended ceiling, and a quantity read off it needs to say which it is.
+ * measurement basis is stated beside the figure every time rather than once in
+ * a manual: a quantity read off it needs to say what height it was measured to.
+ *
+ * Where a suspended ceiling lowers one of the two faces, they are also listed
+ * separately. That is exactly the case where one total is surprising -- the two
+ * sides of a wall between a badkamer and a slaapkamer are then not the same
+ * area, and the row naming the room says which is which.
  */
-export function renderWallSurface(rows: PaneRows, f: Floor, rw: ResolvedWall): void {
-  const s = wallSurface(f, rw);
+export function renderWallSurface(rows: PaneRows, s: WallSurface): void {
   surfaceRows(rows, s);
-  rows.noteRow(t("panel.wallSurfaceNote"));
+  const lowered = s.faces.some(x => x.heightMm < s.heightMm);
+  if (lowered) {
+    for (const face of s.faces) {
+      rows.infoRow(faceLabel(face),
+        t("panel.wallSurfaceFaceValue", { area: sqm(face.netMm2), mm: face.heightMm }));
+    }
+  }
+  rows.noteRow(lowered ? t("panel.wallSurfaceCeilingNote") : t("panel.wallSurfaceNote"));
   if (s.innerMm2 !== s.netMm2) rows.noteRow(t("panel.wallSurfaceCladNote"));
+}
+
+/** What to call one face: the room it looks into, named or not, or the outside
+ *  where it looks into no room at all. */
+function faceLabel(face: WallSurface["faces"][number]): string {
+  if (face.roomName !== undefined) return face.roomName;
+  return face.roomKey === undefined
+    ? t("panel.wallSurfaceFaceOutside")
+    : t("panel.wallSurfaceFaceUnnamed");
 }
 
 /** The storey's total wall face area: what an order for stucwerk, verf or
@@ -143,7 +161,16 @@ function renderStoreySurface(rows: PaneRows, total: FloorSurface): void {
   if (total.walls.length === 0) return;
   rows.secHead(t("panel.wallSurface"), { later: true });
   surfaceRows(rows, total);
-  rows.noteRow(t("panel.wallSurfaceNote"));
+  // What the rooms of this storey take between them: the figure a quote for
+  // the whole floor is written against, and the one the room list breaks down.
+  // Stated only where a wall loop closes -- with none, every face is outside
+  // and the row would read zero for a storey that plainly has walls.
+  if (total.rooms.length > 0) {
+    rows.infoRow(t("panel.wallSurfaceRooms"),
+      sqm(total.rooms.reduce((n, r) => n + r.netMm2, 0)));
+  }
+  const lowered = total.walls.some(s => s.faces.some(x => x.heightMm < s.heightMm));
+  rows.noteRow(lowered ? t("panel.wallSurfaceCeilingNote") : t("panel.wallSurfaceNote"));
   if (total.cladFaces > 0) rows.noteRow(t("panel.wallSurfaceCladNote"));
 }
 
