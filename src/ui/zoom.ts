@@ -227,7 +227,13 @@ function nameRow(tools: Tools, edit: RoomEdit, r: Room, area: string, store: Sto
     if (e.key === "Enter") { e.preventDefault(); finish(true); }
     else if (e.key === "Escape") { e.preventDefault(); finish(false); }
   };
-  input.onblur = () => finish(true);
+  input.onblur = e => {
+    // The use and ceiling controls belong to this same editor. Let focus move
+    // to them; rebuilding here would remove the control before its click or
+    // keyboard interaction can complete.
+    if (e.relatedTarget instanceof Node && wrap.contains(e.relatedTarget)) return;
+    finish(true);
+  };
 
   row.append(input, Object.assign(el("span", "zone-area"), { textContent: area }));
   wrap.append(row);

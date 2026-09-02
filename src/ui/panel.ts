@@ -1470,7 +1470,10 @@ export class Panel {
     checkRow(t("panel.ceilingOn"), this.store.floor.ceilingMm !== undefined, on =>
       this.store.mutate(d => {
         const fl = this.store.floorOf(d);
-        if (on) fl.ceilingMm = Math.min(CEILING_DEFAULT_MM, floorHeight(fl) - 100);
+        // Imported plans may carry a schema-valid storey below the editor's
+        // 1000 mm input floor. Never turn one of those into an invalid document
+        // by writing a zero or negative default ceiling.
+        if (on) fl.ceilingMm = Math.max(1, Math.min(CEILING_DEFAULT_MM, floorHeight(fl) - 100));
         else delete fl.ceilingMm;
       }));
     if (this.store.floor.ceilingMm !== undefined) {

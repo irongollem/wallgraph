@@ -20,7 +20,7 @@ npm run dev        # esbuild watch + static server on http://localhost:5173 (POR
 npm run check      # typecheck + tests — run this before every commit
 npm run build      # typecheck + bundle -> dist/index.html, plus the site
 npm run typecheck  # tsc over src/ (browser) and tests/+scripts/ (node) separately
-npm test           # every tests/**/*.test.ts, discovered by glob, in parallel
+npm test           # every tests/**/*.test.ts, discovered and run in parallel
 npm run check:seo  # asserts the emitted site hangs together (needs a SITE_URL build)
 ```
 
@@ -41,14 +41,13 @@ the build and the site generator are TypeScript and import from `src/`, so they 
 typechecked too. `npm run typecheck` runs both; bare `tsc --noEmit` does not check the
 tests or build scripts.
 
-**A test file is discovered, never registered.** `npm test` globs
-`tests/**/*.test.ts` through node's own runner, so adding a suite means adding the file
+**A test file is discovered, never registered.** `npm test` walks
+`tests/` and hands every `*.test.ts` file to node's runner, so adding a suite means adding the file
 and nothing else — the list of test files that used to sit in `package.json` was a merge
 conflict on every branch that added one. Each file runs as its own process, in parallel,
 and a non-zero exit is a failure; the files print their own `ok`/`FAIL` lines and the
-runner counts them. Because a glob matching nothing would exit 0 with "pass 0",
-`scripts/check-tests.mjs` runs as npm's `pretest` and refuses a suite that has lost its
-files.
+runner counts them. `scripts/run-tests.mjs` performs both discovery and execution, and
+refuses a suite that has lost its files.
 
 `strict` is on with `noUncheckedIndexedAccess` (indexing needs `!` or a guard) plus
 `noUnusedLocals`/`noUnusedParameters` — prefix a genuinely unused parameter with `_`
