@@ -88,7 +88,7 @@ export class GLRenderer {
   private glassVerts = 0;
 
   /** Throws when WebGL is unavailable; the caller decides what to show then. */
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, onRestore: () => void = () => {}) {
     this.canvas = canvas;
     const gl = canvas.getContext("webgl", { antialias: true });
     if (!gl) throw new Error("WebGL unavailable");
@@ -103,6 +103,7 @@ export class GLRenderer {
       this.lost = false;
       this.res = null; // program and buffers rebuild on the next draw
       this.uploaded = -1;
+      onRestore();
     });
     this.res = this.build();
   }

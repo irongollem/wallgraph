@@ -120,6 +120,17 @@ function sameMat(m: Float32Array, expected: number[]): boolean {
       corners.every(c => inClip(vp, c)),
       JSON.stringify(corners.map(c => ndc(vp, c))));
   }
+
+  // A compact sheet may leave only half the canvas visible. The fit distance
+  // must grow so the same scene fits that smaller frame, not merely recenter.
+  const full = new OrbitCamera();
+  full.fit(b, 1);
+  const inset = new OrbitCamera();
+  inset.fit(b, 1, 1, 0.5);
+  check("an inset fit backs away for the smaller visible frame", inset.distance > full.distance);
+  const insetVp = inset.viewProjection(1);
+  check("an inset fit keeps every corner in the visible half",
+    corners.every(c => Math.abs(ndc(insetVp, c).y) <= 0.5));
 }
 
 // ── the y-down convention: no mirroring ────────────────────────────────────

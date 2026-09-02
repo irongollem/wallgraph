@@ -125,7 +125,11 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
   // The storey column floats over the 3D canvas, ground floor at the bottom.
   const floors3d = new Floors3D(store, tools);
   canvasWrap.append(floors3d.el);
-  tools.onView3d = on => { view3d.setActive(on); floors3d.refresh(); };
+  tools.onView3d = on => {
+    if (on && !view3d.setActive(true)) tools.setView3d(false);
+    else if (!on) view3d.setActive(false);
+    floors3d.refresh();
+  };
   tools.onView3dFit = () => view3d.fit();
   tools.onView3dScene = () => view3d.requestRender();
   onI18n("languageChanged", () => floors3d.refresh());
@@ -261,6 +265,7 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
       if (!doc || doc.version !== 1 || !Array.isArray(doc.floors) || !doc.floors[0]) return false;
       store.replace(doc, true);
       tools.fitAll();
+      if (view3d.active) view3d.fit();
       requestRender();
       return true;
     },

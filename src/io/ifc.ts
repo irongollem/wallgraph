@@ -11,9 +11,8 @@
 // BIM 6, which adds the floor plate itself: one IFCSLAB per storey whose
 // outer boundary closes, IFCRELCONTAINEDINSPATIALSTRUCTURE'd alongside the
 // walls, and one IFCOPENINGELEMENT (IFCRELVOIDSELEMENT'd to the slab) per
-// vide — a vide is already stored as a hole in this floor's slab (see
-// model/vide.ts), so the export needs no new geometry beyond what
-// floorSolids() already returns as SlabSolid. This is BIM 7, which reaches
+// vide — its stored placement is resolved by the same `videHole()` helper the
+// slab solids use. This is BIM 7, which reaches
 // the remaining document objects: one IFCSTAIR (aggregating one
 // IFCSTAIRFLIGHT, which carries the run's numbers) per stair, one
 // one element per furnishing classed by its trade, and one per symbol, its IFC
@@ -67,7 +66,7 @@ import { resolveRoutePoints, routePlaneHeight } from "../core/route";
 import { arcFlatten } from "../geometry/arc";
 import { ifcGuid } from "../model/guid";
 import { wallLength } from "../model/ops";
-import { floorSolids } from "../core/solids";
+import { floorSolids, videHole } from "../core/solids";
 import { detectRooms, roomSize, sizeLabel, Room, roomArea } from "../core/rooms";
 import { resolveStair, stairBox } from "../core/stair";
 import { StairKind, stairParams } from "../model/stair";
@@ -1012,15 +1011,12 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
           enumv("FLOOR")]);
       contained.push(slabEntity);
 
-      // floorSolids() lists the authored vide holes first, one per vide in
-      // order, then the derived stairwells (core/solids.ts). Only the vides
-      // carry stored ids to key an opening's GlobalId on, so only they are
-      // exported; a derived well stays a view concern until the BIM issues
-      // give it an identity of its own.
+      // Only authored vides carry stored ids to key an opening's GlobalId on.
+      // floorSolids() may merge a partially overlapping derived stairwell into
+      // its display hole, so export the vide's exact authored footprint here.
       const vides = videsOf(floor);
-      vides.forEach((vide, videIndex) => {
-        const hole = slab.holes[videIndex];
-        if (!hole) return;
+      vides.forEach(vide => {
+        const hole = videHole(vide);
         const openingEntity = w.entity("IFCOPENINGELEMENT",
           [str(ifcGuid(seed, vide.id)), ref(ownerHistory), str("Vide"), UNSET, UNSET, ref(levelPlacement),
             bodyShape([extrudedSolid(hole, slab.z0, slab.z1)]), UNSET, UNSET]);

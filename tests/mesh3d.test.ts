@@ -282,6 +282,19 @@ const rectSlabVol = volumeOf(rectMesh, SLAB_COLOR);
   const vol = volumeOf(m, WALL_COLOR);
   check("wall volume includes the junction wedges", nearRel(vol, expected, 1e-3),
     `${vol} vs ${expected}`);
+
+  for (const w of f.walls) w.material = "glass";
+  const glassFs = floorSolids(doc, 0)!;
+  let glassExpected = 0;
+  for (const w of glassFs.walls) for (const p of w.body) {
+    glassExpected += Math.abs(polygonArea(p.poly)) * (p.z1 - p.z0);
+  }
+  for (const j of glassFs.junctions) glassExpected += Math.abs(polygonArea(j.poly)) * (j.z1 - j.z0);
+  const glassMesh = buildSceneMesh(doc);
+  check("junction solids retain the material their walls agree on",
+    glassFs.junctions.every(j => j.material === "glass"));
+  check("glazed junction wedges join the translucent wall soup",
+    nearRel(volumeOf(glassMesh, GLASS_COLOR, -Infinity, "glass"), glassExpected, 1e-3));
 }
 
 // ── a vide: slab volume drops by hole area x thickness ─────────────────────
@@ -457,6 +470,38 @@ const RING_AREA = 1400000;
   }
   check("under the flight the wall stops a gap below the steps",
     found > 0 && near(maxZ, top, 0.5), `${found} tris, max ${maxZ} vs ${top}`);
+
+  const framed = withWall();
+  const crossing = framed.walls[framed.walls.length - 1]!;
+  crossing.postMm = 300;
+  crossing.postWidthMm = 60;
+  framed.stairs = f.stairs;
+  const framedDoc = emptyDocWith(framed);
+  const framedSolid = floorSolids(framedDoc, 0)!.walls.find(w => w.wallId === crossing.id)!;
+  const post = framedSolid.posts.find(p => {
+    const x = p.poly.reduce((sum, q) => sum + q.x, 0) / p.poly.length;
+    return x > 1550 && x < 2450;
+  });
+  let postTop = -Infinity;
+  if (post) {
+    const px = post.poly.reduce((sum, q) => sum + q.x, 0) / post.poly.length;
+    const py = post.poly.reduce((sum, q) => sum + q.y, 0) / post.poly.length;
+    const fm = buildSceneMesh(framedDoc);
+    for (let i = 0; i + 8 < fm.positions.length; i += 9) {
+      if (Math.abs(fm.colors[i]! - WALL_COLOR[0]) > 1e-3) continue;
+      const ax = fm.positions[i]!, ay = fm.positions[i + 1]!;
+      const bx = fm.positions[i + 3]!, by = fm.positions[i + 4]!;
+      const cx2 = fm.positions[i + 6]!, cy2 = fm.positions[i + 7]!;
+      const s1 = (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+      const s2 = (cx2 - bx) * (py - by) - (cy2 - by) * (px - bx);
+      const s3 = (ax - cx2) * (py - cy2) - (ay - cy2) * (px - cx2);
+      if ((s1 >= 0 && s2 >= 0 && s3 >= 0) || (s1 <= 0 && s2 <= 0 && s3 <= 0)) {
+        postTop = Math.max(postTop, fm.positions[i + 2]!, fm.positions[i + 5]!, fm.positions[i + 8]!);
+      }
+    }
+  }
+  check("a frame post crossing the flight is cut with its wall",
+    !!post && near(postTop, top, 0.5), `${postTop} vs ${top}`);
 }
 
 // ── empty and degenerate documents ──────────────────────────────────────────

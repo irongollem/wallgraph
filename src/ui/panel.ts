@@ -24,7 +24,7 @@ import {
   FIRE_MINUTES_DEFAULT, routesOf, furnishingsOf, WALL_MATERIALS, POST_DEFAULT_MM, POST_WIDTH_DEFAULT,
   FACADE_DEFAULT_MM, facadeSideOf,
   type AreaMode, type DimMode, type Sash, type HingeEdge, type Opening, type Wall, type Floor, type FireKind,
-  type ProjectMeta, type Id, type WallMaterial,
+  type ProjectMeta, type Id, type WallMaterial, type PlanDoc,
 } from "../model/doc";
 import type { Discipline } from "../model/route";
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
@@ -487,13 +487,13 @@ export class Panel {
   private documentMenuEntries(): MenuEntry[] {
     return [
       { kind: "item", icon: "docNew", label: t("action.new"), onPick: () => {
-        clearAutosave(); this.store.replace(emptyDoc(), true); this.flash(t("status.newPlan"));
+        clearAutosave(); this.replaceDocument(emptyDoc()); this.flash(t("status.newPlan"));
       } },
       { kind: "item", icon: "docDemo", label: t("action.demo"), onPick: () => {
-        this.store.replace(seedDoc(), true); this.flash(t("status.demoLoaded"));
+        this.replaceDocument(seedDoc()); this.flash(t("status.demoLoaded"));
       } },
       { kind: "item", icon: "docOpen", label: t("action.open"), onPick: () => importJsonFile(
-        doc => { this.store.replace(doc, true); this.flash(t("status.planLoaded")); },
+        doc => { this.replaceDocument(doc); this.flash(t("status.planLoaded")); },
         () => this.flash(t("status.invalidFile")),
       ) },
       { kind: "sep" },
@@ -517,6 +517,12 @@ export class Panel {
         options: LANGUAGES.map(l => [l.code, l.label] as [string, string]),
         onPick: value => changeLanguage(value as Lang) },
     ];
+  }
+
+  /** Replace the plan and reframe whichever canvas is currently visible. */
+  private replaceDocument(doc: PlanDoc): void {
+    this.store.replace(doc, true);
+    if (this.tools.view3d) this.tools.onView3dFit?.();
   }
 
   /** Keys spelled out rather than built from the result, so they stay greppable. */
@@ -1184,7 +1190,7 @@ export class Panel {
       const doc = parseDoc(ta.value);
       if (!doc) { this.flash(t("status.invalidJson")); return; }
       overlay.remove();
-      this.store.replace(doc, true);
+      this.replaceDocument(doc);
       this.flash(t("status.planLoadedUndo"));
     };
     const cancel = el("button", "tool-btn small") as HTMLButtonElement;

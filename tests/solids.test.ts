@@ -7,7 +7,7 @@ import {
 import { detectRooms } from "../src/core/rooms";
 import { floorSolids, SLAB_DEFAULT_MM } from "../src/core/solids";
 import { seedDoc } from "../src/seed";
-import { v, dist, polygonArea, perp, add, scale } from "../src/geometry/vec";
+import { v, dist, polygonArea, perp, add, scale, pointInPolygon } from "../src/geometry/vec";
 import { arcPointAt, arcTangentAt, arcLength, bulgeFromSagitta } from "../src/geometry/arc";
 
 let failures = 0;
@@ -314,6 +314,11 @@ function emptyDocWith(f: Floor): ReturnType<typeof emptyDoc> {
     check("the plate shares the slab's band",
       fs.terrace.z0 === -SLAB_DEFAULT_MM && fs.terrace.z1 === 0);
   }
+
+  upper.vides = [{ id: newId("v"), x: 1000, y: 1500, rotation: 0, width: 500, depth: 500 }];
+  const withVide = floorSolids(doc, 1)!.terrace;
+  check("a vide inside the upper footprint is not a nested terrace hole",
+    withVide !== null && withVide.holes.length === 1, String(withVide?.holes.length));
 }
 
 // ── stairwells ──────────────────────────────────────────────────────────────
@@ -354,6 +359,20 @@ function emptyDocWith(f: Floor): ReturnType<typeof emptyDoc> {
   doc3.floors = [lower3, upper3];
   check("an authored vide over the flight is the trapgat",
     floorSolids(doc3, 1)!.slab!.holes.length === 1);
+
+  const doc4 = emptyDoc();
+  const lower4 = rectFloor();
+  lower4.stairs = [stair()];
+  const upper4 = rectFloor();
+  // Covers only the entry end of the derived well. The rest of the well must
+  // remain open rather than being discarded because the two holes overlap.
+  upper4.vides = [{ id: newId("v"), x: 2000, y: 650, rotation: 0, width: 500, depth: 500 }];
+  doc4.floors = [lower4, upper4];
+  const partial = floorSolids(doc4, 1)!.slab!.holes;
+  check("a partial vide and stairwell become one triangulatable hole", partial.length === 1,
+    String(partial.length));
+  check("the merged hole keeps the authored and uncovered stairwell areas",
+    !!partial[0] && pointInPolygon(v(2000, 500), partial[0]) && pointInPolygon(v(1600, 2000), partial[0]));
 }
 
 console.log(failures === 0 ? "ALL SOLIDS TESTS PASSED" : `${failures} FAILURES`);

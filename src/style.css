@@ -718,6 +718,9 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
    without the height to stack a sheet under a top bar. */
 
 @media (orientation: landscape) and (max-height: 500px) {
+  /* The tool bar becomes a 72 px left rail in this posture. Keep the 3D
+     storey column in the usable canvas beside it. */
+  .floors3d { left: calc(84px + env(safe-area-inset-left)); }
   .wg-top {
     left: auto; right: 0; width: 316px; border-left: 1px solid #e2ded2;
     padding-left: 10px; padding-right: calc(6px + env(safe-area-inset-right));

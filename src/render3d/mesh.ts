@@ -149,7 +149,7 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
       const bodyColor = mat === "glass" ? GLASS_COLOR : mat === "sandwich" ? PANEL_COLOR : WALL_COLOR;
       const glass = mat === "glass";
       for (const p of w.body) emitWallPrism(acc, p.poly, elev, p.z0, seat(p.z1), ax, spans, bodyColor, glass);
-      for (const p of w.posts) emitPrism(acc, p.poly, [], elev + p.z0, elev + seat(p.z1), WALL_COLOR);
+      for (const p of w.posts) emitWallPrism(acc, p.poly, elev, p.z0, seat(p.z1), ax, spans, WALL_COLOR, false);
       // The resolved pieces are the solid intervals BETWEEN openings, cut at
       // full wall height. The band below a sill and the band above a head put
       // that material back, so a wall with a window is exact without CSG.
@@ -176,7 +176,10 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
         }
       }
     }
-    for (const j of fs.junctions) emitPrism(acc, j.poly, [], elev + j.z0, elev + seat(j.z1), WALL_COLOR);
+    for (const j of fs.junctions) {
+      const color = j.material === "glass" ? GLASS_COLOR : j.material === "sandwich" ? PANEL_COLOR : WALL_COLOR;
+      emitPrism(acc, j.poly, [], elev + j.z0, elev + seat(j.z1), color, j.material === "glass");
+    }
 
     if (fs.slab) {
       emitPrism(acc, fs.slab.outline, fs.slab.holes, elev + fs.slab.z0, elev + fs.slab.z1, SLAB_COLOR);
