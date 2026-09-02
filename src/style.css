@@ -133,6 +133,34 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 .storey-select:hover { border-color: #e2ded2; background: #faf9f5; }
 .storey-select:focus-visible { outline: 2px solid #2d7de0; outline-offset: 1px; }
 .storey-add { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 1px solid #e2ded2; background: #faf9f5; color: #8a8577; cursor: pointer; }
+/* Unfolds the storey-management pane in the context area (renderFloorsPane). */
+.storey-manage { flex: none; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+  border-radius: 6px; border: 1px solid transparent; background: none; color: #8a8577; cursor: pointer; }
+.storey-manage:hover { border-color: #e2ded2; background: #faf9f5; }
+.storey-manage.is-active { border-color: #2d7de0; background: #eef4fd; color: #2d7de0; }
+
+/* ---------- storey-management pane ---------- */
+
+.floor-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.floor-row { display: flex; align-items: center; gap: 4px; padding: 3px;
+  border: 1px solid #e2ded2; border-radius: 7px; background: #fff; }
+.floor-row.is-active { border-color: #2d7de0; background: #f4f8fe; }
+.floor-row.is-dragging { opacity: .85; box-shadow: 0 3px 10px rgba(43,46,51,.18); position: relative; z-index: 1; }
+/* touch-action: none keeps a touch drag on the grip from scrolling the pane. */
+.floor-grip { flex: none; width: 24px; height: 28px; display: flex; align-items: center; justify-content: center;
+  border: none; background: none; color: #b5afa0; cursor: grab; touch-action: none; }
+.floor-grip:active { cursor: grabbing; }
+.floor-grip:hover { color: #6b675c; }
+.floor-name { flex: 1 1 auto; min-width: 0; padding: 4px 6px; border: 1px solid transparent;
+  border-radius: 5px; background: none; font: inherit; color: #2b2e33; }
+.floor-row.is-active .floor-name { font-weight: 600; }
+.floor-name:hover { border-color: #e2ded2; }
+.floor-name:focus { border-color: #2d7de0; outline: none; background: #fff; }
+.floor-act { flex: none; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+  border-radius: 6px; border: 1px solid transparent; background: none; color: #8a8577; cursor: pointer; }
+.floor-act:hover:enabled { border-color: #e2ded2; background: #faf9f5; }
+.floor-del:hover:enabled { color: #b3261e; }
+.floor-act:disabled { opacity: .35; cursor: default; }
 /* One scroller for properties + symbols; neither scrolls internally. */
 .pane-scroll { flex: 1 1 0; min-height: 0; overflow-y: auto; }
 .pane-body { padding: 12px 12px 0; }
@@ -481,8 +509,13 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
   /* No keyboard to name. The caption above takes the space instead. */
   .rail-key, .btn-key { display: none; }
   .storey-add { width: 36px; height: 36px; }
+  .storey-manage { width: 36px; height: 36px; }
   .sec-close { width: 34px; height: 34px; margin: -8px -8px -8px 0;
     display: flex; align-items: center; justify-content: center; }
+  .floor-grip { width: 38px; height: 44px; }
+  .floor-act { width: 40px; height: 40px; }
+  /* Same 17 px iOS zoom guard as the prop-row fields below. */
+  .floor-name { min-height: 44px; font-size: 17px; }
   /* 17 px, not 13 px: iOS Safari zooms the page when a focused field is under
      16 px, which fights the canvas viewport and the visitor cannot undo it. */
   .prop-row input[type="number"], .prop-row input[type="text"] {

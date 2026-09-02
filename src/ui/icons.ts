@@ -29,7 +29,7 @@ export type IconName =
   | "cabinet" | "route" | "zoom" | "rename"
   | "shapeLine" | "shapeRect" | "shapeCircle" | "shapePoly"
   | "gridSnap" | "angleSnap" | "dimensions" | "view3d"
-  | "undo" | "redo" | "dots" | "chevron" | "plus" | "minus" | "close"
+  | "undo" | "redo" | "dots" | "grip" | "chevron" | "plus" | "minus" | "close"
   | "trash" | "search" | "floors" | "backspace" | "confirm"
   | "docNew" | "docDemo" | "docOpen" | "docSave" | "docPng" | "docDxf" | "docSvg" | "docCopy" | "docPaste";
 
@@ -99,6 +99,12 @@ const ICONS: Record<IconName, Shape[]> = {
   undo: [P("M8.2 5.6 L4.2 9.6 L8.2 13.6 M4.2 9.6 H12.4 A4.2 4.2 0 0 1 12.4 18 H8.6")],
   redo: [P("M11.8 5.6 L15.8 9.6 L11.8 13.6 M15.8 9.6 H7.6 A4.2 4.2 0 0 0 7.6 18 H11.4")],
   dots: [C(5, 10, 1.5, true), C(10, 10, 1.5, true), C(15, 10, 1.5, true)],
+  // Drag handle: two columns of dots, the mark for "this row can be picked up".
+  grip: [
+    C(7.4, 4.8, 1.4, true), C(12.6, 4.8, 1.4, true),
+    C(7.4, 10, 1.4, true), C(12.6, 10, 1.4, true),
+    C(7.4, 15.2, 1.4, true), C(12.6, 15.2, 1.4, true),
+  ],
   chevron: [P("M6.5 8.5 L10 12 L13.5 8.5")],
   plus: [P("M10 5 V15 M5 10 H15")],
   minus: [P("M5 10 H15")],
