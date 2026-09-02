@@ -15,7 +15,7 @@
 import {
   PlanDoc, Floor, Id, OpeningKind, wallHeight, floorHeight, openingSill, openingHeight, videsOf,
 } from "../model/doc";
-import { Vec, add, sub, scale } from "../geometry/vec";
+import { Vec, add, sub, scale, pointInPolygon, distToSeg } from "../geometry/vec";
 import { resolveFloor } from "./resolve";
 import { detectRooms, outerBoundary } from "./rooms";
 import { videBox } from "./vide";
@@ -32,7 +32,29 @@ export interface SpaceSolid { name?: string; poly: Vec[]; z0: 0; z1: number }
 
 export interface SlabSolid { outline: Vec[]; holes: Vec[][]; z0: number; z1: 0 }
 
-export interface FloorSolids { walls: WallSolid[]; spaces: SpaceSolid[]; slab: SlabSolid | null }
+export interface FloorSolids {
+  walls: WallSolid[];
+  spaces: SpaceSolid[];
+  slab: SlabSolid | null;
+  /**
+   * Junction filler wedges as prisms: the polygons resolveFloor() derives for
+   * nodes where three or more walls meet, which belong to no single wall. As
+   * tall as the SHORTEST wall at the node — the filler can only cover a gap,
+   * and material above the lowest meeting wall would invent fabric no wall
+   * states.
+   */
+  junctions: Prism[];
+  /**
+   * The plate over the storey BELOW where this storey does not itself cover
+   * it: the roof of a set-back lower storey, which is this storey's outdoor
+   * floor (a dakterras). Same z-band as `slab`. Null on the ground floor, when
+   * the storey below has no boundary, or when this storey's own boundary
+   * already covers it. Where this storey's boundary lies strictly inside the
+   * plate, it is carried as a hole so the plate and the slab tile the level
+   * rather than overlap.
+   */
+  terrace: SlabSolid | null;
+}
 
 /**
  * Slab thickness, mm — a derived-side constant rather than a stored per-floor
@@ -79,14 +101,56 @@ export function floorSolids(doc: PlanDoc, floorIndex: number): FloorSolids | nul
     poly: r.netPoly, z0: 0, z1: fh,
   }));
 
+  const wallById = new Map(f.walls.map(w => [w.id, w] as const));
+  const junctions: Prism[] = resolved.junctions.map(j => {
+    let h = Infinity;
+    for (const id of j.walls) {
+      const w = wallById.get(id);
+      if (w) h = Math.min(h, wallHeight(f, w));
+    }
+    return { poly: j.poly, z0: 0, z1: isFinite(h) ? h : floorHeight(f) };
+  });
+
   const outline = outerBoundary(f);
+  const holes = videsOf(f).map(vd => videHole(vd));
   const slab: SlabSolid | null = outline === null ? null : {
-    outline,
-    holes: videsOf(f).map(vd => videHole(vd)),
-    z0: -SLAB_DEFAULT_MM, z1: 0,
+    outline, holes, z0: -SLAB_DEFAULT_MM, z1: 0,
   };
 
-  return { walls, spaces, slab };
+  const below = floorIndex > 0 ? doc.floors[floorIndex - 1] : undefined;
+  const belowOutline = below && below.walls.length > 0 ? outerBoundary(below) : null;
+  let terrace: SlabSolid | null = null;
+  if (belowOutline && !(outline && coveredBy(belowOutline, outline))) {
+    terrace = {
+      outline: belowOutline,
+      holes: outline && coveredBy(outline, belowOutline) ? [outline, ...holes] : [...holes],
+      z0: -SLAB_DEFAULT_MM, z1: 0,
+    };
+  }
+
+  return { walls, spaces, slab, junctions, terrace };
+}
+
+/** Tolerance for a boundary vertex lying on the other boundary, mm. The face
+ *  walk quantises vertices to whole mm, so identical outlines land exactly. */
+const COVER_TOL = 1.5;
+
+/**
+ * Whether every vertex of `inner` lies inside `outer` or on its boundary — a
+ * vertex test, not a full polygon containment, which is enough for building
+ * outlines: the stacked-identical and set-back cases it decides are the ones
+ * that occur, and a false positive needs boundaries that interleave without
+ * placing a vertex outside.
+ */
+function coveredBy(inner: Vec[], outer: Vec[]): boolean {
+  const n = outer.length;
+  return inner.every(p => {
+    if (pointInPolygon(p, outer)) return true;
+    for (let i = 0; i < n; i++) {
+      if (distToSeg(p, outer[i]!, outer[(i + 1) % n]!).d <= COVER_TOL) return true;
+    }
+    return false;
+  });
 }
 
 /** A vide's footprint as a world-space quad, corners in traversal order —

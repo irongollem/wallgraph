@@ -235,5 +235,69 @@ function emptyDocWith(f: Floor): ReturnType<typeof emptyDoc> {
   return doc;
 }
 
+// ── junction fillers ────────────────────────────────────────────────────────
+
+{
+  const f = rectFloor();
+  const fs = floorSolids(emptyDocWith(f), 0)!;
+  check("degree-2 corners derive no junction fillers", fs.junctions.length === 0,
+    String(fs.junctions.length));
+}
+
+{
+  // A thick interior wall meeting the thin ring mid-edge: two degree-3 nodes.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  const pts = [v(0, 0), v(2000, 0), v(4000, 0), v(4000, 3000), v(2000, 3000), v(0, 3000)];
+  const ids = pts.map(p => { const id = newId("n"); f.nodes.push({ id, x: p.x, y: p.y }); return id; });
+  const wall = (a: number, b: number, thickness = 100): Wall => {
+    const w: Wall = { id: newId("w"), a: ids[a]!, b: ids[b]!, thickness, bulge: 0, openings: [] };
+    f.walls.push(w);
+    return w;
+  };
+  wall(0, 1); wall(1, 2); wall(2, 3); wall(3, 4); wall(4, 5); wall(5, 0);
+  const branch = wall(1, 4, 300);
+  branch.height = 2400;
+  const fs = floorSolids(doc, 0)!;
+  check("degree-3 nodes derive junction fillers", fs.junctions.length >= 1,
+    String(fs.junctions.length));
+  check("a filler is as tall as the shortest wall at the node",
+    fs.junctions.every(j => near(j.z1, 2400)),
+    JSON.stringify(fs.junctions.map(j => j.z1)));
+  check("filler polygons are finite and closed",
+    fs.junctions.every(j => j.poly.length >= 3 && j.poly.every(isFiniteVec) && j.z0 === 0));
+}
+
+// ── terrace plates ──────────────────────────────────────────────────────────
+
+{
+  const doc = emptyDoc();
+  doc.floors = [rectFloor(), rectFloor()];
+  check("the ground floor derives no terrace", floorSolids(doc, 0)!.terrace === null);
+  check("a stacked identical storey derives no terrace", floorSolids(doc, 1)!.terrace === null);
+}
+
+{
+  const doc = emptyDoc();
+  const lower = rectFloor();
+  const upper = emptyDoc().floors[0]!;
+  const pts = [v(0, 0), v(2000, 0), v(2000, 3000), v(0, 3000)];
+  const ids = pts.map(p => { const id = newId("n"); upper.nodes.push({ id, x: p.x, y: p.y }); return id; });
+  for (let i = 0; i < 4; i++) {
+    upper.walls.push({ id: newId("w"), a: ids[i]!, b: ids[(i + 1) % 4]!, thickness: 100, bulge: 0, openings: [] });
+  }
+  doc.floors = [lower, upper];
+  const fs = floorSolids(doc, 1)!;
+  check("a set-back storey derives a terrace plate over the storey below", fs.terrace !== null);
+  if (fs.terrace) {
+    check("the plate spans the lower storey's boundary",
+      near(Math.abs(polygonArea(fs.terrace.outline)), 4000 * 3000, 1),
+      String(polygonArea(fs.terrace.outline)));
+    check("the storey's own boundary is carried as a hole", fs.terrace.holes.length === 1);
+    check("the plate shares the slab's band",
+      fs.terrace.z0 === -SLAB_DEFAULT_MM && fs.terrace.z1 === 0);
+  }
+}
+
 console.log(failures === 0 ? "ALL SOLIDS TESTS PASSED" : `${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

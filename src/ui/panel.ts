@@ -386,6 +386,9 @@ export class Panel {
       b.setAttribute("aria-label", label);
       b.setAttribute("aria-pressed", String(active));
       if (active) b.classList.add("is-active");
+      // The 3D view has no tools to arm: the plan is not the thing on screen.
+      // Disabled rather than hidden, so the rail keeps its shape.
+      b.disabled = this.tools.view3d;
       b.append(icon(name), keyTag(key, "rail-key"));
       caption(b, short);
       b.onclick = () => this.tools.setTool(tool);
@@ -433,6 +436,8 @@ export class Panel {
     angle.onclick = () => this.toggleMode("angle", () => { this.tools.ortho = !this.tools.ortho; }, false);
     const dims = modeBtn("dimensions", "dims", this.tools.showDims, t("tool.measurements"), "L", t("tool.shortMeasurements"));
     dims.onclick = () => this.toggleMode("dims", () => { this.tools.showDims = !this.tools.showDims; }, true);
+    // The drawing toggles govern gestures the 3D view does not take.
+    grid.disabled = angle.disabled = dims.disabled = this.tools.view3d;
     // The 3D view rides with the mode toggles rather than the tools: it arms
     // nothing and places nothing, it changes what the canvas shows.
     const three = modeBtn("view3d", "view3d", this.tools.view3d, t("tool.view3d"), "3", t("tool.short3d"));
@@ -797,6 +802,7 @@ export class Panel {
     btnRow: (l: string, f: () => void) => void,
     textRow: (l: string, v: string, f: (s: string) => void) => void,
     noteRow: (text: string) => void,
+    checkRow: (l: string, v: boolean, f: (b: boolean) => void) => void,
   ): void {
     const floors = this.store.doc.floors;
     textRow(t("panel.floorRename"), this.store.floor.name, n => this.store.renameFloor(n));
@@ -807,6 +813,12 @@ export class Panel {
     });
     if (floors.length > 1) {
       btnRow(t("panel.floorDelete"), () => { this.store.deleteFloor(); this.tools.exitSelectMode(); });
+      // Which storeys the 3D view shows. Editor state on Tools, so the ticks
+      // survive a storey switch but never reach the document or an export.
+      for (const fl of floors) {
+        checkRow(t("panel.floor3d", { name: fl.name }),
+          !this.tools.view3dHidden.has(fl.id), () => this.tools.toggleFloor3d(fl.id));
+      }
     }
   }
 
@@ -1288,7 +1300,7 @@ export class Panel {
     };
 
     const { numRow, selRow, textRow, noteRow, btnRow, checkRow } = this.rowKit(inner);
-    this.renderFloors(btnRow, textRow, noteRow);
+    this.renderFloors(btnRow, textRow, noteRow, checkRow);
     numRow(t("panel.grid"), this.store.doc.gridMm, n => this.store.mutate(d => { d.gridMm = Math.max(1, n); }), 10);
     // Storey height belongs to the floor, not to each stair on it: a stair
     // connects two storeys, so changing this moves every stair that follows it.

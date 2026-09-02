@@ -117,11 +117,13 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
     doc: () => store.doc,
     revision: () => store.revision,
     insets: () => panel.canvasInsets(),
+    hidden: () => tools.view3dHidden,
   });
   view3d.canvas.classList.add("view3d");
   canvasWrap.append(view3d.canvas);
   tools.onView3d = on => view3d.setActive(on);
   tools.onView3dFit = () => view3d.fit();
+  tools.onView3dScene = () => view3d.requestRender();
 
   function render(): void {
     const ctx = canvas.getContext("2d")!;

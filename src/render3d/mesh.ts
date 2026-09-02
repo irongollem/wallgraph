@@ -5,10 +5,10 @@
 // z is height above Peil (mm, positive up); a renderer maps axes itself. Pure
 // and uncached like the rest of the derived geometry — callers cache against
 // the store revision.
-import { PlanDoc, floorElevation, stairsOf } from "../model/doc";
-import { floorSolids } from "../core/solids";
+import { PlanDoc, Id, floorElevation, floorHeight, stairsOf } from "../model/doc";
+import { floorSolids, FloorSolids } from "../core/solids";
 import { resolveStair, stairCorners } from "../core/stair";
-import { Vec, dist, polygonArea } from "../geometry/vec";
+import { Vec, dist, polygonArea, mid, norm, add, sub, scale } from "../geometry/vec";
 import { triangulatePolygon, triangulateWithHoles } from "./triangulate";
 
 export interface Bounds3 { min: [number, number, number]; max: [number, number, number] }
@@ -32,8 +32,27 @@ type Rgb = readonly [number, number, number];
 export const WALL_COLOR: Rgb = [0.93, 0.92, 0.9];
 /** Slab prisms: a step darker than the walls they carry. */
 export const SLAB_COLOR: Rgb = [0.8, 0.79, 0.77];
-/** Stair boxes: muted warm tone. */
+/** Stair steps: muted warm tone. */
 export const STAIR_COLOR: Rgb = [0.85, 0.8, 0.72];
+/** Door leaves: timber, told from wall and stair at a glance. */
+export const DOOR_COLOR: Rgb = [0.78, 0.71, 0.6];
+/** Window panes: the cool wash the 2D glassFill uses, read as glass. */
+export const GLASS_COLOR: Rgb = [0.875, 0.91, 0.933];
+
+/** Door leaf thickness, mm. */
+const DOOR_LEAF_MM = 40;
+/** Window pane thickness, mm. */
+const GLASS_MM = 30;
+
+/**
+ * How far a top that would land exactly on the plate above is pulled down, mm.
+ * A lower storey's walls end at floor-to-floor height, coplanar with the top
+ * of the slab or terrace plate resting on them — two faces at one depth
+ * z-fight. The seat is invisible at building scale and only applies where a
+ * visible storey above actually carries a plate. Exported for the tests, which
+ * verify seated volumes.
+ */
+export const PLATE_SEAT_MM = 10;
 
 /** Height differences (mm) under which a prism is not emitted. */
 const H_EPS = 1e-6;
@@ -53,33 +72,63 @@ interface MeshAcc { positions: number[]; normals: number[]; colors: number[]; ed
 
 /**
  * The building as one triangle soup: per storey, wall prisms (with the bands a
- * window's borstwering and an opening's lintel put back), the slab with its
- * vide holes, and each stair as a box over its footprint. Spaces are room
- * volumes, not built fabric, and are not rendered.
+ * window's borstwering and an opening's lintel put back) and the junction
+ * wedges between them, door leaves and window panes in the voids, the slab and
+ * terrace plate with their holes, and each stair as a box over its footprint.
+ * Spaces are room volumes, not built fabric, and are not rendered.
+ *
+ * `hiddenFloors` drops whole storeys by floor id — the 3D view's per-storey
+ * toggle. A hidden storey also withholds its plate, so the storey below is
+ * shown unseated (see PLATE_SEAT_MM) and open from above.
  */
-export function buildSceneMesh(doc: PlanDoc): Mesh3D {
+export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Mesh3D {
   const acc: MeshAcc = { positions: [], normals: [], colors: [], edges: [] };
+  const solids: (FloorSolids | null)[] = doc.floors.map((_, i) => floorSolids(doc, i));
 
   for (let i = 0; i < doc.floors.length; i++) {
-    const fs = floorSolids(doc, i);
-    if (!fs) continue;
+    const fs = solids[i];
     const f = doc.floors[i]!;
+    if (!fs || hiddenFloors?.has(f.id)) continue;
     const elev = floorElevation(doc, i);
 
+    // A visible storey above with a plate at this storey's ceiling rests on
+    // everything that reaches floor-to-floor height; seat those tops so the
+    // coplanar faces cannot z-fight. Deliberately taller walls still pierce.
+    const fh = floorHeight(f);
+    const aboveFloor = doc.floors[i + 1];
+    const above = aboveFloor && !hiddenFloors?.has(aboveFloor.id) ? solids[i + 1] : null;
+    const covered = above !== null && above !== undefined && (above.slab !== null || above.terrace !== null);
+    const seat = (t: number): number =>
+      covered && t > fh - PLATE_SEAT_MM && t <= fh + 0.5 ? fh - PLATE_SEAT_MM : t;
+
     for (const w of fs.walls) {
-      for (const p of w.body) emitPrism(acc, p.poly, [], elev + p.z0, elev + p.z1, WALL_COLOR);
+      for (const p of w.body) emitPrism(acc, p.poly, [], elev + p.z0, elev + seat(p.z1), WALL_COLOR);
       // The resolved pieces are the solid intervals BETWEEN openings, cut at
       // full wall height. The band below a sill and the band above a head put
       // that material back, so a wall with a window is exact without CSG.
-      const h = w.body[0]?.z1 ?? w.voids.reduce((top, o) => Math.max(top, o.z1), 0);
+      const h = seat(w.body[0]?.z1 ?? w.voids.reduce((top, o) => Math.max(top, o.z1), 0));
       for (const o of w.voids) {
         if (o.z0 > H_EPS) emitPrism(acc, o.poly, [], elev, elev + o.z0, WALL_COLOR);
         if (o.z1 < h - H_EPS) emitPrism(acc, o.poly, [], elev + o.z1, elev + h, WALL_COLOR);
+        // What fills the hole: a leaf for a door, a pane for a window,
+        // nothing for a passage. A thin slice on the centerline, so it reads
+        // through the opening from both sides.
+        if (o.kind !== "passage") {
+          const slice = fillerQuad(o.poly, o.kind === "door" ? DOOR_LEAF_MM : GLASS_MM);
+          if (slice) {
+            emitPrism(acc, slice, [], elev + o.z0, elev + o.z1,
+              o.kind === "door" ? DOOR_COLOR : GLASS_COLOR);
+          }
+        }
       }
     }
+    for (const j of fs.junctions) emitPrism(acc, j.poly, [], elev + j.z0, elev + seat(j.z1), WALL_COLOR);
 
     if (fs.slab) {
       emitPrism(acc, fs.slab.outline, fs.slab.holes, elev + fs.slab.z0, elev + fs.slab.z1, SLAB_COLOR);
+    }
+    if (fs.terrace) {
+      emitPrism(acc, fs.terrace.outline, fs.terrace.holes, elev + fs.terrace.z0, elev + fs.terrace.z1, SLAB_COLOR);
     }
 
     for (const st of stairsOf(f)) {
@@ -87,7 +136,7 @@ export function buildSceneMesh(doc: PlanDoc): Mesh3D {
       // stairCorners() returns the corners in grid order (x0,y0) (x0,y1)
       // (x1,y0) (x1,y1); reorder into a traversal of the footprint quad.
       const c = stairCorners(r);
-      emitPrism(acc, [c[0]!, c[1]!, c[3]!, c[2]!], [], elev, elev + r.rise, STAIR_COLOR);
+      emitPrism(acc, [c[0]!, c[1]!, c[3]!, c[2]!], [], elev, elev + seat(r.rise), STAIR_COLOR);
     }
   }
 
@@ -175,6 +224,24 @@ function pushTri(
     acc.normals.push(nx / l, ny / l, nz / l);
     acc.colors.push(color[0], color[1], color[2]);
   }
+}
+
+/**
+ * The thin slice a door leaf or window pane occupies: the void quad collapsed
+ * to the wall centerline and re-thickened to `t`. The void quad is built as
+ * [start+n·half, end+n·half, end−n·half, start−n·half], so opposite corners
+ * pair across the wall. Null for a degenerate quad.
+ */
+function fillerQuad(poly: Vec[], t: number): Vec[] | null {
+  const [v0, v1, v2, v3] = poly;
+  if (poly.length !== 4 || !v0 || !v1 || !v2 || !v3) return null;
+  const c0 = mid(v0, v3), c1 = mid(v1, v2);
+  if (dist(c0, c1) <= RING_EPS) return null;
+  const d0 = norm(sub(v0, v3)), d1 = norm(sub(v1, v2));
+  return [
+    add(c0, scale(d0, t / 2)), add(c1, scale(d1, t / 2)),
+    sub(c1, scale(d1, t / 2)), sub(c0, scale(d0, t / 2)),
+  ];
 }
 
 /** Drop consecutive (and closing) duplicate vertices. */
