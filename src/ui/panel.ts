@@ -433,7 +433,11 @@ export class Panel {
     angle.onclick = () => this.toggleMode("angle", () => { this.tools.ortho = !this.tools.ortho; }, false);
     const dims = modeBtn("dimensions", "dims", this.tools.showDims, t("tool.measurements"), "L", t("tool.shortMeasurements"));
     dims.onclick = () => this.toggleMode("dims", () => { this.tools.showDims = !this.tools.showDims; }, true);
-    this.modesEl.replaceChildren(grid, angle, dims);
+    // The 3D view rides with the mode toggles rather than the tools: it arms
+    // nothing and places nothing, it changes what the canvas shows.
+    const three = modeBtn("view3d", "view3d", this.tools.view3d, t("tool.view3d"), "3", t("tool.short3d"));
+    three.onclick = () => this.toggleMode("view3d", () => { this.tools.setView3d(!this.tools.view3d); }, false);
+    this.modesEl.replaceChildren(grid, angle, dims, three);
 
     const undo = el("button", "rail-btn") as HTMLButtonElement;
     undo.type = "button";

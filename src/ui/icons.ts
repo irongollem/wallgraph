@@ -28,7 +28,7 @@ export type IconName =
   | "select" | "wall" | "door" | "window" | "passage" | "stair" | "vide"
   | "cabinet" | "route" | "zoom" | "rename"
   | "shapeLine" | "shapeRect" | "shapeCircle" | "shapePoly"
-  | "gridSnap" | "angleSnap" | "dimensions"
+  | "gridSnap" | "angleSnap" | "dimensions" | "view3d"
   | "undo" | "redo" | "dots" | "chevron" | "plus" | "minus" | "close"
   | "trash" | "search" | "floors" | "backspace" | "confirm"
   | "docNew" | "docDemo" | "docOpen" | "docSave" | "docPng" | "docDxf" | "docSvg" | "docCopy" | "docPaste";
@@ -89,6 +89,12 @@ const ICONS: Record<IconName, Shape[]> = {
   ],
   dimensions: [
     P("M4 5.4 V14.6 M16 5.4 V14.6 M4 10 H16 M6.6 8 L4 10 L6.6 12 M13.4 8 L16 10 L13.4 12"),
+  ],
+  // A block seen from a corner: the extruded volume the 3D view shows, as
+  // against the flat plan every other icon draws.
+  view3d: [
+    P("M10 3.2 L16 6.6 V13.4 L10 16.8 L4 13.4 V6.6 Z"),
+    P("M4 6.6 L10 10 L16 6.6 M10 10 V16.8"),
   ],
   undo: [P("M8.2 5.6 L4.2 9.6 L8.2 13.6 M4.2 9.6 H12.4 A4.2 4.2 0 0 1 12.4 18 H8.6")],
   redo: [P("M11.8 5.6 L15.8 9.6 L11.8 13.6 M15.8 9.6 H7.6 A4.2 4.2 0 0 0 7.6 18 H11.4")],

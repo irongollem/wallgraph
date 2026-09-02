@@ -48,6 +48,7 @@ export const resources = {
         angleSnap: "Hoek vastzetten",
         gridSnap: "Uitlijnen op raster",
         measurements: "Maatvoering",
+        view3d: "3D-weergave",
         // Zichtbare namen onder de knoppen: zonder muisaanwijzer is er geen
         // title-tekst, dus draagt de knop zelf zijn naam.
         shortSelect: "Selectie",
@@ -63,6 +64,7 @@ export const resources = {
         shortGridSnap: "Raster",
         shortAngleSnap: "Hoek",
         shortMeasurements: "Maten",
+        short3d: "3D",
       },
       // De vier vormen waarin de muurtool tekent. Wat er blijft staan zijn
       // gewone muren; de vorm is alleen de invoer.
@@ -566,6 +568,7 @@ export const resources = {
         route: "klik om punten te plaatsen \u00b7 klik een apparaat op een gekozen leiding voor een aftakking \u00b7 Esc of dubbelklik sluit af",
         furnishing: "klik om {{label}} te plaatsen (R kwartslag, M spiegelt)",
         zoom: "sleep een kader \u00b7 klik een ruimte \u00b7 benoem ruimtes in de lijst \u00b7 F alles in beeld, Shift+F de selectie",
+        view3d: "sleep om te draaien \u00b7 scrollen zoomt \u00b7 Shift+slepen verschuift \u00b7 F alles in beeld \u00b7 Esc of 3 terug naar de plattegrond",
         fromCorner: "{{mm}} mm vanaf hoek",
         gridLegend: "raster {{grid}} · hoofdlijn {{major}}",
         gridLegendStepped: "raster {{grid}} · getekend {{minor}} · hoofdlijn {{major}}",
@@ -600,6 +603,7 @@ export const resources = {
         touchRoute: "tik om punten te plaatsen \u00b7 tik een apparaat op een gekozen leiding voor een aftakking \u00b7 dubbeltik of Klaar sluit het traject af",
         touchFurnishing: "tik om {{label}} te plaatsen",
         touchZoom: "sleep een kader · tik een ruimte · benoem ruimtes in de lijst · dubbeltik het doek voor alles in beeld",
+        touchView3d: "draai met één vinger · twee vingers zoomen en verschuiven · dubbeltik voor alles in beeld",
         calibrateFirst: "klik het eerste punt van de bekende afstand op de onderlegger · Esc annuleert",
         calibrateSecond: "klik het tweede punt · Esc annuleert",
         calibrateDistance: "typ de echte afstand in mm: {{length}} — Enter past toe · Esc annuleert",
@@ -932,6 +936,7 @@ export const resources = {
         angleSnap: "Angle snap",
         gridSnap: "Snap to grid",
         measurements: "Measurements",
+        view3d: "3D view",
         shortSelect: "Select",
         shortWall: "Wall",
         shortDoor: "Door",
@@ -945,6 +950,7 @@ export const resources = {
         shortGridSnap: "Grid",
         shortAngleSnap: "Angle",
         shortMeasurements: "Sizes",
+        short3d: "3D",
       },
       shape: {
         line: "Line",
@@ -1444,6 +1450,7 @@ export const resources = {
         route: "click to place points \u00b7 click a device on a selected run to tap into it \u00b7 Esc or double-click ends the run",
         furnishing: "click to place {{label}} (R turns a quarter, M mirrors)",
         zoom: "drag a box \u00b7 click a room \u00b7 name rooms in the list \u00b7 F fits all, Shift+F the selection",
+        view3d: "drag to orbit \u00b7 scroll zooms \u00b7 Shift+drag pans \u00b7 F fits all \u00b7 Esc or 3 back to the plan",
         fromCorner: "{{mm}} mm from corner",
         gridLegend: "grid {{grid}} · major {{major}}",
         gridLegendStepped: "grid {{grid}} · drawn {{minor}} · major {{major}}",
@@ -1478,6 +1485,7 @@ export const resources = {
         touchRoute: "tap to place points \u00b7 tap a device on a selected run to tap into it \u00b7 double-tap or Done ends the run",
         touchFurnishing: "tap to place {{label}}",
         touchZoom: "drag a box · tap a room · name rooms in the list · double-tap the paper to fit all",
+        touchView3d: "one finger orbits · two fingers zoom and pan · double-tap to fit all",
         calibrateFirst: "click the first point of the known distance on the underlay · Esc cancels",
         calibrateSecond: "click the second point · Esc cancels",
         calibrateDistance: "type the real distance in mm: {{length}} — Enter to apply · Esc cancels",
