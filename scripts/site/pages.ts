@@ -294,6 +294,19 @@ begrenzende muur er een heeft, en tot de hartlijn waar dat niet zo is — precie
 gedeelde bouwmuur zegt. Naar IFC gaat een beklede muur als <code>IfcMaterialLayerSet</code>: constructie
 en bekleding als geordende lagen.</p>
 
+<p>Onder <b>Wandoppervlak</b> staat wat de muren van de verdieping aan vlak bieden — de maat waarop
+stucwerk, verf en behang worden besteld. Per muur staat het netto oppervlak in de muurlijst en in het
+paneel van de geselecteerde muur; de verdieping krijgt haar eigen totaal. Gemeten wordt de
+<em>versneden vlaklengte</em> maal de hoogte van de muur, aan beide zijden: een muur tussen twee dikkere
+muren heeft een binnenvlak dat korter is dan zijn hartlijn en een buitenvlak dat langer is, en het is
+het vlak dat wordt afgewerkt. Sparingen worden op ware grootte van beide zijden afgetrokken, tot niet
+meer dan de muur zelf; dagkanten tellen niet mee, want die staan haaks op de vlakken die hier worden
+gemeten. De hoogte is vloer tot vloer — een verlaagd plafond of een vloeropbouw is niet bekend, dus dit
+is het hele verdiepingsvlak. Draagt een muur gevelbekleding, dan staat er ook een regel
+<b>binnenzijden</b>: hetzelfde netto zonder de beklede zijde, die per definitie buiten ligt. Een muur
+die geen gevelblad opgeeft telt met beide zijden mee, want het document zegt dan niet welke zijde buiten
+is. Zoals elke maat hier wordt dit gemeld en niet gecontroleerd.</p>
+
 <h2 id="selecteren">Selecteren, verplaatsen, krommen</h2>
 <p><kbd>V</kbd> activeert het selectiegereedschap voor knopen, muren en symbolen. Een geselecteerde muur
 krijgt een ruitvormige greep op het midden; verslepen buigt de muur tot een cirkelboog. De pijlhoogte in millimeters
@@ -572,6 +585,18 @@ does set is the gross area: under the <b>gross (BVO)</b> area mode, measurement 
 the facade where a bounding wall has one and to the centreline where it does not — which is what NEN 2580
 says about a shared party wall. A clad wall exports to IFC as an <code>IfcMaterialLayerSet</code>:
 structure and cladding as ordered layers.</p>
+
+<p><b>Wall surface</b> states the face area the storey's walls present — the quantity stucco, paint and
+wallpaper are ordered against. Each wall's net area appears in the wall list and in the pane of the
+selected wall; the storey carries its own total. What is measured is the <em>mitered face length</em>
+times the wall's height, on both faces: a wall running between two thicker walls has an inner face
+shorter than its centreline and an outer face longer, and it is the face that gets finished. Openings
+are deducted at their stated size from both faces, clamped to the wall itself; reveals are not counted,
+being perpendicular to the faces measured here. The height is floor to floor — nothing here knows about
+a suspended ceiling or a floor build-up, so this is the whole storey face. Where a wall carries cladding
+an <b>inner faces</b> line appears beside it: the same net area without the clad side, which is by
+definition outside. A wall that states no cladding counts with both faces, since the document does not
+then say which side is outside. Like every figure here, this is reported and not checked.</p>
 
 <h2 id="select">Selecting, moving, curving</h2>
 <p><kbd>V</kbd> activates selection and dragging for nodes, walls and symbols. A selected wall displays

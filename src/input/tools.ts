@@ -1181,6 +1181,12 @@ export class Tools {
     return this.getResolved().walls.get(id);
   }
 
+  /** The whole storey's derived wall geometry, cached against the revision by
+   *  the caller that supplied it (see derived() in main.ts). */
+  resolvedFloor(): Resolved {
+    return this.getResolved();
+  }
+
   // ---- pointer handlers ----
   private onWheel(e: WheelEvent): void {
     e.preventDefault();

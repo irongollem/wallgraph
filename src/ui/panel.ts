@@ -41,7 +41,7 @@ import { incompleteDevices } from "../core/port";
 import { renderFurnishingTool, renderFurnishingProps } from "./furnishing";
 import { renderZoomTool, type RoomEdit } from "./zoom";
 import { renderOpeningTool } from "./openings";
-import { renderWallTool } from "./walls";
+import { renderWallTool, renderWallSurface } from "./walls";
 import {
   planWallJoin, applyWallJoin, isJoinPlan,
   applyNodeDissolve, isDissolvePlan, planWallMerge, planNodeRemoval, removeNode,
@@ -1961,6 +1961,9 @@ export class Panel {
           if (wall) wall.height = Math.max(100, Math.round(n));
         }), 50);
       }
+      // Face area, straight after the two dimensions it is the product of.
+      const rw = this.tools.resolvedWall(sel.id);
+      if (rw) renderWallSurface(rows, f, rw);
       // Tri-state: "" is not stated, not the same fact as "no" for IFC.
       selRow(t("panel.loadBearing"), w.loadBearing === undefined ? "" : w.loadBearing ? "yes" : "no",
         [["", t("panel.loadBearingUnknown")], ["yes", t("panel.loadBearingYes")], ["no", t("panel.loadBearingNo")]],
