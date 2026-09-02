@@ -35,11 +35,12 @@ export class View3D {
   private readonly docFn: () => PlanDoc;
   private readonly revisionFn: () => number;
   private readonly insetsFn: (() => { top: number; right: number; bottom: number; left: number }) | null;
+  private readonly hiddenFn: (() => ReadonlySet<string>) | null;
   private readonly cam = new OrbitCamera();
   private renderer: GLRenderer | null = null;
   private rendererFailed = false;
   private mesh: Mesh3D | null = null;
-  private meshRev = -1;
+  private meshKey: string | null = null;
   private generation = 0;
   private on = false;
   private queued = false;
@@ -53,10 +54,14 @@ export class View3D {
      *  compact layout the sheet floats over the canvas, and a fit centred on
      *  the full box would centre the building behind it. */
     insets?: () => { top: number; right: number; bottom: number; left: number };
+    /** Floor ids the 3D scene leaves out — the per-storey toggles. Part of
+     *  the mesh cache key alongside the revision. */
+    hidden?: () => ReadonlySet<string>;
   }) {
     this.docFn = opts.doc;
     this.revisionFn = opts.revision;
     this.insetsFn = opts.insets ?? null;
+    this.hiddenFn = opts.hidden ?? null;
     const c = document.createElement("canvas");
     this.canvas = c;
     c.style.position = "absolute";
@@ -126,10 +131,11 @@ export class View3D {
   }
 
   private refreshMesh(): Mesh3D {
-    const rev = this.revisionFn();
-    if (!this.mesh || rev !== this.meshRev) {
-      this.meshRev = rev;
-      this.mesh = buildSceneMesh(this.docFn());
+    const hidden = this.hiddenFn?.();
+    const key = this.revisionFn() + ":" + (hidden ? [...hidden].sort().join("|") : "");
+    if (!this.mesh || key !== this.meshKey) {
+      this.meshKey = key;
+      this.mesh = buildSceneMesh(this.docFn(), hidden);
       this.generation++;
     }
     return this.mesh;

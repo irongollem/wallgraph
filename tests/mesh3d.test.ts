@@ -6,6 +6,7 @@ import {
 import { floorSolids, SLAB_DEFAULT_MM } from "../src/core/solids";
 import {
   buildSceneMesh, Mesh3D, WALL_COLOR, SLAB_COLOR, STAIR_COLOR,
+  DOOR_COLOR, GLASS_COLOR, PLATE_SEAT_MM,
 } from "../src/render3d/mesh";
 import { triangulatePolygon, triangulateWithHoles } from "../src/render3d/triangulate";
 import { v, Vec, polygonArea } from "../src/geometry/vec";
@@ -199,6 +200,9 @@ const rectSlabVol = volumeOf(rectMesh, SLAB_COLOR);
   check("a window removes exactly its void volume", nearRel(vol, rectWallVol - voidVol),
     `${vol} vs ${rectWallVol - voidVol}`);
   check("the carved wall is thinner than the blank one", vol < rectWallVol);
+  const pane = volumeOf(m, GLASS_COLOR);
+  check("a window carries a pane in the void", nearRel(pane, 1200 * 30 * 1415, 1e-3), String(pane));
+  check("a window carries no door leaf", volumeOf(m, DOOR_COLOR) === 0);
 }
 
 {
@@ -210,6 +214,42 @@ const rectSlabVol = volumeOf(rectMesh, SLAB_COLOR);
   const voidVol = 830 * 100 * 2315;
   check("a door removes exactly its void volume", nearRel(vol, rectWallVol - voidVol),
     `${vol} vs ${rectWallVol - voidVol}`);
+  const leaf = volumeOf(m, DOOR_COLOR);
+  check("a door carries a leaf in the void", nearRel(leaf, 830 * 40 * 2315, 1e-3), String(leaf));
+}
+
+{
+  const f = rectFloor();
+  f.walls[0]!.openings.push(opening({ kind: "passage", t: 1500, width: 1000 }));
+  const m = buildSceneMesh(emptyDocWith(f));
+  check("a passage stays open",
+    volumeOf(m, DOOR_COLOR) === 0 && volumeOf(m, GLASS_COLOR) === 0);
+}
+
+// ── junction fillers: a T-node's wedge is wall material ─────────────────────
+
+{
+  // The rectangle with its long walls split at x=2000 and a thick interior
+  // wall joining the two midpoints: two degree-3 nodes, each with the wedge
+  // resolveFloor() derives where the thick wall meets the thin ring.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  const pts = [v(0, 0), v(2000, 0), v(4000, 0), v(4000, 3000), v(2000, 3000), v(0, 3000)];
+  const ids = pts.map(p => { const id = newId("n"); f.nodes.push({ id, x: p.x, y: p.y }); return id; });
+  const wall = (a: number, b: number, thickness = 100): void => {
+    f.walls.push({ id: newId("w"), a: ids[a]!, b: ids[b]!, thickness, bulge: 0, openings: [] });
+  };
+  wall(0, 1); wall(1, 2); wall(2, 3); wall(3, 4); wall(4, 5); wall(5, 0);
+  wall(1, 4, 300);
+  const fs = floorSolids(doc, 0)!;
+  check("the T-nodes derive junction fillers", fs.junctions.length >= 1, String(fs.junctions.length));
+  const m = buildSceneMesh(doc);
+  let expected = 0;
+  for (const w of fs.walls) for (const p of w.body) expected += Math.abs(polygonArea(p.poly)) * (p.z1 - p.z0);
+  for (const j of fs.junctions) expected += Math.abs(polygonArea(j.poly)) * (j.z1 - j.z0);
+  const vol = volumeOf(m, WALL_COLOR);
+  check("wall volume includes the junction wedges", nearRel(vol, expected, 1e-3),
+    `${vol} vs ${expected}`);
 }
 
 // ── a vide: slab volume drops by hole area x thickness ─────────────────────
@@ -224,23 +264,74 @@ const rectSlabVol = volumeOf(rectMesh, SLAB_COLOR);
     `${vol} vs ${rectSlabVol - holeVol}`);
 }
 
-// ── two storeys sit one elevation apart ─────────────────────────────────────
+// ── two storeys sit one elevation apart, the lower seated under the slab ────
+
+/** Mitred-ring wall area of rectFloor(), mm² (see the one-storey figure). */
+const RING_AREA = 1400000;
 
 {
   const doc = emptyDoc();
   doc.floors = [rectFloor(), rectFloor()];
   const m = buildSceneMesh(doc);
-  check("two identical storeys double the wall volume",
-    nearRel(volumeOf(m, WALL_COLOR), 2 * rectWallVol));
+  // The lower storey's walls are seated PLATE_SEAT_MM under the slab resting
+  // on them, so the coplanar tops cannot z-fight; the top storey carries no
+  // plate and keeps its full height.
+  const seated = RING_AREA * (FLOOR_HEIGHT_DEFAULT - PLATE_SEAT_MM);
+  check("the lower storey is seated under the slab above",
+    nearRel(volumeOf(m, WALL_COLOR), seated + rectWallVol, 1e-3),
+    String(volumeOf(m, WALL_COLOR)));
   check("the upper storey's walls alone match one storey",
     nearRel(volumeOf(m, WALL_COLOR, FLOOR_HEIGHT_DEFAULT), rectWallVol));
   check("bounds span both storeys", m.bounds !== null
     && near(m.bounds!.min[2], -SLAB_DEFAULT_MM, 1e-3)
     && near(m.bounds!.max[2], 2 * FLOOR_HEIGHT_DEFAULT, 1e-3),
     JSON.stringify(m.bounds));
+  // Identical stacked outlines: the upper storey covers the lower, so no
+  // terrace plate doubles the slab.
+  check("stacked identical storeys carry one slab per level",
+    nearRel(volumeOf(m, SLAB_COLOR, FLOOR_HEIGHT_DEFAULT - SLAB_DEFAULT_MM), rectSlabVol),
+    String(volumeOf(m, SLAB_COLOR, FLOOR_HEIGHT_DEFAULT - SLAB_DEFAULT_MM)));
+
+  // Hiding a storey removes it, and the storey below it comes back unseated.
+  const lowerOnly = buildSceneMesh(doc, new Set([doc.floors[1]!.id]));
+  check("hiding the top storey shows the lower at full height",
+    nearRel(volumeOf(lowerOnly, WALL_COLOR), rectWallVol, 1e-3),
+    String(volumeOf(lowerOnly, WALL_COLOR)));
+  const upperOnly = buildSceneMesh(doc, new Set([doc.floors[0]!.id]));
+  check("hiding the ground storey leaves the upper alone",
+    nearRel(volumeOf(upperOnly, WALL_COLOR), rectWallVol, 1e-3)
+    && upperOnly.bounds !== null
+    && near(upperOnly.bounds!.min[2], FLOOR_HEIGHT_DEFAULT - SLAB_DEFAULT_MM, 1e-3),
+    JSON.stringify(upperOnly.bounds));
 }
 
-// ── a stair contributes a box of footprint x rise ───────────────────────────
+// ── a set-back storey: the roof below becomes its terrace plate ─────────────
+
+{
+  const doc = emptyDoc();
+  const lower = rectFloor();
+  // The upper storey encloses only the left 2000 mm of the footprint.
+  const upper = emptyDoc().floors[0]!;
+  const pts = [v(0, 0), v(2000, 0), v(2000, 3000), v(0, 3000)];
+  const ids = pts.map(p => { const id = newId("n"); upper.nodes.push({ id, x: p.x, y: p.y }); return id; });
+  for (let i = 0; i < 4; i++) {
+    upper.walls.push({ id: newId("w"), a: ids[i]!, b: ids[(i + 1) % 4]!, thickness: 100, bulge: 0, openings: [] });
+  }
+  doc.floors = [lower, upper];
+  const fs = floorSolids(doc, 1)!;
+  check("a set-back storey derives a terrace plate", fs.terrace !== null);
+  check("the plate carries the storey's own boundary as a hole",
+    fs.terrace !== null && fs.terrace.holes.length === 1);
+  const m = buildSceneMesh(doc);
+  // Plate ring plus the storey's own slab tile the level: together they cover
+  // the full lower boundary at slab thickness.
+  const levelVol = volumeOf(m, SLAB_COLOR, FLOOR_HEIGHT_DEFAULT - SLAB_DEFAULT_MM);
+  const expected = 4000 * 3000 * SLAB_DEFAULT_MM;
+  check("plate and slab tile the storey's level", nearRel(levelVol, expected, 1e-3),
+    `${levelVol} vs ${expected}`);
+}
+
+// ── a stair contributes its derived steps ───────────────────────────────────
 
 {
   const f = rectFloor();
@@ -250,8 +341,19 @@ const rectSlabVol = volumeOf(rectMesh, SLAB_COLOR);
   }];
   const m = buildSceneMesh(emptyDocWith(f));
   const vol = volumeOf(m, STAIR_COLOR);
-  const expected = 900 * (10 * 220) * 2800;
-  check("a stair is a box of footprint x rise", nearRel(vol, expected), `${vol} vs ${expected}`);
+  // Ten closed steps, each a riser thick over one tread: 11 risers to the
+  // storey, so the top tread tops out one riser under the arrival floor.
+  const riser = 2800 / 11;
+  const expected = 10 * 900 * 220 * riser;
+  check("a stair is its steps, one riser thick each", nearRel(vol, expected, 1e-3),
+    `${vol} vs ${expected}`);
+  let stairTop = -Infinity;
+  for (let i = 0; i + 8 < m.positions.length; i += 9) {
+    if (Math.abs(m.colors[i]! - STAIR_COLOR[0]) > 1e-3) continue;
+    for (let k = 2; k < 9; k += 3) stairTop = Math.max(stairTop, m.positions[i + k]!);
+  }
+  check("the top tread stops one riser under the storey", near(stairTop, 2800 - riser, 0.5),
+    String(stairTop));
   check("the stair leaves the walls alone", nearRel(volumeOf(m, WALL_COLOR), rectWallVol));
 }
 

@@ -386,9 +386,17 @@ export class Tools {
    * the keys that leave or reframe the view (see the view3d guard there).
    */
   view3d = false;
-  /** Host hooks for the 3D view: show/hide it, and reframe it on F. */
+  /**
+   * Storeys the 3D view leaves out, by floor id. Editor state, like the layer
+   * toggles; an id left behind by a deleted floor matches nothing and is
+   * harmless.
+   */
+  readonly view3dHidden = new Set<string>();
+  /** Host hooks for the 3D view: show/hide it, reframe it on F, and redraw
+   *  it when the scene selection above changes. */
   onView3d: ((on: boolean) => void) | null = null;
   onView3dFit: (() => void) | null = null;
+  onView3dScene: (() => void) | null = null;
   /** Shift, as the last pointer or key event reported it. */
   private shiftKey = false;
   /** Alt at the last press: a drag that starts under it copies rather than moves. */
@@ -1914,6 +1922,13 @@ export class Tools {
     this.requireComplete = on;
     this.onToolChange();
     this.requestRender();
+  }
+
+  /** Flip one storey's presence in the 3D scene. */
+  toggleFloor3d(id: string): void {
+    if (!this.view3dHidden.delete(id)) this.view3dHidden.add(id);
+    this.onToolChange();
+    this.onView3dScene?.();
   }
 
   /** Enter or leave the 3D view. Cancels any half-made gesture first: the
