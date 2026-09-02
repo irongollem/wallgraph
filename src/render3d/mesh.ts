@@ -7,7 +7,7 @@
 // the store revision.
 import { PlanDoc, Id, floorElevation, floorHeight, stairsOf } from "../model/doc";
 import { floorSolids, FloorSolids } from "../core/solids";
-import { resolveStair, stairCorners } from "../core/stair";
+import { stairSteps } from "../core/stair3d";
 import { Vec, dist, polygonArea, mid, norm, add, sub, scale } from "../geometry/vec";
 import { triangulatePolygon, triangulateWithHoles } from "./triangulate";
 
@@ -74,8 +74,9 @@ interface MeshAcc { positions: number[]; normals: number[]; colors: number[]; ed
  * The building as one triangle soup: per storey, wall prisms (with the bands a
  * window's borstwering and an opening's lintel put back) and the junction
  * wedges between them, door leaves and window panes in the voids, the slab and
- * terrace plate with their holes, and each stair as a box over its footprint.
- * Spaces are room volumes, not built fabric, and are not rendered.
+ * terrace plate with their holes, and each stair as the steps core/stair3d.ts
+ * derives from its parameters. Spaces are room volumes, not built fabric, and
+ * are not rendered.
  *
  * `hiddenFloors` drops whole storeys by floor id — the 3D view's per-storey
  * toggle. A hidden storey also withholds its plate, so the storey below is
@@ -132,11 +133,9 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
     }
 
     for (const st of stairsOf(f)) {
-      const r = resolveStair(f, st);
-      // stairCorners() returns the corners in grid order (x0,y0) (x0,y1)
-      // (x1,y0) (x1,y1); reorder into a traversal of the footprint quad.
-      const c = stairCorners(r);
-      emitPrism(acc, [c[0]!, c[1]!, c[3]!, c[2]!], [], elev, elev + seat(r.rise), STAIR_COLOR);
+      for (const step of stairSteps(f, st)) {
+        emitPrism(acc, step.poly, [], elev + step.z0, elev + seat(step.z1), STAIR_COLOR);
+      }
     }
   }
 

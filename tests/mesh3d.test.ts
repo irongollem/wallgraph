@@ -331,7 +331,7 @@ const RING_AREA = 1400000;
     `${levelVol} vs ${expected}`);
 }
 
-// ── a stair contributes a box of footprint x rise ───────────────────────────
+// ── a stair contributes its derived steps ───────────────────────────────────
 
 {
   const f = rectFloor();
@@ -341,8 +341,19 @@ const RING_AREA = 1400000;
   }];
   const m = buildSceneMesh(emptyDocWith(f));
   const vol = volumeOf(m, STAIR_COLOR);
-  const expected = 900 * (10 * 220) * 2800;
-  check("a stair is a box of footprint x rise", nearRel(vol, expected), `${vol} vs ${expected}`);
+  // Ten closed steps, each a riser thick over one tread: 11 risers to the
+  // storey, so the top tread tops out one riser under the arrival floor.
+  const riser = 2800 / 11;
+  const expected = 10 * 900 * 220 * riser;
+  check("a stair is its steps, one riser thick each", nearRel(vol, expected, 1e-3),
+    `${vol} vs ${expected}`);
+  let stairTop = -Infinity;
+  for (let i = 0; i + 8 < m.positions.length; i += 9) {
+    if (Math.abs(m.colors[i]! - STAIR_COLOR[0]) > 1e-3) continue;
+    for (let k = 2; k < 9; k += 3) stairTop = Math.max(stairTop, m.positions[i + k]!);
+  }
+  check("the top tread stops one riser under the storey", near(stairTop, 2800 - riser, 0.5),
+    String(stairTop));
   check("the stair leaves the walls alone", nearRel(volumeOf(m, WALL_COLOR), rectWallVol));
 }
 
