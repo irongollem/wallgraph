@@ -35,6 +35,20 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 .canvas-wrap canvas.view3d:active { cursor: grabbing; }
 .canvas-wrap canvas.view3d[hidden] { display: none; }
 
+/* The 3D view's storey column: ground floor at the bottom, like the building.
+   Anchored left, where all three layouts leave the canvas uncovered; the
+   [hidden] rule is load-bearing for the same reason the loupe's is. */
+.floors3d { position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: 4px; z-index: 2; }
+.floors3d[hidden] { display: none; }
+.floors3d-btn { padding: 5px 10px; max-width: 150px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; text-align: left;
+  border: 1px solid #e2ded2; border-radius: 7px; background: #fff; color: #2b2e33;
+  font: 600 11px/1.2 system-ui, sans-serif; cursor: pointer;
+  box-shadow: 0 1px 4px rgba(43, 46, 51, .08); }
+.floors3d-btn:hover { border-color: #b5afa0; }
+.floors3d-btn.is-off { opacity: .45; background: #f4f2ec; box-shadow: none; }
+
 :root {
   --dur-tap: 90ms;
   --dur-quick: 140ms;
@@ -393,6 +407,17 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 .plan-body.is-open { grid-template-rows: 1fr; }
 .plan-body.is-open > * { visibility: visible; transition-delay: 0s; }
 .plan-rows { display: flex; flex-direction: column; gap: 6px; padding: 0 12px 12px; }
+
+/* In the sidebar layout the sections sit outside the pane's scroller, so a
+   section taller than the pane (the Plattegrond grows a row per storey) must
+   shrink and scroll inside itself rather than be clipped at the pane's edge.
+   The header never shrinks, so a squeezed section is still recognisable and
+   closable. Scoped out of the compact layout, where the sheet body is the one
+   scroller and a shrinking section would collapse instead of scrolling. */
+.side:not(.is-compact) .plan-sec { flex: 0 1 auto; display: flex; flex-direction: column; }
+.side:not(.is-compact) .plan-head { flex: none; }
+.side:not(.is-compact) .plan-body { min-height: 0; }
+.side:not(.is-compact) .plan-body.is-open > .plan-rows { overflow-y: auto; }
 
 /* Drag-scrub: the field is a slider you can also type into, so it advertises
    the horizontal drag and drops the native spinners the gesture would fight. */

@@ -16,6 +16,7 @@ import { riserMarks } from "./core/continuation";
 import { v } from "./geometry/vec";
 import { language, on as onI18n } from "./i18n";
 import { View3D } from "./render3d/view3d";
+import { Floors3D } from "./ui/floors3d";
 
 /**
  * What a caller holds after mounting: enough to put a plan in and take one out,
@@ -121,9 +122,13 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
   });
   view3d.canvas.classList.add("view3d");
   canvasWrap.append(view3d.canvas);
-  tools.onView3d = on => view3d.setActive(on);
+  // The storey column floats over the 3D canvas, ground floor at the bottom.
+  const floors3d = new Floors3D(store, tools);
+  canvasWrap.append(floors3d.el);
+  tools.onView3d = on => { view3d.setActive(on); floors3d.refresh(); };
   tools.onView3dFit = () => view3d.fit();
   tools.onView3dScene = () => view3d.requestRender();
+  onI18n("languageChanged", () => floors3d.refresh());
 
   function render(): void {
     const ctx = canvas.getContext("2d")!;
@@ -221,7 +226,9 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
     lctx.stroke();
   }
 
-  store.onChange(() => { scheduleAutosave(store.doc); requestRender(); view3d.requestRender(); });
+  store.onChange(() => {
+    scheduleAutosave(store.doc); requestRender(); view3d.requestRender(); floors3d.refresh();
+  });
   window.addEventListener("resize", () => { requestRender(); view3d.requestRender(); });
 
   // Initial document: autosave if present, else the demo plan.
