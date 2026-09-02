@@ -98,7 +98,7 @@ function docWith(areaMode?: AreaMode): PlanDoc {
   f.walls[0]!.openings.push(win); // top wall, (0,0)-(4000,0)
   nameRoom(f, 2000, 1500, "Kantoor", "verblijf");
   const r = detectRooms(f)[0]!;
-  check("the window's wall bounds the room", r.boundingWallIds.includes(f.walls[0]!.id));
+  check("the window's wall bounds the room", r.boundingFaces.some(rf => rf.wallId === f.walls[0]!.id));
   const figures = roomFigures(f, r, docWith())!;
   const glazingMm2 = 1200 * WINDOW_HEIGHT_DEFAULT;
   const expectedRatio = glazingMm2 / (3900 * 2900);

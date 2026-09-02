@@ -294,6 +294,35 @@ begrenzende muur er een heeft, en tot de hartlijn waar dat niet zo is — precie
 gedeelde bouwmuur zegt. Naar IFC gaat een beklede muur als <code>IfcMaterialLayerSet</code>: constructie
 en bekleding als geordende lagen.</p>
 
+<p>Onder <b>Wandoppervlak</b> staat wat de muren van de verdieping aan vlak bieden — de maat waarop
+stucwerk, verf en behang worden besteld. Per muur staat het netto oppervlak in de muurlijst en in het
+paneel van de geselecteerde muur; per ruimte staat het onder haar regel in de ruimtelijst; de verdieping
+krijgt haar eigen totaal, met daarnaast <b>in ruimtes</b>: wat de ruimtes samen aan afwerking vragen.
+Gemeten wordt de <em>versneden vlaklengte</em> maal de hoogte, aan beide zijden: een muur tussen twee
+dikkere muren heeft een binnenvlak dat korter is dan zijn hartlijn en een buitenvlak dat langer is, en
+het is het vlak dat wordt afgewerkt. Sparingen worden op ware grootte van beide zijden afgetrokken, tot
+niet meer dan het vlak zelf. Draagt een muur gevelbekleding, dan staat er ook een regel <b>binnenzijden</b>:
+hetzelfde netto zonder de beklede zijde, die per definitie buiten ligt. Een muur die geen gevelblad
+opgeeft telt met beide zijden mee, want het document zegt dan niet welke zijde buiten is. Zoals elke
+maat hier wordt dit gemeld en niet gecontroleerd.</p>
+<p>De <b>dagkanten</b> staan als eigen regel naast het netto oppervlak, en samen vormen ze
+<b>af te werken</b>. Een dagkant is het vlak van de sparing zelf, door de dikte van de muur heen: twee
+neggen en een bovendorpel. Géén onderdorpel — onder een deur ligt de vloer en onder een raam komt een
+vensterbank in plaats van stucwerk. Eén dag wordt door de twee zijden gedeeld, elk de helft, en dat is
+geen benadering die goedgepraat moet worden: bij een raam in de gevel is de binnendag stucwerk en de
+buitendag gevelwerk, en de verdeling zet beide waar ze horen. Gemeten wordt over de constructieve dikte;
+gevelbekleding maakt de dag dieper, maar dat is gevelwerk. Zit er een verlaagd plafond onder de
+bovendorpel, dan telt die dorpel niet mee en stoppen de neggen bij het plafond.</p>
+<p>De hoogte wordt <em>per vlak</em> genomen, want de twee zijden van één muur staan in twee ruimtes.
+Zonder verlaagd plafond is dat vloer tot vloer; met een verlaagd plafond wordt elk vlak gemeten tot het
+plafond van de ruimte waarin het staat. Het plafond van de verdieping staat in het Plan-paneel, een
+ruimte geeft in de ruimtelijst haar eigen hoogte op — de badkamer onder een verlaagd plafond terwijl de
+rest doorloopt. De tussenmuur wordt dan aan de badkamerzijde tot 2300 afgewerkt en aan de andere zijde
+tot de vloer erboven, en dat is precies wat het paneel van die muur laat zien. Een plafond is een
+<em>afwerking</em>: het verandert niets aan de verdiepingshoogte, aan wat een trap overbrugt, aan de
+ruimteoppervlaktes of aan de export. Een opgegeven hoogte gelijk aan of boven de verdiepingshoogte
+werkt niets extra af en telt daarom niet mee. Een vloeropbouw is niet bekend.</p>
+
 <h2 id="selecteren">Selecteren, verplaatsen, krommen</h2>
 <p><kbd>V</kbd> activeert het selectiegereedschap voor knopen, muren en symbolen. Een geselecteerde muur
 krijgt een ruitvormige greep op het midden; verslepen buigt de muur tot een cirkelboog. De pijlhoogte in millimeters
@@ -581,6 +610,33 @@ does set is the gross area: under the <b>gross (BVO)</b> area mode, measurement 
 the facade where a bounding wall has one and to the centreline where it does not — which is what NEN 2580
 says about a shared party wall. A clad wall exports to IFC as an <code>IfcMaterialLayerSet</code>:
 structure and cladding as ordered layers.</p>
+
+<p><b>Wall surface</b> states the face area the storey's walls present — the quantity stucco, paint and
+wallpaper are ordered against. Each wall's net area appears in the wall list and in the pane of the
+selected wall; each room's appears under its row in the room list; the storey carries its own total,
+with an <b>in rooms</b> line beside it for what the rooms take between them. What is measured is the
+<em>mitered face length</em> times the height, on both faces: a wall running between two thicker walls
+has an inner face shorter than its centreline and an outer face longer, and it is the face that gets
+finished. Openings are deducted at their stated size from both faces, clamped to the face itself.
+Where a wall carries cladding an <b>inner faces</b> line appears beside it: the same net area without the clad side, which is by
+definition outside. A wall that states no cladding counts with both faces, since the document does not
+then say which side is outside. Like every figure here, this is reported and not checked.</p>
+<p><b>Reveals</b> — dagkanten — stand as their own line beside the net area, and together they make
+<b>to finish</b>. A reveal is the surface of the opening itself, through the wall's thickness: two jambs
+and a head. No sill — under a door that is the floor, and under a window it takes a window board rather
+than plaster. One reveal is shared by the two sides, half each, and that is not an approximation to
+apologise for: on a window in the facade the inner reveal is plasterwork and the outer one is facade
+detail, and the split puts each where it belongs. It is measured over the structural thickness;
+cladding makes the reveal deeper, but that is facade work. Where a suspended ceiling sits below the
+head, the head does not count and the jambs stop at the ceiling.</p>
+<p>The height is taken <em>per face</em>, because the two sides of one wall stand in two rooms. With no
+suspended ceiling that is floor to floor; with one, each face is measured to the ceiling of the room it
+stands in. The storey's ceiling is set in the Plan pane, and a room states its own in the room list —
+the bathroom under a dropped ceiling while the rest runs on. The wall between them is then finished to
+2300 on the bathroom side and to the floor above on the other, which is exactly what that wall's pane
+shows. A ceiling is a <em>finish</em>: it changes nothing about the storey height, what a stair climbs,
+the room areas or the exports. A stated height at or above the storey height finishes nothing extra and
+so does not count. A floor build-up is not modelled.</p>
 
 <h2 id="select">Selecting, moving, curving</h2>
 <p><kbd>V</kbd> activates selection and dragging for nodes, walls and symbols. A selected wall displays

@@ -14,7 +14,9 @@ import { Store } from "../model/store";
 import { Tools } from "../input/tools";
 import { Room, roomKey, unattachedRoomNames, roomArea } from "../core/rooms";
 import { ROOM_NAMES, ROOM_USES, type RoomName, type RoomUse } from "../model/room";
-import { areaModeOf, roomNamesOf } from "../model/doc";
+import { areaModeOf, roomNamesOf, floorHeight, storeyCeiling } from "../model/doc";
+import { floorSurface, type RoomSurface } from "../core/surface";
+import { sqm } from "./walls";
 import { roomFigures, roomVentRouted, type RoomFigures, type RoomVentRouted } from "../core/fitout";
 import { icon } from "./icons";
 import { t } from "../i18n";
@@ -56,6 +58,11 @@ export function renderZoomTool(
   if (rooms.length > 0 || loose.length > 0) {
     rows.secHead(t("panel.zoomZones"), { later: true });
     const mode = areaModeOf(store.doc);
+    // The wall face area behind each room's row, from the same takeoff the wall
+    // pane states its storey total in -- one derivation, so a room's figure and
+    // the storey's cannot disagree.
+    const surface = new Map(
+      floorSurface(store.floor, tools.resolvedFloor(), rooms).rooms.map(x => [x.key, x] as const));
     const list = el("div", "zone-list");
     // Plan order, top-left first, rather than named-first-then-by-size: this is
     // now the list a plan is named from, and a row that jumps to the top the
@@ -66,7 +73,7 @@ export function renderZoomTool(
       const area = (roomArea(r, mode) / 1e6).toFixed(1) + " m²";
       list.append(edit.key === roomKey(r)
         ? nameRow(tools, edit, r, area, store)
-        : roomItem(tools, edit, store, r, area));
+        : roomItem(tools, edit, store, r, area, surface.get(roomKey(r))));
     }
     for (const rn of loose) {
       const key = "name:" + rn.id;
@@ -127,13 +134,39 @@ function looseNameRow(tools: Tools, edit: RoomEdit, rn: RoomName): HTMLElement {
   return row;
 }
 
-/** A room at rest, with its fit-out figures (if it has any) underneath. */
-function roomItem(tools: Tools, edit: RoomEdit, store: Store, r: Room, area: string): HTMLElement {
+/**
+ * A room at rest, with its figures underneath: the wall face area it takes to
+ * finish, and -- for a verblijfsruimte -- its fit-out figures.
+ *
+ * The wall area is on every room because every room is painted; the fit-out
+ * figures are only on the rooms the Bouwbesluit gives them to.
+ */
+function roomItem(
+  tools: Tools, edit: RoomEdit, store: Store, r: Room, area: string, surface?: RoomSurface,
+): HTMLElement {
   const item = el("div", "zone-item");
   item.append(zoneRow(tools, edit, r, area));
+  const box = el("div", "zone-figures");
+  if (surface && surface.finishMm2 > 0) {
+    line(box, t("panel.roomWallSurface", { area: sqm(surface.netMm2) }));
+    if (surface.revealsMm2 > 0) {
+      line(box, t("panel.roomWallReveals", {
+        area: sqm(surface.revealsMm2), total: sqm(surface.finishMm2),
+      }));
+    }
+    if (surface.ceilingMm !== undefined) {
+      line(box, t("panel.roomWallSurfaceCeiling", { mm: surface.ceilingMm }));
+    }
+  }
   const figures = roomFigures(store.floor, r, store.doc);
-  if (figures) item.append(figuresBlock(figures, roomVentRouted(store.floor, r, store.doc)));
+  if (figures) figuresBlock(box, figures, roomVentRouted(store.floor, r, store.doc));
+  if (box.childElementCount > 0) item.append(box);
   return item;
+}
+
+/** One figure line in a room's figures box. */
+function line(box: HTMLElement, text: string, warn = false): void {
+  box.append(Object.assign(el("div", "zone-figure" + (warn ? " is-warn" : "")), { textContent: text }));
 }
 
 /** A room at rest: press it to frame it, press the pencil to name it. */
@@ -194,7 +227,13 @@ function nameRow(tools: Tools, edit: RoomEdit, r: Room, area: string, store: Sto
     if (e.key === "Enter") { e.preventDefault(); finish(true); }
     else if (e.key === "Escape") { e.preventDefault(); finish(false); }
   };
-  input.onblur = () => finish(true);
+  input.onblur = e => {
+    // The use and ceiling controls belong to this same editor. Let focus move
+    // to them; rebuilding here would remove the control before its click or
+    // keyboard interaction can complete.
+    if (e.relatedTarget instanceof Node && wrap.contains(e.relatedTarget)) return;
+    finish(true);
+  };
 
   row.append(input, Object.assign(el("span", "zone-area"), { textContent: area }));
   wrap.append(row);
@@ -202,7 +241,7 @@ function nameRow(tools: Tools, edit: RoomEdit, r: Room, area: string, store: Sto
   // a room about to be named for the first time has nothing to attach it to.
   if (r.nameId !== undefined) {
     const rn = roomNamesOf(store.floor).find(x => x.id === r.nameId);
-    if (rn) wrap.append(useRow(tools, rn));
+    if (rn) wrap.append(useRow(tools, rn), ceilingRow(tools, store, rn));
   }
   // A microtask, not a direct call: the row is still detached at this point and
   // only reaches the document when renderZoomTool appends the list.
@@ -240,8 +279,7 @@ function useRow(tools: Tools, rn: RoomName): HTMLElement {
  * neutral note, not a warning: this pairs the two figures, it does not check
  * one against the other.
  */
-function figuresBlock(figures: RoomFigures, routed: RoomVentRouted): HTMLElement {
-  const box = el("div", "zone-figures");
+function figuresBlock(box: HTMLElement, figures: RoomFigures, routed: RoomVentRouted): void {
   const line = (text: string, warn = false): void => {
     box.append(Object.assign(el("div", "zone-figure" + (warn ? " is-warn" : "")), { textContent: text }));
   };
@@ -259,7 +297,49 @@ function figuresBlock(figures: RoomFigures, routed: RoomVentRouted): HTMLElement
   for (const issue of figures.issues) {
     line(t("fitoutIssue." + issue.code, { value: issue.value.toFixed(1), limit: issue.limit }), true);
   }
-  return box;
+}
+
+/**
+ * This room's own finished ceiling height, beside the use. Empty means the
+ * room follows the storey, which is what most rooms do; a figure here is for
+ * the one room finished lower than the rest -- a badkamer under a verlaagd
+ * plafond. It changes only the wall face area the row above reports.
+ *
+ * A single field rather than a set/unset pair: the row is already inside an
+ * open name field, and an empty field showing what the storey answers says the
+ * same thing a checkbox would in half the space.
+ *
+ * Typed, not scrubbed. Every other number field in the panel drags sideways to
+ * feel out a value, which needs a value to start from; this one is ordinarily
+ * empty, and a drag from nothing would commit a ceiling of one step. So it is a
+ * text field with a numeric keypad, and the cursor does not promise a gesture
+ * that is not there.
+ */
+function ceilingRow(tools: Tools, store: Store, rn: RoomName): HTMLElement {
+  const row = el("label", "prop-row zone-use");
+  row.append(Object.assign(el("span"), { textContent: t("panel.roomCeiling") }));
+  const input = el("input") as HTMLInputElement;
+  input.type = "text";
+  input.inputMode = "numeric";
+  input.placeholder = String(storeyPlaceholder(store));
+  input.value = rn.ceilingMm === undefined ? "" : String(rn.ceilingMm);
+  const commit = (): void => {
+    const raw = input.value.trim();
+    const n = raw === "" ? undefined : Number(raw);
+    const next = n === undefined || !isFinite(n) || n <= 0 ? undefined : n;
+    if (next === rn.ceilingMm) return;
+    tools.setRoomCeiling(rn.id, next);
+  };
+  input.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } };
+  input.onchange = commit;
+  row.append(input);
+  return row;
+}
+
+/** What an empty ceiling field falls back to: the storey's own ceiling where it
+ *  states one that counts, and the storey height where it does not. */
+function storeyPlaceholder(store: Store): number {
+  return storeyCeiling(store.floor) ?? floorHeight(store.floor);
 }
 
 /** The dozen names nearly every plan uses, offered as completions. */

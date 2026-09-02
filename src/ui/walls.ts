@@ -12,6 +12,7 @@ import {
 import { WALL_MATERIALS, POST_DEFAULT_MM, POST_WIDTH_DEFAULT, type WallMaterial } from "../model/doc";
 import type { Wall } from "../model/doc";
 import { wallLength, MIN_WALL_MM } from "../model/ops";
+import { floorSurface, type FloorSurface, type WallSurface } from "../core/surface";
 import { v } from "../geometry/vec";
 import { foldOut } from "./foldout";
 import { icon, type IconName } from "./icons";
@@ -90,7 +91,101 @@ export function renderWallTool(
   }
   rows.noteRow(t("panel.wallWeldNote"));
 
-  renderWallList(host, store, tools);
+  // One takeoff for both readers below: the storey total, and the per-wall
+  // figure each row of the wall list carries.
+  const surface = floorSurface(store.floor, tools.resolvedFloor(), tools.rooms());
+  renderStoreySurface(rows, surface);
+  renderWallList(host, store, tools, surface);
+}
+
+/** Square metres, as a paint or plaster quantity is written. */
+export function sqm(mm2: number): string {
+  return (mm2 / 1e6).toFixed(2) + " m\u00b2";
+}
+
+/**
+ * The figures a face area is read in, shared by the storey total and the
+ * selected wall's own pane so the two cannot state it differently.
+ *
+ * Every row but the net one is conditional, because a row that repeats the one
+ * above it is noise: gross and the deduction only where there is a deduction to
+ * make, the reveals and the total only where there are openings to have any,
+ * and `inner` only where cladding takes a face out of it.
+ */
+function surfaceRows(
+  rows: PaneRows,
+  s: {
+    grossMm2: number; openingsMm2: number; netMm2: number;
+    revealsMm2: number; finishMm2: number; innerMm2: number;
+  },
+  clad: boolean,
+): void {
+  if (s.openingsMm2 > 0) {
+    rows.infoRow(t("panel.wallSurfaceGross"), sqm(s.grossMm2));
+    rows.infoRow(t("panel.wallSurfaceOpenings"), "\u2212" + sqm(s.openingsMm2));
+  }
+  rows.infoRow(t("panel.wallSurfaceNet"), sqm(s.netMm2));
+  // Kept beside the net figure rather than inside it: a stucadoor prices the
+  // dagkanten separately, and a plan that wants the wall alone still has it.
+  if (s.revealsMm2 > 0) {
+    rows.infoRow(t("panel.wallSurfaceReveals"), "+" + sqm(s.revealsMm2));
+    rows.infoRow(t("panel.wallSurfaceFinish"), sqm(s.finishMm2));
+  }
+  if (clad) rows.infoRow(t("panel.wallSurfaceInner"), sqm(s.innerMm2));
+}
+
+/**
+ * The face area of one wall, in the pane of the wall that is selected. The
+ * measurement basis is stated beside the figure every time rather than once in
+ * a manual: a quantity read off it needs to say what height it was measured to.
+ *
+ * Where a suspended ceiling lowers one of the two faces, they are also listed
+ * separately. That is exactly the case where one total is surprising -- the two
+ * sides of a wall between a badkamer and a slaapkamer are then not the same
+ * area, and the row naming the room says which is which.
+ */
+export function renderWallSurface(rows: PaneRows, s: WallSurface): void {
+  const clad = s.faces.some(x => x.clad);
+  surfaceRows(rows, s, clad);
+  const lowered = s.faces.some(x => x.heightMm < s.heightMm);
+  if (lowered) {
+    for (const face of s.faces) {
+      rows.infoRow(faceLabel(face),
+        t("panel.wallSurfaceFaceValue", { area: sqm(face.finishMm2), mm: face.heightMm }));
+    }
+  }
+  rows.noteRow(lowered ? t("panel.wallSurfaceCeilingNote") : t("panel.wallSurfaceNote"));
+  if (s.revealsMm2 > 0) rows.noteRow(t("panel.wallSurfaceRevealNote"));
+  if (clad) rows.noteRow(t("panel.wallSurfaceCladNote"));
+}
+
+/** What to call one face: the room it looks into, named or not, or the outside
+ *  where it looks into no room at all. */
+function faceLabel(face: WallSurface["faces"][number]): string {
+  if (face.roomName !== undefined) return face.roomName;
+  return face.roomKey === undefined
+    ? t("panel.wallSurfaceFaceOutside")
+    : t("panel.wallSurfaceFaceUnnamed");
+}
+
+/** The storey's total wall face area: what an order for stucwerk, verf or
+ *  behang is placed against. Reported, never checked against anything. */
+function renderStoreySurface(rows: PaneRows, total: FloorSurface): void {
+  if (total.walls.length === 0) return;
+  rows.secHead(t("panel.wallSurface"), { later: true });
+  surfaceRows(rows, total, total.cladFaces > 0);
+  // What the rooms of this storey take between them: the figure a quote for
+  // the whole floor is written against, and the one the room list breaks down.
+  // Stated only where a wall loop closes -- with none, every face is outside
+  // and the row would read zero for a storey that plainly has walls.
+  if (total.rooms.length > 0) {
+    rows.infoRow(t("panel.wallSurfaceRooms"),
+      sqm(total.rooms.reduce((n, r) => n + r.finishMm2, 0)));
+  }
+  const lowered = total.walls.some(s => s.faces.some(x => x.heightMm < s.heightMm));
+  rows.noteRow(lowered ? t("panel.wallSurfaceCeilingNote") : t("panel.wallSurfaceNote"));
+  if (total.revealsMm2 > 0) rows.noteRow(t("panel.wallSurfaceRevealNote"));
+  if (total.cladFaces > 0) rows.noteRow(t("panel.wallSurfaceCladNote"));
 }
 
 /**
@@ -111,16 +206,19 @@ export function renderWallTool(
  * The list states what the graph holds and changes nothing about it. It is not
  * a check and it repairs nothing: a short wall may be exactly what was meant.
  */
-function renderWallList(host: HTMLElement, store: Store, tools: Tools): void {
+function renderWallList(
+  host: HTMLElement, store: Store, tools: Tools, surface: FloorSurface,
+): void {
   const f = store.floor;
   if (f.walls.length === 0) return;
+  const area = new Map(surface.walls.map(s => [s.wallId, s] as const));
   const walls = [...f.walls]
     .map(w => ({ w, len: Math.round(wallLength(f, w)), stub: false }))
     .sort((a, b) => a.len - b.len);
   for (const row of walls) row.stub = row.len < Math.max(MIN_WALL_MM, row.w.thickness);
 
   const list = el("div", "zone-list");
-  for (const { w, len, stub } of walls) list.append(wallRow(store, tools, w, len, stub));
+  for (const { w, len, stub } of walls) list.append(wallRow(store, tools, w, len, stub, area.get(w.id)));
   const note = el("div", "prop-note");
   note.textContent = t("panel.wallListNote");
   const body = el("div");
@@ -141,9 +239,15 @@ function renderWallList(host: HTMLElement, store: Store, tools: Tools): void {
   host.append(fold.head, fold.body);
 }
 
-/** One wall: its length, its thickness, and a bin. `stub` marks it as shorter
- *  than it is thick, which is a length nothing can be built to. */
-function wallRow(store: Store, tools: Tools, w: Wall, len: number, stub: boolean): HTMLElement {
+/**
+ * One wall: its length, its thickness and net face area, and a bin. `stub`
+ * marks it as shorter than it is thick, which is a length nothing can be built
+ * to. `surface` is absent for a degenerate wall, which resolveFloor() drops and
+ * so has no face to state.
+ */
+function wallRow(
+  store: Store, tools: Tools, w: Wall, len: number, stub: boolean, surface?: WallSurface,
+): HTMLElement {
   const f = store.floor;
   const row = el("div", "zone-row");
   const b = el("button", "zone") as HTMLButtonElement;
@@ -152,8 +256,11 @@ function wallRow(store: Store, tools: Tools, w: Wall, len: number, stub: boolean
   b.append(
     Object.assign(el("span", "zone-name" + (stub ? " is-warn" : "")),
       { textContent: t("panel.wallListLength", { mm: len }) }),
-    Object.assign(el("span", "zone-area"),
-      { textContent: t("panel.wallListThickness", { mm: w.thickness }) }),
+    Object.assign(el("span", "zone-area"), {
+      textContent: surface
+        ? t("panel.wallListMeta", { mm: w.thickness, area: sqm(surface.finishMm2) })
+        : t("panel.wallListThickness", { mm: w.thickness }),
+    }),
   );
   b.onclick = () => {
     const a = f.nodes.find(n => n.id === w.a), z = f.nodes.find(n => n.id === w.b);

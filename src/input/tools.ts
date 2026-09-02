@@ -1199,6 +1199,12 @@ export class Tools {
     return this.getResolved().walls.get(id);
   }
 
+  /** The whole storey's derived wall geometry, cached against the revision by
+   *  the caller that supplied it (see derived() in main.ts). */
+  resolvedFloor(): Resolved {
+    return this.getResolved();
+  }
+
   // ---- pointer handlers ----
   private onWheel(e: WheelEvent): void {
     e.preventDefault();
@@ -2533,6 +2539,17 @@ export class Tools {
       const rn = roomNamesOf(f).find(r => r.id === id);
       if (!rn) return;
       if (use) rn.use = use; else delete rn.use;
+    });
+  }
+
+  /** This room's own finished ceiling height, or undefined to fall back to the
+   *  storey's. Rides on the name for the reason the use does -- see RoomName. */
+  setRoomCeiling(id: string, mm: number | undefined): void {
+    this.store.mutate(doc => {
+      const f = this.store.floorOf(doc);
+      const rn = roomNamesOf(f).find(r => r.id === id);
+      if (!rn) return;
+      if (mm === undefined) delete rn.ceilingMm; else rn.ceilingMm = Math.max(100, Math.round(mm));
     });
   }
 

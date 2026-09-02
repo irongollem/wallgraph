@@ -135,6 +135,15 @@ export function planSchema(siteUrl: string): JsonSchema {
               "Storey height in mm, floor to floor. Stairs on this floor climb it unless " +
               "they state a rise of their own. Absent means 2800.",
           },
+          ceilingMm: {
+            type: "integer", minimum: 1,
+            description:
+              "Finished ceiling height in mm above this storey's floor, where a suspended " +
+              "ceiling has been dropped under the slab. A finish and nothing else: it " +
+              "changes no stair, no space and no area, only the wall FACE area reported " +
+              "by core/surface.ts. A figure at or above the storey height states nothing " +
+              "and is ignored. Absent means none, so a face is finished floor to floor.",
+          },
           stairs: {
             type: "array", items: { $ref: "#/$defs/stair" },
             description: "Placed stairs. Absent means the storey has none.",
@@ -626,6 +635,15 @@ export function planSchema(siteUrl: string): JsonSchema {
               "authored per-room anchor the document has. Absent means not stated, and " +
               "only \"verblijf\" (verblijfsruimte) carries the indicative workstation, " +
               "daylight-ratio and ventilation figures in core/fitout.ts.",
+          },
+          ceilingMm: {
+            type: "integer", minimum: 1,
+            description:
+              "Finished ceiling height in mm above the floor, where this room has a " +
+              "suspended ceiling of its own. Rides on the name for the reason \"use\" " +
+              "does. Absent means not stated, and the storey's own ceiling answers " +
+              "instead; a figure at or above the storey height states nothing and is " +
+              "ignored. Like the storey's, it changes only the wall face area.",
           },
         },
       },

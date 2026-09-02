@@ -362,6 +362,17 @@ export interface Floor {
    * height to carries no number the drawer did not choose.
    */
   height?: number;
+  /**
+   * Finished ceiling height in mm above this storey's floor: the height a wall
+   * FACE is finished to where a suspended ceiling has been dropped under the
+   * slab. Absent means none, so a face is finished floor to floor.
+   *
+   * A finish, not structure. It changes nothing a stair climbs, nothing IFC
+   * says a space is, and nothing about the wall graph -- only the face area
+   * core/surface.ts reports. A room states its own under its name
+   * (RoomName.ceilingMm); this is what the rest of the storey falls back to.
+   */
+  ceilingMm?: number;
 }
 
 /** A floor's stairs. Absent means none, not an error. */
@@ -388,6 +399,24 @@ export const floorHeight = (f: Floor): number => f.height ?? FLOOR_HEIGHT_DEFAUL
 
 /** A wall's own height, mm. Absent means the storey height it stands on. */
 export const wallHeight = (f: Floor, w: Wall): number => w.height ?? floorHeight(f);
+
+/**
+ * The storey's finished ceiling height, mm, or undefined where no suspended
+ * ceiling is stated. A figure at or above the storey height states nothing a
+ * face is not already finished to, so it reads as absent rather than as a
+ * ceiling inside the slab.
+ */
+/**
+ * The ceiling height a suspended ceiling is first offered at, mm. Under the
+ * ordinary 2800 storey it leaves the 200 a plenum needs for ducts and downlights;
+ * a room finished lower than the rest -- a badkamer, usually -- states its own.
+ */
+export const CEILING_DEFAULT_MM = 2600;
+
+export function storeyCeiling(f: Floor): number | undefined {
+  const c = f.ceilingMm;
+  return c !== undefined && c > 0 && c < floorHeight(f) ? c : undefined;
+}
 
 /**
  * How reported areas are measured. Plans are dimensioned both ways in practice

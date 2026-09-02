@@ -90,14 +90,15 @@ function roomUseOf(floor: Floor, room: Room): RoomUse | undefined {
 
 /**
  * Total window-opening area on this room's bounding walls, mm² (width times
- * openingHeight, summed). `room.boundingWallIds` is read straight off the
+ * openingHeight, summed). `room.boundingFaces` is read straight off the
  * half-edge trace detectRooms() already does -- see the field's comment in
  * core/rooms.ts -- rather than re-matching the room polygon to wall
- * centerlines here.
+ * centerlines here. A window lets the same daylight in through whichever face
+ * of its wall looks into the room, so the walls are counted once each.
  */
 function glazingArea(floor: Floor, room: Room): number {
   let total = 0;
-  for (const wallId of room.boundingWallIds) {
+  for (const wallId of new Set(room.boundingFaces.map(rf => rf.wallId))) {
     const wall = findWall(floor, wallId);
     if (!wall) continue;
     for (const o of wall.openings) {

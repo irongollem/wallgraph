@@ -37,6 +37,17 @@ export interface RoomName {
    * a gap to fill by guessing. Absent means "not stated".
    */
   use?: RoomUse;
+  /**
+   * Finished ceiling height in mm above the floor, where this room has a
+   * suspended ceiling of its own. Rides on the name for the reason `use` does:
+   * there is no stored room to hang it on, so a room with no name-point cannot
+   * state one and falls back to the storey's (Floor.ceilingMm). Absent means
+   * "not stated", not "no ceiling" -- the storey still answers.
+   *
+   * A finish, like the storey's: it changes only the wall face area
+   * core/surface.ts reports, never the graph, the areas or a stair.
+   */
+  ceilingMm?: number;
 }
 
 /**
