@@ -467,6 +467,12 @@ function rectFloor(wallTh = 100) {
   check("moveFloor re-slots the stack", names().join(",") === "C,A,B2");
   check("the active storey follows its floor",
     st.activeFloor === 0 && st.floor.id === activeId);
+  st.undo();
+  check("undoing a reorder keeps the same storey active",
+    names().join(",") === "A,B2,C" && st.activeFloor === 2 && st.floor.id === activeId);
+  st.redo();
+  check("redoing a reorder keeps the same storey active",
+    names().join(",") === "C,A,B2" && st.activeFloor === 0 && st.floor.id === activeId);
   st.moveFloor(0, 2);
   check("moveFloor back restores the stack", names().join(",") === "A,B2,C");
   st.moveFloor(0, 9);
@@ -486,6 +492,25 @@ function rectFloor(wallTh = 100) {
   st.duplicateFloor("Copy", 0);
   check("duplicate by index inserts above its source and switches to it",
     names().join(",") === "B2,Copy,C" && st.activeFloor === 1);
+}
+
+{
+  const st = new Store();
+  st.replace(emptyDoc());
+  st.renameFloor("A");
+  st.addFloor("B");
+  const ids = st.doc.floors.map(f => f.id).join(",");
+  st.renameFloor("ignored", 99);
+  st.deleteFloor(-1);
+  st.deleteFloor(99);
+  st.deleteFloor(0.5);
+  st.moveFloor(0.5, 1);
+  st.duplicateFloor("ignored", Number.NaN);
+  check("out-of-range floor operations change no storey",
+    st.doc.floors.map(f => f.id).join(",") === ids && st.doc.floors.map(f => f.name).join(",") === "A,B");
+  st.undo();
+  check("an invalid rename adds no phantom undo step",
+    st.doc.floors.length === 1 && st.doc.floors[0]!.name === "A");
 }
 
 // --- T-junctions must not leave a hole in the masonry ---

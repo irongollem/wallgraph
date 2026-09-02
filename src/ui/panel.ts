@@ -654,7 +654,7 @@ export class Panel {
     // Plan rows and the storey picker read from the document, so they have to
     // rebuild when an undo changes a value under them -- but not on every
     // store change, or placing a symbol would yank focus out of an open field.
-    const paneSig = [this.store.activeFloor, d.floors.map(fl => fl.name).join("\u0001"),
+    const paneSig = [this.store.activeFloor, d.floors.map(fl => `${fl.id}\u0000${fl.name}`).join("\u0001"),
       d.gridMm, areaModeOf(d), floorHeight(this.store.floor), d.groundMm ?? "", this.tools.lastThickness,
       JSON.stringify(d.project ?? null), d.northDeg ?? "",
       this.store.floor.underlay ? "u1" : "u0", this.tools.calibrating ? "c1" : "c0",
@@ -884,7 +884,11 @@ export class Panel {
     name.type = "text";
     name.value = fl.name;
     name.setAttribute("aria-label", t("panel.floorRename"));
-    name.onchange = () => { const n = name.value.trim(); if (n) this.store.renameFloor(n, i); };
+    name.onchange = () => {
+      const n = name.value.trim();
+      if (n) this.store.renameFloor(n, i); else name.value = fl.name;
+    };
+    name.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); name.blur(); } };
 
     const smallBtn = (cls: string, iconName: IconName, label: string, fn: () => void): HTMLButtonElement => {
       const b = el("button", cls) as HTMLButtonElement;
@@ -916,6 +920,11 @@ export class Panel {
    * the slop is a click, and shows that storey.
    */
   private wireFloorDrag(grip: HTMLElement, row: HTMLElement): void {
+    grip.addEventListener("keydown", e => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      this.store.setActiveFloor(Number(row.dataset.index));
+    });
     grip.addEventListener("pointerdown", e => {
       if (e.pointerType === "mouse" && e.button !== 0) return;
       const list = row.parentElement;
@@ -929,15 +938,14 @@ export class Panel {
         if (!dragging && Math.abs(ev.clientY - startY) < 4) return;
         dragging = true;
         row.classList.add("is-dragging");
-        // Past the midpoint of a neighbour swaps with it; one step per event
-        // is enough, since pointermove fires continuously.
-        for (const sib of Array.from(list.children) as HTMLElement[]) {
-          if (sib === row) continue;
+        // Place directly at the pointer's target slot. Pointer events may jump
+        // across several rows, especially on touch or a loaded main thread.
+        const siblings = (Array.from(list.children) as HTMLElement[]).filter(sib => sib !== row);
+        const before = siblings.find(sib => {
           const r = sib.getBoundingClientRect();
-          const own = row.getBoundingClientRect();
-          if (own.top > r.top && ev.clientY < r.top + r.height / 2) { list.insertBefore(row, sib); break; }
-          if (own.top < r.top && ev.clientY > r.top + r.height / 2) { sib.after(row); break; }
-        }
+          return ev.clientY < r.top + r.height / 2;
+        });
+        if (before) list.insertBefore(row, before); else list.append(row);
       };
       const finish = (commit: boolean): void => {
         grip.removeEventListener("pointermove", move);
