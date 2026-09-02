@@ -25,7 +25,7 @@ import {
   FIRE_MINUTES_DEFAULT, routesOf, furnishingsOf, WALL_MATERIALS, POST_DEFAULT_MM, POST_WIDTH_DEFAULT,
   FACADE_DEFAULT_MM, facadeSideOf,
   type AreaMode, type DimMode, type Sash, type HingeEdge, type Opening, type Wall, type Floor, type FireKind,
-  type ProjectMeta, type Id, type WallMaterial,
+  type ProjectMeta, type Id, type WallMaterial, type PlanDoc,
 } from "../model/doc";
 import type { Discipline } from "../model/route";
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
@@ -149,6 +149,9 @@ export class Panel {
   private planOpen = false;
   private underlayOpen = false;
   private permitOpen = false;
+  /** The storey-management pane is open in the context area (renderFloorsPane).
+   *  Pane state like roomEditKey: it has to survive the rebuilds it causes. */
+  private floorsOpen = false;
   /** The permit checklist's container; repopulated in place while open. */
   private permitChecksEl: HTMLElement | null = null;
   /** permitChecklist() cache, keyed on store.revision -- it runs resolveFloor,
@@ -486,13 +489,13 @@ export class Panel {
   private documentMenuEntries(): MenuEntry[] {
     return [
       { kind: "item", icon: "docNew", label: t("action.new"), onPick: () => {
-        clearAutosave(); this.store.replace(emptyDoc(), true); this.flash(t("status.newPlan"));
+        clearAutosave(); this.replaceDocument(emptyDoc()); this.flash(t("status.newPlan"));
       } },
       { kind: "item", icon: "docDemo", label: t("action.demo"), onPick: () => {
-        this.store.replace(seedDoc(), true); this.flash(t("status.demoLoaded"));
+        this.replaceDocument(seedDoc()); this.flash(t("status.demoLoaded"));
       } },
       { kind: "item", icon: "docOpen", label: t("action.open"), onPick: () => importJsonFile(
-        doc => { this.store.replace(doc, true); this.flash(t("status.planLoaded")); },
+        doc => { this.replaceDocument(doc); this.flash(t("status.planLoaded")); },
         () => this.flash(t("status.invalidFile")),
       ) },
       { kind: "sep" },
@@ -516,6 +519,12 @@ export class Panel {
         options: LANGUAGES.map(l => [l.code, l.label] as [string, string]),
         onPick: value => changeLanguage(value as Lang) },
     ];
+  }
+
+  /** Replace the plan and reframe whichever canvas is currently visible. */
+  private replaceDocument(doc: PlanDoc): void {
+    this.store.replace(doc, true);
+    if (this.tools.view3d) this.tools.onView3dFit?.();
   }
 
   /** Keys spelled out rather than built from the result, so they stay greppable. */
@@ -567,12 +576,21 @@ export class Panel {
    * Storey picker. Floors are listed top-down (highest first) because that is
    * how a stack of storeys reads on paper, while the document stores
    * floors[0] as the lowest. Adding a floor lives here too; rename/duplicate/
-   * delete stay in the property pane's Plan section (renderFloors below).
+   * delete/reorder live in the management pane the leading button unfolds
+   * (renderFloorsPane below).
    */
   private buildStoreyRow(): HTMLElement {
     const floors = this.store.doc.floors;
     const row = el("div", "storey");
-    row.append(icon("floors", 16));
+    const manage = el("button", "storey-manage") as HTMLButtonElement;
+    manage.type = "button";
+    manage.title = t("panel.floorManage");
+    manage.setAttribute("aria-label", t("panel.floorManage"));
+    manage.setAttribute("aria-expanded", String(this.floorsOpen));
+    if (this.floorsOpen) manage.classList.add("is-active");
+    manage.append(icon("floors", 16));
+    manage.onclick = () => this.toggleFloorsPane();
+    row.append(manage);
     const select = el("select", "storey-select") as HTMLSelectElement;
     select.setAttribute("aria-label", t("panel.storey"));
     for (const [i, fl] of floors.map((fl, i) => [i, fl] as const).reverse()) {
@@ -616,7 +634,12 @@ export class Panel {
       || this.tools.tool === "zoom" || this.tools.tool === "door"
       || this.tools.tool === "window" || this.tools.tool === "passage"
       || this.tools.tool === "wall";
-    const selSig = (stairMode ? `stair-tool:${this.tools.stairKind}|` : "")
+    // The storey pane yields to anything else that claims the context area: a
+    // selection or an armed tool pane means the user moved on.
+    if (this.floorsOpen && (sel || stairMode || videMode || servicesMode || paneTool)) this.floorsOpen = false;
+    const floorsMode = this.floorsOpen;
+    const selSig = (floorsMode ? "floors|" : "")
+      + (stairMode ? `stair-tool:${this.tools.stairKind}|` : "")
       + (videMode ? "vide-tool|" : "")
       + (routeMode ? `route-tool:${this.tools.routeDiscipline}|` : "")
       + (paneTool ? "pane-tool:" + this.tools.tool + "|" : "")
@@ -633,7 +656,7 @@ export class Panel {
     // Plan rows and the storey picker read from the document, so they have to
     // rebuild when an undo changes a value under them -- but not on every
     // store change, or placing a symbol would yank focus out of an open field.
-    const paneSig = [this.store.activeFloor, d.floors.map(fl => fl.name).join("\u0001"),
+    const paneSig = [this.store.activeFloor, d.floors.map(fl => `${fl.id}\u0000${fl.name}`).join("\u0001"),
       d.gridMm, areaModeOf(d), floorHeight(this.store.floor),
       this.store.floor.ceilingMm ?? "", d.groundMm ?? "", this.tools.lastThickness,
       JSON.stringify(d.project ?? null), d.northDeg ?? "",
@@ -667,8 +690,8 @@ export class Panel {
 
     const swap = selSig !== this.lastSelSig;
     this.lastSelSig = selSig;
-    this.paneBody.hidden = !sel && !stairMode && !videMode && !routeMode && !paneTool;
-    if (sel || stairMode || videMode || routeMode || paneTool) {
+    this.paneBody.hidden = !sel && !stairMode && !videMode && !routeMode && !paneTool && !floorsMode;
+    if (sel || stairMode || videMode || routeMode || paneTool || floorsMode) {
       this.paneBody.className = "pane-body" + (swap ? " pane-swap" : "");
       this.renderProps(this.props);
     }
@@ -797,32 +820,157 @@ export class Panel {
     }
   }
 
-  /**
-   * Floor housekeeping rows: rename, duplicate, delete. The picker itself and
-   * the "add floor" action live in the `.storey` bar (buildStoreyRow above).
-   */
-  private renderFloors(
-    btnRow: (l: string, f: () => void) => void,
-    textRow: (l: string, v: string, f: (s: string) => void) => void,
-    noteRow: (text: string) => void,
-    checkRow: (l: string, v: boolean, f: (b: boolean) => void) => void,
-  ): void {
-    const floors = this.store.doc.floors;
-    textRow(t("panel.floorRename"), this.store.floor.name, n => this.store.renameFloor(n));
-    if (this.store.floorBelow) noteRow(t("panel.floorGhost"));
-    btnRow(t("panel.floorDuplicate"), () => {
-      this.store.duplicateFloor(t("panel.floorNewName", { n: floors.length + 1 }));
+  /** Open or close the storey-management pane in the context area. Opening
+   *  clears whatever held the pane — it shows one context at a time — and has
+   *  to clear it BEFORE raising the flag: select() and setTool() each refresh
+   *  the pane, and renderPane closes an open storey pane the moment a
+   *  selection or an armed tool pane still claims the context area. */
+  private toggleFloorsPane(): void {
+    if (!this.floorsOpen) {
+      this.store.select(null);
       this.tools.exitSelectMode();
-    });
-    if (floors.length > 1) {
-      btnRow(t("panel.floorDelete"), () => { this.store.deleteFloor(); this.tools.exitSelectMode(); });
-      // Which storeys the 3D view shows. Editor state on Tools, so the ticks
-      // survive a storey switch but never reach the document or an export.
-      for (const fl of floors) {
-        checkRow(t("panel.floor3d", { name: fl.name }),
-          !this.tools.view3dHidden.has(fl.id), () => this.tools.toggleFloor3d(fl.id));
-      }
+      this.tools.setTool("select");
+      this.floorsOpen = true;
+      this.sheet?.atLeast("half");
+    } else this.floorsOpen = false;
+    this.refreshToolbar();
+  }
+
+  /**
+   * Storey management: one row per floor, top-down like the picker, each with
+   * a drag grip (reorder; a plain click shows that storey), an editable name,
+   * duplicate and delete. The picker's + button and the add row here do the
+   * same thing.
+   */
+  private renderFloorsPane(p: HTMLElement): void {
+    const floors = this.store.doc.floors;
+    const head = el("div", "sec");
+    head.append(Object.assign(el("span", "sec-label"), { textContent: t("panel.floors") }), el("div", "sec-rule"));
+    const close = el("button", "sec-close") as HTMLButtonElement;
+    close.type = "button";
+    close.title = t("panel.close");
+    close.setAttribute("aria-label", t("panel.close"));
+    close.append(icon("close", 14));
+    close.onclick = () => { this.floorsOpen = false; this.refreshToolbar(); };
+    head.append(close);
+    p.append(head);
+
+    const list = el("div", "floor-list");
+    for (const [i, fl] of floors.map((fl, i) => [i, fl] as const).reverse()) {
+      list.append(this.buildFloorRow(i, fl, floors.length));
     }
+    p.append(list);
+
+    const { btnRow, noteRow } = this.rowKit(p);
+    btnRow(t("panel.floorAdd"), () => {
+      this.store.addFloor(t("panel.floorNewName", { n: floors.length + 1 }));
+    });
+    if (this.store.floorBelow) noteRow(t("panel.floorGhost"));
+    noteRow(t("panel.floorListNote"));
+  }
+
+  private buildFloorRow(i: number, fl: Floor, count: number): HTMLElement {
+    const row = el("div", "floor-row");
+    if (i === this.store.activeFloor) row.classList.add("is-active");
+    row.dataset.index = String(i);
+
+    const grip = el("button", "floor-grip") as HTMLButtonElement;
+    grip.type = "button";
+    grip.title = t("panel.floorDrag");
+    grip.setAttribute("aria-label", t("panel.floorDrag"));
+    grip.append(icon("grip", 14));
+    this.wireFloorDrag(grip, row);
+
+    // Committing on change (blur/Enter), like every textRow: a per-keystroke
+    // mutation would rebuild the pane and pull focus out of the field.
+    const name = el("input", "floor-name") as HTMLInputElement;
+    name.type = "text";
+    name.value = fl.name;
+    name.setAttribute("aria-label", t("panel.floorRename"));
+    name.onchange = () => {
+      const n = name.value.trim();
+      if (n) this.store.renameFloor(n, i); else name.value = fl.name;
+    };
+    name.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); name.blur(); } };
+
+    const smallBtn = (cls: string, iconName: IconName, label: string, fn: () => void): HTMLButtonElement => {
+      const b = el("button", cls) as HTMLButtonElement;
+      b.type = "button";
+      b.title = label;
+      b.setAttribute("aria-label", label);
+      b.append(icon(iconName, 14));
+      b.onclick = fn;
+      return b;
+    };
+    const dup = smallBtn("floor-act", "docCopy", t("panel.floorDuplicate"), () => {
+      this.store.duplicateFloor(t("panel.floorNewName", { n: count + 1 }), i);
+    });
+    const del = smallBtn("floor-act floor-del", "trash", t("panel.floorDelete"), () => {
+      this.store.deleteFloor(i);
+    });
+    // Disabled rather than hidden, so the last row keeps its shape.
+    del.disabled = count <= 1;
+
+    row.append(grip, name, dup, del);
+    return row;
+  }
+
+  /**
+   * Reorder by dragging the grip. Pointer events rather than HTML drag-and-
+   * drop, which never fires on touch. The dragged row is re-slotted live among
+   * its siblings while the pointer moves; the document is only touched once,
+   * on release — one mutation, one undo step. A press that never travels past
+   * the slop is a click, and shows that storey.
+   */
+  private wireFloorDrag(grip: HTMLElement, row: HTMLElement): void {
+    grip.addEventListener("keydown", e => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      this.store.setActiveFloor(Number(row.dataset.index));
+    });
+    grip.addEventListener("pointerdown", e => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      const list = row.parentElement;
+      if (!list) return;
+      e.preventDefault();
+      grip.setPointerCapture(e.pointerId);
+      const startY = e.clientY;
+      let dragging = false;
+
+      const move = (ev: PointerEvent): void => {
+        if (!dragging && Math.abs(ev.clientY - startY) < 4) return;
+        dragging = true;
+        row.classList.add("is-dragging");
+        // Place directly at the pointer's target slot. Pointer events may jump
+        // across several rows, especially on touch or a loaded main thread.
+        const siblings = (Array.from(list.children) as HTMLElement[]).filter(sib => sib !== row);
+        const before = siblings.find(sib => {
+          const r = sib.getBoundingClientRect();
+          return ev.clientY < r.top + r.height / 2;
+        });
+        if (before) list.insertBefore(row, before); else list.append(row);
+      };
+      const finish = (commit: boolean): void => {
+        grip.removeEventListener("pointermove", move);
+        grip.removeEventListener("pointerup", up);
+        grip.removeEventListener("pointercancel", cancel);
+        row.classList.remove("is-dragging");
+        const from = Number(row.dataset.index);
+        if (!dragging) { if (commit) this.store.setActiveFloor(from); return; }
+        // The list reads top-down: DOM position 0 is the highest storey.
+        const pos = Array.from(list.children).indexOf(row);
+        const to = list.children.length - 1 - pos;
+        if (commit && to !== from) this.store.moveFloor(from, to);
+        // A cancelled or unmoved drag leaves the DOM shuffled; the rebuild
+        // puts the rows back in the stack's order.
+        else this.refreshToolbar();
+      };
+      const up = (): void => finish(true);
+      const cancel = (): void => finish(false);
+      grip.addEventListener("pointermove", move);
+      grip.addEventListener("pointerup", up);
+      grip.addEventListener("pointercancel", cancel);
+    });
   }
 
   /** Sash editor. An opening is one hole; the sashes divide it. */
@@ -1053,7 +1201,7 @@ export class Panel {
       const doc = parseDoc(ta.value);
       if (!doc) { this.flash(t("status.invalidJson")); return; }
       overlay.remove();
-      this.store.replace(doc, true);
+      this.replaceDocument(doc);
       this.flash(t("status.planLoadedUndo"));
     };
     const cancel = el("button", "tool-btn small") as HTMLButtonElement;
@@ -1302,8 +1450,7 @@ export class Panel {
       head.setAttribute("aria-expanded", String(next));
     };
 
-    const { numRow, selRow, textRow, noteRow, btnRow, checkRow } = this.rowKit(inner);
-    this.renderFloors(btnRow, textRow, noteRow, checkRow);
+    const { numRow, selRow, noteRow, checkRow } = this.rowKit(inner);
     numRow(t("panel.grid"), this.store.doc.gridMm, n => this.store.mutate(d => { d.gridMm = Math.max(1, n); }), 10);
     // Storey height belongs to the floor, not to each stair on it: a stair
     // connects two storeys, so changing this moves every stair that follows it.
@@ -1334,7 +1481,8 @@ export class Panel {
       else noteRow(t("panel.ceilingHelp"));
     }
     // Ground floor's elevation above project zero (Peil). Plan-wide, not
-    // per-floor, so it sits beside the storey height rather than in renderFloors.
+    // per-floor, so it sits beside the storey height rather than in the
+    // storey-management pane.
     numRow(t("panel.groundMm"), this.store.doc.groundMm ?? 0,
       n => this.store.mutate(d => { d.groundMm = Math.round(n); }), 100,
       { title: t("panel.groundMmHelp") });
@@ -1845,6 +1993,11 @@ export class Panel {
       secHead, numRow, selRow, textRow, infoRow, noteRow, warnRow, colorRow, btnRow,
       dangerRow, checkRow, chipRow,
     };
+
+    // The storey-management pane, opened from the button beside the picker.
+    // First in the chain: opening it cleared the selection, and renderPane
+    // closes it the moment anything else claims the context area.
+    if (this.floorsOpen) { this.renderFloorsPane(p); return; }
 
     // The fit-out tool keeps its picker and its fields in the property area,
     // the way the stair tool does: placing a piece selects it, so the next one

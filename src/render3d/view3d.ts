@@ -17,6 +17,9 @@ const TAP_SLOP_PX = 8;
 /** Two taps this close in time and space fit the view. */
 const DOUBLE_TAP_MS = 350;
 const DOUBLE_TAP_PX = 30;
+/** Match the 2D fit rule: very tall compact chrome may overlap the frame, but
+ * never shrink it below half of either canvas axis. */
+const MIN_FIT_FRACTION = 0.5;
 
 interface Pointer {
   x: number;
@@ -38,7 +41,6 @@ export class View3D {
   private readonly hiddenFn: (() => ReadonlySet<string>) | null;
   private readonly cam = new OrbitCamera();
   private renderer: GLRenderer | null = null;
-  private rendererFailed = false;
   private mesh: Mesh3D | null = null;
   private meshKey: string | null = null;
   private generation = 0;
@@ -86,23 +88,27 @@ export class View3D {
   /**
    * Show or hide the view. Turning it on rebuilds a stale mesh, reframes the
    * building and renders; turning it off only hides the canvas — the mesh
-   * cache stays for the next activation. Never throws: without WebGL the
-   * canvas shows empty and carries data-webgl="unavailable".
+   * cache stays for the next activation. Returns false and leaves the canvas
+   * hidden when WebGL is unavailable, so the caller can reset its mode state.
    */
-  setActive(on: boolean): void {
+  setActive(on: boolean): boolean {
     this.on = on;
     this.canvas.hidden = !on;
-    if (!on) return;
-    if (!this.renderer && !this.rendererFailed) {
+    if (!on) return true;
+    if (!this.renderer) {
       try {
-        this.renderer = new GLRenderer(this.canvas);
+        this.renderer = new GLRenderer(this.canvas, () => this.requestRender());
       } catch {
-        this.rendererFailed = true;
+        this.on = false;
+        this.canvas.hidden = true;
+        this.canvas.dataset["webgl"] = "unavailable";
+        return false;
       }
     }
-    if (!this.renderer) this.canvas.dataset["webgl"] = "unavailable";
+    delete this.canvas.dataset["webgl"];
     this.refreshMesh();
     this.fit();
+    return true;
   }
 
   /** Reframe the building — the zoom-all analog. Centres in the part of the
@@ -111,10 +117,17 @@ export class View3D {
     const mesh = this.on ? this.refreshMesh() : this.mesh;
     const b = mesh?.bounds;
     if (b) {
-      this.cam.fit(b, this.aspect());
+      const rect = this.canvas.parentElement?.getBoundingClientRect();
+      const w = rect?.width ?? 0, h = rect?.height ?? 0;
       const ins = this.insetsFn?.();
-      const h = this.canvas.parentElement?.getBoundingClientRect().height ?? 0;
-      if (ins && h > 0) this.cam.pan((ins.left - ins.right) / 2, (ins.top - ins.bottom) / 2, h);
+      const boxW = ins && w > 0 ? Math.max(w * MIN_FIT_FRACTION, w - ins.left - ins.right) : w;
+      const boxH = ins && h > 0 ? Math.max(h * MIN_FIT_FRACTION, h - ins.top - ins.bottom) : h;
+      this.cam.fit(b, w > 0 && h > 0 ? w / h : 1, w > 0 ? boxW / w : 1, h > 0 ? boxH / h : 1);
+      if (ins && w > 0 && h > 0) {
+        const left = Math.min(ins.left, w - boxW);
+        const top = Math.min(ins.top, h - boxH);
+        this.cam.pan(left + boxW / 2 - w / 2, top + boxH / 2 - h / 2, h);
+      }
     }
     this.requestRender();
   }
@@ -139,11 +152,6 @@ export class View3D {
       this.generation++;
     }
     return this.mesh;
-  }
-
-  private aspect(): number {
-    const rect = this.canvas.parentElement?.getBoundingClientRect();
-    return rect && rect.width > 0 && rect.height > 0 ? rect.width / rect.height : 1;
   }
 
   private renderFrame(): void {

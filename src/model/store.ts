@@ -122,10 +122,12 @@ export class Store {
     this.notify();
   }
 
-  /** Copy the active storey above itself — the usual way to start an upper floor. */
-  duplicateFloor(name: string): void {
+  /** Copy the storey at `i` (default: the active one) above itself and switch
+   *  to the copy — the usual way to start an upper floor. */
+  duplicateFloor(name: string, i = this.activeFloor): void {
+    if (!Number.isInteger(i) || !this.doc.floors[i]) return;
     this.mutate(d => {
-      const src = this.floorOf(d);
+      const src = d.floors[i]!;
       const copy = JSON.parse(JSON.stringify(src)) as Floor;
       copy.id = newId("f");
       copy.name = name;
@@ -186,21 +188,23 @@ export class Store {
       // made from, not the one being started, and carrying its (potentially
       // large) dataUrl into the copy would double the document for nothing.
       delete copy.underlay;
-      d.floors.splice(this.activeFloor + 1, 0, copy);
+      d.floors.splice(i + 1, 0, copy);
     });
-    this.activeFloor = Math.min(this.activeFloor + 1, this.doc.floors.length - 1);
+    this.activeFloor = Math.min(i + 1, this.doc.floors.length - 1);
     this.sel = null;
     this.notify();
   }
 
-  renameFloor(name: string): void {
-    this.mutate(d => { this.floorOf(d).name = name; });
+  renameFloor(name: string, i = this.activeFloor): void {
+    if (!Number.isInteger(i) || !this.doc.floors[i] || this.doc.floors[i]!.name === name) return;
+    this.mutate(d => { d.floors[i]!.name = name; });
   }
 
-  /** Remove the active storey. The last one is never removed. */
-  deleteFloor(): void {
-    if (this.doc.floors.length <= 1) return;
-    const removing = this.activeFloor;
+  /** Remove the storey at `i` (default: the active one). The last one is never removed. */
+  deleteFloor(i = this.activeFloor): void {
+    if (this.doc.floors.length <= 1 || !Number.isInteger(i) || i < 0 || i >= this.doc.floors.length) return;
+    const removing = i;
+    const active = this.activeFloor;
     this.mutate(d => {
       const floorId = d.floors[removing]?.id;
       d.floors.splice(removing, 1);
@@ -209,13 +213,41 @@ export class Store {
         d.continuations = d.continuations.filter(link => link.ports.length >= 2);
       }
     });
-    this.activeFloor = Math.max(0, Math.min(removing, this.doc.floors.length - 1));
-    this.sel = null;
+    // Removing a storey below the active one shifts its index; removing the
+    // active one moves to whichever storey slid into its slot. The selection
+    // only means something on the storey it was made on.
+    this.activeFloor = active > removing ? active - 1
+      : Math.max(0, Math.min(active, this.doc.floors.length - 1));
+    if (active === removing) { this.sel = null; this.selMore = []; }
     this.notify();
   }
 
-  /** Undo/redo/replace can shrink floors[]; never leave the index dangling. */
-  private clampFloor(): void {
+  /**
+   * Re-slot the storey at `from` to position `to` in the stack (indexes into
+   * floors[], 0 = lowest). Continuations name floors by id, so they survive a
+   * reorder untouched; the active storey stays the same floor object.
+   */
+  moveFloor(from: number, to: number): void {
+    const n = this.doc.floors.length;
+    if (!Number.isInteger(from) || !Number.isInteger(to)
+      || from === to || from < 0 || to < 0 || from >= n || to >= n) return;
+    const activeId = this.floor.id;
+    this.mutate(d => {
+      const [fl] = d.floors.splice(from, 1);
+      if (fl) d.floors.splice(to, 0, fl);
+    });
+    const idx = this.doc.floors.findIndex(f => f.id === activeId);
+    if (idx >= 0) this.activeFloor = idx;
+    this.notify();
+  }
+
+  /** Undo/redo/replace can reorder or shrink floors[]. Keep the same active
+   *  floor when it still exists, otherwise never leave the index dangling. */
+  private clampFloor(preferredId?: Id): void {
+    if (preferredId) {
+      const i = this.doc.floors.findIndex(f => f.id === preferredId);
+      if (i >= 0) { this.activeFloor = i; return; }
+    }
     this.activeFloor = Math.max(0, Math.min(this.activeFloor, this.doc.floors.length - 1));
   }
 
@@ -370,9 +402,10 @@ export class Store {
   undo(): void {
     const prev = this.undoStack.pop();
     if (prev === undefined) return;
+    const activeId = this.floor.id;
     this.redoStack.push(this.snapshotDoc(this.doc));
     this.doc = this.restoreDoc(prev);
-    this.clampFloor();
+    this.clampFloor(activeId);
     this.sel = null;
     this.selMore = [];
     this.lastCoalesceKey = null;
@@ -383,9 +416,10 @@ export class Store {
   redo(): void {
     const next = this.redoStack.pop();
     if (next === undefined) return;
+    const activeId = this.floor.id;
     this.undoStack.push(this.snapshotDoc(this.doc));
     this.doc = this.restoreDoc(next);
-    this.clampFloor();
+    this.clampFloor(activeId);
     this.sel = null;
     this.selMore = [];
     this.purgeUnderlayStore();

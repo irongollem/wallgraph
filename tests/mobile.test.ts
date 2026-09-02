@@ -41,6 +41,8 @@ function check(name: string, cond: boolean, detail = ""): void {
     css.includes(".rail-key, .btn-key { display: none; }"));
   check("the stylesheet agrees on the short breakpoint",
     css.includes(`max-height: ${SHORT_MAX_PX}px`), COMPACT_QUERY);
+  check("the landscape storey controls clear the left tool rail",
+    css.includes(".floors3d { left: calc(84px + env(safe-area-inset-left)); }"));
   check("the compact query names both limits",
     COMPACT_QUERY.includes(`${COMPACT_MAX_PX}px`) && COMPACT_QUERY.includes(`${SHORT_MAX_PX}px`), COMPACT_QUERY);
 

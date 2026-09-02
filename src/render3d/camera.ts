@@ -69,11 +69,11 @@ export class OrbitCamera {
 
   /**
    * Frame `b`: target at its centre, distance framing its bounding sphere
-   * with FIT_MARGIN, orientation reset to the default 3/4 view. The limiting
-   * half-angle is the smaller of the vertical and horizontal ones, so the
-   * sphere fits both ways at any aspect.
+   * with FIT_MARGIN, orientation reset to the default 3/4 view. `frameWidth`
+   * and `frameHeight` are the usable fractions of the viewport after floating
+   * chrome; the limiting half-angle keeps the sphere inside that smaller box.
    */
-  fit(b: Bounds3, aspect: number): void {
+  fit(b: Bounds3, aspect: number, frameWidth = 1, frameHeight = 1): void {
     this.target = [
       (b.min[0] + b.max[0]) / 2,
       (b.min[1] + b.max[1]) / 2,
@@ -81,8 +81,13 @@ export class OrbitCamera {
     ];
     const r = Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2;
     const a = isFinite(aspect) && aspect > 0 ? aspect : 1;
+    const fw = clamp(frameWidth, 0.01, 1);
+    const fh = clamp(frameHeight, 0.01, 1);
     const halfY = FOV_Y / 2;
-    const half = Math.min(halfY, Math.atan(Math.tan(halfY) * a));
+    const half = Math.min(
+      Math.atan(Math.tan(halfY) * fh),
+      Math.atan(Math.tan(halfY) * a * fw),
+    );
     this.distance = clamp((r * FIT_MARGIN) / Math.sin(half), DIST_MIN, DIST_MAX);
     this.yaw = DEFAULT_YAW;
     this.pitch = DEFAULT_PITCH;

@@ -31,14 +31,19 @@ void main() {
   vColor = aColor;
 }`;
 
+/** Opacity of the glass pass. Two-sided faces blend twice, so a pane reads
+ *  a shade denser than this figure alone suggests. */
+const GLASS_ALPHA = 0.45;
+
 const TRI_FS = `
 precision mediump float;
 uniform vec3 uLightDir;
+uniform float uAlpha;
 varying vec3 vNormal;
 varying vec3 vColor;
 void main() {
   float lit = 0.55 + 0.45 * abs(dot(normalize(vNormal), uLightDir));
-  gl_FragColor = vec4(vColor * lit, 1.0);
+  gl_FragColor = vec4(vColor * lit, uAlpha);
 }`;
 
 const LINE_VS = `
@@ -57,6 +62,7 @@ interface Resources {
   triNrm: number;
   triCol: number;
   triVP: WebGLUniformLocation | null;
+  triAlpha: WebGLUniformLocation | null;
   line: WebGLProgram;
   linePos: number;
   lineVP: WebGLUniformLocation | null;
@@ -64,6 +70,9 @@ interface Resources {
   nrm: WebGLBuffer;
   col: WebGLBuffer;
   edge: WebGLBuffer;
+  gpos: WebGLBuffer;
+  gnrm: WebGLBuffer;
+  gcol: WebGLBuffer;
 }
 
 export class GLRenderer {
@@ -76,9 +85,10 @@ export class GLRenderer {
   private uploaded = -1;
   private triVerts = 0;
   private edgeVerts = 0;
+  private glassVerts = 0;
 
   /** Throws when WebGL is unavailable; the caller decides what to show then. */
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, onRestore: () => void = () => {}) {
     this.canvas = canvas;
     const gl = canvas.getContext("webgl", { antialias: true });
     if (!gl) throw new Error("WebGL unavailable");
@@ -93,6 +103,7 @@ export class GLRenderer {
       this.lost = false;
       this.res = null; // program and buffers rebuild on the next draw
       this.uploaded = -1;
+      onRestore();
     });
     this.res = this.build();
   }
@@ -122,6 +133,7 @@ export class GLRenderer {
     if (this.triVerts > 0) {
       gl.useProgram(r.tri);
       gl.uniformMatrix4fv(r.triVP, false, viewProjection);
+      gl.uniform1f(r.triAlpha, 1);
       // Faces are pushed back a fraction so the outlines never z-fight them.
       gl.enable(gl.POLYGON_OFFSET_FILL);
       attrib(gl, r.pos, r.triPos);
@@ -136,6 +148,22 @@ export class GLRenderer {
       attrib(gl, r.edge, r.linePos);
       gl.drawArrays(gl.LINES, 0, this.edgeVerts);
     }
+    // Glass last: blended over the opaque scene, depth-tested against it but
+    // not written, so panes never mask each other out.
+    if (this.glassVerts > 0) {
+      gl.useProgram(r.tri);
+      gl.uniformMatrix4fv(r.triVP, false, viewProjection);
+      gl.uniform1f(r.triAlpha, GLASS_ALPHA);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(false);
+      attrib(gl, r.gpos, r.triPos);
+      attrib(gl, r.gnrm, r.triNrm);
+      attrib(gl, r.gcol, r.triCol);
+      gl.drawArrays(gl.TRIANGLES, 0, this.glassVerts);
+      gl.depthMask(true);
+      gl.disable(gl.BLEND);
+    }
   }
 
   private uploadBuffers(r: Resources, m: Mesh3D): void {
@@ -148,8 +176,15 @@ export class GLRenderer {
     gl.bufferData(gl.ARRAY_BUFFER, m.colors, gl.STATIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, r.edge);
     gl.bufferData(gl.ARRAY_BUFFER, m.edges, gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, r.gpos);
+    gl.bufferData(gl.ARRAY_BUFFER, m.glassPositions, gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, r.gnrm);
+    gl.bufferData(gl.ARRAY_BUFFER, m.glassNormals, gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, r.gcol);
+    gl.bufferData(gl.ARRAY_BUFFER, m.glassColors, gl.STATIC_DRAW);
     this.triVerts = Math.floor(m.positions.length / 3);
     this.edgeVerts = Math.floor(m.edges.length / 3);
+    this.glassVerts = Math.floor(m.glassPositions.length / 3);
     this.uploaded = this.generation;
   }
 
@@ -178,10 +213,12 @@ export class GLRenderer {
       triNrm: gl.getAttribLocation(tri, "aNormal"),
       triCol: gl.getAttribLocation(tri, "aColor"),
       triVP: gl.getUniformLocation(tri, "uVP"),
+      triAlpha: gl.getUniformLocation(tri, "uAlpha"),
       line,
       linePos: gl.getAttribLocation(line, "aPosition"),
       lineVP: gl.getUniformLocation(line, "uVP"),
       pos: mk(), nrm: mk(), col: mk(), edge: mk(),
+      gpos: mk(), gnrm: mk(), gcol: mk(),
     };
   }
 }
