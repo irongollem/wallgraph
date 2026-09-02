@@ -6,7 +6,7 @@ import {
 import { floorSolids, SLAB_DEFAULT_MM } from "../src/core/solids";
 import {
   buildSceneMesh, Mesh3D, WALL_COLOR, SLAB_COLOR, STAIR_COLOR,
-  DOOR_COLOR, GLASS_COLOR, PLATE_SEAT_MM,
+  DOOR_COLOR, GLASS_COLOR, PANEL_COLOR, PLATE_SEAT_MM, STAIR_CLEAR_MM,
 } from "../src/render3d/mesh";
 import { triangulatePolygon, triangulateWithHoles } from "../src/render3d/triangulate";
 import { v, Vec, polygonArea } from "../src/geometry/vec";
@@ -62,10 +62,14 @@ function trisArea(verts: Vec[], tris: number[]): number {
  * before summing, so a neighbouring prism's flat cap lying exactly in that
  * plane contributes zero while closed prisms keep their volume.
  */
-function volumeOf(m: Mesh3D, rgb?: readonly [number, number, number], zMin = -Infinity): number {
+function volumeOf(
+  m: Mesh3D, rgb?: readonly [number, number, number], zMin = -Infinity,
+  soup: "opaque" | "glass" = "opaque",
+): number {
   let s = 0;
   const dz = isFinite(zMin) ? zMin : 0;
-  const P = m.positions, C = m.colors;
+  const P = soup === "glass" ? m.glassPositions : m.positions;
+  const C = soup === "glass" ? m.glassColors : m.colors;
   for (let i = 0; i + 8 < P.length; i += 9) {
     if (rgb && (Math.abs(C[i]! - rgb[0]) > 1e-3 || Math.abs(C[i + 1]! - rgb[1]) > 1e-3
       || Math.abs(C[i + 2]! - rgb[2]) > 1e-3)) continue;
@@ -200,8 +204,9 @@ const rectSlabVol = volumeOf(rectMesh, SLAB_COLOR);
   check("a window removes exactly its void volume", nearRel(vol, rectWallVol - voidVol),
     `${vol} vs ${rectWallVol - voidVol}`);
   check("the carved wall is thinner than the blank one", vol < rectWallVol);
-  const pane = volumeOf(m, GLASS_COLOR);
+  const pane = volumeOf(m, GLASS_COLOR, -Infinity, "glass");
   check("a window carries a pane in the void", nearRel(pane, 1200 * 30 * 1415, 1e-3), String(pane));
+  check("the pane is glass, not opaque fabric", volumeOf(m, GLASS_COLOR) === 0);
   check("a window carries no door leaf", volumeOf(m, DOOR_COLOR) === 0);
 }
 
@@ -223,7 +228,34 @@ const rectSlabVol = volumeOf(rectMesh, SLAB_COLOR);
   f.walls[0]!.openings.push(opening({ kind: "passage", t: 1500, width: 1000 }));
   const m = buildSceneMesh(emptyDocWith(f));
   check("a passage stays open",
-    volumeOf(m, DOOR_COLOR) === 0 && volumeOf(m, GLASS_COLOR) === 0);
+    volumeOf(m, DOOR_COLOR) === 0 && volumeOf(m, GLASS_COLOR, -Infinity, "glass") === 0);
+}
+
+// ── infill walls: glass and panel bodies keep their 2D reading ──────────────
+
+{
+  const f = rectFloor();
+  f.walls[0]!.material = "glass";
+  f.walls[1]!.material = "sandwich";
+  const doc = emptyDocWith(f);
+  const fs = floorSolids(doc, 0)!;
+  const bodyVol = (i: number): number => {
+    let s = 0;
+    for (const p of fs.walls.find(w => w.wallId === f.walls[i]!.id)!.body) {
+      s += Math.abs(polygonArea(p.poly)) * (p.z1 - p.z0);
+    }
+    return s;
+  };
+  const m = buildSceneMesh(doc);
+  check("a glazed wall's body is glass",
+    nearRel(volumeOf(m, GLASS_COLOR, -Infinity, "glass"), bodyVol(0), 1e-3),
+    String(volumeOf(m, GLASS_COLOR, -Infinity, "glass")));
+  check("a sandwich wall's body is the panel band",
+    nearRel(volumeOf(m, PANEL_COLOR), bodyVol(1), 1e-3),
+    String(volumeOf(m, PANEL_COLOR)));
+  check("the remaining walls stay wall-grey",
+    nearRel(volumeOf(m, WALL_COLOR), rectWallVol - bodyVol(0) - bodyVol(1), 1e-3),
+    String(volumeOf(m, WALL_COLOR)));
 }
 
 // ── junction fillers: a T-node's wedge is wall material ─────────────────────
@@ -357,6 +389,59 @@ const RING_AREA = 1400000;
   check("the stair leaves the walls alone", nearRel(volumeOf(m, WALL_COLOR), rectWallVol));
 }
 
+// ── a flight over a wall: the wall yields only where it is crossed ──────────
+
+{
+  const withWall = (): Floor => {
+    const f = rectFloor();
+    const a = newId("n"), b = newId("n");
+    f.nodes.push({ id: a, x: 500, y: 1500 }, { id: b, x: 3500, y: 1500 });
+    f.walls.push({ id: newId("w"), a, b, thickness: 100, bulge: 0, openings: [] });
+    return f;
+  };
+  const bare = volumeOf(buildSceneMesh(emptyDocWith(withWall())), WALL_COLOR);
+
+  const f = withWall();
+  // Ten treads keep the whole flight clear of the perimeter, so only the
+  // interior wall is crossed.
+  f.stairs = [{
+    id: newId("s"), kind: "steektrap", x: 2000, y: 400, rotation: 0,
+    width: 900, going: 220, treads: 10, rise: 2800,
+  }];
+  const m = buildSceneMesh(emptyDocWith(f));
+  const cut = volumeOf(m, WALL_COLOR);
+
+  // Steps 4 and 5 overlap the wall's band; the crossed segment rises to the
+  // lower of the two undersides minus the gap, the rest keeps its height.
+  const riser = 2800 / 11;
+  const top = 4 * riser - STAIR_CLEAR_MM;
+  const removed = 900 * 100 * (2800 - top);
+  check("the crossed segment alone is removed", nearRel(bare - cut, removed, 1e-3),
+    `${bare - cut} vs ${removed}`);
+
+  // The highest wall triangle standing over the crossing centre is the cut
+  // segment's top cap: side and end faces project to lines and the
+  // full-height neighbours end before the centre.
+  const cx = 2000, cy = 1500;
+  let maxZ = -Infinity, found = 0;
+  for (let i = 0; i + 8 < m.positions.length; i += 9) {
+    if (Math.abs(m.colors[i]! - WALL_COLOR[0]) > 1e-3) continue;
+    const ax = m.positions[i]!, ay = m.positions[i + 1]!;
+    const bx = m.positions[i + 3]!, by = m.positions[i + 4]!;
+    const gx = m.positions[i + 6]!, gy = m.positions[i + 7]!;
+    const s1 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+    const s2 = (gx - bx) * (cy - by) - (gy - by) * (cx - bx);
+    const s3 = (ax - gx) * (cy - gy) - (ay - gy) * (cx - gx);
+    if ((s1 >= 0 && s2 >= 0 && s3 >= 0) || (s1 <= 0 && s2 <= 0 && s3 <= 0)) {
+      found++;
+      const z = Math.max(m.positions[i + 2]!, m.positions[i + 5]!, m.positions[i + 8]!);
+      if (z > maxZ) maxZ = z;
+    }
+  }
+  check("under the flight the wall stops a gap below the steps",
+    found > 0 && near(maxZ, top, 0.5), `${found} tris, max ${maxZ} vs ${top}`);
+}
+
 // ── empty and degenerate documents ──────────────────────────────────────────
 
 {
@@ -372,7 +457,8 @@ const RING_AREA = 1400000;
   const m = buildSceneMesh(seedDoc());
   check("the seed plan yields a mesh", m.positions.length > 0 && m.bounds !== null);
   let finite = true;
-  for (const arr of [m.positions, m.normals, m.colors, m.edges]) {
+  for (const arr of [m.positions, m.normals, m.colors, m.edges,
+    m.glassPositions, m.glassNormals, m.glassColors]) {
     for (let i = 0; i < arr.length; i++) if (!isFinite(arr[i]!)) { finite = false; break; }
   }
   check("no NaN anywhere in the seed mesh", finite);

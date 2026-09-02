@@ -268,6 +268,23 @@ function emptyDocWith(f: Floor): ReturnType<typeof emptyDoc> {
     fs.junctions.every(j => j.poly.length >= 3 && j.poly.every(isFiniteVec) && j.z0 === 0));
 }
 
+// ── posts ───────────────────────────────────────────────────────────────────
+
+{
+  const f = rectFloor();
+  f.walls[0]!.material = "glass";
+  f.walls[0]!.postMm = 1200;
+  f.walls[0]!.postWidthMm = 60;
+  const fs = floorSolids(emptyDocWith(f), 0)!;
+  const framed = fs.walls.find(x => x.wallId === f.walls[0]!.id)!;
+  check("a wall stating a profile derives post prisms", framed.posts.length > 0,
+    String(framed.posts.length));
+  check("posts run the wall's height",
+    framed.posts.every(p => p.z0 === 0 && near(p.z1, FLOOR_HEIGHT_DEFAULT)));
+  check("a wall without a profile has none",
+    fs.walls.find(x => x.wallId === f.walls[1]!.id)!.posts.length === 0);
+}
+
 // ── terrace plates ──────────────────────────────────────────────────────────
 
 {

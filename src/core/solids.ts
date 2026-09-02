@@ -26,7 +26,18 @@ export interface Prism { poly: Vec[]; z0: number; z1: number }
 
 export interface OpeningVoid { openingId: Id; kind: OpeningKind; poly: Vec[]; z0: number; z1: number }
 
-export interface WallSolid { wallId: Id; body: Prism[]; voids: OpeningVoid[] }
+export interface WallSolid {
+  wallId: Id;
+  body: Prism[];
+  voids: OpeningVoid[];
+  /**
+   * The wall's posts (stijlen) as full-height prisms, present only where the
+   * wall states a profile width (Wall.postMm) — resolveFloor() derives their
+   * footprints. The frame of an infill wall; solid regardless of what the
+   * body is filled with.
+   */
+  posts: Prism[];
+}
 
 export interface SpaceSolid { name?: string; poly: Vec[]; z0: 0; z1: number }
 
@@ -92,7 +103,9 @@ export function floorSolids(doc: PlanDoc, floorIndex: number): FloorSolids | nul
       ];
       return { openingId: o.id, kind: o.kind, poly, z0, z1 };
     });
-    walls.push({ wallId: rw.wall.id, body, voids });
+    const posts: Prism[] = [];
+    for (const pm of rw.posts) if (pm.poly) posts.push({ poly: pm.poly, z0: 0, z1: h });
+    walls.push({ wallId: rw.wall.id, body, voids, posts });
   }
 
   const fh = floorHeight(f);
