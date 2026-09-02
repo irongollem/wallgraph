@@ -52,6 +52,23 @@ export function polygonArea(poly: Vec[]): number {
   return s / 2; // signed; positive = counterclockwise in y-down screen terms
 }
 
+/** The part of `poly` on the side of the line through `o` that `n` points
+ *  into, closed along the line — Sutherland–Hodgman against one half-plane. */
+export function clipHalfPlane(poly: Vec[], o: Vec, n: Vec): Vec[] {
+  const out: Vec[] = [];
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i]!, q = poly[(i + 1) % poly.length]!;
+    const dp = (p.x - o.x) * n.x + (p.y - o.y) * n.y;
+    const dq = (q.x - o.x) * n.x + (q.y - o.y) * n.y;
+    if (dp >= 0) out.push(p);
+    if ((dp >= 0) !== (dq >= 0)) {
+      const t = dp / (dp - dq);
+      out.push(v(p.x + (q.x - p.x) * t, p.y + (q.y - p.y) * t));
+    }
+  }
+  return out;
+}
+
 export function polygonCentroid(poly: Vec[]): Vec {
   let a = 0, cx = 0, cy = 0;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {

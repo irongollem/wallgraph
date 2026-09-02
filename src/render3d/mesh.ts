@@ -8,7 +8,7 @@
 import { PlanDoc, Floor, Id, floorElevation, floorHeight, stairsOf } from "../model/doc";
 import { floorSolids, FloorSolids } from "../core/solids";
 import { stairSteps, StairStep } from "../core/stair3d";
-import { Vec, v, dist, polygonArea, mid, norm, add, sub, scale } from "../geometry/vec";
+import { Vec, v, dist, polygonArea, mid, norm, add, sub, scale, clipHalfPlane } from "../geometry/vec";
 import { triangulatePolygon, triangulateWithHoles } from "./triangulate";
 
 export interface Bounds3 { min: [number, number, number]; max: [number, number, number] }
@@ -404,27 +404,10 @@ function emitWallPrism(
     if (top - z0 <= H_EPS) continue;
     if (top < z1 && top < WALL_STUB_MM && z0 <= H_EPS) continue;
     let part = poly;
-    if (ta > p0 + CUT_EPS) part = clipHalf(part, add(ax.a, scale(ax.dir, ta)), ax.dir);
-    if (tb < p1 - CUT_EPS) part = clipHalf(part, add(ax.a, scale(ax.dir, tb)), scale(ax.dir, -1));
+    if (ta > p0 + CUT_EPS) part = clipHalfPlane(part, add(ax.a, scale(ax.dir, ta)), ax.dir);
+    if (tb < p1 - CUT_EPS) part = clipHalfPlane(part, add(ax.a, scale(ax.dir, tb)), scale(ax.dir, -1));
     emitPrism(acc, part, [], elev + z0, elev + top, color, glass);
   }
-}
-
-/** The part of `poly` on the side of the line through `o` that `n` points
- *  into, closed at the line — Sutherland–Hodgman against one half-plane. */
-function clipHalf(poly: Vec[], o: Vec, n: Vec): Vec[] {
-  const out: Vec[] = [];
-  for (let i = 0; i < poly.length; i++) {
-    const p = poly[i]!, q = poly[(i + 1) % poly.length]!;
-    const dp = (p.x - o.x) * n.x + (p.y - o.y) * n.y;
-    const dq = (q.x - o.x) * n.x + (q.y - o.y) * n.y;
-    if (dp >= 0) out.push(p);
-    if ((dp >= 0) !== (dq >= 0)) {
-      const t = dp / (dp - dq);
-      out.push(v(p.x + (q.x - p.x) * t, p.y + (q.y - p.y) * t));
-    }
-  }
-  return out;
 }
 
 /** Drop consecutive (and closing) duplicate vertices. */

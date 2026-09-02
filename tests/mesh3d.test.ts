@@ -389,6 +389,23 @@ const RING_AREA = 1400000;
   check("the stair leaves the walls alone", nearRel(volumeOf(m, WALL_COLOR), rectWallVol));
 }
 
+// ── a flight through the floor above: the stairwell is cut from its slab ────
+
+{
+  const doc = emptyDoc();
+  const lower = rectFloor();
+  lower.stairs = [{
+    id: newId("s"), kind: "steektrap", x: 2000, y: 400, rotation: 0,
+    width: 900, going: 220, treads: 10, rise: 2800,
+  }];
+  doc.floors = [lower, rectFloor()];
+  const m = buildSceneMesh(doc);
+  const lvl = volumeOf(m, SLAB_COLOR, FLOOR_HEIGHT_DEFAULT - SLAB_DEFAULT_MM);
+  const expected = (4000 * 3000 - 900 * 1980) * SLAB_DEFAULT_MM;
+  check("the stairwell is cut from the slab above", nearRel(lvl, expected, 1e-3),
+    `${lvl} vs ${expected}`);
+}
+
 // ── a flight over a wall: the wall yields only where it is crossed ──────────
 
 {

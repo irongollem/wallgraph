@@ -1012,14 +1012,15 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
           enumv("FLOOR")]);
       contained.push(slabEntity);
 
-      // floorSolids() builds slab.holes as videsOf(f).map(videHole), so the
-      // two arrays are index-aligned one hole per vide, in order — relied on
-      // here to key each opening off the vide's own stored id rather than a
-      // derived one, so it survives a re-export the way a wall opening's id
-      // does.
+      // floorSolids() lists the authored vide holes first, one per vide in
+      // order, then the derived stairwells (core/solids.ts). Only the vides
+      // carry stored ids to key an opening's GlobalId on, so only they are
+      // exported; a derived well stays a view concern until the BIM issues
+      // give it an identity of its own.
       const vides = videsOf(floor);
-      slab.holes.forEach((hole, holeIndex) => {
-        const vide = vides[holeIndex]!;
+      vides.forEach((vide, videIndex) => {
+        const hole = slab.holes[videIndex];
+        if (!hole) return;
         const openingEntity = w.entity("IFCOPENINGELEMENT",
           [str(ifcGuid(seed, vide.id)), ref(ownerHistory), str("Vide"), UNSET, UNSET, ref(levelPlacement),
             bodyShape([extrudedSolid(hole, slab.z0, slab.z1)]), UNSET, UNSET]);

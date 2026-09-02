@@ -14,8 +14,10 @@
 // floorElevation(doc, floorIndex).
 import {
   PlanDoc, Floor, Id, OpeningKind, wallHeight, floorHeight, openingSill, openingHeight, videsOf,
+  stairsOf,
 } from "../model/doc";
-import { Vec, add, sub, scale, pointInPolygon, distToSeg } from "../geometry/vec";
+import { Vec, v, add, sub, scale, pointInPolygon, distToSeg, clipHalfPlane, polygonArea, perp, norm } from "../geometry/vec";
+import { stairwellHole } from "./stair3d";
 import { resolveFloor } from "./resolve";
 import { detectRooms, outerBoundary } from "./rooms";
 import { videBox } from "./vide";
@@ -126,22 +128,117 @@ export function floorSolids(doc: PlanDoc, floorIndex: number): FloorSolids | nul
 
   const outline = outerBoundary(f);
   const holes = videsOf(f).map(vd => videHole(vd));
-  const slab: SlabSolid | null = outline === null ? null : {
-    outline, holes, z0: -SLAB_DEFAULT_MM, z1: 0,
-  };
 
   const below = floorIndex > 0 ? doc.floors[floorIndex - 1] : undefined;
+  // The stairwells: where a flight on the storey below climbs through this
+  // level, the envelope of its headroom-critical steps (stairwellHole) is cut
+  // from the slab and the terrace plate the way a vide is. Wells that meet
+  // each other merge into one; a well that meets an authored hole is dropped,
+  // the drawn vide being taken as the trapgat.
+  let wells: Vec[][] = [];
+  if (below) {
+    const soffit = floorHeight(below) - SLAB_DEFAULT_MM;
+    for (const s of stairsOf(below)) {
+      const hole = stairwellHole(below, s, soffit);
+      if (hole) wells = mergeWells(wells, hole);
+    }
+  }
+
+  const slab: SlabSolid | null = outline === null ? null : {
+    outline,
+    holes: [...holes, ...admitWells(wells, outline, holes)],
+    z0: -SLAB_DEFAULT_MM, z1: 0,
+  };
+
   const belowOutline = below && below.walls.length > 0 ? outerBoundary(below) : null;
   let terrace: SlabSolid | null = null;
   if (belowOutline && !(outline && coveredBy(belowOutline, outline))) {
+    const tHoles = outline && coveredBy(outline, belowOutline) ? [outline, ...holes] : [...holes];
     terrace = {
       outline: belowOutline,
-      holes: outline && coveredBy(outline, belowOutline) ? [outline, ...holes] : [...holes],
+      holes: [...tHoles, ...admitWells(wells, belowOutline, tHoles)],
       z0: -SLAB_DEFAULT_MM, z1: 0,
     };
   }
 
   return { walls, spaces, slab, junctions, terrace };
+}
+
+interface Box2 { x0: number; y0: number; x1: number; y1: number }
+
+function ringBox(poly: Vec[]): Box2 {
+  const b: Box2 = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+  for (const p of poly) {
+    if (p.x < b.x0) b.x0 = p.x; if (p.x > b.x1) b.x1 = p.x;
+    if (p.y < b.y0) b.y0 = p.y; if (p.y > b.y1) b.y1 = p.y;
+  }
+  return b;
+}
+
+const boxesOverlap = (a: Box2, b: Box2): boolean =>
+  a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
+
+/**
+ * Fold one well into the set: wells whose bounds meet merge into their shared
+ * bounding quad — two flights side by side share one clean hole, because
+ * overlapping hole rings cannot be triangulated. Merging is by axis-aligned
+ * bounds, which over-cuts for rotated flights that touch; it errs open.
+ */
+function mergeWells(wells: Vec[][], hole: Vec[]): Vec[][] {
+  let merged = hole;
+  let rest = wells;
+  for (let grew = true; grew;) {
+    grew = false;
+    const keep: Vec[][] = [];
+    for (const w of rest) {
+      if (boxesOverlap(ringBox(w), ringBox(merged))) {
+        const a = ringBox(w), b = ringBox(merged);
+        const u: Box2 = {
+          x0: Math.min(a.x0, b.x0), y0: Math.min(a.y0, b.y0),
+          x1: Math.max(a.x1, b.x1), y1: Math.max(a.y1, b.y1),
+        };
+        merged = [v(u.x0, u.y0), v(u.x1, u.y0), v(u.x1, u.y1), v(u.x0, u.y1)];
+        grew = true;
+      } else keep.push(w);
+    }
+    rest = keep;
+  }
+  return [...rest, merged];
+}
+
+/**
+ * The wells a plate at this level actually takes: each is trimmed to the
+ * plate's boundary — clipped against nearby boundary edges, a local convex
+ * approximation that handles a flight against a facade — and admitted only
+ * when its centre lands inside the plate and it stays clear of the plate's
+ * existing holes, which hole triangulation cannot have overlapping.
+ */
+function admitWells(wells: Vec[][], outline: Vec[], holes: Vec[][]): Vec[][] {
+  const out: Vec[][] = [];
+  const holeBoxes = holes.map(ringBox);
+  const n = outline.length;
+  const sign = polygonArea(outline) >= 0 ? 1 : -1;
+  for (const well of wells) {
+    let w = well;
+    const wb = ringBox(well);
+    const near: Box2 = { x0: wb.x0 - 1, y0: wb.y0 - 1, x1: wb.x1 + 1, y1: wb.y1 + 1 };
+    for (let i = 0; i < n && w.length >= 3; i++) {
+      const a = outline[i]!, b = outline[(i + 1) % n]!;
+      if (!boxesOverlap(near, ringBox([a, b]))) continue;
+      // Interior is left of travel for a positive ring, right for a negative.
+      const inward = scale(perp(norm(sub(b, a))), sign);
+      w = clipHalfPlane(w, a, inward);
+    }
+    if (w.length < 3 || Math.abs(polygonArea(w)) < 1) continue;
+    let cx = 0, cy = 0;
+    for (const p of w) { cx += p.x; cy += p.y; }
+    const c = v(cx / w.length, cy / w.length);
+    if (!pointInPolygon(c, outline)) continue;
+    const box = ringBox(w);
+    if (holeBoxes.some(hb => boxesOverlap(box, hb))) continue;
+    out.push(w);
+  }
+  return out;
 }
 
 /** Tolerance for a boundary vertex lying on the other boundary, mm. The face

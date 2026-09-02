@@ -316,5 +316,45 @@ function emptyDocWith(f: Floor): ReturnType<typeof emptyDoc> {
   }
 }
 
+// ── stairwells ──────────────────────────────────────────────────────────────
+
+{
+  const stair = (): NonNullable<Floor["stairs"]>[number] => ({
+    id: newId("s"), kind: "steektrap", x: 2000, y: 400, rotation: 0,
+    width: 900, going: 220, treads: 10, rise: 2800,
+  });
+
+  const doc = emptyDoc();
+  const lower = rectFloor();
+  lower.stairs = [stair()];
+  doc.floors = [lower, rectFloor()];
+  const fs = floorSolids(doc, 1)!;
+  check("a through flight cuts a stairwell in the slab above",
+    fs.slab !== null && fs.slab.holes.length === 1, String(fs.slab?.holes.length));
+  if (fs.slab?.holes[0]) {
+    // Steps within headroom of the soffit are 1..9 (step 0 tops out at 2800/11
+    // <= 300): local y 220..2200 over the 900 width.
+    check("the well spans the headroom-critical steps",
+      near(Math.abs(polygonArea(fs.slab.holes[0])), 900 * 1980, 1),
+      String(polygonArea(fs.slab.holes[0])));
+  }
+
+  const doc2 = emptyDoc();
+  const mezz = rectFloor();
+  mezz.stairs = [{ ...stair(), rise: 1300 }];
+  doc2.floors = [mezz, rectFloor()];
+  check("a flight that stays under the slab cuts nothing",
+    floorSolids(doc2, 1)!.slab!.holes.length === 0);
+
+  const doc3 = emptyDoc();
+  const lower3 = rectFloor();
+  lower3.stairs = [stair()];
+  const upper3 = rectFloor();
+  upper3.vides = [{ id: newId("v"), x: 2000, y: 1400, rotation: 0, width: 1500, depth: 2400 }];
+  doc3.floors = [lower3, upper3];
+  check("an authored vide over the flight is the trapgat",
+    floorSolids(doc3, 1)!.slab!.holes.length === 1);
+}
+
 console.log(failures === 0 ? "ALL SOLIDS TESTS PASSED" : `${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

@@ -34,6 +34,11 @@ export const RUNG_HEIGHT = 30;
 /** Vertical pitch klimijzers aim for, mm; the exact pitch divides the rise. */
 export const RUNG_SPACING = 290;
 
+/** Free height ordinarily kept above a flight, mm. A step closer than this to
+ *  the slab's underside cannot have floor over it, which is what sizes the
+ *  stairwell; reported geometry, not a compliance check. */
+export const STAIR_HEADROOM_MM = 2300;
+
 /** Footprints under this area (mm²) are dropped rather than emitted. */
 const AREA_EPS = 1;
 const EPS = 1e-6;
@@ -57,6 +62,31 @@ export function stairSteps(f: Floor, s: Stair): StairStep[] {
     out.push({ poly: st.poly.map(q => worldPoint(r, q)), z0: st.z0, z1: st.z1 });
   }
   return out;
+}
+
+/**
+ * The opening a stair asks of the slab it climbs through: the bounding box,
+ * in the stair's own frame, of every step within STAIR_HEADROOM_MM of the
+ * soffit, as a world-space quad. Null when the rise stays at or under the
+ * soffit — a flight to a mezzanine cuts nothing. `soffit` is the slab
+ * underside's height above this stair's own storey floor, mm.
+ */
+export function stairwellHole(f: Floor, s: Stair, soffit: number): Vec[] | null {
+  const r = resolveStair(f, s);
+  if (r.rise <= soffit) return null;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const st of localSteps(r)) {
+    if (st.z1 <= soffit - STAIR_HEADROOM_MM) continue;
+    for (const p of st.poly) {
+      if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x;
+      if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y;
+    }
+  }
+  if (!(x1 > x0 && y1 > y0)) return null;
+  return [
+    worldPoint(r, v(x0, y0)), worldPoint(r, v(x1, y0)),
+    worldPoint(r, v(x1, y1)), worldPoint(r, v(x0, y1)),
+  ];
 }
 
 function localSteps(s: ResolvedStair): StairStep[] {
