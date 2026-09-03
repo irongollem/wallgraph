@@ -4,6 +4,7 @@ import { Store, MULTI_SELECT_KINDS, type Selection } from "../model/store";
 import { marqueePick, type MarqueeRect } from "./marquee";
 import {
   Floor, Wall, Opening, PlanNode, SymbolInstance, Id, newId, stairsOf, videsOf, furnishingsOf,
+  structureOf,
   routesOf, roomNamesOf, floorHeight, DOOR_DEFAULT_WIDTH, WINDOW_DEFAULT_WIDTH, PASSAGE_DEFAULT_WIDTH,
   OpeningKind, FireRating, dimModeOf, WallMaterial,
 } from "../model/doc";
@@ -13,6 +14,12 @@ import {
   stairAngle, inheritsRise,
 } from "../model/stair";
 import { Vide, VideSize, VIDE_DEFAULT, clampVide } from "../model/vide";
+import {
+  Structural, Column, Beam, Railing, StructureKind, ColumnSize, SpanSize,
+  COLUMN_DEFAULT, BEAM_DEFAULT, BEAM_LABEL_DEFAULT,
+  RAILING_WIDTH_DEFAULT, RAILING_HEIGHT_DEFAULT, RAILING_POST_DEFAULT, SPAN_MIN_MM,
+  clampColumnSize, clampBeamSize, clampRailWidth, clampRailHeight, clampPostMm, moveStructure,
+} from "../model/structure";
 import {
   Furnishing, FurnishingSpec, furnishingDefaults, furnishingPreset,
   furnishingWallMounted, clampFurnishing, writeSpec,
@@ -54,6 +61,8 @@ import { stairHit, resolveStair, stairBox, stairCorners, stairIssues, gradient }
 import { drawStairGhost } from "../render/stair";
 import { videHit, videCorners } from "../core/vide";
 import { drawVideGhost } from "../render/vide";
+import { structureHit, structureCorners, columnBox, spanTurned } from "../core/structure";
+import { drawStructureGhost } from "../render/structure";
 import { furnishingHit, furnishingBox, furnishingCorners } from "../core/furnishing";
 import { turnAbout } from "../core/placed";
 import { drawFurnishingGhost } from "../render/furnishing";
@@ -71,8 +80,11 @@ import { dimensionChains, DimChain } from "../core/dimensions";
 import { t } from "../i18n";
 
 export type ToolName =
-  | "select" | "wall" | "door" | "window" | "passage" | "symbol" | "stair" | "vide"
+  | "select" | "wall" | "door" | "window" | "passage" | "symbol" | "stair" | "structure"
   | "furnishing" | "route" | "zoom";
+
+/** What the structure tool places: the three structural kinds and the vide. */
+export type StructureTarget = StructureKind | "vide";
 
 /** Finger travel that still counts as a tap rather than a drag. */
 const TAP_SLOP_PX = 10;
@@ -113,7 +125,7 @@ const RISER_PICK_MM = 90;
 export interface SnapResult { p: Vec; kind: "node" | "wall" | "grid" | "free"; wall?: Wall; tMm?: number; node?: PlanNode }
 
 interface DragState {
-  kind: "node" | "wall" | "symbol" | "stair" | "vide" | "furnishing"
+  kind: "node" | "wall" | "symbol" | "stair" | "vide" | "structure" | "furnishing"
       | "bow" | "opening" | "pan" | "zoomBox" | "routeVertex" | "marquee";
   id?: string;
   wallId?: string;
@@ -233,9 +245,24 @@ export class Tools {
    */
   onRoomLabel: ((room: Room) => void) | null = null;
 
-  /** The opening the vide tool will place next. */
+  /**
+   * What the structure tool places next: a column at one click, a beam or a
+   * railing between two, or a vide. Each kind keeps its own armed figures, so
+   * switching between them does not lose what was set up.
+   */
+  structureKind: StructureTarget = "column";
   videSize: VideSize = { ...VIDE_DEFAULT };
   videRotation = 0;
+  columnSize: ColumnSize = { ...COLUMN_DEFAULT };
+  columnRotation = 0;
+  beamSize: SpanSize = { ...BEAM_DEFAULT };
+  beamLabel = BEAM_LABEL_DEFAULT;
+  railingWidth = RAILING_WIDTH_DEFAULT;
+  railingHeight = RAILING_HEIGHT_DEFAULT;
+  railingPost = RAILING_POST_DEFAULT;
+  /** The material the next element states; null leaves it unstated. A beam
+   *  is armed as steel, since the default section is a rolled one. */
+  structureMaterial: Record<StructureKind, WallMaterial | null> = { column: null, beam: "steel", railing: null };
 
   /**
    * What the route tool draws with next -- sticky like lastThickness, since
@@ -367,6 +394,8 @@ export class Tools {
   private chainFirstNode: string | null = null;
   /** First point of the shape being drawn; no document change until the second. */
   private shapeStart: Vec | null = null;
+  /** First point of the beam or railing being set out; nothing stored until the second. */
+  private spanStart: Vec | null = null;
   /**
    * Whether a cabinet or a wall-mounted symbol takes hold of the nearest wall
    * face while it is placed or dragged. Editor state, like the grid snap, and
@@ -609,6 +638,49 @@ export class Tools {
     this.requestRender();
   }
 
+  /** Arm one of the structure tool's kinds. A half-set span is dropped. */
+  setStructureKind(kind: StructureTarget): void {
+    this.structureKind = kind;
+    this.spanStart = null;
+    if (this.tool !== "structure") { this.setTool("structure"); return; }
+    this.updateHint();
+    this.refresh();
+  }
+
+  setColumnSize(s: ColumnSize): void {
+    this.columnSize = clampColumnSize(s);
+    this.refresh();
+  }
+
+  setColumnRotation(radians: number): void {
+    this.columnRotation = stairAngle(radians);
+    this.refresh();
+  }
+
+  /** Arm a beam's section; a designation names it on the drawing. */
+  setBeamSize(s: SpanSize, label?: string): void {
+    this.beamSize = clampBeamSize(s);
+    if (label !== undefined) this.beamLabel = label;
+    this.refresh();
+  }
+
+  setBeamLabel(label: string): void {
+    this.beamLabel = label;
+    this.refresh();
+  }
+
+  setRailing(width: number, height: number, postMm: number): void {
+    this.railingWidth = clampRailWidth(width);
+    this.railingHeight = clampRailHeight(height);
+    this.railingPost = clampPostMm(postMm);
+    this.refresh();
+  }
+
+  setStructureMaterial(kind: StructureKind, material: WallMaterial | null): void {
+    this.structureMaterial[kind] = material;
+    this.refresh();
+  }
+
   /**
    * The layers the armed tool cannot act on, faded rather than hidden so the
    * work keeps its context. Drawing walls with every socket, duct and radiator
@@ -621,7 +693,7 @@ export class Tools {
   dimLayers(): LayerKey[] {
     const services = LAYER_KEYS.filter(k => k !== "furnishing" && k !== "safety");
     switch (this.tool) {
-      case "wall": case "door": case "window": case "passage": case "stair": case "vide":
+      case "wall": case "door": case "window": case "passage": case "stair": case "structure":
         return [...LAYER_KEYS];
       case "furnishing":
         return services;
@@ -749,6 +821,7 @@ export class Tools {
     this.chainStartNode = null;
     this.chainFirstNode = null;
     this.shapeStart = null;
+    this.spanStart = null;
     this.routeStart = null;
     this.routePoints = [];
     this.routeTargetId = null;
@@ -988,15 +1061,17 @@ export class Tools {
     const tolWall = (forWall ? 12 : 9) / this.vp.pxPerMm;
     let p = raw;
 
-    // Ortho constraint first when chaining a wall (direction), then snap along it.
-    // Shift locks it for as long as it is held, so the angle can be held to
-    // the eighth it is already near without leaving the gesture to press O.
+    // Ortho constraint first when chaining a wall or setting out a span
+    // (direction), then snap along it. Shift locks it for as long as it is
+    // held, so the angle can be held to the eighth it is already near without
+    // leaving the gesture to press O.
+    const from = forWall ? this.chainStart : this.tool === "structure" ? this.spanStart : null;
     let orthoDir: Vec | null = null;
-    if (forWall && this.chainStart && (this.ortho || this.shiftKey)) {
-      const d = sub(raw, this.chainStart);
+    if (from && (this.ortho || this.shiftKey)) {
+      const d = sub(raw, from);
       const ang = Math.round(angleOf(d) / (Math.PI / 4)) * (Math.PI / 4);
       orthoDir = fromAngle(ang);
-      p = add(this.chainStart, scale(orthoDir, dot(d, orthoDir)));
+      p = add(from, scale(orthoDir, dot(d, orthoDir)));
     }
 
     // Node snap (on the constrained point OR raw — prefer raw so nodes win).
@@ -1007,8 +1082,8 @@ export class Tools {
     // Under the angle lock the point that matters is where the locked ray meets
     // a wall: the drawer is aiming at that wall, and a grid point short of it
     // leaves an end hanging in the room.
-    if (orthoDir && this.chainStart) {
-      const ray = wallOnRay(sf, this.chainStart, orthoDir, p, tolWall);
+    if (orthoDir && from) {
+      const ray = wallOnRay(sf, from, orthoDir, p, tolWall);
       if (ray) return { p: ray.p, kind: "wall", wall: ray.wall, tMm: ray.tMm };
     }
 
@@ -1024,10 +1099,10 @@ export class Tools {
     // Grid snap (optional; off still lands on whole mm, per the doc invariant).
     const g = this.gridStep;
     const kind = this.snapGrid ? "grid" : "free";
-    if (orthoDir) {
+    if (orthoDir && from) {
       // snap length along the ortho direction to grid
-      const l = Math.round(dist(p, this.chainStart!) / g) * g;
-      return { p: add(this.chainStart!, scale(orthoDir, l)), kind };
+      const l = Math.round(dist(p, from) / g) * g;
+      return { p: add(from, scale(orthoDir, l)), kind };
     }
     const gp = v(Math.round(p.x / g) * g, Math.round(p.y / g) * g);
     if (dragNode !== undefined && (this.ortho || this.shiftKey)) {
@@ -1056,6 +1131,7 @@ export class Tools {
    */
   private shiftChanged(): void {
     if (this.tool === "wall" && this.chainStart) this.snap = this.computeSnap(this.cursor, true);
+    else if (this.tool === "structure" && this.spanStart) this.snap = this.computeSnap(this.cursor, false);
     else if (!this.shapeStart) return;
     this.requestRender();
   }
@@ -1164,6 +1240,11 @@ export class Tools {
     if (sel.kind === "vide") {
       const vd = videsOf(f).find(x => x.id === sel.id);
       return vd ? polyBounds(videCorners(vd)) : null;
+    }
+    if (sel.kind === "structure") {
+      const group = this.store.selectedOf("structure");
+      const pts = structureOf(f).filter(el => group.includes(el.id)).flatMap(structureCorners);
+      return pts.length > 0 ? polyBounds(pts) : null;
     }
     if (sel.kind === "route") {
       const route = routesOf(f).find(x => x.id === sel.id);
@@ -1284,7 +1365,7 @@ export class Tools {
       case "door": case "window": case "passage": this.placeOpening(this.tool); break;
       case "symbol": this.placeSymbol(); break;
       case "stair": this.placeStair(); break;
-      case "vide": this.placeVide(); break;
+      case "structure": this.structureClick(); break;
       case "furnishing": this.placeFurnishing(); break;
       case "route": this.routeClick(); break;
       // zoom acted on contact; its release is handled as a zoomBox drag.
@@ -1383,7 +1464,7 @@ export class Tools {
       case "passage": this.placeOpening("passage"); break;
       case "symbol": this.placeSymbol(); break;
       case "stair": this.placeStair(); break;
-      case "vide": this.placeVide(); break;
+      case "structure": this.structureClick(); break;
       case "furnishing": this.placeFurnishing(); break;
       case "route": this.routeClick(); break;
       case "zoom": this.zoomDown(s, w); return;
@@ -1463,6 +1544,16 @@ export class Tools {
       this.cursor = this.vp.toWorld(this.screenOf(e));
       this.snap = this.computeSnap(this.cursor, false);
       this.shapeClick();
+      return;
+    }
+    // A beam or a railing is set out the same way: press at one end, release
+    // at the other.
+    if (this.tool === "structure" && this.spanStart && !this.drag && this.pressScreen
+        && dist(this.screenOf(e), this.pressScreen) > TAP_SLOP_PX) {
+      this.pressScreen = null;
+      this.cursor = this.vp.toWorld(this.screenOf(e));
+      this.snap = this.computeSnap(this.cursor, false);
+      this.spanClick();
       return;
     }
     this.pressScreen = null;
@@ -1797,6 +1888,104 @@ export class Tools {
       (f.vides ??= []).push(vd);
     });
     this.store.select({ kind: "vide", id: vd.id });
+  }
+
+  // ---- structure ----
+  /** True while the armed kind is set out between two points. */
+  get spanArmed(): boolean {
+    return this.structureKind === "beam" || this.structureKind === "railing";
+  }
+
+  /** True once the first point of a beam or railing is down. */
+  get spanStarted(): boolean { return this.spanStart !== null; }
+
+  private structureClick(): void {
+    if (this.structureKind === "vide") this.placeVide();
+    else if (this.structureKind === "column") this.placeColumn();
+    else this.spanClick();
+  }
+
+  /**
+   * A column is placed at the snap point rather than the bare grid: it stands
+   * at a wall junction or on a wall line more often than in open floor, and a
+   * node is the exact figure to land on.
+   */
+  private draftColumn(id: string): Column {
+    const s = clampColumnSize(this.columnSize);
+    const p = (this.snap ?? this.computeSnap(this.cursor, false)).p;
+    const material = this.structureMaterial.column;
+    return {
+      kind: "column", id,
+      x: Math.round(p.x), y: Math.round(p.y),
+      rotation: this.columnRotation,
+      shape: s.shape, width: s.width, depth: s.depth,
+      ...(material ? { material } : {}),
+      ...(this.symbolColor ? { color: this.symbolColor } : {}),
+    };
+  }
+
+  private placeColumn(): void {
+    const c = this.draftColumn(newId("c"));
+    this.store.mutate(doc => {
+      const f = this.store.floorOf(doc);
+      (f.structure ??= []).push(c);
+    });
+    this.store.select({ kind: "structure", id: c.id });
+  }
+
+  /** The beam or railing between two points, as the armed figures say. */
+  private draftSpan(id: string, a: Vec, b: Vec): Beam | Railing {
+    const ends = { a: { x: Math.round(a.x), y: Math.round(a.y) }, b: { x: Math.round(b.x), y: Math.round(b.y) } };
+    const color = this.symbolColor ? { color: this.symbolColor } : {};
+    if (this.structureKind === "railing") {
+      const material = this.structureMaterial.railing;
+      return {
+        kind: "railing", id, ...ends,
+        width: clampRailWidth(this.railingWidth),
+        height: clampRailHeight(this.railingHeight),
+        postMm: clampPostMm(this.railingPost),
+        ...(material ? { material } : {}),
+        ...color,
+      };
+    }
+    const s = clampBeamSize(this.beamSize);
+    const material = this.structureMaterial.beam;
+    const label = this.beamLabel.trim();
+    return {
+      kind: "beam", id, ...ends,
+      width: s.width, depth: s.depth,
+      ...(label ? { label } : {}),
+      ...(material ? { material } : {}),
+      ...color,
+    };
+  }
+
+  /**
+   * A span takes two points, like a shape: the first only arms it, and nothing
+   * reaches the document until the second, so Escape abandons it cleanly. A
+   * second point within SPAN_MIN_MM of the first holds the first rather than
+   * storing a run too short to draw.
+   */
+  private spanClick(): void {
+    const snap = this.snap ?? this.computeSnap(this.cursor, false);
+    if (!this.spanStart) {
+      this.spanStart = snap.p;
+      this.updateHint();
+      this.onToolChange();
+      this.requestRender();
+      return;
+    }
+    if (dist(this.spanStart, snap.p) < SPAN_MIN_MM) return;
+    const el = this.draftSpan(newId("c"), this.spanStart, snap.p);
+    this.store.mutate(doc => {
+      const f = this.store.floorOf(doc);
+      (f.structure ??= []).push(el);
+    });
+    this.spanStart = null;
+    this.store.select({ kind: "structure", id: el.id });
+    this.updateHint();
+    this.onToolChange();
+    this.requestRender();
   }
 
   // ---- routes ----
@@ -2577,6 +2766,20 @@ export class Tools {
     return undefined;
   }
 
+  /**
+   * Topmost column, beam or railing covering `w`. The margin is wider than a
+   * symbol's: a handrail is a 50 mm line, and a beam's dashed outline is
+   * mostly gap.
+   */
+  private structureAt(w: Vec): Structural | undefined {
+    const list = structureOf(this.floor);
+    for (let i = list.length - 1; i >= 0; i--) {
+      const el = list[i]!;
+      if (structureHit(el, w, 60)) return el;
+    }
+    return undefined;
+  }
+
   // ---- select tool ----
   /**
    * True when a press on a selectable object should build the selection
@@ -2695,6 +2898,15 @@ export class Tools {
     const routePick = this.routeAt(w);
     if (routePick) {
       this.pick({ kind: "route", id: routePick.route.id });
+      return;
+    }
+    // Structure over the openings and the walls, where it draws: a column in
+    // a wall line is cut with the wall and has to stay clickable on top of it.
+    const structurePick = this.structureAt(w);
+    if (structurePick) {
+      if (this.pick({ kind: "structure", id: structurePick.id })) {
+        this.drag = { kind: "structure", id: structurePick.id, startWorld: w, moved: false, clone: this.altKey };
+      }
       return;
     }
     // Openings (near their centerline center). Not group-draggable: an
@@ -2965,7 +3177,7 @@ export class Tools {
    */
   private groupTranslate(
     d: DragState, w: Vec, g: number, group: readonly Id[],
-    kind: "symbol" | "furnishing" | "stair" | "vide", always = false,
+    kind: "symbol" | "furnishing" | "stair" | "vide" | "structure", always = false,
   ): boolean {
     const grouped = group.length > 1;
     if (!always && !grouped) return false;
@@ -2976,6 +3188,10 @@ export class Tools {
     const targets = grouped ? group : [d.id!];
     this.store.mutate(doc => {
       const f = this.store.floorOf(doc);
+      if (kind === "structure") {
+        for (const el of structureOf(f)) if (targets.includes(el.id)) moveStructure(el, dx, dy);
+        return;
+      }
       const list: Array<{ id: Id; x: number; y: number }> =
         kind === "symbol" ? f.symbols
         : kind === "furnishing" ? furnishingsOf(f)
@@ -2994,7 +3210,7 @@ export class Tools {
     if (d.clone) {
       d.clone = false;
       const kind = d.kind === "symbol" || d.kind === "furnishing"
-        || d.kind === "stair" || d.kind === "vide" ? d.kind : null;
+        || d.kind === "stair" || d.kind === "vide" || d.kind === "structure" ? d.kind : null;
       const copy = kind && d.id ? this.cloneForDrag(kind, d.id) : null;
       if (copy) d.id = copy;
     }
@@ -3050,6 +3266,8 @@ export class Tools {
       this.groupTranslate(d, w, g, this.store.selectedOf("stair"), "stair", true);
     } else if (d.kind === "vide") {
       this.groupTranslate(d, w, g, this.store.selectedOf("vide"), "vide", true);
+    } else if (d.kind === "structure") {
+      this.groupTranslate(d, w, g, this.store.selectedOf("structure"), "structure", true);
     } else if (d.kind === "furnishing") {
       const group = this.store.selectedOf("furnishing");
       if (this.groupTranslate(d, w, g, group, "furnishing")) return;
@@ -3193,8 +3411,9 @@ export class Tools {
       case "s": case "S": this.setTool("symbol"); break;
       // T for trap: the stair tool, armed with whatever kind was last chosen.
       case "t": case "T": this.setTool("stair"); break;
-      // H for the hole in the floor: the vide tool.
-      case "h": case "H": this.setTool("vide"); break;
+      // H for the structure tool -- columns, beams, railings and the hole in
+      // the floor -- armed with whatever kind was last chosen.
+      case "h": case "H": this.setTool("structure"); break;
       // C for the fit-out — cabinetry and everything placed with it. Z for the
       // zoom window and the room list.
       case "c": case "C": this.setTool("furnishing"); break;
@@ -3310,8 +3529,11 @@ export class Tools {
       this.requestRender();
       return;
     }
-    if (this.tool === "vide") {
-      this.videRotation = stairAngle(this.videRotation + Math.PI / 2);
+    if (this.tool === "structure") {
+      // A span has no armed angle: its direction is the two points clicked.
+      if (this.structureKind === "vide") this.videRotation = stairAngle(this.videRotation + Math.PI / 2);
+      else if (this.structureKind === "column") this.columnRotation = stairAngle(this.columnRotation + Math.PI / 2);
+      else return;
       this.onToolChange();
       this.requestRender();
       return;
@@ -3323,6 +3545,22 @@ export class Tools {
       return;
     }
     const sel = this.store.sel;
+    if (sel?.kind === "structure") {
+      const group = this.store.selectedOf("structure");
+      this.store.mutate(doc => {
+        for (const el of structureOf(this.store.floorOf(doc))) {
+          if (!group.includes(el.id)) continue;
+          // A column turns about its centre, which is its anchor; a span
+          // turns about its midpoint, so a beam stays where it was set out.
+          if (el.kind === "column") {
+            const turned = stairAngle(el.rotation + Math.PI / 2);
+            Object.assign(el, turnAbout(el, columnBox(el), turned));
+            el.rotation = turned;
+          } else Object.assign(el, spanTurned(el, Math.PI / 2));
+        }
+      });
+      return;
+    }
     if (sel?.kind === "stair") {
       this.store.mutate(doc => {
         const floor = this.store.floorOf(doc);
@@ -3441,6 +3679,7 @@ export class Tools {
       }
       else if (sel.kind === "stair") f.stairs = stairsOf(f).filter(s => !group.includes(s.id));
       else if (sel.kind === "vide") f.vides = videsOf(f).filter(s => !group.includes(s.id));
+      else if (sel.kind === "structure") f.structure = structureOf(f).filter(s => !group.includes(s.id));
       else if (sel.kind === "route") {
         f.routes = routesOf(f).filter(r => !group.includes(r.id));
         if (doc.continuations) {
@@ -3520,7 +3759,13 @@ export class Tools {
       case "passage": this.hint = h("passage"); break;
       case "symbol": this.hint = h("symbol", { label: getSymbol(this.symbolType) ? t("symbol." + this.symbolType) : this.symbolType }); break;
       case "stair": this.hint = h("stair", { label: t("stair." + this.stairKind) }); break;
-      case "vide": this.hint = h("vide"); break;
+      case "structure": {
+        const label = t("panel.structure" + this.structureKind[0]!.toUpperCase() + this.structureKind.slice(1)).toLowerCase();
+        this.hint = this.spanArmed
+          ? h(this.spanStart ? "structureSpanTo" : "structureSpan", { label })
+          : h("structure", { label });
+        break;
+      }
       case "route": this.hint = h("route"); break;
       case "furnishing": {
         const preset = furnishingPreset(this.furnishingPresetId);
@@ -4088,9 +4333,20 @@ export class Tools {
       drawStairGhost(ctx, this.draftStair("ghost"), this.symbolColor ?? COLORS.symbol);
     }
 
-    // Vide placement ghost.
-    if (this.tool === "vide") {
-      drawVideGhost(ctx, this.draftVide("ghost"), this.symbolColor ?? COLORS.symbol);
+    // Structure placement ghost: the vide and the column under the cursor,
+    // a span only once its first point is down, labelled with its length.
+    if (this.tool === "structure") {
+      if (this.structureKind === "vide") {
+        drawVideGhost(ctx, this.draftVide("ghost"), this.symbolColor ?? COLORS.symbol);
+      } else if (this.structureKind === "column") {
+        const c = this.draftColumn("ghost");
+        drawStructureGhost(ctx, c, this.symbolColor ?? COLORS.wallStroke, this.symbolColor ?? COLORS.wallFill);
+      } else if (this.spanStart) {
+        const to = this.snap?.p ?? this.cursor;
+        const el = this.draftSpan("ghost", this.spanStart, to);
+        drawStructureGhost(ctx, el, this.symbolColor ?? COLORS.symbol, COLORS.bg);
+        drawLabel(ctx, vp, mid(this.spanStart, to), `${Math.round(dist(this.spanStart, to))} mm`);
+      }
     }
 
     // Fit-out placement ghost, with the two distances to the wall ends when it

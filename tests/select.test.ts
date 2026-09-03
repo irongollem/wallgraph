@@ -37,7 +37,7 @@ function boundsOf(pts: readonly Vec[]): { min: Vec; max: Vec } {
 // --- MULTI_SELECT_KINDS: node is deliberately excluded ---
 {
   check("node is not a multi-select kind", !MULTI_SELECT_KINDS.has("node"));
-  const rest: SelKind[] = ["wall", "opening", "symbol", "stair", "vide", "furnishing", "route"];
+  const rest: SelKind[] = ["wall", "opening", "symbol", "stair", "vide", "structure", "furnishing", "route"];
   check("every other kind is", rest.every(k => MULTI_SELECT_KINDS.has(k)));
 }
 

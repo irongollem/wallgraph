@@ -2,7 +2,8 @@
 // this scale render in well under a frame). Layers: grid, rooms, walls,
 // opening decorations, routes, furnishings, symbols, stairs, selection, labels
 // (labels in screen space).
-import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, videsOf, furnishingsOf, fireLabel, Underlay, Wall, Id, wallInfill } from "../model/doc";
+import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, videsOf, furnishingsOf, structureOf, fireLabel, Underlay, Wall, Id, wallInfill } from "../model/doc";
+import { belowCutPlane } from "../model/structure";
 import { Resolved, OpeningGeom, Junction, ResolvedWall } from "../core/resolve";
 import { Room, roomSize, sizeLabel, looseRoomNames, roomArea } from "../core/rooms";
 import { Selection } from "../model/store";
@@ -11,6 +12,7 @@ import { Vec, add, sub, scale, perp, v, angleOf, dist, fromAngle } from "../geom
 import { getSymbol } from "./symbols";
 import { drawStair, drawStairGhost } from "./stair";
 import { drawVide } from "./vide";
+import { drawStructure } from "./structure";
 import { drawFurnishing } from "./furnishing";
 import { drawRoute, drawRiserMarks } from "./route";
 import { resolveRoutes, resolveRoutePoints } from "../core/route";
@@ -224,9 +226,22 @@ const GLASS_WASH = 0.82;
  * symbolInk() documents: canvas ignores an invalid fillStyle instead of
  * throwing, so a bad value out of a pasted document would paint this wall in
  * whatever colour was set last.
+ *
+ * A wall that stops below the section plane (a borstwering, a low partition)
+ * is not cut, so it takes no poché: an outline around the paper colour, the
+ * convention for anything seen from above rather than through.
  */
-export function wallPen(w: Pick<Wall, "color" | "material">): WallPen {
+export function wallPen(w: Pick<Wall, "color" | "material" | "height">): WallPen {
   const ink = w.color && HEX.test(w.color) ? w.color : null;
+  if (belowCutPlane(w)) {
+    const line = ink ?? COLORS.wallStroke;
+    return {
+      fill: ink ? mix(ink, COLORS.bg, GLASS_WASH) : COLORS.bg,
+      stroke: line,
+      mark: line,
+      infill: true,
+    };
+  }
   // Infill is a light body between two faces, so the ink goes on the faces and
   // the body keeps a wash — a solid pane of colour would be poché, which is the
   // one thing an infill wall is not.
@@ -530,6 +545,20 @@ export function drawScene(
     tracePoly(ctx, j.poly);
     ctx.fillStyle = junctionPen(j, resolved.walls).fill;
     ctx.fill();
+  }
+
+  // Structure, over the masonry: a column is cut like a wall and takes the
+  // same pen, so a steel column in a red plan is red poché; a beam is dashed
+  // above the plane and a railing outlined below it, in the instance's ink.
+  for (const el of structureOf(floor)) {
+    const pen = el.kind === "column" ? wallPen(el) : null;
+    drawStructure(ctx, el, {
+      px,
+      ink: pen ? pen.stroke : symbolInk(el),
+      fill: pen ? (isSel("structure", el.id) ? selectedFill(pen) : pen.fill) : COLORS.bg,
+      selected: isSel("structure", el.id),
+      select: COLORS.select, wash: COLORS.selectWash,
+    });
   }
 
   // Routes: a services overlay. Drawn over the masonry, so a duct reads as

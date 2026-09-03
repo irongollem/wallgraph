@@ -5,11 +5,12 @@
 // A second implementation is how a plan comes to export with its symbols intact
 // and open on screen with them cropped off, which is exactly what happened while
 // main.ts fitted the view to the node positions alone.
-import { Floor, stairsOf, videsOf, furnishingsOf, roomNamesOf, routesOf } from "../model/doc";
+import { Floor, stairsOf, videsOf, structureOf, furnishingsOf, roomNamesOf, routesOf } from "../model/doc";
 import { Resolved } from "./resolve";
 import { getSymbol } from "../render/symbols";
 import { stairCorners, resolveStair } from "./stair";
 import { videCorners } from "./vide";
+import { structureCorners } from "./structure";
 import { furnishingCorners } from "./furnishing";
 import { resolveRoutePoints, resolveRoutes } from "./route";
 import { symbolFootprintCorners } from "./placed";
@@ -44,6 +45,7 @@ export function planBounds(floor: Floor, resolved: Resolved): Bounds | null {
   // same derived box the hit-test and the selection frame use.
   for (const st of stairsOf(floor)) for (const c of stairCorners(resolveStair(floor, st))) b.add(c.x, c.y);
   for (const vd of videsOf(floor)) for (const c of videCorners(vd)) b.add(c.x, c.y);
+  for (const el of structureOf(floor)) for (const c of structureCorners(el)) b.add(c.x, c.y);
   for (const fn of furnishingsOf(floor)) for (const c of furnishingCorners(fn)) b.add(c.x, c.y);
   // Resolved, so a run following a moved symbol crops where it is actually
   // drawn, and the corridor fan (core/route.ts) never crops off a lane.

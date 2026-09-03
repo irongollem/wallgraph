@@ -520,7 +520,7 @@ export function unanchorRoutePoints(f: Floor, symbol: { id: Id; x: number; y: nu
 }
 
 /** The placed objects a copy applies to; walls and openings are not among them. */
-export type PlacedKind = "symbol" | "furnishing" | "stair" | "vide";
+export type PlacedKind = "symbol" | "furnishing" | "stair" | "vide" | "structure";
 
 /**
  * Copy placed objects on a floor, keeping everything but their identity: what
@@ -532,10 +532,12 @@ export type PlacedKind = "symbol" | "furnishing" | "stair" | "vide";
  */
 export function cloneOnFloor(f: Floor, kind: PlacedKind, ids: readonly Id[]): Map<Id, Id> {
   const made = new Map<Id, Id>();
+  // A deep copy: a beam's endpoints and a board's groepen are objects of their
+  // own, and a clone sharing them would move the original when dragged.
   const copyInto = <T extends { id: Id }>(list: T[], prefix: string): void => {
     for (const item of [...list]) {
       if (!ids.includes(item.id)) continue;
-      const clone = { ...item, id: newId(prefix) };
+      const clone = { ...(JSON.parse(JSON.stringify(item)) as T), id: newId(prefix) };
       list.push(clone);
       made.set(item.id, clone.id);
     }
@@ -543,7 +545,8 @@ export function cloneOnFloor(f: Floor, kind: PlacedKind, ids: readonly Id[]): Ma
   if (kind === "symbol") copyInto(f.symbols, "s");
   else if (kind === "furnishing") copyInto((f.furnishings ??= []), "i");
   else if (kind === "stair") copyInto((f.stairs ??= []), "t");
-  else copyInto((f.vides ??= []), "v");
+  else if (kind === "vide") copyInto((f.vides ??= []), "v");
+  else copyInto((f.structure ??= []), "c");
   return made;
 }
 

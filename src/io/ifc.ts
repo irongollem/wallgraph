@@ -55,9 +55,10 @@
 // cannot collide with that element's own id.
 import {
   PlanDoc, Floor, Wall, projectOf, floorElevation, floorHeight, areaModeOf, dimModeOf, DimMode, Sash, sashSpecsOf,
-  openingHeight, videsOf, stairsOf, furnishingsOf, routesOf, SymbolInstance, wallHeight, fireLabel, WallMaterial,
+  openingHeight, videsOf, stairsOf, structureOf, furnishingsOf, routesOf, SymbolInstance, wallHeight, fireLabel, WallMaterial,
   wallPostMm, wallFacadeMm,
 } from "../model/doc";
+import { structureSolid, spanLength } from "../core/structure";
 import {
   Discipline, Route, routeDiameter, routeDuctDiameter, routeHeat, routeHeatDiameter,
   routeInstallation, routeKind, routeVeins, routeVent, routeWater,
@@ -965,6 +966,53 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
           const fillPsetName = opening.kind === "door" ? "Pset_DoorCommon" : "Pset_WindowCommon";
           attachPropertySet(fillEntity, `${opening.id}:fillpset`, fillPsetName, fillProps);
         }
+      }
+    }
+
+    // ── structure: IFCCOLUMN / IFCBEAM / IFCRAILING ─────────────────────────
+    //
+    // Each as one extrusion of its plan section over its own vertical range
+    // (core/structure.ts structureSolid): a column from the floor to its
+    // stated height, a beam between its underside and top, a railing to its
+    // guarding height with the posts inside the slab. A stated material joins
+    // the storey's bare-material associations below; a beam's profile name is
+    // the element's Name, since the document stores the designation and not a
+    // catalogue section.
+    for (const el of structureOf(floor)) {
+      const solid = structureSolid(floor, el);
+      const shape = bodyShape([extrudedSolid(solid.poly, solid.z0, solid.z1)]);
+      let entity: number;
+      if (el.kind === "column") {
+        entity = w.entity("IFCCOLUMN",
+          [str(ifcGuid(seed, el.id)), ref(ownerHistory), str(el.label ?? "Column"), UNSET, UNSET,
+            ref(levelPlacement), shape, UNSET, enumv("COLUMN")]);
+        attachPropertySet(entity, `${el.id}:pset`, "Pset_ColumnCommon",
+          [ref(propValue("LoadBearing", boolValue(true)))]);
+        attachQuantitySet(entity, `${el.id}:qto`, "Qto_ColumnBaseQuantities", [
+          ref(w.entity("IFCQUANTITYLENGTH", [str("Length"), UNSET, UNSET, real(solid.z1 - solid.z0), UNSET])),
+        ]);
+      } else if (el.kind === "beam") {
+        entity = w.entity("IFCBEAM",
+          [str(ifcGuid(seed, el.id)), ref(ownerHistory), str(el.label ?? "Beam"), UNSET, UNSET,
+            ref(levelPlacement), shape, UNSET, enumv("BEAM")]);
+        attachPropertySet(entity, `${el.id}:pset`, "Pset_BeamCommon",
+          [ref(propValue("LoadBearing", boolValue(true))), ref(propValue("Span", typed("IFCPOSITIVELENGTHMEASURE", real(spanLength(el)))))]);
+        attachQuantitySet(entity, `${el.id}:qto`, "Qto_BeamBaseQuantities", [
+          ref(w.entity("IFCQUANTITYLENGTH", [str("Length"), UNSET, UNSET, real(spanLength(el)), UNSET])),
+        ]);
+      } else {
+        entity = w.entity("IFCRAILING",
+          [str(ifcGuid(seed, el.id)), ref(ownerHistory), str(el.label ?? "Railing"), UNSET, UNSET,
+            ref(levelPlacement), shape, UNSET, enumv("GUARDRAIL")]);
+        attachPropertySet(entity, `${el.id}:pset`, "Pset_RailingCommon",
+          [ref(propValue("Height", typed("IFCPOSITIVELENGTHMEASURE", real(el.height))))]);
+      }
+      contained.push(entity);
+      if (el.material !== undefined) {
+        const key = `${el.material}|`;
+        const bucket = byBuild.get(key) ?? { material: el.material, thickness: 0, elements: [] };
+        bucket.elements.push(entity);
+        byBuild.set(key, bucket);
       }
     }
 

@@ -50,7 +50,9 @@ export interface PaneRows {
          extra?: { title?: string; snap?: (n: number) => number; mixed?: boolean }): void;
   selRow(label: string, value: string, options: Array<[string, string]>, onCommit: (s: string) => void,
          opts?: { mixed?: boolean }): void;
-  textRow(label: string, value: string, onCommit: (s: string) => void, opts?: { mixed?: boolean }): void;
+  /** `allowEmpty` commits a cleared field, for a caption whose absence is a value. */
+  textRow(label: string, value: string, onCommit: (s: string) => void,
+          opts?: { mixed?: boolean; allowEmpty?: boolean }): void;
   infoRow(label: string, text: string, title?: string): void;
   noteRow(text: string): void;
   warnRow(text: string): void;

@@ -99,9 +99,10 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 .rail-group { display: contents; }
 /* The caption under an icon. A pointing device has the title attribute; a
    finger has nothing, so touch layouts turn this on. */
-/* 9px, and no hyphenation: the longest caption ("Doorgang", "Symbolen") has to
-   fit a 46px tool on one line, and the page sets hyphens:auto for the Dutch
-   compounds in the palette, which would otherwise break these down the middle. */
+/* 9px, and no hyphenation: the longest caption ("Constructie", "Installatie")
+   has to fit a 50px tool on one line, and the page sets hyphens:auto for the
+   Dutch compounds in the palette, which would otherwise break these down the
+   middle. */
 .rail-name { display: none; font: 500 9px/1.1 system-ui, sans-serif; font-style: normal;
   text-align: center; hyphens: none; -webkit-hyphens: none; letter-spacing: -0.01em; }
 
@@ -709,7 +710,7 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
   mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
 }
 .wg-toolbar .rail-group::-webkit-scrollbar { display: none; }
-.wg-toolbar .rail-btn { width: 46px; height: 56px; border-radius: 10px; flex: none; }
+.wg-toolbar .rail-btn { width: 50px; height: 56px; border-radius: 10px; flex: none; }
 .wg-toolbar .rail-name { display: block; }
 
 /* ---------- landscape on a phone ---------- */
