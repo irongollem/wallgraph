@@ -232,6 +232,21 @@ topology says about itself that does not add up (a dangling port, a link that ne
 one storey, disagreeing disciplines or service data). It reports; it never enforces, and
 never repairs.
 
+**`furnishingSolids()`** — the prisms one piece of inrichting stands as, per form: a cabinet's
+plinth, its carcass set back from the front panels, and the blad over it; a bath's rim around its
+tub; a worktop's bowls sunk through it; a table's top on its legs. Every part is laid out from the
+same stored dimensions and the same fractions the 2D mark is drawn from, so the body and the mark
+cannot disagree about which way a piece faces or where its bowl sits, and is mapped through
+`worldPoint()` so rotation and mirroring follow the placed object.
+
+**A piece stands where its own form puts it, not where its height field says it ends.** Most forms
+fill `[z0, z0 + furnishingHeight()]`, but a base cabinet's stored height is its CARCASS: it stands on
+a 150 plinth and carries a 40 blad, which is the 910 worktop height a Dutch kitchen is set out to
+(see [furnishing.ts](src/model/furnishing.ts)). The IFC export states the nominal box instead — the
+same difference as between a stair's stepped body here and the single flight solid it exports as.
+What both read from one place is `furnishingZ0()`: on the floor, or `OVERHEAD_Z0_MM` for the wall
+cabinet and the afzuigkap that hang.
+
 ## Adding a symbol
 
 Symbols live in `src/render/symbols/<category>.ts` and are aggregated by
@@ -459,6 +474,9 @@ before changing one:
   into a distribution system per groep. No fittings, no risers as elements, no port
   connectivity — the document holds none of it — and a cable run's section is a
   placeholder, not a measurement.
+- The 3D fit-out is massing, not joinery: a front is one panel in the recess rather than a hung
+  door, a bowl is a recess rather than a moulded basin, and nothing is cut against the fabric — a
+  unit drawn through a wall renders through it, the way the plan draws it.
 - The permit sheet is bouwkundig and carries no services at all.
 - Wall surface counts the two faces of a wall plus the reveals through it. A reveal is measured over
   the structural thickness only — cladding makes it deeper, but that is facade work — and a floor
