@@ -413,6 +413,7 @@ export class Panel {
       toolBtn("cabinet", "furnishing", "C", t("tool.furnishing"), t("tool.shortFurnishing")),
       toolBtn("route", "route", "U", t("tool.route"), t("tool.shortRoute")),
       toolBtn("zoom", "zoom", "Z", t("tool.zoom"), t("tool.shortZoom")),
+      toolBtn("measure", "measure", "A", t("tool.measure"), t("tool.shortMeasure")),
     );
     // Symbols have no rail button of their own: every mark is placed from the
     // pane of the section it belongs to — services from Installaties, safety

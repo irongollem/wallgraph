@@ -77,11 +77,12 @@ import {
 } from "../render/layers";
 import { Resolved, ResolvedWall } from "../core/resolve";
 import { dimensionChains, DimChain } from "../core/dimensions";
+import { measureTargets, measureSnap, measurement, type MeasureSnap } from "../core/measure";
 import { t } from "../i18n";
 
 export type ToolName =
   | "select" | "wall" | "door" | "window" | "passage" | "symbol" | "stair" | "structure"
-  | "furnishing" | "route" | "zoom";
+  | "furnishing" | "route" | "zoom" | "measure";
 
 /** What the structure tool places: the three structural kinds and the vide. */
 export type StructureTarget = StructureKind | "vide";
@@ -128,6 +129,13 @@ const MIN_ROUTE_STEP_MM = MIN_WALL_MM;
 
 /** Grab radius for a riser mark, mm. The mark itself draws at r = 78. */
 const RISER_PICK_MM = 90;
+
+/** Grab radii for a tape end, screen px: a corner wins over an edge. */
+const MEASURE_CORNER_PX = 12;
+const MEASURE_EDGE_PX = 9;
+/** Shortest leg of a reading that gets its own dx/dy label, screen px --
+ *  enough for the three pills of a diagonal reading to stay apart. */
+const MEASURE_LEG_LABEL_PX = 60;
 
 export interface SnapResult { p: Vec; kind: "node" | "wall" | "grid" | "free"; wall?: Wall; tMm?: number; node?: PlanNode }
 
@@ -403,6 +411,23 @@ export class Tools {
   private shapeStart: Vec | null = null;
   /** First point of the beam or railing being set out; nothing stored until the second. */
   private spanStart: Vec | null = null;
+  /**
+   * The tape measure. `measureStart` is the first end once it is down, with the
+   * figure to the cursor following it; `measured` is the last reading, kept on
+   * the plan until the next one starts or the tool is left. Editor state: no
+   * document change and nothing exported (see core/measure.ts).
+   */
+  private measureStart: Vec | null = null;
+  private measured: { a: Vec; b: Vec } | null = null;
+  /** Where the tape end under the cursor would land; its own snap, since it
+   *  targets faces and footprints rather than the centerline graph. */
+  private measureSnap: MeasureSnap | null = null;
+  /**
+   * Where a touch press landed with no first end down. A finger that then
+   * travels is stretching the tape from here in one gesture; one that lifts in
+   * place is a tap, and onTap() puts the first end down instead.
+   */
+  private measurePress: Vec | null = null;
   /**
    * Whether a cabinet or a wall-mounted symbol takes hold of the nearest wall
    * face while it is placed or dragged. Editor state, like the grid snap, and
@@ -829,6 +854,10 @@ export class Tools {
     this.chainFirstNode = null;
     this.shapeStart = null;
     this.spanStart = null;
+    this.measureStart = null;
+    this.measured = null;
+    this.measureSnap = null;
+    this.measurePress = null;
     this.routeStart = null;
     this.routePoints = [];
     this.routeTargetId = null;
@@ -1119,7 +1148,25 @@ export class Tools {
   }
 
 
-  getSnap(): Vec | null { return this.snap?.p ?? this.routeSnap?.p ?? null; }
+  getSnap(): Vec | null { return this.snap?.p ?? this.routeSnap?.p ?? this.measureSnap?.p ?? null; }
+
+  /**
+   * Where a tape end lands for the cursor at `w`. The targets are the drawn
+   * plan -- faces, jambs, footprints -- rather than the centerline graph the
+   * other tools snap to, so this does not share computeSnap(). Grab radii are
+   * in screen pixels, converted at the current zoom.
+   */
+  private computeMeasureSnap(w: Vec): MeasureSnap {
+    return measureSnap(measureTargets(this.floor, this.getResolved()), w, {
+      tolCorner: MEASURE_CORNER_PX / this.vp.pxPerMm,
+      tolEdge: MEASURE_EDGE_PX / this.vp.pxPerMm,
+      grid: this.gridStep,
+      from: this.measureStart ?? this.measurePress,
+      // Shift alone: the O toggle is a wall-drawing convention, on by default,
+      // and a tape between two arbitrary points is free unless held.
+      ortho: this.shiftKey,
+    });
+  }
 
   /**
    * World-mm point at the centre of the visible canvas — where a freshly
@@ -1139,6 +1186,7 @@ export class Tools {
   private shiftChanged(): void {
     if (this.tool === "wall" && this.chainStart) this.snap = this.computeSnap(this.cursor, true);
     else if (this.tool === "structure" && this.spanStart) this.snap = this.computeSnap(this.cursor, false);
+    else if (this.tool === "measure" && this.measureStart) this.measureSnap = this.computeMeasureSnap(this.cursor);
     else if (!this.shapeStart) return;
     this.requestRender();
   }
@@ -1375,6 +1423,7 @@ export class Tools {
       case "structure": this.structureClick(); break;
       case "furnishing": this.placeFurnishing(); break;
       case "route": this.routeClick(); break;
+      case "measure": this.measureClick(); break;
       // zoom acted on contact; its release is handled as a zoomBox drag.
       case "zoom": break;
     }
@@ -1407,6 +1456,7 @@ export class Tools {
       this.drag = null;
       if (held && held.kind !== "zoomBox") this.finishDrag(held);
       this.tapStart = null;
+      this.measurePress = null;
       this.cancelLongPress();
       this.pinch = this.pinchState();
       this.requestRender();
@@ -1446,8 +1496,10 @@ export class Tools {
 
     if (e.pointerType !== "mouse") {
       this.cursor = w;
-      this.snap = this.tool === "select" || this.tool === "route" ? null : this.computeSnap(w, this.tool === "wall");
+      this.snap = this.snapsCenterline() ? this.computeSnap(w, this.tool === "wall") : null;
       this.routeSnap = this.tool === "route" ? this.computeRouteSnap(w) : null;
+      this.measureSnap = this.tool === "measure" ? this.computeMeasureSnap(w) : null;
+      if (this.tool === "measure" && !this.measureStart) this.measurePress = this.measureSnap!.p;
       this.tapStart = { screen: s, time: e.timeStamp };
       // Two tools need the press itself rather than the release: select, so a
       // drag can start, and zoom, so the window can be dragged out. Neither has
@@ -1474,6 +1526,9 @@ export class Tools {
       case "structure": this.structureClick(); break;
       case "furnishing": this.placeFurnishing(); break;
       case "route": this.routeClick(); break;
+      // The first end goes down on the press, so press-drag-release reads in
+      // one gesture and click-click reads in two (see onUp).
+      case "measure": this.measureClick(); break;
       case "zoom": this.zoomDown(s, w); return;
       // No hold on the mouse path: a click that pauses before it moves -- press,
       // read the plan, then drag -- is an ordinary drag, and arming the hold here
@@ -1511,9 +1566,27 @@ export class Tools {
     this.hoverStair = this.tool === "select" ? this.stairAt(w)?.id ?? null : null;
     this.hoverSymbol = this.tool === "select" && !this.hoverStair
       ? this.symbolAt(w)?.id ?? null : null;
-    this.snap = this.tool === "select" || this.tool === "route" ? null : this.computeSnap(w, this.tool === "wall");
+    this.snap = this.snapsCenterline() ? this.computeSnap(w, this.tool === "wall") : null;
     this.routeSnap = this.tool === "route" ? this.computeRouteSnap(w) : null;
+    this.measureSnap = this.tool === "measure" ? this.computeMeasureSnap(w) : null;
+    // A finger travelling from its press is stretching a tape from there, so
+    // the first end goes down at the press point -- where a mouse puts it on
+    // the press itself. A resting finger is a tap, or a pinch about to start.
+    if (this.measurePress && this.pressScreen && dist(s, this.pressScreen) > TAP_SLOP_PX) {
+      this.measureStart = this.measurePress;
+      this.measurePress = null;
+      this.measured = null;
+      this.measureSnap = this.computeMeasureSnap(w);
+      this.updateHint();
+      this.onToolChange();
+    }
     this.requestRender();
+  }
+
+  /** Whether the active tool places on the centerline graph (computeSnap());
+   *  select, route and measure each resolve the cursor their own way. */
+  private snapsCenterline(): boolean {
+    return this.tool !== "select" && this.tool !== "route" && this.tool !== "measure";
   }
 
   private onUp(e: PointerEvent): void {
@@ -1563,6 +1636,20 @@ export class Tools {
       this.spanClick();
       return;
     }
+    // The tape is stretched the same way. A mouse put the first end down on
+    // the press (onDown), a finger on the move that carried it past the slop
+    // (onMove); a release with no end down is one after a mouse press that
+    // pinned a reading, and pins nothing more.
+    if (this.tool === "measure" && !this.drag && this.pressScreen && this.measureStart
+        && dist(this.screenOf(e), this.pressScreen) > TAP_SLOP_PX) {
+      this.measurePress = null;
+      this.pressScreen = null;
+      this.cursor = this.vp.toWorld(this.screenOf(e));
+      this.measureSnap = this.computeMeasureSnap(this.cursor);
+      this.measureClick();
+      return;
+    }
+    this.measurePress = null;
     this.pressScreen = null;
 
     if (!this.drag) { this.requestRender(); return; }
@@ -1990,6 +2077,31 @@ export class Tools {
     });
     this.spanStart = null;
     this.store.select({ kind: "structure", id: el.id });
+    this.updateHint();
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  // ---- tape measure ----
+  /**
+   * One end of the tape goes down per call. The first replaces any reading on
+   * the plan; the second pins the new one, which stays until the next first
+   * end, Escape or a tool change (cancel()). A second end on the first is a
+   * slip, not a reading of zero, and leaves the first end waiting.
+   */
+  private measureClick(): void {
+    const p = (this.measureSnap ?? this.computeMeasureSnap(this.cursor)).p;
+    if (!this.measureStart) {
+      this.measureStart = p;
+      this.measured = null;
+    } else {
+      if (dist(this.measureStart, p) < 1) return;
+      this.measured = { a: this.measureStart, b: p };
+      this.measureStart = null;
+    }
+    // The snap is retaken with the new first end: its perpendicular feet and
+    // angle lock exist only once there is something to measure from.
+    this.measureSnap = this.computeMeasureSnap(this.cursor);
     this.updateHint();
     this.onToolChange();
     this.requestRender();
@@ -3411,7 +3523,9 @@ export class Tools {
       // chain, a drag, a shape's first point -- still just unwinds.
       case "Escape":
         if (this.tool === "route" && this.routeStart) { this.commitRoute(); this.updateHint(); break; }
-        this.cancel(); this.updateHint(); break;
+        // The status line is redrawn by the toolbar, not the canvas; without
+        // the refresh the hint of the unwound state stays on screen.
+        this.cancel(); this.updateHint(); this.onToolChange(); break;
       case "v": case "V": this.setTool("select"); break;
       // W arms the wall tool; pressing it again steps through the shapes it
       // draws, so the four live behind one key and one rail button.
@@ -3437,6 +3551,9 @@ export class Tools {
       // this reaches past the obvious "R" to the next free letter that reads.
       case "u": case "U": this.setTool("route"); break;
       case "z": case "Z": this.setTool("zoom"); break;
+      // A for afstand: the tape measure. M mirrors, so the tape takes the
+      // figure it reads rather than the tool's name.
+      case "a": case "A": this.setTool("measure"); break;
       // Fit, in any tool: the whole plan, or the selection with Shift. Zoom-all
       // is the move a drawing is read with, so it does not live behind a tool.
       case "f": case "F": if (e.shiftKey) this.fitSelection(); else this.fitAll(); break;
@@ -3789,6 +3906,15 @@ export class Tools {
         break;
       }
       case "zoom": this.hint = h("zoom"); break;
+      case "measure": {
+        // The pinned figure only: the live one is on the canvas label, and a
+        // hint that changed on every pointer move would re-render the panel
+        // with it.
+        this.hint = this.measureStart ? h("measureTo")
+          : this.measured ? h("measured", { ...measurement(this.measured.a, this.measured.b) })
+          : h("measure");
+        break;
+      }
     }
   }
 
@@ -4107,6 +4233,70 @@ export class Tools {
     drawLabel(ctx, vp, scale(add(p0, p1), 0.5), this.lengthBuffer ? `${this.lengthBuffer}▎mm` : `${L} mm`, COLORS.select);
   }
 
+  /**
+   * The tape: the reading being taken, dashed and following the cursor, or
+   * the pinned one, solid. Square ticks mark the ends and the figure sits at
+   * the middle. A diagonal reading also ghosts in its dx/dy legs, each
+   * labelled once it is long enough on screen for the label to clear the
+   * others: a plan is set out by offsets, and the diagonal alone leaves that
+   * arithmetic to the reader.
+   */
+  private drawMeasurePreview(ctx: CanvasRenderingContext2D, vp: Viewport, px: number): void {
+    const live = this.measureStart ?? this.measurePress;
+    const a = live ?? this.measured?.a;
+    if (!a) return;
+    const b = live ? (this.measureSnap?.p ?? this.cursor) : this.measured!.b;
+    const m = measurement(a, b);
+    const tick = 7 * px;
+
+    ctx.save();
+    ctx.strokeStyle = COLORS.dimension;
+    ctx.lineWidth = 1.2 * px;
+    ctx.setLineDash(live ? [8 * px, 6 * px] : []);
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    if (m.length >= 1) {
+      const n = scale(perp(norm(sub(b, a))), tick);
+      ctx.beginPath();
+      for (const p of [a, b]) {
+        ctx.moveTo(p.x - n.x, p.y - n.y); ctx.lineTo(p.x + n.x, p.y + n.y);
+      }
+      ctx.stroke();
+    } else {
+      // Only the first end is down: a cross where the tape is hooked.
+      ctx.beginPath();
+      ctx.moveTo(a.x - tick, a.y); ctx.lineTo(a.x + tick, a.y);
+      ctx.moveTo(a.x, a.y - tick); ctx.lineTo(a.x, a.y + tick);
+      ctx.stroke();
+    }
+    const legs = m.dx > 0 && m.dy > 0;
+    const c = v(b.x, a.y);
+    if (legs) {
+      ctx.globalAlpha = 0.45;
+      ctx.setLineDash([5 * px, 5 * px]);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y); ctx.lineTo(c.x, c.y); ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    if (m.length < 1) return;
+    const at = this.visibleMid(vp, a, b);
+    if (at) drawLabel(ctx, vp, at, `${m.length} mm`);
+    if (!legs) return;
+    // Leg labels sit outside the triangle: the dx pill above or below its
+    // leg, away from b; the dy pill beside its leg, away from a.
+    if (m.dx * vp.pxPerMm >= MEASURE_LEG_LABEL_PX) {
+      const leg = mid(a, c);
+      drawLabel(ctx, vp, b.y > a.y ? leg : add(leg, v(0, 22 * px)), `${m.dx}`);
+    }
+    if (m.dy * vp.pxPerMm >= MEASURE_LEG_LABEL_PX) {
+      drawLabel(ctx, vp, add(mid(c, b), v((b.x > a.x ? 32 : -32) * px, 10 * px)), `${m.dy}`);
+    }
+  }
+
   drawPreview(ctx: CanvasRenderingContext2D, vp: Viewport, collectHits = true): void {
     const px = 1 / vp.pxPerMm;
     const f = this.floor;
@@ -4389,6 +4579,8 @@ export class Tools {
       ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
       ctx.restore();
     }
+
+    if (this.tool === "measure") this.drawMeasurePreview(ctx, vp, px);
 
     // Marquee rect (shift+drag from empty space). Same screen-space idiom as
     // the zoom window above, undashed so the two read as distinct gestures.

@@ -225,7 +225,7 @@ function wired(): { doc: ReturnType<typeof emptyDoc>; route: Route } {
   check("an unknown type owns nothing",
     !servicesPaneActive("symbol", "not-a-symbol") && !fitoutPaneActive("symbol", "not-a-symbol"));
   // Every other tool keeps its own rows whatever is sticky.
-  for (const tool of ["wall", "door", "window", "passage", "stair", "structure", "zoom"] as const) {
+  for (const tool of ["wall", "door", "window", "passage", "stair", "structure", "zoom", "measure"] as const) {
     check(`the ${tool} tool keeps the property area`,
       !servicesPaneActive(tool, "socket-single") && !fitoutPaneActive(tool, "socket-single"));
   }

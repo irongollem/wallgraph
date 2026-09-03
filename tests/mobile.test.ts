@@ -84,7 +84,7 @@ function check(name: string, cond: boolean, detail = ""): void {
     "wallStart", "wallChain", "wallTyped",
     "wallRect", "wallRectTo", "wallCircle", "wallCircleTo", "wallPolygon", "wallPolygonTo",
     "door", "window", "passage", "symbol", "stair", "structure", "structureSpan", "structureSpanTo",
-    "furnishing", "route", "zoom", "view3d",
+    "furnishing", "route", "zoom", "measure", "measureTo", "measured", "view3d",
   ];
   const touchKey = (base: string): string => `touch${base[0]!.toUpperCase()}${base.slice(1)}`;
 
@@ -115,7 +115,7 @@ function check(name: string, cond: boolean, detail = ""): void {
   const names = [
     "shortSelect", "shortWall", "shortDoor", "shortWindow", "shortPassage",
     "shortStair", "shortStructure",
-    "shortFurnishing", "shortRoute", "shortZoom",
+    "shortFurnishing", "shortRoute", "shortZoom", "shortMeasure",
     "shortGridSnap", "shortAngleSnap", "shortMeasurements", "short3d",
   ];
   for (const lang of ["nl", "en"] as const) {

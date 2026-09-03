@@ -26,7 +26,7 @@ function R(x: number, y: number, w: number, h: number, rx: number, fill = false)
 
 export type IconName =
   | "select" | "wall" | "door" | "window" | "passage" | "stair" | "structure"
-  | "cabinet" | "route" | "zoom" | "rename"
+  | "cabinet" | "route" | "zoom" | "measure" | "rename"
   | "shapeLine" | "shapeRect" | "shapeCircle" | "shapePoly"
   | "gridSnap" | "angleSnap" | "dimensions" | "view3d"
   | "undo" | "redo" | "dots" | "grip" | "chevron" | "plus" | "minus" | "close"
@@ -78,6 +78,13 @@ const ICONS: Record<IconName, Shape[]> = {
     C(9, 9, 5.4),
     P("M12.9 12.9 L17 17"),
     P("M6.6 9 H11.4 M9 6.6 V11.4"),
+  ],
+  // A rule laid diagonally with its graduations: the tape measure. Diagonal so
+  // it is not read as the dimensions toggle, which draws the horizontal line
+  // with arrowheads that a sheet's own maatvoering uses.
+  measure: [
+    P("M3.3 13.5 L13.5 3.3 L16.7 6.5 L6.5 16.7 Z"),
+    P("M5.85 10.95 L6.75 11.85 M8.4 8.4 L9.8 9.8 M10.95 5.85 L11.85 6.75"),
   ],
   gridSnap: [
     P("M4 4 H16 M4 10 H16 M4 16 H16 M4 4 V16 M10 4 V16 M16 4 V16"),

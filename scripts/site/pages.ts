@@ -538,6 +538,12 @@ selectie van een maatlabel maakt invoer van de lengte mogelijk.</p>
 waarbij elke keten zijn eigen regel krijgt en de dagmaat het dichtst bij het gebouw ligt. Zodra de
 dagmaat wordt getoond, krijgt elke rechthoekige ruimte ook haar vrije breedte en diepte onder de
 oppervlakte, in PNG, SVG en DXF mee.</p>
+<p><kbd>A</kbd> opent het <b>meetlint</b>: klik twee punten, of sleep van het ene naar het andere, en de
+afstand ertussen verschijnt op de tekening met daaronder de horizontale en verticale component. Het lint
+pakt hoeken, wandvlakken, dagkanten, kolommen, trappen, kasten en leidingen, en met het eerste punt gezet ook
+het loodrechte punt op een wand, zodat een vrije afstand tot een muur in één beweging te meten is.
+<kbd>Shift</kbd> houdt het tweede punt op een van de acht richtingen; de hoekvergrendeling <kbd>O</kbd> van de wanden geldt hier niet. Een meting wordt
+niet opgeslagen en komt in geen export voor.</p>
 
 <h2 id="exporteren">Opslaan en exporteren</h2>
 <ul>
@@ -559,6 +565,7 @@ applicatieserver vereist. De plattegrond blijft na het sluiten van het tabblad b
 <tr><td><kbd>H</kbd></td><td>constructie: kolom, balk, leuning, vide</td></tr>
 <tr><td><kbd>C</kbd></td><td>inrichting plaatsen</td></tr>
 <tr><td><kbd>Z</kbd></td><td>ruimtes: kader slepen, ruimte aanklikken, ruimte benoemen</td></tr>
+<tr><td><kbd>A</kbd></td><td>meetlint: afstand tussen twee punten</td></tr>
 <tr><td><kbd>F</kbd></td><td>alles in beeld</td></tr>
 <tr><td><kbd>Shift</kbd>+<kbd>F</kbd></td><td>selectie in beeld</td></tr>
 <tr><td><kbd>3</kbd></td><td>3D-weergave aan/uit</td></tr>
@@ -863,6 +870,12 @@ centerline, <b>clear span</b> — measured between the wall faces, which is what
 out from — or both, in which case each chain gets its own line and the clear one sits nearest the
 building. With the clear span shown, every rectangular room also states its free width and depth
 below the area, in PNG, SVG and DXF.</p>
+<p><kbd>A</kbd> opens the <b>tape measure</b>: click two points, or drag from one to the other, and the
+distance between them appears on the drawing with its horizontal and vertical components beneath. The
+tape catches corners, wall faces, reveals, columns, stairs, cabinets and runs, and once the first point
+is down also the perpendicular foot on a wall, so the clear distance to a wall is one movement.
+<kbd>Shift</kbd> holds the second end to one of eight directions; the walls' angle lock <kbd>O</kbd> does not apply here. A reading is not
+stored and appears in no export.</p>
 
 <h2 id="export">Saving and exporting</h2>
 <ul>
@@ -884,6 +897,7 @@ server. The plan remains available after the tab is closed.</p>
 <tr><td><kbd>H</kbd></td><td>structure: column, beam, railing, vide</td></tr>
 <tr><td><kbd>C</kbd></td><td>place fit-out</td></tr>
 <tr><td><kbd>Z</kbd></td><td>rooms: drag a box, click a room, name a room</td></tr>
+<tr><td><kbd>A</kbd></td><td>tape measure: distance between two points</td></tr>
 <tr><td><kbd>F</kbd></td><td>fit everything in view</td></tr>
 <tr><td><kbd>Shift</kbd>+<kbd>F</kbd></td><td>fit the selection</td></tr>
 <tr><td><kbd>3</kbd></td><td>3D view on/off</td></tr>
