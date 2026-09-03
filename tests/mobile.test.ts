@@ -83,7 +83,7 @@ function check(name: string, cond: boolean, detail = ""): void {
     "select", "selectWall", "selectWallTyped", "selectFurnishing",
     "wallStart", "wallChain", "wallTyped",
     "wallRect", "wallRectTo", "wallCircle", "wallCircleTo", "wallPolygon", "wallPolygonTo",
-    "door", "window", "passage", "symbol", "stair", "vide",
+    "door", "window", "passage", "symbol", "stair", "structure", "structureSpan", "structureSpanTo",
     "furnishing", "route", "zoom", "view3d",
   ];
   const touchKey = (base: string): string => `touch${base[0]!.toUpperCase()}${base.slice(1)}`;
@@ -114,7 +114,7 @@ function check(name: string, cond: boolean, detail = ""): void {
   // title to hover. A missing one renders as its own key under the icon.
   const names = [
     "shortSelect", "shortWall", "shortDoor", "shortWindow", "shortPassage",
-    "shortStair", "shortVide",
+    "shortStair", "shortStructure",
     "shortFurnishing", "shortRoute", "shortZoom",
     "shortGridSnap", "shortAngleSnap", "shortMeasurements", "short3d",
   ];
@@ -122,7 +122,7 @@ function check(name: string, cond: boolean, detail = ""): void {
     const tool = resources[lang].translation.tool as Record<string, string | undefined>;
     const missing = names.filter(n => typeof tool[n] !== "string");
     check(`${lang} names every button`, missing.length === 0, missing.join(","));
-    // 46px of tool bar at 9.5px type is about twelve characters.
+    // 50px of tool bar at 9px type is about twelve characters.
     const tooLong = names.filter(n => (tool[n] ?? "").length > 12);
     check(`${lang} captions fit the tool bar`, tooLong.length === 0, tooLong.join(","));
   }

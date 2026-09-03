@@ -388,13 +388,34 @@ terugkomt of juist naar de andere kant verspringt. De pijl wijst altijd van bene
 dezelfde trap, omgedraaid. Een trap op de verdieping eronder schemert door op de plattegrond erboven,
 want daar komt hij aan.</p>
 
-<h2 id="vides">Vides</h2>
-<p><kbd>H</kbd> plaatst een vide: een opening in de vloer, open naar de verdieping eronder. Een vide
+<h2 id="constructie">Constructie</h2>
+<p><kbd>H</kbd> opent het constructiegereedschap: kolom, balk, leuning en vide — de dragende en
+begrenzende delen die geen muur zijn. Geen daarvan komt in de muurgraaf: een kolom staat los van de
+hartlijnen ook waar hij in een muur staat, een balk overspant wat hem draagt, en een leuning begrenst
+een rand zonder een ruimte te omsluiten. Elk is een geplaatst object met eigen maten, zoals een trap,
+en de tekening volgt daaruit.</p>
+<p>Het snijvlak van de plattegrond bepaalt hoe elk getekend wordt. Een <b>kolom</b> wordt erdoor
+gesneden en staat gearceerd, als een muur; de doorsnede is rechthoekig, rond of een H-profiel, met
+breedte en diepte in het document. Een kolom draagt de vloer erboven tenzij hij een eigen hoogte
+opgeeft, wat een kolom onder de vloerrand van een vide nodig heeft. Een <b>balk</b> ligt boven het
+snijvlak en staat daarom gestreept, zoals een bovenkast; de gangbare walsprofielen (HEA, HEB, IPE)
+staan in het paneel en zetten flensbreedte, profielhoogte en het opschrift in één keer, maar het document
+slaat de maten en het opschrift op, niet de tabelrij. Een balk ligt met de bovenkant op de
+verdiepingshoogte tenzij een eigen onderkant is ingevuld. Een <b>leuning</b> staat onder het snijvlak
+en staat in omtrek: twee lijnen op de breedte van de handregel, met een streepje per baluster op de
+opgegeven hart-op-hartmaat. Balk en leuning worden tussen twee punten gezet, met klikken of slepen;
+<kbd>O</kbd> zet de hoek vast. Een muur met een eigen hoogte tot 1200 mm — een borstwering,
+kniemuur of plint — staat om dezelfde reden in omtrek in plaats van gearceerd.</p>
+<p>Een <b>vide</b> is een opening in de vloer, open naar de verdieping eronder. Een vide
 hoort bij de verdieping waarin het gat zit, niet bij een verdieping van zichzelf — de vloer heeft een
 gat en de plattegrond van die verdieping tekent het. Een trapgat is hetzelfde: de opening waar de trap
 van beneden doorheen komt, getekend op de plattegrond van de verdieping erboven. Het merk is de
 omtrek met een diagonaal uit elke hoek; de vloerkleur eronder wordt weggenomen, want een vide is geen
 vloer.</p>
+<p>Materiaal is een keuze per element, net als bij een muur, en niet opgegeven is een eigen antwoord.
+De IFC-export schrijft kolom, balk en leuning als eigen elementen met hun maten; de 3D-weergave trekt
+ze op tot hun hoogte. Wallgraph rekent niets aan een constructie na: een kolom of balk is een figuur op
+de tekening, geen berekening.</p>
 
 <h2 id="inrichting">Inrichting</h2>
 <p><kbd>C</kbd> opent het inrichtingsgereedschap: kasten, keukenapparatuur, sanitair en meubels. Geen
@@ -487,9 +508,10 @@ regels, zonder dat er iets bijgehouden hoeft te worden.</p>
 
 <h2 id="3d">3D-weergave</h2>
 <p><kbd>3</kbd> zet de 3D-weergave aan: het hele gebouw, rechtstreeks opgetrokken uit de getekende
-muren — met deur- en raamopeningen, vloerplaten met vides en trapgaten, trappen trede voor trede, de
-inrichting per stuk (kasten op hun plint en onder hun blad, sanitair met kuip en bak, meubels op hun
-poten) en elke verdieping op haar eigen peil. Slepen draait het beeld, scrollen zoomt, <kbd>Shift</kbd>+slepen verschuift;
+muren — met deur- en raamopeningen, vloerplaten met vides en trapgaten, kolommen, balken en leuningen,
+trappen trede voor trede, de inrichting per stuk (kasten op hun plint en onder hun blad, sanitair met
+kuip en bak, meubels op hun poten) en elke verdieping op haar eigen peil. Slepen draait het beeld,
+scrollen zoomt, <kbd>Shift</kbd>+slepen verschuift;
 <kbd>F</kbd> brengt alles in beeld en <kbd>Esc</kbd> of nogmaals <kbd>3</kbd> keert terug naar de
 plattegrond. Net als de ruimtes is het beeld afgeleid: er staat niets driedimensionaals in het
 document.</p>
@@ -523,7 +545,7 @@ oppervlakte, in PNG, SVG en DXF mee.</p>
 <ul>
 <li><b>PNG</b> — de plattegrond als afbeelding, op de tekening bijgesneden, zonder raster, met schaalbalk.</li>
 <li><b>SVG</b> — vectorwerk op ware schaal: 1 mm in het document is 1 mm op papier bij 100% afdrukken.</li>
-<li><b>DXF</b> — muren, draaicirkels, symbolen, trappen, vides, de inrichting per vakgebied, ruimtenamen en oppervlaktes op aparte lagen, in millimeters, voor CAD. Werk boven het snijvlak staat op een eigen laag.</li>
+<li><b>DXF</b> — muren, draaicirkels, symbolen, trappen, vides, kolommen, balken, leuningen, de inrichting per vakgebied, ruimtenamen en oppervlaktes op aparte lagen, in millimeters, voor CAD. Werk boven het snijvlak staat op een eigen laag.</li>
 <li><b>JSON</b> — het document zelf; zie <a href="/formaat/">documentformaat</a>.</li>
 </ul>
 <p>De plattegrond wordt automatisch in de lokale browseropslag bewaard. Hiervoor is geen account of
@@ -536,7 +558,7 @@ applicatieserver vereist. De plattegrond blijft na het sluiten van het tabblad b
 <tr><td><kbd>D</kbd> <kbd>N</kbd> <kbd>P</kbd></td><td>deur, raam, doorgang</td></tr>
 <tr><td><kbd>S</kbd></td><td>symbool plaatsen</td></tr>
 <tr><td><kbd>T</kbd></td><td>trap plaatsen</td></tr>
-<tr><td><kbd>H</kbd></td><td>vide plaatsen</td></tr>
+<tr><td><kbd>H</kbd></td><td>constructie: kolom, balk, leuning, vide</td></tr>
 <tr><td><kbd>C</kbd></td><td>inrichting plaatsen</td></tr>
 <tr><td><kbd>Z</kbd></td><td>ruimtes: kader slepen, ruimte aanklikken, ruimte benoemen</td></tr>
 <tr><td><kbd>F</kbd></td><td>alles in beeld</td></tr>
@@ -702,12 +724,32 @@ back beside itself at the top or leaves to the other side. The arrow always poin
 the flight to the top; a stair going down is the same stair, turned around. A flight on the storey
 below shows through faintly on the plan above it, which is where it arrives.</p>
 
-<h2 id="voids">Vides</h2>
-<p><kbd>H</kbd> places a vide: an opening in the floor, open to the storey below. A vide belongs to the
+<h2 id="structure">Structure</h2>
+<p><kbd>H</kbd> opens the structure tool: column, beam, railing and vide — the load-bearing and guarding
+parts that are not walls. None of them enters the wall graph: a column stands free of the centerlines
+even where it sits in a wall, a beam spans whatever carries it, and a railing guards an edge without
+bounding a room. Each is a placed object carrying its own dimensions, like a stair, and the drawing
+follows from them.</p>
+<p>The plan's section plane decides how each is drawn. A <b>column</b> is cut by it and takes poché,
+as a wall does; the section is rectangular, round or an H-profile, with width and depth in the
+document. A column carries the floor above unless it states a height of its own, which a column under
+the floor edge of a void needs. A <b>beam</b> runs above the section plane and is therefore dashed, as
+a wall cabinet is; the ordinary rolled sections (HEA, HEB, IPE) are listed in the panel and set flange
+width, section height and the designation at once, but the document stores the figures and the label,
+not the table row. A beam's top sits at the storey height unless an underside of its own is stated. A
+<b>railing</b> stands below the section plane and is drawn in outline: two lines at the handrail's
+width, with a tick per baluster at the stated centres. Beams and railings are set out between two
+points, by clicking or dragging; <kbd>O</kbd> locks the angle. A wall with its own height of 1200 mm
+or less — a parapet, a knee wall, a plinth — is outlined rather than hatched for the same reason.</p>
+<p>A <b>vide</b> is an opening in the floor, open to the storey below. It belongs to the
 floor the hole is cut in rather than being a storey of its own — the slab has a hole and the plan of
 that storey draws it. A stairwell opening is the same object: the hole a flight from below comes up
 through, drawn on the plan of the floor above. The mark is the outline with a diagonal from each
 corner, and it cuts the floor tint underneath, because a vide is not floor.</p>
+<p>Material is a choice per element, as it is for a wall, and not stated is an answer of its own. The
+IFC export writes column, beam and railing as elements of their own with their figures; the 3D view
+extrudes them to their height. Wallgraph checks nothing about a structure: a column or beam is a figure
+on the drawing, not a calculation.</p>
 
 <h2 id="fitout">Fit-out</h2>
 <p><kbd>C</kbd> opens the fit-out tool: cabinetry, kitchen appliances, sanitary fixtures and furniture.
@@ -795,9 +837,10 @@ walls: a room divided in two shows as two rows, with nothing to keep in step.</p
 
 <h2 id="3d">3D view</h2>
 <p><kbd>3</kbd> switches to the 3D view: the whole building, extruded directly from the drawn walls —
-door and window openings cut out, floor slabs with their voids and stairwells, stairs tread by
-tread, the fit-out piece by piece (cabinets on their plinths and under their worktops, fixtures with
-their tubs and bowls, furniture on its legs), every storey at its own level. Dragging orbits, scrolling zooms, <kbd>Shift</kbd>+drag pans; <kbd>F</kbd> fits everything
+door and window openings cut out, floor slabs with their voids and stairwells, columns, beams and
+railings, stairs tread by tread, the fit-out piece by piece (cabinets on their plinths and under
+their worktops, fixtures with their tubs and bowls, furniture on its legs), every storey at its own
+level. Dragging orbits, scrolling zooms, <kbd>Shift</kbd>+drag pans; <kbd>F</kbd> fits everything
 and <kbd>Esc</kbd> or <kbd>3</kbd> again returns to the plan. Like the rooms, the view is derived:
 nothing three-dimensional is stored in the document.</p>
 
@@ -829,7 +872,7 @@ below the area, in PNG, SVG and DXF.</p>
 <ul>
 <li><b>PNG</b> — the plan as an image, cropped to the drawing, no grid, with a scale bar.</li>
 <li><b>SVG</b> — vector artwork at true scale: 1 mm in the document is 1 mm on paper printed at 100%.</li>
-<li><b>DXF</b> — walls, swings, symbols, stairs, voids, the fit-out split by trade, room names and areas on separate layers, in millimetres, for CAD. Overhead work gets a layer of its own, since it hangs above the section plane.</li>
+<li><b>DXF</b> — walls, swings, symbols, stairs, voids, columns, beams, railings, the fit-out split by trade, room names and areas on separate layers, in millimetres, for CAD. Overhead work gets a layer of its own, since it hangs above the section plane.</li>
 <li><b>JSON</b> — the document itself; see <a href="/en/format/">document format</a>.</li>
 </ul>
 <p>The plan is saved automatically in local browser storage. This requires no account or application
@@ -842,7 +885,7 @@ server. The plan remains available after the tab is closed.</p>
 <tr><td><kbd>D</kbd> <kbd>N</kbd> <kbd>P</kbd></td><td>door, window, passage</td></tr>
 <tr><td><kbd>S</kbd></td><td>place a symbol</td></tr>
 <tr><td><kbd>T</kbd></td><td>place a stair</td></tr>
-<tr><td><kbd>H</kbd></td><td>place a vide</td></tr>
+<tr><td><kbd>H</kbd></td><td>structure: column, beam, railing, vide</td></tr>
 <tr><td><kbd>C</kbd></td><td>place fit-out</td></tr>
 <tr><td><kbd>Z</kbd></td><td>rooms: drag a box, click a room, name a room</td></tr>
 <tr><td><kbd>F</kbd></td><td>fit everything in view</td></tr>
@@ -920,7 +963,7 @@ window.wallgraph.schema</code></pre>`;
     return `<h2 id="model">Het model</h2>
 <p>Een plattegrond is een <b>vlak netwerk van muurhartlijnen</b>: knopen, met muren als verbindingen
 daartussen. Opgeslagen worden die knopen, de muren (hartlijnen met een dikte en eventueel een boog),
-openingen die op hun muur geparametriseerd zijn, geplaatste symbolen, trappen en vides. <b>Niets afgeleids staat in
+openingen die op hun muur geparametriseerd zijn, geplaatste symbolen, trappen, vides en constructie-elementen. <b>Niets afgeleids staat in
 het bestand</b>: muurvlakken, verstekken, ruimtepolygonen, oppervlaktes en maatlijnen worden bij het
 tekenen opnieuw berekend.</p>
 <p>Hierdoor kan een opening uit de bijbehorende muur worden afgeleid en blijft het bestand compact.
@@ -973,7 +1016,7 @@ DOM-elementen. Automatisering gebruikt daarom het documentformaat, plan-links of
   }
   return `<h2 id="model">The model</h2>
 <p>A plan is a <b>planar graph of wall centerlines</b>. What is stored: nodes, walls (centerlines with a
-thickness and an optional arc), openings parameterised along their wall, placed symbols, stairs, and vides.
+thickness and an optional arc), openings parameterised along their wall, placed symbols, stairs, vides and structural elements.
 <b>Nothing derived is in the file</b>: wall faces, mitred corners, room polygons, areas and dimension
 labels are all recomputed when the plan is drawn.</p>
 <p>This allows openings to be derived from their walls while keeping the file compact. A generator

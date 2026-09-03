@@ -13,7 +13,7 @@
 // The drawing itself is assembled as a scene (io/scene.ts) rather than as
 // markup, because io/pdf.ts renders the same scene onto the permit sheet.
 // This module is the SVG renderer for it plus the scene the plan makes.
-import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, stairsOf, videsOf, furnishingsOf, roomNamesOf } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, stairsOf, videsOf, furnishingsOf, structureOf, roomNamesOf } from "../model/doc";
 import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames, roomArea } from "../core/rooms";
@@ -30,6 +30,8 @@ import { Group, Item, Look, ROOT, arcSteps, group, onCircle, poly, resolve, text
 import { openingMarks, postMarks } from "./marks";
 import { stairPrims, stairRegionPrims } from "./stair";
 import { videPrims } from "./vide";
+import { structurePrims } from "./structure";
+import { BEAM_DASH } from "../render/structure";
 import { furnishingPrims } from "./furnishing";
 import { furnishingOverhead } from "../model/furnishing";
 import { videBox } from "../core/vide";
@@ -277,6 +279,28 @@ export function planScene(doc: PlanDoc, floor: Floor, resolved: ReturnType<typeo
   }
   out.push(group(marks,
     { fill: "none", ink: COLORS.opening, width: W_OPENING, cap: "round" }, "openings"));
+
+  // Structure over the masonry, as on the canvas: a column in the wall pen it
+  // would be cut in, a beam dashed as overhead work, a railing outlined. The
+  // dash goes on the group because the recorder discards it (io/furnishing.ts
+  // makes the same arrangement for a wall unit).
+  const structure = structureOf(floor);
+  if (structure.length > 0) {
+    const items = structure.map(el => {
+      if (el.kind === "column") {
+        const pen = wallPen(el);
+        return group(structurePrims(el), { ink: pen.stroke, fill: pen.fill });
+      }
+      return group(structurePrims(el), {
+        ink: symbolInk(el),
+        ...(el.kind === "beam" ? { dash: BEAM_DASH } : {}),
+      });
+    });
+    out.push(group(items, {
+      fill: "none", width: W_SYMBOL, cap: "round", join: "round",
+      family: LABEL_FONT, anchor: "middle", baseline: "central",
+    }, "structure"));
+  }
 
   // Cabinetry between the masonry and the symbols, as on the canvas. A wall
   // unit is dashed here rather than in its recorded geometry: the recorder

@@ -49,7 +49,8 @@ import {
   applyNodeDissolve, isDissolvePlan, planWallMerge, planNodeRemoval, removeNode,
 } from "../core/join";
 import { removeRoutePoint } from "../core/routegraph";
-import { renderVideTool, renderVideProps, renderVideBulk } from "./vide";
+import { renderVideProps, renderVideBulk } from "./vide";
+import { renderStructureTool, renderStructureProps, renderStructureBulk } from "./structure";
 import {
   renderRouteTool, renderRouteProps, renderRouteBulk, deviceConnectionRows, boardRows,
 } from "./route";
@@ -374,10 +375,11 @@ export class Panel {
   private renderRail(): void {
     /**
      * Every button carries its short name as well as its icon. Without a mouse
-     * there is no `title` to hover, so touch layouts show the caption and the
-     * wide desktop rail hides it again in CSS. The key badge is the mirror of
-     * that: it states the shortcut where there is a keyboard to press it, and
-     * CSS hides it wherever the caption appears.
+     * there is no `title` to hover, so the compact shells show the caption
+     * under the icon; the sidebar hides it in CSS on every pointer, its row
+     * button having no room beside a 52 px icon. The key badge is the mirror
+     * of that: it states the shortcut where there is a keyboard to press it,
+     * and CSS hides it wherever the caption appears or the pointer is coarse.
      */
     const caption = (b: HTMLElement, short: string): void => {
       b.append(Object.assign(el("em", "rail-name"), { textContent: short }));
@@ -407,7 +409,7 @@ export class Panel {
       toolBtn("window", "window", "N", t("tool.window"), t("tool.shortWindow")),
       toolBtn("passage", "passage", "P", t("tool.passage"), t("tool.shortPassage")),
       toolBtn("stair", "stair", "T", t("tool.stair"), t("tool.shortStair")),
-      toolBtn("vide", "vide", "H", t("tool.vide"), t("tool.shortVide")),
+      toolBtn("structure", "structure", "H", t("tool.structure"), t("tool.shortStructure")),
       toolBtn("cabinet", "furnishing", "C", t("tool.furnishing"), t("tool.shortFurnishing")),
       toolBtn("route", "route", "U", t("tool.route"), t("tool.shortRoute")),
       toolBtn("zoom", "zoom", "Z", t("tool.zoom"), t("tool.shortZoom")),
@@ -623,7 +625,7 @@ export class Panel {
     // The stair tool shows its picker where a selection's properties go, so the
     // pane has a third state: nothing selected, but something to configure.
     const stairMode = this.tools.tool === "stair";
-    const videMode = this.tools.tool === "vide";
+    const structureMode = this.tools.tool === "structure";
     // A section stays open while its own marks are being placed: arming a
     // socket from the Installaties pane must not throw away the run's
     // properties, and the same for a blusser and the fit-out picker.
@@ -636,11 +638,11 @@ export class Panel {
       || this.tools.tool === "wall";
     // The storey pane yields to anything else that claims the context area: a
     // selection or an armed tool pane means the user moved on.
-    if (this.floorsOpen && (sel || stairMode || videMode || servicesMode || paneTool)) this.floorsOpen = false;
+    if (this.floorsOpen && (sel || stairMode || structureMode || servicesMode || paneTool)) this.floorsOpen = false;
     const floorsMode = this.floorsOpen;
     const selSig = (floorsMode ? "floors|" : "")
       + (stairMode ? `stair-tool:${this.tools.stairKind}|` : "")
-      + (videMode ? "vide-tool|" : "")
+      + (structureMode ? `structure-tool:${this.tools.structureKind}|` : "")
       + (routeMode ? `route-tool:${this.tools.routeDiscipline}|` : "")
       + (paneTool ? "pane-tool:" + this.tools.tool + "|" : "")
       + (this.tools.tool === "symbol" ? "symbol:" + this.tools.symbolType + "|" : "")
@@ -690,8 +692,8 @@ export class Panel {
 
     const swap = selSig !== this.lastSelSig;
     this.lastSelSig = selSig;
-    this.paneBody.hidden = !sel && !stairMode && !videMode && !routeMode && !paneTool && !floorsMode;
-    if (sel || stairMode || videMode || routeMode || paneTool || floorsMode) {
+    this.paneBody.hidden = !sel && !stairMode && !structureMode && !routeMode && !paneTool && !floorsMode;
+    if (sel || stairMode || structureMode || routeMode || paneTool || floorsMode) {
       this.paneBody.className = "pane-body" + (swap ? " pane-swap" : "");
       this.renderProps(this.props);
     }
@@ -2036,22 +2038,30 @@ export class Panel {
       return;
     }
 
-    // The vide tool, like the stair tool, keeps its fields in the property area.
-    if (this.tools.tool === "vide") {
+    // The structure tool, like the stair tool, keeps its picker and fields in
+    // the property area. It places columns, beams and railings as well as the
+    // vide, so a selection of either kind shows above the picker.
+    const structureSel = (): boolean => {
+      if (sel?.kind === "structure") {
+        const group = this.store.selectedOf("structure");
+        if (group.length > 1) renderStructureBulk(this.store, this.tools, rows, group);
+        else renderStructureProps(this.store, this.tools, rows, sel.id);
+        return true;
+      }
       if (sel?.kind === "vide") {
         const group = this.store.selectedOf("vide");
         if (group.length > 1) renderVideBulk(this.store, this.tools, rows, group);
         else renderVideProps(this.store, this.tools, rows, sel.id);
+        return true;
       }
-      renderVideTool(this.store, this.tools, rows);
+      return false;
+    };
+    if (this.tools.tool === "structure") {
+      structureSel();
+      renderStructureTool(p, this.store, this.tools, rows, () => this.refreshToolbar());
       return;
     }
-    if (sel?.kind === "vide") {
-      const group = this.store.selectedOf("vide");
-      if (group.length > 1) renderVideBulk(this.store, this.tools, rows, group);
-      else renderVideProps(this.store, this.tools, rows, sel.id);
-      return;
-    }
+    if (structureSel()) return;
 
     // The route tool, like the stair and vide tools, keeps its fields in the
     // property area, and so does the services palette that sits with it. The

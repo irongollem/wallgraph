@@ -3,6 +3,7 @@
 import type { Stair } from "./stair";
 import type { BoardData } from "./board";
 import type { Vide } from "./vide";
+import type { Structural } from "./structure";
 import type { Furnishing } from "./furnishing";
 import type { Route } from "./route";
 import type { RouteContinuation } from "./continuation";
@@ -338,6 +339,12 @@ export interface Floor {
    */
   vides?: Vide[];
   /**
+   * Columns, beams and railings: the structure that is not a wall. Placed
+   * objects carrying their own dimensions, outside the wall graph; see
+   * model/structure.ts.
+   */
+  structure?: Structural[];
+  /**
    * What the storey is fitted out with: cabinetry, appliances, sanitary
    * fixtures and furniture. Like stairs, a furnishing stores its dimensions
    * because the same kastje is built 400, 600 or 800 wide and the same table is
@@ -380,6 +387,9 @@ export function stairsOf(f: Floor): Stair[] { return f.stairs ?? []; }
 
 /** A floor's vides. Absent means none, not an error. */
 export function videsOf(f: Floor): Vide[] { return f.vides ?? []; }
+
+/** A floor's columns, beams and railings. Absent means none, not an error. */
+export function structureOf(f: Floor): Structural[] { return f.structure ?? []; }
 
 /** A floor's furnishings. Absent means none, not an error. */
 export function furnishingsOf(f: Floor): Furnishing[] { return f.furnishings ?? []; }
@@ -541,7 +551,7 @@ export function emptyDoc(): PlanDoc {
     continuations: [],
     floors: [{
       id: newId("f"), name: "Floor 1",
-      nodes: [], walls: [], symbols: [], stairs: [], vides: [], furnishings: [], routes: [], roomNames: [],
+      nodes: [], walls: [], symbols: [], stairs: [], vides: [], structure: [], furnishings: [], routes: [], roomNames: [],
     }],
   };
 }

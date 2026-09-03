@@ -7,6 +7,7 @@
 // the store revision.
 import { PlanDoc, Floor, Id, floorElevation, floorHeight, stairsOf, furnishingsOf } from "../model/doc";
 import { floorSolids, FloorSolids } from "../core/solids";
+import { structureSolids } from "../core/structure";
 import { stairSteps, StairStep } from "../core/stair3d";
 import { furnishingSolids, type FitoutMaterial } from "../core/furnishing3d";
 import { Vec, v, dist, polygonArea, mid, norm, add, sub, scale, clipHalfPlane } from "../geometry/vec";
@@ -50,12 +51,15 @@ export const DOOR_COLOR: Rgb = [0.78, 0.71, 0.6];
 export const GLASS_COLOR: Rgb = [0.875, 0.91, 0.933];
 /** Sandwich-panel wall bodies: the 2D panelFill's warm band, opaque. */
 export const PANEL_COLOR: Rgb = [0.906, 0.882, 0.827];
+/** Steel structure: a cool mid grey, told from the masonry it carries. */
+export const STEEL_COLOR: Rgb = [0.62, 0.64, 0.67];
 /** Fit-out casework: cabinet carcasses, fronts, table tops, shelving. */
 export const CASEWORK_COLOR: Rgb = [0.74, 0.65, 0.52];
 /** The blad over a run: darker than the casework it rests on. */
 export const WORKTOP_COLOR: Rgb = [0.42, 0.41, 0.4];
-/** A fixed appliance: steel, cool against the timber beside it. */
-export const APPLIANCE_COLOR: Rgb = [0.6, 0.63, 0.66];
+/** A fixed appliance: darker than STEEL_COLOR, so a toestel in a run is told
+ *  from a column standing in it. */
+export const APPLIANCE_COLOR: Rgb = [0.52, 0.55, 0.58];
 /** Sanitary fixtures: porcelain, the lightest thing in the scene. */
 export const SANITARY_COLOR: Rgb = [0.97, 0.97, 0.96];
 /** Mattresses and upholstery. */
@@ -142,7 +146,7 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
   for (let i = 0; i < doc.floors.length; i++) {
     const fs = solids[i];
     const f = doc.floors[i]!;
-    if (!fs || hiddenFloors?.has(f.id)) continue;
+    if (hiddenFloors?.has(f.id)) continue;
     const elev = floorElevation(doc, i);
 
     // A visible storey above with a plate at this storey's ceiling rests on
@@ -154,6 +158,26 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
     const covered = above !== null && above !== undefined && (above.slab !== null || above.terrace !== null);
     const seat = (t: number): number =>
       covered && t > fh - PLATE_SEAT_MM && t <= fh + 0.5 ? fh - PLATE_SEAT_MM : t;
+
+    // Structure stands on its own: a column under a vide or a beam across an
+    // open hall needs no wall on the storey, so it is emitted before the
+    // wall-and-slab geometry that floorSolids() gates on walls.
+    for (const s of structureSolids(f)) {
+      const color = s.material === "steel" ? STEEL_COLOR : s.material === "timber" ? DOOR_COLOR : WALL_COLOR;
+      emitPrism(acc, s.poly, [], elev + s.z0, elev + seat(s.z1), color);
+    }
+
+    // The inrichting stands on its own for the same reason: each piece as the
+    // parts its own form stands as, on a storey with or without walls. Nothing
+    // cuts a piece against the fabric, so a unit drawn through a wall renders
+    // through it.
+    for (const fn of furnishingsOf(f)) {
+      for (const part of furnishingSolids(fn)) {
+        emitPrism(acc, part.poly, part.holes ?? [], elev + part.z0, elev + part.z1,
+          FITOUT_COLORS[part.material]);
+      }
+    }
+    if (!fs) continue;
 
     // Steps are derived once per stair: the stairs are drawn from them, and
     // the walls they cross are cut against them.
@@ -214,16 +238,6 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
     for (const steps of stepLists) {
       for (const step of steps) {
         emitPrism(acc, step.poly, [], elev + step.z0, elev + seat(step.z1), STAIR_COLOR);
-      }
-    }
-
-    // The inrichting: each piece as the parts its own form stands as. Nothing
-    // cuts a piece against the fabric, so a unit drawn through a wall renders
-    // through it.
-    for (const fn of furnishingsOf(f)) {
-      for (const part of furnishingSolids(fn)) {
-        emitPrism(acc, part.poly, part.holes ?? [], elev + part.z0, elev + part.z1,
-          FITOUT_COLORS[part.material]);
       }
     }
   }

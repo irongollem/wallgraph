@@ -3,7 +3,7 @@
 import { PlanDoc, emptyDoc, Floor, Id, newId } from "./doc";
 
 export type SelKind =
-  | "wall" | "node" | "opening" | "symbol" | "stair" | "vide" | "furnishing"
+  | "wall" | "node" | "opening" | "symbol" | "stair" | "vide" | "structure" | "furnishing"
   | "route" | "routePoint";
 /**
  * One picked object. `sel` plus `selMore` below is the WHOLE selection, and it
@@ -33,7 +33,7 @@ export interface Selection {
  * comment on Selection above.
  */
 export const MULTI_SELECT_KINDS: ReadonlySet<SelKind> =
-  new Set(["wall", "opening", "symbol", "stair", "vide", "furnishing", "route"]);
+  new Set(["wall", "opening", "symbol", "stair", "vide", "structure", "furnishing", "route"]);
 
 type Listener = () => void;
 
@@ -114,7 +114,7 @@ export class Store {
       d.floors.splice(this.activeFloor + 1, 0,
         {
           id: newId("f"), name,
-          nodes: [], walls: [], symbols: [], stairs: [], vides: [], furnishings: [], routes: [], roomNames: [],
+          nodes: [], walls: [], symbols: [], stairs: [], vides: [], structure: [], furnishings: [], routes: [], roomNames: [],
         });
     });
     this.activeFloor = Math.min(this.activeFloor + 1, this.doc.floors.length - 1);
@@ -152,6 +152,7 @@ export class Store {
       }
       for (const st of copy.stairs ?? []) st.id = newId("t");
       for (const vd of copy.vides ?? []) vd.id = newId("v");
+      for (const el of copy.structure ?? []) el.id = newId("c");
       const furnishingMap = new Map<Id, Id>();
       for (const fn of copy.furnishings ?? []) {
         const id = newId("i"); furnishingMap.set(fn.id, id); fn.id = id;

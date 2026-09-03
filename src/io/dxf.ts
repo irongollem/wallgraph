@@ -16,7 +16,7 @@
 // context (see recordSymbol) because the library draws them with canvas calls;
 // their arcs flatten to polylines, which is exact enough at symbol scale and
 // avoids guessing how a mirrored, rotated transform maps onto an ARC.
-import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, stairsOf, videsOf, furnishingsOf, routesOf, roomNamesOf, Wall, wallGlazed, wallInfill } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, stairsOf, videsOf, structureOf, furnishingsOf, routesOf, roomNamesOf, Wall, wallGlazed, wallInfill } from "../model/doc";
 import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames, roomArea } from "../core/rooms";
@@ -26,6 +26,7 @@ import { recordSymbol, Prim } from "./record";
 import { openingMarks, postMarks } from "./marks";
 import { stairPrims } from "./stair";
 import { videPrims } from "./vide";
+import { structurePrims } from "./structure";
 import { furnishingPrims } from "./furnishing";
 import { furnishingClass, furnishingOverhead, type FurnishingClass } from "../model/furnishing";
 import { resolveStair } from "../core/stair";
@@ -65,6 +66,15 @@ const LAYER = {
   symbols: "SYMBOLS",
   stairs: "STAIRS",
   vides: "VOIDS",
+  /**
+   * Load-bearing structure that is not a wall. A column is cut with the walls
+   * but is its own trade's setting-out; a beam is overhead and a railing below
+   * the plane, which a dash cannot carry through the recorder, so each takes a
+   * layer of its own.
+   */
+  columns: "COLUMNS",
+  beams: "BEAMS",
+  railings: "RAILINGS",
   rooms: "ROOMS",
   // The fit-out splits by trade, because that is how a reader of the drawing
   // uses it: a plumber turns the sanitair layer on, a kitchen fitter the
@@ -142,6 +152,7 @@ const ROUTE_HEAT_RETOUR_LAYER = "ROUTES-HEATING-RETOUR";
 /** ACI colour indices — 7 is "by background", i.e. black on white paper. */
 const LAYER_COLOR: Record<string, number> = {
   WALLS: 7, GLAZING: 4, PANELS: 8, POSTS: 7, FACADE: 8, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, ROOMS: 8,
+  COLUMNS: 7, BEAMS: 7, RAILINGS: 8,
   CABINETS: 6, "CABINETS-OVERHEAD": 6,
   "ROUTES-ELECTRICAL": 1, "ROUTES-WATER": 5, "ROUTES-VENT": 2, "ROUTES-GAS": 2,
   "ROUTES-HEATING": 6, "ROUTES-HEATING-RETOUR": 6,
@@ -305,6 +316,7 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
   const floor: Floor | undefined = doc.floors[floorIndex] ?? doc.floors[0];
   if (!floor || (floor.walls.length === 0 && floor.symbols.length === 0
       && stairsOf(floor).length === 0 && videsOf(floor).length === 0
+      && structureOf(floor).length === 0
       && furnishingsOf(floor).length === 0 && roomNamesOf(floor).length === 0
       && routesOf(floor).length === 0)) return null;
 
@@ -349,6 +361,9 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
     for (const rw of resolved.walls.values()) emitPrims(w, LAYER.openings, openingMarks(rw));
 
     for (const vd of videsOf(floor)) emitPrims(w, LAYER.vides, videPrims(vd, t("vide.label")));
+
+    const structureLayer = { column: LAYER.columns, beam: LAYER.beams, railing: LAYER.railings } as const;
+    for (const el of structureOf(floor)) emitPrims(w, structureLayer[el.kind], structurePrims(el));
 
     if (hasRoutes) {
       for (const rr of resolveRoutes(floor)) {

@@ -12,8 +12,8 @@ type Shape =
   | { kind: "circle"; cx: number; cy: number; r: number; fill?: boolean }
   | { kind: "rect"; x: number; y: number; w: number; h: number; rx: number; fill?: boolean };
 
-function P(d: string): Shape {
-  return { kind: "path", d };
+function P(d: string, fill = false): Shape {
+  return { kind: "path", d, fill };
 }
 
 function C(cx: number, cy: number, r: number, fill = false): Shape {
@@ -25,7 +25,7 @@ function R(x: number, y: number, w: number, h: number, rx: number, fill = false)
 }
 
 export type IconName =
-  | "select" | "wall" | "door" | "window" | "passage" | "stair" | "vide"
+  | "select" | "wall" | "door" | "window" | "passage" | "stair" | "structure"
   | "cabinet" | "route" | "zoom" | "rename"
   | "shapeLine" | "shapeRect" | "shapeCircle" | "shapePoly"
   | "gridSnap" | "angleSnap" | "dimensions" | "view3d"
@@ -52,9 +52,9 @@ const ICONS: Record<IconName, Shape[]> = {
     P("M5 3 H15 V17 H5 Z M5 6.5 H15 M5 10 H15 M5 13.5 H15"),
     P("M10 16 V5.4 M7.8 7.6 L10 5.4 L12.2 7.6"),
   ],
-  // An opening in the floor: its outline, crossed corner to corner -- the mark
-  // the plan itself uses for a hole with no floor in it.
-  vide: [P("M4 4 H16 V16 H4 Z M4 4 L16 16 M16 4 L4 16")],
+  // A rolled H-section seen in plan, filled the way a cut column is drawn:
+  // the mark for the structure tool -- columns, beams, railings and the vide.
+  structure: [P("M4 4 H16 V6.6 H11.6 V13.4 H16 V16 H4 V13.4 H8.4 V6.6 H4 Z", true)],
   // A unit in plan: the carcass, the front band across it, and the diagonal
   // that says which end the door is hung on -- what the drawing itself shows.
   cabinet: [P("M3.4 4 H16.6 V15 H3.4 Z M3.4 12.8 H16.6 M3.4 12.8 L16.6 4")],

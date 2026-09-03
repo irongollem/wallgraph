@@ -2,6 +2,8 @@
 // imported from their source, and document objects reject unknown properties.
 import { SYMBOL_TYPES } from "../../src/render/symbols";
 import { STAIR_KINDS } from "../../src/model/stair";
+import { COLUMN_SHAPES, STRUCTURE_LIMITS } from "../../src/model/structure";
+import { WALL_MATERIALS } from "../../src/model/doc";
 import {
   DISCIPLINES, ROUTE_KINDS, ROUTE_WATERS, ROUTE_HEATS, ROUTE_VENTS, ROUTE_INSTALLATIONS,
 } from "../../src/model/route";
@@ -152,6 +154,13 @@ export function planSchema(siteUrl: string): JsonSchema {
             type: "array", items: { $ref: "#/$defs/vide" },
             description: "Openings in this floor's slab. Absent means the storey has none.",
           },
+          structure: {
+            type: "array", items: { $ref: "#/$defs/structural" },
+            description:
+              "Load-bearing and guarding elements that are not walls: columns, beams and " +
+              "railings, each a placed object with its own figures. None enters the wall " +
+              "graph. Absent means the storey has none.",
+          },
           furnishings: {
             type: "array", items: { $ref: "#/$defs/furnishing" },
             description:
@@ -220,7 +229,7 @@ export function planSchema(siteUrl: string): JsonSchema {
           },
           fireRating: { $ref: "#/$defs/fireRating", description: "A fire compartment wall's rating." },
           material: {
-            enum: ["masonry", "concrete", "timber", "steel", "glass", "sandwich"],
+            enum: [...WALL_MATERIALS],
             description:
               "What the body is built of; a single material, not a build-up. Absent means " +
               "not stated, distinct from \"masonry\". \"glass\" and \"sandwich\" are infill and " +
@@ -339,6 +348,97 @@ export function planSchema(siteUrl: string): JsonSchema {
             description: "Pen colour; absent means the plan's default ink.",
           },
         },
+      },
+      structural: {
+        description:
+          "One structural element, told apart by `kind`. The section plane separates the " +
+          "three on the drawing: a column is cut by it and hatched, a beam runs above it " +
+          "and is dashed, a railing stands below it and is outlined.",
+        oneOf: [{ $ref: "#/$defs/column" }, { $ref: "#/$defs/beam" }, { $ref: "#/$defs/railing" }],
+      },
+      column: {
+        type: "object",
+        description:
+          "A column: a section standing on this storey's floor. The anchor (x, y) is the " +
+          "centre of the section. `width` runs along the column's local x and `depth` along " +
+          "local y; for an H-section that is the flange breadth and the profile height, the " +
+          "way a steel table lists b and h. A round column reads `width` as its diameter.",
+        required: ["id", "kind", "x", "y", "rotation", "shape", "width", "depth"],
+        additionalProperties: false,
+        properties: {
+          id: { $ref: "#/$defs/id" },
+          kind: { const: "column" },
+          x: mm("mm."),
+          y: mm("mm, positive down."),
+          rotation: { type: "number", description: "Radians, clockwise on screen." },
+          shape: { enum: [...COLUMN_SHAPES] },
+          width: { type: "integer", minimum: STRUCTURE_LIMITS.section.min, maximum: STRUCTURE_LIMITS.section.max, description: "mm." },
+          depth: { type: "integer", minimum: STRUCTURE_LIMITS.section.min, maximum: STRUCTURE_LIMITS.section.max, description: "mm." },
+          height: {
+            type: "integer", minimum: STRUCTURE_LIMITS.height.min, maximum: STRUCTURE_LIMITS.height.max,
+            description:
+              "Where the column stops, mm above this storey's floor. Absent means the storey " +
+              "height: the column carries the floor above. A column under a vide's edge " +
+              "beam states its own. At or below 1200 it is not cut by the section plane " +
+              "and is drawn in outline.",
+          },
+          label: { type: "string", description: "Designation written on the drawing. Absent means none." },
+          color: { type: "string", pattern: "^#[0-9a-fA-F]{6}$", description: "Pen colour; absent means the plan's default ink." },
+          material: { enum: [...WALL_MATERIALS], description: "Absent means not stated." },
+        },
+      },
+      beam: {
+        type: "object",
+        description:
+          "A beam between two free points. The endpoints are coordinates of its own rather " +
+          "than graph nodes: a beam spans between whatever supports it, and moving a wall " +
+          "does not move a beam resting on it. Drawn dashed: it runs above the section plane.",
+        required: ["id", "kind", "a", "b", "width", "depth"],
+        additionalProperties: false,
+        properties: {
+          id: { $ref: "#/$defs/id" },
+          kind: { const: "beam" },
+          a: { $ref: "#/$defs/point" },
+          b: { $ref: "#/$defs/point" },
+          width: { type: "integer", minimum: STRUCTURE_LIMITS.section.min, maximum: STRUCTURE_LIMITS.section.max, description: "Breadth in plan, mm: a steel section's flange width." },
+          depth: { type: "integer", minimum: STRUCTURE_LIMITS.beamDepth.min, maximum: STRUCTURE_LIMITS.beamDepth.max, description: "Section height, mm, vertical." },
+          bottomMm: {
+            type: "integer", minimum: 0, maximum: STRUCTURE_LIMITS.height.max,
+            description:
+              "Underside above this storey's floor, mm. Absent means the beam carries the " +
+              "floor above: its top is at the storey height.",
+          },
+          label: { type: "string", description: "Designation written on the drawing, e.g. \"HEA 200\". Absent means none." },
+          color: { type: "string", pattern: "^#[0-9a-fA-F]{6}$", description: "Pen colour; absent means the plan's default ink." },
+          material: { enum: [...WALL_MATERIALS], description: "Absent means not stated." },
+        },
+      },
+      railing: {
+        type: "object",
+        description:
+          "A railing along a free edge: a vide, a landing, a stair. Drawn in outline: it " +
+          "stands below the section plane.",
+        required: ["id", "kind", "a", "b", "width", "height", "postMm"],
+        additionalProperties: false,
+        properties: {
+          id: { $ref: "#/$defs/id" },
+          kind: { const: "railing" },
+          a: { $ref: "#/$defs/point" },
+          b: { $ref: "#/$defs/point" },
+          width: { type: "integer", minimum: STRUCTURE_LIMITS.railWidth.min, maximum: STRUCTURE_LIMITS.railWidth.max, description: "Breadth in plan, mm: the handrail." },
+          height: { type: "integer", minimum: STRUCTURE_LIMITS.railHeight.min, maximum: STRUCTURE_LIMITS.railHeight.max, description: "Height above the floor, mm." },
+          postMm: { type: "integer", minimum: 0, maximum: STRUCTURE_LIMITS.post.max, description: "Post centres along the run, mm. 0 means no posts drawn." },
+          label: { type: "string", description: "Designation written on the drawing. Absent means none." },
+          color: { type: "string", pattern: "^#[0-9a-fA-F]{6}$", description: "Pen colour; absent means the plan's default ink." },
+          material: { enum: [...WALL_MATERIALS], description: "Absent means not stated." },
+        },
+      },
+      point: {
+        type: "object",
+        description: "A world point in integer mm, y positive down.",
+        required: ["x", "y"],
+        additionalProperties: false,
+        properties: { x: mm("mm."), y: mm("mm, positive down.") },
       },
       route: {
         type: "object",
@@ -791,6 +891,15 @@ function check(schema: JsonSchema, value: unknown, path: string, ctx: Ctx, out: 
   const bad = (msg: string): void => { out.push(`${path || "$"}: ${msg}`); };
 
   if ("const" in schema && value !== schema.const) bad(`expected ${JSON.stringify(schema.const)}`);
+  if (Array.isArray(schema.oneOf)) {
+    const fits = (schema.oneOf as JsonSchema[]).filter(alt => {
+      const errs: string[] = [];
+      check(alt, value, path, ctx, errs);
+      return errs.length === 0;
+    }).length;
+    if (fits !== 1) bad(`matches ${fits} of the oneOf alternatives`);
+    return;
+  }
   if (Array.isArray(schema.enum) && !schema.enum.includes(value as never)) {
     bad(`${JSON.stringify(value)} is not one of the allowed values`);
     return;

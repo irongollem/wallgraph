@@ -1,6 +1,7 @@
 // The vide pane: the size the next opening is placed at, and the properties of
 // a placed one. Same shape as the stair pane, and it borrows the panel's row
-// builders for the same reason.
+// builders for the same reason. The tool rows are hosted by the structure
+// pane, where the vide is one of four kinds.
 import { Store } from "../model/store";
 import { Tools } from "../input/tools";
 import { videsOf } from "../model/doc";
@@ -13,15 +14,16 @@ import type { PaneRows } from "./stairs";
 /** The vide pane uses the same row builders the stair pane does. */
 export type VideRows = PaneRows;
 
-/** Size and angle the next vide will be placed at. */
-export function renderVideTool(store: Store, tools: Tools, rows: VideRows): void {
-  rows.secHead(t("panel.newVide"));
+/**
+ * Size and angle the next vide will be placed at. Headed by the structure
+ * pane (ui/structure.ts), which hosts these rows under its kind picker.
+ */
+export function renderVideTool(tools: Tools, rows: VideRows): void {
   sizeRows(rows, tools.videSize, next => tools.setVideSize(next));
   rows.numRow(t("panel.rotation"), (tools.videRotation * 180) / Math.PI,
     n => tools.setVideRotation((n * Math.PI) / 180), 15, { snap: snapAngle });
   rows.colorRow(t("panel.color"), tools.symbolColor, hex => tools.setSymbolColor(hex));
   rows.noteRow(t("panel.videNote"));
-  void store;
 }
 
 /** Properties of the selected vide. */
