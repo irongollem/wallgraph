@@ -4,7 +4,7 @@
 // and the i18n surface -- the same boundary tests/mobile.test.ts draws for
 // the touch gestures themselves, which need a live canvas and pointers.
 import { emptyDoc, newId, type Wall } from "../src/model/doc";
-import { Store, MULTI_SELECT_KINDS, type SelKind } from "../src/model/store";
+import { Store, MULTI_SELECT_KINDS, type SelKind, type Selection } from "../src/model/store";
 import { deleteWall } from "../src/model/ops";
 import { marqueePick, type MarqueeRect } from "../src/input/marquee";
 import { isMixed } from "../src/core/mixed";
@@ -360,22 +360,26 @@ function boundsOf(pts: readonly Vec[]): { min: Vec; max: Vec } {
 }
 
 // --- long-press mode's core mechanism: restoring the pre-press selection and
-// re-running selectAlso() against it -- this is exactly what Tools.
+// adding the pressed object to it -- this is exactly what Tools.
 // fireLongPress() does; the timer/pointer wiring around it needs a live
 // canvas (see tests/mobile.test.ts's note on the same boundary) ---
 {
   const st = new Store();
   st.replace(emptyDoc());
   const sym = (id: string) => ({ kind: "symbol" as const, id });
+  // selectDown() replaced the selection on contact; the hold puts the
+  // pre-press selection back and adds the target unless it is already in it.
+  const hold = (base: { sel: Selection | null; selMore: string[] }, target: Selection): void => {
+    st.sel = base.sel; st.selMore = base.selMore;
+    if (!st.isSelected(target.kind, target.id)) st.selectAlso(target);
+  };
 
   // Nothing selected before the hold: firing enters the mode with just the
   // pressed object, same as an ordinary select.
   st.select(null);
   const base1 = { sel: st.sel, selMore: [...st.selMore] };
-  st.select(sym("a"));           // selectDown()'s ordinary replace, on contact
-  const target1 = st.sel!;
-  st.sel = base1.sel; st.selMore = base1.selMore;   // fireLongPress() restores...
-  st.selectAlso(target1);                            // ...then re-applies as a toggle
+  st.select(sym("a"));
+  hold(base1, st.sel!);
   check("a hold from nothing selected enters the mode with just that object",
     st.sel?.id === "a" && st.selMore.length === 0);
 
@@ -383,21 +387,24 @@ function boundsOf(pts: readonly Vec[]): { min: Vec; max: Vec } {
   // object to it, rather than losing what was there to the replace.
   st.select(sym("x"));
   const base2 = { sel: st.sel, selMore: [...st.selMore] };
-  st.select(sym("y"));           // selectDown() replaced the selection with y
-  const target2 = st.sel!;
-  st.sel = base2.sel; st.selMore = base2.selMore;
-  st.selectAlso(target2);
+  st.select(sym("y"));
+  hold(base2, st.sel!);
   check("a hold with an existing selection adds to it instead of replacing it",
     st.sel?.id === "y" && st.selMore.join() === "x", `${st.sel?.id} / ${st.selMore.join()}`);
 
-  // Holding the already-primary member again steps it out, same as a second
-  // shift-click on it.
+  // Holding what is already selected keeps it: a tap selects a thing and a
+  // hold on the same thing gathers more from it, never opens the mode empty.
   const base3 = { sel: st.sel, selMore: [...st.selMore] };
   st.select(sym("y"));
-  const target3 = st.sel!;
-  st.sel = base3.sel; st.selMore = base3.selMore;
-  st.selectAlso(target3);
-  check("holding the primary again steps it out", st.sel?.id === "x" && st.selMore.length === 0);
+  hold(base3, st.sel!);
+  check("holding a selected member keeps it selected",
+    st.sel?.id === "y" && st.selMore.join() === "x", `${st.sel?.id} / ${st.selMore.join()}`);
+  st.select(sym("z"));
+  const base4 = { sel: st.sel, selMore: [...st.selMore] };
+  st.select(sym("z"));
+  hold(base4, st.sel!);
+  check("holding the one selected object does not empty the selection",
+    st.sel?.id === "z" && st.selMore.length === 0);
 }
 
 // --- i18n: the bulk pane's count header, the Done label, and the touch hint ---

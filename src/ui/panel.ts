@@ -375,10 +375,11 @@ export class Panel {
   private renderRail(): void {
     /**
      * Every button carries its short name as well as its icon. Without a mouse
-     * there is no `title` to hover, so touch layouts show the caption and the
-     * wide desktop rail hides it again in CSS. The key badge is the mirror of
-     * that: it states the shortcut where there is a keyboard to press it, and
-     * CSS hides it wherever the caption appears.
+     * there is no `title` to hover, so the compact shells show the caption
+     * under the icon; the sidebar hides it in CSS on every pointer, its row
+     * button having no room beside a 52 px icon. The key badge is the mirror
+     * of that: it states the shortcut where there is a keyboard to press it,
+     * and CSS hides it wherever the caption appears or the pointer is coarse.
      */
     const caption = (b: HTMLElement, short: string): void => {
       b.append(Object.assign(el("em", "rail-name"), { textContent: short }));

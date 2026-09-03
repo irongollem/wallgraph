@@ -92,6 +92,13 @@ const TAP_SLOP_PX = 10;
 const ALIGN_TOL_PX = 12;
 /** Longest press still read as a tap. */
 const TAP_MS = 500;
+/**
+ * Stillness before a touch press on an object becomes the select-more hold
+ * (selectDownHold()). Longer than a tap: a finger that lands on a thing, waits
+ * for the selection to show and then moves is starting a drag, and at the tap
+ * length the hold fired inside that pause and took the drag away.
+ */
+const HOLD_MS = 800;
 /** Gap between two taps that makes them one double tap. */
 const DOUBLE_TAP_MS = 300;
 /** Smallest share of an axis a fit will frame into, whatever the chrome covers. */
@@ -2972,7 +2979,7 @@ export class Tools {
   }
 
   /**
-   * selectDown() plus the long-press hold: enters selectMode ~500ms into a
+   * selectDown() plus the long-press hold: enters selectMode HOLD_MS into a
    * press that has not moved, on a selectable (non-node) object. selectDown()
    * always runs first and unchanged, so an ordinary tap and a tap-then-drag
    * are exactly what they were before; only a press that STAYS still for the
@@ -3003,11 +3010,15 @@ export class Tools {
     this.longPressFrom = s;
     this.longPressBase = base;
     this.longPressTarget = target;
-    this.longPressTimer = setTimeout(() => this.fireLongPress(), TAP_MS);
+    this.longPressTimer = setTimeout(() => this.fireLongPress(), HOLD_MS);
   }
 
-  /** The hold fired: drop into selectMode with the pressed object toggled
-   *  into whatever was selected before the press replaced it. */
+  /**
+   * The hold fired: drop into selectMode with the pressed object added to
+   * whatever was selected before the press replaced it. Added, never toggled:
+   * a hold on the one thing already selected -- tap it, then hold it to gather
+   * more -- would otherwise empty the selection and open the mode on nothing.
+   */
   private fireLongPress(): void {
     this.longPressTimer = null;
     const target = this.longPressTarget, base = this.longPressBase;
@@ -3022,9 +3033,12 @@ export class Tools {
     this.tapStart = null;
     this.store.sel = base.sel;
     this.store.selMore = base.selMore;
-    this.store.selectAlso(target);
+    if (!this.store.isSelected(target.kind, target.id)) this.store.selectAlso(target);
     this.selectMode = true;
     this.updateHint();
+    // The panel reads the mode off the tools, not the store: an already
+    // selected target changes nothing there, so the mode has to be announced.
+    this.onToolChange();
     this.requestRender();
   }
 

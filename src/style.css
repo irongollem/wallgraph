@@ -97,8 +97,10 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
    different places. Here they must not be boxes at all, or the rail's own flex
    spacing would apply to the groups instead of to the buttons. */
 .rail-group { display: contents; }
-/* The caption under an icon. A pointing device has the title attribute; a
-   finger has nothing, so touch layouts turn this on. */
+/* The caption under an icon. Only the compact shells turn it on, where the
+   tool bar and the mode buttons stack it under the icon. The sidebar stays
+   icon-only whatever the pointer: its button is a row, and a caption beside a
+   52 px icon either pushes the icon out or wraps. */
 /* 9px, and no hyphenation: the longest caption ("Constructie", "Installatie")
    has to fit a 50px tool on one line, and the page sets hyphens:auto for the
    Dutch compounds in the palette, which would otherwise break these down the
@@ -108,8 +110,9 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 
 /* The key that arms the button, in its top corner -- the caption's opposite
    number. A pointing device has a keyboard to press it and a title to confirm
-   it; a finger has neither, so wherever the caption comes on this goes off.
-   Monospace and muted, the same voice the document menu states its keys in. */
+   it; a finger has neither, so it goes off wherever the caption comes on and
+   on a coarse pointer altogether. Monospace and muted, the same voice the
+   document menu states its keys in. */
 .rail-key { position: absolute; top: 3px; right: 3px; pointer-events: none;
   font: 500 8px/1 ui-monospace, Menlo, monospace; color: #bdb8aa; }
 .rail-btn:hover .rail-key { color: #8a8577; }
@@ -506,8 +509,8 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
   .rail { width: 68px; }
   .rail-btn { width: 52px; height: 52px; border-radius: 10px; }
   .rail-btn.is-mode { height: 50px; }
-  .rail-name { display: block; }
-  /* No keyboard to name. The caption above takes the space instead. */
+  /* No keyboard to name. The sidebar shows the icon alone: the compact shells
+     caption their buttons, the wide one has no room beside the icon for it. */
   .rail-key, .btn-key { display: none; }
   .storey-add { width: 36px; height: 36px; }
   .storey-manage { width: 36px; height: 36px; }
