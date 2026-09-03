@@ -487,8 +487,9 @@ regels, zonder dat er iets bijgehouden hoeft te worden.</p>
 
 <h2 id="3d">3D-weergave</h2>
 <p><kbd>3</kbd> zet de 3D-weergave aan: het hele gebouw, rechtstreeks opgetrokken uit de getekende
-muren — met deur- en raamopeningen, vloerplaten met vides en trapgaten, trappen trede voor trede en
-elke verdieping op haar eigen peil. Slepen draait het beeld, scrollen zoomt, <kbd>Shift</kbd>+slepen verschuift;
+muren — met deur- en raamopeningen, vloerplaten met vides en trapgaten, trappen trede voor trede, de
+inrichting per stuk (kasten op hun plint en onder hun blad, sanitair met kuip en bak, meubels op hun
+poten) en elke verdieping op haar eigen peil. Slepen draait het beeld, scrollen zoomt, <kbd>Shift</kbd>+slepen verschuift;
 <kbd>F</kbd> brengt alles in beeld en <kbd>Esc</kbd> of nogmaals <kbd>3</kbd> keert terug naar de
 plattegrond. Net als de ruimtes is het beeld afgeleid: er staat niets driedimensionaals in het
 document.</p>
@@ -795,7 +796,8 @@ walls: a room divided in two shows as two rows, with nothing to keep in step.</p
 <h2 id="3d">3D view</h2>
 <p><kbd>3</kbd> switches to the 3D view: the whole building, extruded directly from the drawn walls —
 door and window openings cut out, floor slabs with their voids and stairwells, stairs tread by
-tread, every storey at its own level. Dragging orbits, scrolling zooms, <kbd>Shift</kbd>+drag pans; <kbd>F</kbd> fits everything
+tread, the fit-out piece by piece (cabinets on their plinths and under their worktops, fixtures with
+their tubs and bowls, furniture on its legs), every storey at its own level. Dragging orbits, scrolling zooms, <kbd>Shift</kbd>+drag pans; <kbd>F</kbd> fits everything
 and <kbd>Esc</kbd> or <kbd>3</kbd> again returns to the plan. Like the rooms, the view is derived:
 nothing three-dimensional is stored in the document.</p>
 

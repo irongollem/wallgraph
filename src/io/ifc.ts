@@ -70,8 +70,9 @@ import { floorSolids, videHole } from "../core/solids";
 import { detectRooms, roomSize, sizeLabel, Room, roomArea } from "../core/rooms";
 import { resolveStair, stairBox } from "../core/stair";
 import { StairKind, stairParams } from "../model/stair";
-import { furnishingHeight, furnishingClass, furnishingKind, type Furnishing, type FurnishingClass } from "../model/furnishing";
+import { furnishingHeight, furnishingClass, type FurnishingClass } from "../model/furnishing";
 import { furnishingBox } from "../core/furnishing";
+import { furnishingZ0 } from "../core/furnishing3d";
 import { getSymbol, SymbolDef, SymbolCategory } from "../render/symbols";
 import { Placed, LocalBox, worldPoint, symbolFootprintCorners } from "../core/placed";
 import { Vec, v, add, sub, scale, norm, perp, len, mid, pointInPolygon } from "../geometry/vec";
@@ -668,19 +669,6 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
    *  real door or window's actual thickness (out of scope for this export). */
   const FILLER_DEPTH_MM = 50;
 
-  /** Where overhead fit-out starts, mm above the floor — the ordinary
-   *  underside of a bovenkast hung over a worktop, and the height an
-   *  afzuigkap goes to. A furnishing carries no stored mounting height (see
-   *  model/furnishing.ts); out of scope to make this one authored rather than
-   *  a constant. */
-  const WALL_CABINET_Z0_MM = 1400;
-
-  /** Where a furnishing's box starts: on the floor, unless it hangs. */
-  const furnishingZ0 = (fn: Furnishing): number =>
-    (fn.form === "cabinet" && furnishingKind(fn) === "wall")
-    || (fn.form === "appliance" && fn.mark === "hood")
-      ? WALL_CABINET_Z0_MM : 0;
-
   /** Nominal box height for a symbol's placeholder extrusion, mm. States
    *  where a symbol sits, not a manufacturer's actual product height. */
   const SYMBOL_NOMINAL_HEIGHT_MM = 500;
@@ -1059,10 +1047,11 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
     // ── furnishings: one element each, class from the trade ─────────────────
     //
     // Box geometry over the piece's own vertical range: most stand on the
-    // floor, a wall cabinet hangs at WALL_CABINET_Z0_MM. No carcass, front,
-    // worktop, hinge or bowl is modelled — this states where the piece is and
-    // how tall it stands, the way core/furnishing.ts's own furnishingBox()
-    // does for the plan drawing.
+    // floor, a piece that hangs starts at core/furnishing3d.ts's
+    // OVERHEAD_Z0_MM, the one figure the 3D view places it at too. No carcass,
+    // front, worktop, hinge or bowl is modelled — this states where the piece
+    // is and how tall it stands, the way core/furnishing.ts's own
+    // furnishingBox() does for the plan drawing.
     for (const fn of furnishingsOf(floor)) {
       const z0 = furnishingZ0(fn);
       const shape = bodyShape([extrudedSolid(boxQuad(fn, furnishingBox(fn)), z0, z0 + furnishingHeight(fn))]);

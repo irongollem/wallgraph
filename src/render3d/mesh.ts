@@ -5,9 +5,10 @@
 // z is height above Peil (mm, positive up); a renderer maps axes itself. Pure
 // and uncached like the rest of the derived geometry — callers cache against
 // the store revision.
-import { PlanDoc, Floor, Id, floorElevation, floorHeight, stairsOf } from "../model/doc";
+import { PlanDoc, Floor, Id, floorElevation, floorHeight, stairsOf, furnishingsOf } from "../model/doc";
 import { floorSolids, FloorSolids } from "../core/solids";
 import { stairSteps, StairStep } from "../core/stair3d";
+import { furnishingSolids, type FitoutMaterial } from "../core/furnishing3d";
 import { Vec, v, dist, polygonArea, mid, norm, add, sub, scale, clipHalfPlane } from "../geometry/vec";
 import { triangulatePolygon, triangulateWithHoles } from "./triangulate";
 
@@ -49,6 +50,27 @@ export const DOOR_COLOR: Rgb = [0.78, 0.71, 0.6];
 export const GLASS_COLOR: Rgb = [0.875, 0.91, 0.933];
 /** Sandwich-panel wall bodies: the 2D panelFill's warm band, opaque. */
 export const PANEL_COLOR: Rgb = [0.906, 0.882, 0.827];
+/** Fit-out casework: cabinet carcasses, fronts, table tops, shelving. */
+export const CASEWORK_COLOR: Rgb = [0.74, 0.65, 0.52];
+/** The blad over a run: darker than the casework it rests on. */
+export const WORKTOP_COLOR: Rgb = [0.42, 0.41, 0.4];
+/** A fixed appliance: steel, cool against the timber beside it. */
+export const APPLIANCE_COLOR: Rgb = [0.6, 0.63, 0.66];
+/** Sanitary fixtures: porcelain, the lightest thing in the scene. */
+export const SANITARY_COLOR: Rgb = [0.97, 0.97, 0.96];
+/** Mattresses and upholstery. */
+export const SOFT_COLOR: Rgb = [0.68, 0.7, 0.74];
+
+/** What each fit-out material is drawn in. core/furnishing3d.ts says what a
+ *  part is made of; the colour is this module's, as it is for everything else
+ *  in the scene. */
+const FITOUT_COLORS: Record<FitoutMaterial, Rgb> = {
+  casework: CASEWORK_COLOR,
+  worktop: WORKTOP_COLOR,
+  appliance: APPLIANCE_COLOR,
+  sanitary: SANITARY_COLOR,
+  soft: SOFT_COLOR,
+};
 
 /** Door leaf thickness, mm. */
 const DOOR_LEAF_MM = 40;
@@ -100,10 +122,11 @@ interface MeshAcc {
  * The building as one triangle soup: per storey, wall prisms (with the bands a
  * window's borstwering and an opening's lintel put back) and the junction
  * wedges between them, door leaves and window panes in the voids, the slab and
- * terrace plate with their holes, and each stair as the steps core/stair3d.ts
- * derives from its parameters. A wall a flight crosses is cut to a shadow gap
- * under the steps within the crossing interval (STAIR_CLEAR_MM). Spaces are
- * room volumes, not built fabric, and are not rendered.
+ * terrace plate with their holes, each stair as the steps core/stair3d.ts
+ * derives from its parameters, and the inrichting as the parts
+ * core/furnishing3d.ts derives per form. A wall a flight crosses is cut to a
+ * shadow gap under the steps within the crossing interval (STAIR_CLEAR_MM).
+ * Spaces are room volumes, not built fabric, and are not rendered.
  *
  * `hiddenFloors` drops whole storeys by floor id — the 3D view's per-storey
  * toggle. A hidden storey also withholds its plate, so the storey below is
@@ -191,6 +214,16 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
     for (const steps of stepLists) {
       for (const step of steps) {
         emitPrism(acc, step.poly, [], elev + step.z0, elev + seat(step.z1), STAIR_COLOR);
+      }
+    }
+
+    // The inrichting: each piece as the parts its own form stands as. Nothing
+    // cuts a piece against the fabric, so a unit drawn through a wall renders
+    // through it.
+    for (const fn of furnishingsOf(f)) {
+      for (const part of furnishingSolids(fn)) {
+        emitPrism(acc, part.poly, part.holes ?? [], elev + part.z0, elev + part.z1,
+          FITOUT_COLORS[part.material]);
       }
     }
   }
