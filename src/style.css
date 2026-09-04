@@ -449,6 +449,11 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 .side:not(.is-compact) .plan-sec { flex: 0 1 auto; display: flex; flex-direction: column; }
 .side:not(.is-compact) .plan-head { flex: none; }
 .side:not(.is-compact) .plan-body { min-height: 0; }
+/* pane-scroll has flex-basis 0, so it carries none of the shrink weight above
+   and a section left to its natural height starves it to a sliver instead.
+   Capped so the inspector stays usable; the section scrolls internally past
+   the cap via the overflow-y below. */
+.side:not(.is-compact) .plan-body.is-open { max-height: 42vh; }
 .side:not(.is-compact) .plan-body.is-open > .plan-rows { overflow-y: auto; }
 
 /* Drag-scrub: the field is a slider you can also type into, so it advertises

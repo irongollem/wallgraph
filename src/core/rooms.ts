@@ -212,6 +212,28 @@ export function detectRooms(f: Floor): Room[] {
   return rooms;
 }
 
+/**
+ * The side of a wall no room bounds, when exactly one side is bounded — the
+ * outward side, read straight off `Room.boundingFaces`. Null when both sides
+ * are bounded (an interior wall) or neither is (no room reaches this wall at
+ * all), because then nothing can be said.
+ *
+ * Meant to be called once, at the moment a facade is switched on, to choose
+ * `Wall.facadeSide`. The result is then STORED and never re-derived here
+ * afterwards — see the comment on that field in model/doc.ts for why.
+ */
+export function outwardSide(rooms: readonly Room[], wallId: Id): "left" | "right" | null {
+  let left = false, right = false;
+  for (const r of rooms) {
+    for (const bf of r.boundingFaces) {
+      if (bf.wallId !== wallId) continue;
+      if (bf.side === "left") left = true; else right = true;
+    }
+  }
+  if (left === right) return null;
+  return left ? "right" : "left";
+}
+
 /** One entry per (wall, side): an arc contributes a flattened segment per
  *  chord, and all of them are the same face of the same wall. */
 function dedupeFaces(list: RoomFace[]): RoomFace[] {

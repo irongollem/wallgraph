@@ -74,6 +74,20 @@ rejects("rejects a bad colour", d => { d.floors[0]!.symbols[0]!.color = "red"; }
 rejects("rejects an unknown sash action", d => { d.floors[0]!.walls[0]!.openings[0]!.sashes[0]!.action = "wobble" as never; });
 rejects("rejects version 2", d => { (d as unknown as Record<string, unknown>).version = 2; });
 
+// Energy defaults and per-element thermal figures (BENG geometry takeoff).
+{
+  const withEnergy = JSON.parse(JSON.stringify(seedDoc())) as PlanDoc;
+  withEnergy.energy = { wallRc: 4.7, windowU: 1.65 };
+  withEnergy.floors[0]!.walls.find(w => w.openings.length > 0)!.rc = 2.5;
+  withEnergy.floors.flatMap(f => f.walls.flatMap(w => w.openings)).find(o => o.kind === "window")!.uValue = 1.2;
+  ck("validates seedDoc with energy defaults, a wall rc and a window uValue",
+    validate(schema, withEnergy).length === 0, validate(schema, withEnergy).join(" | "));
+
+  const badEnergy = JSON.parse(JSON.stringify(seedDoc())) as PlanDoc;
+  (badEnergy as unknown as { energy: Record<string, unknown> }).energy = { bogus: 1 };
+  ck("rejects an unknown energy property", validate(schema, badEnergy).length > 0);
+}
+
 // Keep schema enums aligned with runtime opening and symbol definitions.
 const symbolEnum = (schema.$defs as Record<string, { properties: { type: { enum: string[] } } }>).symbol!.properties.type.enum;
 ck("symbol enum matches the registry", symbolEnum.join() === SYMBOL_TYPES.join(), `${symbolEnum.length} vs ${SYMBOL_TYPES.length}`);

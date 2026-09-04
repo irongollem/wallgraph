@@ -1,6 +1,6 @@
 // Rail, storey/palette/property pane, and status bar. Plain DOM.
 import { Store, type Selection } from "../model/store";
-import { roomKey, orphanedRoomNames, type Room } from "../core/rooms";
+import { roomKey, orphanedRoomNames, outwardSide, type Room } from "../core/rooms";
 import { isMixed } from "../core/mixed";
 import { defaultMountHeight, clampMountHeight } from "../core/mount";
 import { Tools, ToolName } from "../input/tools";
@@ -27,6 +27,7 @@ import {
   type AreaMode, type DimMode, type Sash, type HingeEdge, type Opening, type Wall, type Floor, type FireKind,
   type ProjectMeta, type Id, type WallMaterial, type PlanDoc,
 } from "../model/doc";
+import { isEnvelopeWall, openingIsGlazing, thermalValue } from "../model/energy";
 import type { Discipline } from "../model/route";
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
 import { COLORS, INKS } from "../render/draw";
@@ -43,7 +44,9 @@ import { renderFurnishingTool, renderFurnishingProps } from "./furnishing";
 import { renderZoomTool, type RoomEdit } from "./zoom";
 import { renderOpeningTool } from "./openings";
 import { renderWallTool, renderWallSurface } from "./walls";
+import { renderEnergyAssumptions, renderEnergyTakeoff } from "./energy";
 import { floorSurface } from "../core/surface";
+import { envelopeTakeoff, type EnvelopeTakeoff } from "../core/energy";
 import {
   planWallJoin, applyWallJoin, isJoinPlan,
   applyNodeDissolve, isDissolvePlan, planWallMerge, planNodeRemoval, removeNode,
@@ -143,6 +146,7 @@ export class Panel {
   private planEl: HTMLElement;
   private underlayEl: HTMLElement;
   private permitEl: HTMLElement;
+  private energyEl: HTMLElement;
   /** Everything the pane's structure depends on; a change rebuilds it. */
   private lastPaneSig = "";
   /** Selection alone — drives the fade, so a grid tweak does not flash. */
@@ -150,6 +154,7 @@ export class Panel {
   private planOpen = false;
   private underlayOpen = false;
   private permitOpen = false;
+  private energyOpen = false;
   /** The storey-management pane is open in the context area (renderFloorsPane).
    *  Pane state like roomEditKey: it has to survive the rebuilds it causes. */
   private floorsOpen = false;
@@ -162,6 +167,15 @@ export class Panel {
    *  pattern as derived() in main.ts. */
   private permitCacheRev = -1;
   private permitCacheItems: PermitCheck[] = [];
+  /** The Energie takeoff's container; repopulated in place while open. */
+  private energyTakeoffEl: HTMLElement | null = null;
+  /** envelopeTakeoff() cache, keyed on store.revision -- it resolves every
+   *  storey (resolveFloor + detectRooms via core/energy.ts), so recomputing it
+   *  on every store notification would repeat that work per mutation during a
+   *  drag while the Energie section happens to be open. Same pattern as
+   *  permitCacheItems above. */
+  private energyCacheRev = -1;
+  private energyCacheTakeoff: EnvelopeTakeoff | null = null;
   /** Which room's name field is open in the zoom pane; see RoomEdit. */
   private roomEditKey: string | null = null;
   /** True mid drag-scrub: the pane must not rebuild and yank the input out
@@ -208,6 +222,7 @@ export class Panel {
     this.planEl = this.buildPlanSection();
     this.underlayEl = this.buildUnderlaySection();
     this.permitEl = this.buildPermitSection();
+    this.energyEl = this.buildEnergySection();
 
     this.mode = watchLayout(next => {
       if (next === this.mode) return;
@@ -268,7 +283,8 @@ export class Panel {
         el("div", "rail-spacer"), this.historyEl);
       const sideBody = el("div", "side-body");
       sideBody.append(this.rail, this.pane);
-      this.pane.replaceChildren(this.storeyEl, this.paneScroll, this.planEl, this.underlayEl, this.permitEl);
+      this.pane.replaceChildren(this.storeyEl, this.paneScroll, this.planEl, this.underlayEl, this.permitEl,
+        this.energyEl);
       this.root.replaceChildren(this.head, sideBody, this.status, this.foot);
       return;
     }
@@ -293,7 +309,8 @@ export class Panel {
     this.chainBarSig = "";
     this.modeBar = null;
     this.modeBarSig = "";
-    sheet.body.replaceChildren(this.paneScroll, this.planEl, this.underlayEl, this.permitEl, this.foot);
+    sheet.body.replaceChildren(this.paneScroll, this.planEl, this.underlayEl, this.permitEl, this.energyEl,
+      this.foot);
     this.root.replaceChildren(top, modes, sheet.el);
   }
 
@@ -662,7 +679,7 @@ export class Panel {
     const paneSig = [this.store.activeFloor, d.floors.map(fl => `${fl.id}\u0000${fl.name}`).join("\u0001"),
       d.gridMm, areaModeOf(d), floorHeight(this.store.floor),
       this.store.floor.ceilingMm ?? "", d.groundMm ?? "", this.tools.lastThickness,
-      JSON.stringify(d.project ?? null), d.northDeg ?? "",
+      JSON.stringify(d.project ?? null), d.northDeg ?? "", JSON.stringify(d.energy ?? null),
       this.store.floor.underlay ? "u1" : "u0", this.tools.calibrating ? "c1" : "c0",
       // The Plan section's per-discipline toggles only show once the floor
       // has routes, so a route being added or removed has to rebuild it too.
@@ -686,10 +703,15 @@ export class Panel {
       const permit = this.buildPermitSection();
       this.permitEl.replaceWith(permit);
       this.permitEl = permit;
+      const energy = this.buildEnergySection();
+      this.energyEl.replaceWith(energy);
+      this.energyEl = energy;
     }
-    // The checklist reads derived geometry (rooms, chains), which changes on
-    // edits the pane signature does not see — so it refreshes in place.
+    // The checklist and the takeoff read derived geometry (rooms, chains),
+    // which changes on edits the pane signature does not see — so they
+    // refresh in place.
     this.syncPermitChecks();
+    this.syncEnergyTakeoff();
 
     const swap = selSig !== this.lastSelSig;
     this.lastSelSig = selSig;
@@ -1134,6 +1156,26 @@ export class Panel {
       rows.checkRow(t("panel.selfClosing"), o.selfClosing ?? false,
         b => mutOpening(o2 => { o2.selfClosing = b || undefined; }));
     }
+    // Thermal transmittance: only a door or window in a facade wall carries
+    // one, mirroring the wall's own Rc tri-state above -- the plan's own
+    // assumption applies until the opening states a U of its own.
+    if (o.kind !== "passage" && isEnvelopeWall(wall)) {
+      rows.checkRow(t("panel.energyOwnU"), o.uValue !== undefined, on => mutOpening(o2 => {
+        if (on) {
+          const fallback = openingIsGlazing(o2) ? this.store.doc.energy?.windowU : this.store.doc.energy?.doorU;
+          o2.uValue = fallback ?? 1.65;
+        } else delete o2.uValue;
+      }));
+      if (o.uValue !== undefined) {
+        rows.numRow(t("panel.uValue"), o.uValue, n => mutOpening(o2 => {
+          const val = thermalValue(n);
+          if (val !== undefined) o2.uValue = val;
+        }), 0.1);
+      } else {
+        const fallback = openingIsGlazing(o) ? this.store.doc.energy?.windowU : this.store.doc.energy?.doorU;
+        if (fallback !== undefined) rows.noteRow(t("panel.uValuePlan", { u: fallback.toFixed(2) }));
+      }
+    }
     rows.dangerRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());
   }
 
@@ -1255,15 +1297,20 @@ export class Panel {
       row.append(Object.assign(el("span"), { textContent: label }));
       const input = el("input") as HTMLInputElement;
       input.type = "number"; input.step = String(step);
+      // A field stepped in whole units (mm, degrees, ...) shows a whole
+      // number; a fractional step (Rc, U) shows two decimals, the precision
+      // thermalValue() rounds an authored figure to.
+      const decimals = step < 1 ? 2 : 0;
       // Mixed: a bulk pane's field where the selected objects disagree. Left
       // blank with a placeholder rather than showing one member's value as if
       // it applied to all -- typing (or scrubbing) still commits to every
       // member, same as an ordinary field.
-      if (extra.mixed) input.placeholder = "—"; else input.value = String(Math.round(value));
+      if (extra.mixed) input.placeholder = "—";
+      else input.value = decimals ? value.toFixed(decimals) : String(Math.round(value));
       input.onchange = () => { const n = parseFloat(input.value); if (isFinite(n)) onCommit(n); };
       scrubbable(input, {
         step,
-        snap: extra.snap,
+        snap: extra.snap ?? (decimals ? (n => Math.round(n * 100) / 100) : undefined),
         onStart: () => { this.scrubbing = true; this.store.beginGesture("scrub:" + label); },
         onEnd: () => { this.scrubbing = false; this.store.endGesture(); this.refreshToolbar(); },
         onInput: n => onCommit(n),
@@ -1422,8 +1469,21 @@ export class Panel {
       row.append(cb);
       p.append(row);
     };
+    // Read-only: a derived figure the user cannot type into. Editing stays on
+    // the source it is derived from, e.g. the wall centerline rather than its
+    // clear span -- showing a derived value as an input would invite typing a
+    // number that has no single solution.
+    const infoRow = (label: string, text: string, title?: string): void => {
+      const row = el("div", "prop-row");
+      if (title) row.title = title;
+      row.append(
+        Object.assign(el("span"), { textContent: label }),
+        Object.assign(el("span", "prop-readonly"), { textContent: text }),
+      );
+      p.append(row);
+    };
 
-    return { numRow, selRow, textRow, noteRow, warnRow, btnRow, colorRow, chipRow, checkRow };
+    return { numRow, selRow, textRow, infoRow, noteRow, warnRow, btnRow, colorRow, chipRow, checkRow };
   }
 
   /**
@@ -1665,6 +1725,7 @@ export class Panel {
     this.permitChecksEl = el("div");
     inner.append(this.permitChecksEl);
     noteRow(t("panel.permitNote"));
+    noteRow(t("panel.permitEnergyNote"));
     btnRow(t("panel.permitExport"), () => { void this.savePermit("pdf"); });
     btnRow(t("panel.permitExportSvg"), () => { void this.savePermit("svg"); });
 
@@ -1694,6 +1755,69 @@ export class Panel {
       row.textContent = `${it.ok ? "✓" : "○"} ${t("check." + it.id)}`;
       box.append(row);
     }
+  }
+
+  /**
+   * The BENG geometry takeoff: assumptions (isolatie/beglazing presets and
+   * the Rc/U figures they set), the envelope area and volume, and an
+   * indicative transmission-loss estimate. Its own section under Plan, next
+   * to the permit one, with the same fold behaviour -- see ui/energy.ts for
+   * the rows themselves.
+   *
+   * The takeoff resolves every storey (envelopeTakeoff() in core/energy.ts),
+   * so it is computed only while the section is open: syncEnergyTakeoff()
+   * repopulates energyTakeoffEl in place, the same split buildPermitSection/
+   * syncPermitChecks uses for the checklist above.
+   */
+  private buildEnergySection(): HTMLElement {
+    const open = this.energyOpen;
+    const wrap = el("div", "plan-sec");
+    const head = el("button", "plan-head") as HTMLButtonElement;
+    head.type = "button";
+    head.setAttribute("aria-expanded", String(open));
+    const chev = el("span", "chev");
+    chev.append(icon("chevron", 14));
+    head.append(chev, Object.assign(el("span", "sec-label"), { textContent: t("energy.title") }));
+    const body = el("div", "plan-body" + (open ? " is-open" : ""));
+    const inner = el("div", "plan-rows");
+    body.append(inner);
+    head.onclick = () => {
+      const next = !body.classList.contains("is-open");
+      this.energyOpen = next;
+      body.classList.toggle("is-open", next);
+      head.setAttribute("aria-expanded", String(next));
+      this.syncEnergyTakeoff();
+    };
+
+    const { numRow, selRow, noteRow } = this.rowKit(inner);
+    renderEnergyAssumptions({ numRow, selRow }, this.store);
+
+    this.energyTakeoffEl = el("div");
+    inner.append(this.energyTakeoffEl);
+
+    noteRow(t("energy.closingNote"));
+
+    wrap.append(head, body);
+    this.syncEnergyTakeoff();
+    return wrap;
+  }
+
+  /**
+   * The read-only takeoff and indicative figures, refreshed in place while
+   * the section is open -- see buildEnergySection().
+   */
+  private syncEnergyTakeoff(): void {
+    const box = this.energyTakeoffEl;
+    if (!box || !this.energyOpen) return;
+    if (this.store.revision !== this.energyCacheRev) {
+      this.energyCacheRev = this.store.revision;
+      this.energyCacheTakeoff = envelopeTakeoff(this.store.doc);
+    }
+    const takeoff = this.energyCacheTakeoff;
+    if (!takeoff) return;
+    box.replaceChildren();
+    const { infoRow, noteRow, warnRow } = this.rowKit(box);
+    renderEnergyTakeoff({ infoRow, noteRow, warnRow }, this.store, takeoff);
   }
 
   /**
@@ -1776,10 +1900,18 @@ export class Panel {
       rows.noteRow(t("panel.postsHelp"));
     }
     const facadeMixed = isMixed(walls, w => w.facadeMm !== undefined);
-    rows.checkRow(t("panel.facadeOn"), first.facadeMm !== undefined, on => mutAll(w => {
-      if (on) w.facadeMm = FACADE_DEFAULT_MM;
-      else { delete w.facadeMm; delete w.facadeSide; }
-    }), { mixed: facadeMixed });
+    rows.checkRow(t("panel.facadeOn"), first.facadeMm !== undefined, on => {
+      // Read once, before any wall is touched: the outward side of each wall
+      // as the rooms currently stand, not as they stand after the first wall
+      // in the group has already gained a facade.
+      const rooms = on ? this.tools.rooms() : null;
+      mutAll(w => {
+        if (on) {
+          w.facadeMm = FACADE_DEFAULT_MM;
+          if (outwardSide(rooms!, w.id) === "right") w.facadeSide = "right";
+        } else { delete w.facadeMm; delete w.facadeSide; }
+      });
+    }, { mixed: facadeMixed });
     if (!facadeMixed && first.facadeMm !== undefined) {
       rows.numRow(t("panel.facade"), first.facadeMm, n => mutAll(w => {
         w.facadeMm = Math.max(10, Math.round(n));
@@ -1937,7 +2069,7 @@ export class Panel {
     p.replaceChildren();
     const sel = this.store.sel;
     const f = this.store.floor;
-    const { numRow, selRow, textRow, noteRow, warnRow, btnRow, colorRow, chipRow, checkRow } = this.rowKit(p);
+    const { numRow, selRow, textRow, infoRow, noteRow, warnRow, btnRow, colorRow, chipRow, checkRow } = this.rowKit(p);
 
     const secHead = (label: string, opts: { sel?: boolean; later?: boolean; mode?: boolean } = {}): void => {
       const wrap = el("div", "sec" + (opts.later ? " sec-later" : ""));
@@ -1971,18 +2103,6 @@ export class Panel {
       p.append(wrap);
     };
 
-    // Read-only: a derived figure the user cannot type into. Editing stays on the
-    // centerline, which is what the document actually stores; showing the clear
-    // span as an input would invite typing a number that has no single solution.
-    const infoRow = (label: string, text: string, title?: string): void => {
-      const row = el("div", "prop-row");
-      if (title) row.title = title;
-      row.append(
-        Object.assign(el("span"), { textContent: label }),
-        Object.assign(el("span", "prop-readonly"), { textContent: text }),
-      );
-      p.append(row);
-    };
     const dangerRow = (label: string, fn: () => void): void => {
       const b = el("button", "btn-danger") as HTMLButtonElement;
       b.type = "button";
@@ -2245,12 +2365,18 @@ export class Panel {
       }
       // Cladding. Set/unset, because a wall with no facade is an internal or
       // party wall rather than one clad to zero.
-      checkRow(t("panel.facadeOn"), w.facadeMm !== undefined, on => this.store.mutate(d => {
-        const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
-        if (!wall) return;
-        if (on) wall.facadeMm = FACADE_DEFAULT_MM;
-        else { delete wall.facadeMm; delete wall.facadeSide; }
-      }));
+      checkRow(t("panel.facadeOn"), w.facadeMm !== undefined, on => {
+        // Read before the mutation, from the rooms as they stand right now.
+        const side = on ? outwardSide(this.tools.rooms(), w.id) : null;
+        this.store.mutate(d => {
+          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+          if (!wall) return;
+          if (on) {
+            wall.facadeMm = FACADE_DEFAULT_MM;
+            if (side === "right") wall.facadeSide = "right";
+          } else { delete wall.facadeMm; delete wall.facadeSide; }
+        });
+      });
       if (w.facadeMm !== undefined) {
         numRow(t("panel.facade"), w.facadeMm, n => this.store.mutate(d => {
           const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
@@ -2263,6 +2389,24 @@ export class Panel {
             if (wall) wall.facadeSide = v === "right" ? "right" : "left";
           }));
         noteRow(t("panel.facadeHelp"));
+        // Thermal resistance: the plan's own assumption (Energie section)
+        // applies to an envelope wall until it states an Rc of its own -- the
+        // same tri-state the opening's U value uses below.
+        checkRow(t("panel.energyOwnRc"), w.rc !== undefined, on => this.store.mutate(d => {
+          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+          if (!wall) return;
+          if (on) wall.rc = d.energy?.wallRc ?? 2.5; else delete wall.rc;
+        }));
+        if (w.rc !== undefined) {
+          numRow(t("panel.rc"), w.rc, n => this.store.mutate(d => {
+            const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+            if (!wall) return;
+            const val = thermalValue(n);
+            if (val !== undefined) wall.rc = val;
+          }), 0.1);
+        } else if (this.store.doc.energy?.wallRc !== undefined) {
+          noteRow(t("panel.rcPlan", { rc: this.store.doc.energy.wallRc.toFixed(2) }));
+        }
       }
       // Recolouring one wall arms the pen, the way editing its thickness sets
       // the thickness of the next one: a wall marked as new work is nearly

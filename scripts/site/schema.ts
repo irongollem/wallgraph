@@ -93,6 +93,37 @@ export function planSchema(siteUrl: string): JsonSchema {
           "Elevation of the ground floor (floors[0]) above project zero (Peil), mm. " +
           "May be negative. Absent means 0.",
       },
+      energy: {
+        type: "object",
+        additionalProperties: false,
+        description:
+          "Document-level thermal defaults for the BENG geometry takeoff, applied to an " +
+          "envelope wall (one stating a facade) and its openings where the wall or opening " +
+          "states no figure of its own. Absent means no default is stated. All fields are " +
+          "indicative and reported, never enforced.",
+        properties: {
+          wallRc: {
+            type: "number", exclusiveMinimum: 0,
+            description: "Default thermal resistance Rc for an envelope wall stating none of its own, m²K/W.",
+          },
+          roofRc: {
+            type: "number", exclusiveMinimum: 0,
+            description: "Default Rc for the roof (the top storey's plate; no roof object exists), m²K/W.",
+          },
+          floorRc: {
+            type: "number", exclusiveMinimum: 0,
+            description: "Default Rc for the ground floor plate, m²K/W.",
+          },
+          windowU: {
+            type: "number", exclusiveMinimum: 0,
+            description: "Default thermal transmittance U for windows and glazed doors in an envelope wall, W/m²K.",
+          },
+          doorU: {
+            type: "number", exclusiveMinimum: 0,
+            description: "Default U for other doors and passages in an envelope wall, W/m²K.",
+          },
+        },
+      },
       continuations: {
         type: "array", items: { $ref: "#/$defs/routeContinuation" },
         description:
@@ -277,6 +308,13 @@ export function planSchema(siteUrl: string): JsonSchema {
               "Pen colour; absent means the plan's default masonry ink. States the status of " +
               "the work the way a verbouwtekening does, and takes the fill, not just the outline.",
           },
+          rc: {
+            type: "number", exclusiveMinimum: 0,
+            description:
+              "Thermal resistance Rc of the whole construction, m²K/W. Absent means not " +
+              "stated; the document's energy.wallRc default then applies, but only to a wall " +
+              "that states a facade.",
+          },
         },
       },
       opening: {
@@ -307,6 +345,13 @@ export function planSchema(siteUrl: string): JsonSchema {
             "mm. Absent means the kind's default: 2315 for a door or passage " +
             "(binnendeurkozijn dagmaat), 1415 for a window.",
           ),
+          uValue: {
+            type: "number", exclusiveMinimum: 0,
+            description:
+              "Thermal transmittance U of the whole element (frame and leaf), W/m²K. " +
+              "Absent means not stated; the document's energy.windowU or energy.doorU default " +
+              "then applies, but only within a wall that states a facade.",
+          },
         },
       },
       sash: {

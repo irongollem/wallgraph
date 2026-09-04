@@ -10,6 +10,7 @@ import { toIfc } from "../src/io/ifc";
 import { detectRooms } from "../src/core/rooms";
 import { SLAB_DEFAULT_MM } from "../src/core/solids";
 import { ifcGuid } from "../src/model/guid";
+import { uFromRc } from "../src/model/energy";
 import { v } from "../src/geometry/vec";
 import { bulgeFromSagitta } from "../src/geometry/arc";
 import type { Vide } from "../src/model/vide";
@@ -1007,6 +1008,113 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
     check("no pset/qto entity appears in any containment rel",
       containmentLines8.every(l => argRefs8(l).every(id => !psetIds.has(id))));
   }
+}
+
+// ── BIM 8b: Pset_*Common ThermalTransmittance from wallRcOf/openingUOf ──────
+//
+// Three walls, none forming a closed room -- envelope membership and its
+// thermal figure come from Wall.facadeMm/rc and PlanDoc.energy alone (see
+// model/energy.ts), not from room detection. One facade wall states its own
+// rc and carries a window with its own uValue; a second facade wall states
+// no rc of its own and relies on the document's wallRc default, and carries
+// a door relying on the document's doorU default; a plain partition wall
+// states neither a facade nor an rc.
+{
+  function addNodeE(f: Floor, x: number, y: number): Id {
+    const id = newId("n");
+    f.nodes.push({ id, x, y });
+    return id;
+  }
+  function addWallE(f: Floor, a: Id, b: Id, thickness: number): Wall {
+    const wall: Wall = { id: newId("w"), a, b, thickness, bulge: 0, openings: [] };
+    f.walls.push(wall);
+    return wall;
+  }
+  function argRefsE(line: string): number[] {
+    return [...line.slice(line.indexOf("=") + 1).matchAll(/#(\d+)/g)].map(m => Number(m[1]));
+  }
+
+  const docE = emptyDoc();
+  const floorE = docE.floors[0]!;
+  floorE.name = "Begane grond";
+  floorE.height = 2600;
+  docE.energy = { wallRc: 3.5, doorU: 2.0 };
+
+  const a0 = addNodeE(floorE, 0, 0), a1 = addNodeE(floorE, 4000, 0);
+  const wOwnRc = addWallE(floorE, a0, a1, 300);
+  wOwnRc.facadeMm = 100;
+  wOwnRc.rc = 4.7;
+  const winO: Opening = { id: newId("o"), kind: "window", t: 2000, width: 1200, sashes: [], uValue: 1.65 };
+  wOwnRc.openings.push(winO);
+
+  const b0 = addNodeE(floorE, 0, 1000), b1 = addNodeE(floorE, 4000, 1000);
+  const wDefaultRc = addWallE(floorE, b0, b1, 300);
+  wDefaultRc.facadeMm = 100;
+  const doorO: Opening = {
+    id: newId("o"), kind: "door", t: 2000, width: 900, sashes: [{ action: "turn", hinge: "a" }],
+  };
+  wDefaultRc.openings.push(doorO);
+
+  const c0 = addNodeE(floorE, 0, 2000), c1 = addNodeE(floorE, 4000, 2000);
+  const wPartitionE = addWallE(floorE, c0, c1, 150);
+
+  const textE = toIfc(docE);
+  const entsE = textE.split("\n").filter(l => l.startsWith("#"));
+  const seedE = docE.guid ?? "";
+
+  /** Same Name -> raw NominalValue reader as parsedPset8 above, scoped to
+   *  this fixture's own entity list and GlobalId seed. */
+  function parsedPsetE(guidKey: string): Record<string, string> | undefined {
+    const guid = ifcGuid(seedE, guidKey);
+    const line = entsE.find(l => l.includes(`=IFCPROPERTYSET('${guid}'`));
+    if (!line) return undefined;
+    const propRefs = argRefsE(line).slice(1); // drop OwnerHistory
+    const out: Record<string, string> = {};
+    for (const id of propRefs) {
+      const pLine = entsE.find(l => l.startsWith(`#${id}=IFCPROPERTYSINGLEVALUE(`));
+      const m = pLine ? /^#\d+=IFCPROPERTYSINGLEVALUE\('([^']*)',\$,(.*),\$\);$/.exec(pLine) : null;
+      if (m) out[m[1]!] = m[2]!;
+    }
+    return out;
+  }
+
+  const numeric = (raw: string | undefined): number | null => {
+    const m = raw ? /^IFCTHERMALTRANSMITTANCEMEASURE\((-?\d+\.?\d*(?:E[+-]?\d+)?)\)$/.exec(raw) : null;
+    return m ? Number(m[1]) : null;
+  };
+
+  const ownRcPset = parsedPsetE(`${wOwnRc.id}:pset`);
+  check("a facade wall's own rc:4.7 serializes ThermalTransmittance as IFCTHERMALTRANSMITTANCEMEASURE(0.205)",
+    ownRcPset?.ThermalTransmittance === "IFCTHERMALTRANSMITTANCEMEASURE(0.205)", JSON.stringify(ownRcPset));
+  {
+    const n = numeric(ownRcPset?.ThermalTransmittance);
+    const expected = uFromRc(4.7, "wall"); // 1/(4.7+0.17) = 0.2053...
+    check("...within 0.001 of 1/(Rc+Rsi+Rse)", n !== null && Math.abs(n - expected) < 0.001, `${n} vs ${expected}`);
+  }
+
+  const defaultRcPset = parsedPsetE(`${wDefaultRc.id}:pset`);
+  {
+    const n = numeric(defaultRcPset?.ThermalTransmittance);
+    const expected = uFromRc(3.5, "wall"); // the document's wallRc default, no rc of its own
+    check("a facade wall with no own rc gets ThermalTransmittance from the document's wallRc default",
+      n !== null && Math.abs(n - expected) < 0.001, `${defaultRcPset?.ThermalTransmittance} vs ${expected}`);
+  }
+
+  check("a partition wall (no facade, no rc, no other stated property) carries no Pset_WallCommon at all",
+    parsedPsetE(`${wPartitionE.id}:pset`) === undefined);
+
+  const winPset = parsedPsetE(`${winO.id}:fillpset`);
+  check("a window's own uValue:1.65 serializes ThermalTransmittance in Pset_WindowCommon",
+    winPset?.ThermalTransmittance === "IFCTHERMALTRANSMITTANCEMEASURE(1.65)", JSON.stringify(winPset));
+
+  const doorPsetE = parsedPsetE(`${doorO.id}:fillpset`);
+  {
+    const n = numeric(doorPsetE?.ThermalTransmittance);
+    check("a door with only the document's doorU default gets ThermalTransmittance in Pset_DoorCommon",
+      n !== null && Math.abs(n - 2.0) < 0.001, `${doorPsetE?.ThermalTransmittance}`);
+  }
+
+  check("no NaN in the thermal-transmittance plan", !hasNumericNaN(textE));
 }
 
 // ── a storey with NO walls still exports its stairs, symbols and their

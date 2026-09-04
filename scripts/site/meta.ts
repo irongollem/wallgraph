@@ -204,6 +204,8 @@ export const FEATURES: Record<Lang, string[]> = {
     "15 traptypen met eigen maatvoering: steektrap, bordestrap, kwartslag, spiltrap, wenteltrap",
     "Automatische ruimtedetectie met netto-oppervlakte volgens NEN 2580",
     "Meerdere verdiepingen met de laag eronder als onderlegger",
+    "BENG-invoer: verliesoppervlak, gebruiksoppervlak, compactheid en glas per oriëntatie uit de " +
+      "tekening, met een indicatief transmissieverlies",
     "Exporteren naar PNG, SVG en DXF op ware schaal",
     "Werkt offline, slaat lokaal op, geen account nodig",
   ],
@@ -216,6 +218,8 @@ export const FEATURES: Record<Lang, string[]> = {
     "15 stair types, each sized for its own plan: straight, landing, quarter-turn, spiral, helical",
     "Automatic room detection with net floor area per NEN 2580",
     "Multiple storeys with the one below as a tracing underlay",
+    "BENG input: envelope area, usable area, compactness and glazing per orientation from the " +
+      "drawing, with an indicative transmission loss",
     "Export to PNG, SVG and DXF at true scale",
     "Works offline, saves locally, no account required",
   ],

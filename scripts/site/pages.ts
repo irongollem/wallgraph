@@ -289,8 +289,9 @@ zegt; de kolommen worden niet apart gemodelleerd.</p>
 geveldikte 100. Die schil ligt geheel buiten de constructieve vlakken en verandert dus niets aan de
 muurgraaf, de ruimtedetectie of het netto oppervlak — hij wordt getekend als een witte band met een
 dunne omtrek, zoals op een bouwtekening. Twee beklede muren versnijden hun schil in een hoek; een
-onbeklede muur die erop uitkomt laat de schil doorlopen. Wat de gevel wél bepaalt is het bruto
-oppervlak: bij oppervlaktemaat <b>bruto (BVO)</b> wordt gemeten tot de buitenkant van de gevel waar een
+onbeklede muur die erop uitkomt laat de schil doorlopen. Aanzetten kiest de zijde die op dat moment
+door geen ruimte wordt begrensd; die zijde blijft daarna gewoon te wijzigen en wordt niet opnieuw
+afgeleid. Wat de gevel wél bepaalt is het bruto oppervlak: bij oppervlaktemaat <b>bruto (BVO)</b> wordt gemeten tot de buitenkant van de gevel waar een
 begrenzende muur er een heeft, en tot de hartlijn waar dat niet zo is — precies wat NEN 2580 over een
 gedeelde bouwmuur zegt. Naar IFC gaat een beklede muur als <code>IfcMaterialLayerSet</code>: constructie
 en bekleding als geordende lagen.</p>
@@ -323,6 +324,30 @@ tot de vloer erboven, en dat is precies wat het paneel van die muur laat zien. E
 <em>afwerking</em>: het verandert niets aan de verdiepingshoogte, aan wat een trap overbrugt, aan de
 ruimteoppervlaktes of aan de export. Een opgegeven hoogte gelijk aan of boven de verdiepingshoogte
 werkt niets extra af en telt daarom niet mee. Een vloeropbouw is niet bekend.</p>
+
+<h2 id="energie">Energie</h2>
+<p>Onder <b>Energie</b> staat de meetkundige BENG-invoer van het gebouw: het verliesoppervlak Als —
+gevelvlak netto van de openingen, het glas, de deuren, het dak en de begane grondvloer samen — naast het
+gebruiksoppervlak Ag in de gekozen oppervlaktemaat, de compactheid Als/Ag, de bruto inhoud per verdieping
+en, zodra de noordrichting onder Vergunningsblad is opgegeven, het glasoppervlak per windrichting. Alleen
+een muur die een gevel opgeeft telt mee in de schil; een muur zonder gevel is intern of een bouwmuur.
+Gemeten wordt op het versneden constructieve gevelvlak, per verdieping van vloer tot vloer — een verlaagd
+plafond is afwerking en telt hier niet mee — met de sparingen op ware grootte afgetrokken. De plaat is de
+som van de bruto ruimteoppervlaktes; het dak is de bovenste plaat plus wat een lagere verdieping onbedekt
+laat. Een overstek wordt gemeld en niet meegerekend. Muren zonder gevel die aan geen enkele ruimte grenzen
+worden apart geteld en gemeld als vermoedelijk buitengevel.</p>
+<p>De gebruikte Rc- en U-waarden komen uit de gekozen isolatieklasse en het beglazingstype, en vullen
+samen Rc gevel, Rc dak, Rc vloer en U raam/deur. Dat zijn de waarden die worden gebruikt, en elke ervan is
+te overschrijven: een muur kan een eigen Rc opgeven, een raam of deur een eigen U. De klassen zijn
+indicatieve tabelwaarden, op het Bouwbesluit-minimum voor de jaren 1992, 2013 en 2015, en het
+BENG-minimum vanaf 2021; het beglazingstype loopt van enkel glas via dubbel en HR++ tot triple glas.</p>
+<p>Het cijfer eronder is het indicatieve transmissieverlies: H_T = Σ U·A over elk vlak met een waarde,
+omgerekend naar kWh per jaar bij 2800 graaddagen. Dat laat ventilatie, infiltratie, zoninstraling, interne
+warmte, koudebruggen en installaties buiten beschouwing, en is dus geen energiebehoefte volgens NTA 8800;
+een geregistreerde BENG-berekening vraagt gecertificeerde software en een adviseur die is erkend onder
+BRL 9500. Zoals elke maat hier geldt: alles wordt gemeld en niet getoetst. De IFC-export schrijft de uit
+Rc afgeleide U-waarde van elke gevelmuur en de opgegeven U van ramen en deuren mee als
+<code>ThermalTransmittance</code>, zodat gecertificeerde software het cijfer kan overnemen.</p>
 
 <h2 id="selecteren">Selecteren, verplaatsen, krommen</h2>
 <p><kbd>V</kbd> activeert het selectiegereedschap voor knopen, muren en symbolen. Een geselecteerde muur
@@ -641,8 +666,9 @@ columns are not modelled separately.</p>
 stays the structure, so a sandwich wall built 100 + 100 is thickness 100 with a facade of 100. That skin
 lies wholly outside the structural faces, so it changes nothing about the wall graph, room detection or
 the net area — it is drawn as a white band with a thin outline, as a building drawing does. Two clad
-walls miter their skins at a corner; an unclad wall running into one lets the skin pass. What the facade
-does set is the gross area: under the <b>gross (BVO)</b> area mode, measurement runs to the outer face of
+walls miter their skins at a corner; an unclad wall running into one lets the skin pass. Turning it on
+chooses the side that at that moment bounds no room; the side stays editable afterwards and is not
+re-derived. What the facade does set is the gross area: under the <b>gross (BVO)</b> area mode, measurement runs to the outer face of
 the facade where a bounding wall has one and to the centreline where it does not — which is what NEN 2580
 says about a shared party wall. A clad wall exports to IFC as an <code>IfcMaterialLayerSet</code>:
 structure and cladding as ordered layers.</p>
@@ -673,6 +699,31 @@ the bathroom under a dropped ceiling while the rest runs on. The wall between th
 shows. A ceiling is a <em>finish</em>: it changes nothing about the storey height, what a stair climbs,
 the room areas or the exports. A stated height at or above the storey height finishes nothing extra and
 so does not count. A floor build-up is not modelled.</p>
+
+<h2 id="energy">Energy</h2>
+<p><b>Energy</b> states the geometric BENG input for the building: the envelope area Als — facade area
+net of its openings, glazing, doors, the roof and the ground floor plate together — alongside the usable
+area Ag in the plan's own area mode, the compactness Als/Ag, the gross volume per storey and, once the
+north bearing is stated under the Permit sheet section, the glazing area by orientation. Only a wall that
+states a facade counts toward the envelope; a wall with none is internal or a party wall. Measurement
+runs on the mitred structural facade face, per storey floor to floor — a suspended ceiling is a finish and
+does not apply here — with openings deducted at their true size. The plate is the sum of the rooms' gross
+floor areas; the roof is the top storey's own plate plus whatever a lower storey leaves uncovered. An
+overhang is flagged, not measured. A wall stating no facade that borders no room at all is counted
+separately and reported as probably exterior.</p>
+<p>The Rc and U figures in use come from the chosen insulation class and glazing type, which together
+fill in Rc for the wall, the roof and the floor, and U for the window and the door. These are the figures
+actually used, and every one of them can be overridden: a wall can state its own Rc, and a window or door
+its own U. The classes are indicative tabulated values, at the Bouwbesluit minimum for the years 1992,
+2013 and 2015, and the BENG minimum from 2021; the glazing types run from single glazing through double
+and HR++ to triple.</p>
+<p>The figure below it is the indicative transmission loss: H_T = Σ U·A over every element carrying a
+value, converted to kWh per year at 2800 heating degree days. It leaves out ventilation, infiltration,
+solar gain, internal heat, thermal bridging and installations, and is therefore not an energy demand
+under NTA 8800; a registered BENG calculation requires attested software and an adviser certified under
+BRL 9500. As with every figure here: everything is reported, nothing is checked. The IFC export carries
+the U-value derived from Rc for each facade wall, and the stated U for windows and doors, as
+<code>ThermalTransmittance</code>, so attested software can read the figure.</p>
 
 <h2 id="select">Selecting, moving, curving</h2>
 <p><kbd>V</kbd> activates selection and dragging for nodes, walls and symbols. A selected wall displays
@@ -1003,6 +1054,10 @@ verplicht — weglaten betekent niet &ldquo;recht&rdquo;, het betekent dat de bo
 niet in. Een trap met <code>n</code> treden heeft <code>n+1</code> optreden, dus de optrede en de
 loopvergelijking volgen uit <code>rise</code>, net als de trede waar het snijvlak valt. <code>use</code>
 noemt de gebruiksfunctie waartegen de maten gelezen worden; weggelaten geldt de ruimste marge.</li>
+<li>Een muur draagt desgewenst een eigen <code>rc</code> (m²K/W, thermische weerstand van de hele
+constructie) en een opening een eigen <code>uValue</code> (W/m²K). Het document-brede <code>energy</code>
+levert het standaardgetal waar een muur of opening er zelf geen opgeeft, en geldt alleen voor een muur
+die een gevel (<code>facadeMm</code>) opgeeft.</li>
 </ul>
 
 <h2 id="schema">JSON Schema</h2>
@@ -1057,6 +1112,10 @@ required — omitting it does not mean &ldquo;straight&rdquo;, it means the arc 
 themselves are not stored. A flight of <code>n</code> treads has <code>n+1</code> risers, so the riser
 height, the walking rule and the tread the section plane cuts all follow from <code>rise</code>.
 <code>use</code> names the use the figures are read against; absent, the widest margin applies.</li>
+<li>A wall may carry its own <code>rc</code> (m²K/W, thermal resistance of the whole construction) and an
+opening its own <code>uValue</code> (W/m²K). The document-wide <code>energy</code> object supplies the
+default figure where a wall or opening states none of its own, and applies only to a wall stating a
+facade (<code>facadeMm</code>).</li>
 </ul>
 
 <h2 id="schema">JSON Schema</h2>
@@ -1131,6 +1190,10 @@ speelt, vereisen controle door een daarvoor gekwalificeerde deskundige.</li>
 </ul>
 <p>Eisen voor een vergunningaanvraag volgen uit de toepasselijke regelgeving en de eisen van het
 bevoegde gezag. Wallgraph controleert deze eisen niet.</p>
+<p>Wallgraph levert geen BENG-berekening, geen energielabel en geen verklaring van overeenstemming met
+het Besluit bouwwerken leefomgeving of NTA 8800. De cijfers onder Energie zijn geometrische
+invoergegevens en een indicatief transmissieverlies, afgeleid van de opgegeven aannames. Een
+geregistreerde berekening vereist gecertificeerde software en een erkend adviseur.</p>
 
 <h2 id="aansprakelijkheid">Aansprakelijkheid</h2>
 <p>Voor zover de wet dat toestaat aanvaardt de maker <b>geen enkele aansprakelijkheid</b> voor schade
@@ -1186,6 +1249,10 @@ by an appropriately qualified professional.</li>
 </ul>
 <p>Permit-application requirements follow from applicable regulation and the requirements of the
 competent authority. Wallgraph does not verify those requirements.</p>
+<p>Wallgraph produces no BENG calculation, no energy label and no statement of compliance with the Bbl
+(Besluit bouwwerken leefomgeving) or NTA 8800. The figures under Energy are geometric inputs and an
+indicative transmission figure derived from the stated assumptions. A registered calculation requires
+attested software and a certified adviser.</p>
 
 <h2 id="liability">Liability</h2>
 <p>To the fullest extent permitted by law the author accepts <b>no liability</b> for any damage

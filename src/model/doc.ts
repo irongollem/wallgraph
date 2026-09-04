@@ -8,6 +8,7 @@ import type { Furnishing } from "./furnishing";
 import type { Route } from "./route";
 import type { RouteContinuation } from "./continuation";
 import type { RoomName } from "./room";
+import type { EnergyAssumptions } from "./energy";
 import { newDocGuid } from "./guid";
 
 export type Id = string;
@@ -95,6 +96,14 @@ export interface Opening {
   sillHeight?: number;
   /** mm. Absent means the kind's default; read via openingHeight(). */
   height?: number;
+  /**
+   * Thermal transmittance of the whole element (kozijn and leaf), W/m²K.
+   * Absent means not stated; read via openingUOf(), which always returns
+   * this value where present -- an authored figure is a fact about the
+   * element regardless of the wall it sits in -- and otherwise falls back to
+   * the document's windowU/doorU default, but only within an envelope wall.
+   */
+  uValue?: number;
 }
 
 /**
@@ -188,6 +197,15 @@ export interface Wall {
    * as a wall is redrawn or a room stops closing. Absent means "left".
    */
   facadeSide?: "left" | "right";
+  /**
+   * Thermal resistance of the whole construction, m²K/W. Absent means not
+   * stated; read via wallRcOf(), which always returns this value where
+   * present -- an authored figure is a fact about the wall regardless of
+   * whether it is part of the envelope -- and otherwise falls back to the
+   * document's wallRc default, but only for an envelope wall (one that
+   * states a facade).
+   */
+  rc?: number;
   /**
    * Pen colour as "#rrggbb", the same statement SymbolInstance.color makes:
    * black is what is there, red what is to be built, yellow what goes. Absent
@@ -505,6 +523,12 @@ export interface PlanDoc {
   groundMm?: number;
   /** Authored vertical links between floor-local route endpoints. */
   continuations?: RouteContinuation[];
+  /**
+   * Document-level thermal defaults for the BENG geometry takeoff. Absent
+   * means none stated -- a plan drawn before this existed, or one that never
+   * gives its envelope a figure. See model/energy.ts and core/energy.ts.
+   */
+  energy?: EnergyAssumptions;
   /** Storeys, lowest first: floors[0] is the ground floor, the storey picker
    *  and floorElevation() both rely on that order. */
   floors: Floor[];

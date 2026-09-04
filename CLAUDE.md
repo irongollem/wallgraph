@@ -247,6 +247,36 @@ same difference as between a stair's stepped body here and the single flight sol
 What both read from one place is `furnishingZ0()`: on the floor, or `OVERHEAD_Z0_MM` for the wall
 cabinet and the afzuigkap that hang.
 
+**`envelopeTakeoff()`** — the geometric input of a BENG-berekening (NTA 8800), read off the same
+graph: verliesoppervlak Als, gebruiksoppervlak Ag, the compactness Als/Ag, bruto inhoud per storey and
+glazing per compass sector. **A wall is in the thermal envelope exactly when it states a facade.**
+`facadeMm` is the document's one statement that a wall is the building's exterior skin; a wall without
+one is internal or a party wall, and a party wall to a heated neighbour is not loss area. The room probe
+the IFC export uses for `IsExternal` answers a different question and is not used here. The envelope
+wall area is the MITERED clad face from `resolveFloor()`, `facadeSideOf()` deciding which face, times
+`wallHeight()` floor to floor — a ceiling is a finish and does not enter — with openings deducted once
+by the rule `floorSurface()` uses. The facade skin's own thickness is not added to the face length. A
+storey's plate is the sum of `Room.bvoAreaMm2`, which lies at the facade's outer face where one is
+stated and on the centerline elsewhere; the ground floor plate and the roof are plates, the roof being
+the top storey's plate plus whatever a set-back leaves uncovered below, since there is no roof object.
+An upper storey standing outside the one below is flagged (`overhang`), never measured. Orientation is
+the outward normal, `perp` of the tangent and negated for a right-hand facade, turned through
+`northDeg`; without a north direction it is null rather than guessed. The takeoff also counts what the
+document does not say: walls with an unroomed face and no facade (`unstatedExterior`), and facades whose
+clad side looks into a room (`inwardFacades`). Reported beside the figures, never corrected.
+
+**A thermal figure is authored; a preset only fills fields.** `Wall.rc` and `Opening.uValue` are the
+element's own; `PlanDoc.energy` carries the plan defaults, which `wallRcOf()` / `openingUOf()` in
+[energy.ts](src/model/energy.ts) apply only to a facade wall and its openings — an own value is read
+wherever it stands, a default never reaches an interior wall. `INSULATION_CLASSES` and `GLAZING_TYPES`
+write those defaults and store nothing of themselves; the select shows the class the figures happen to
+match, or "aangepast". `transmissionEstimate()` is H_T = Σ U·A with U = 1/(Rc + `SURFACE_R`) and a
+kWh/year figure at `HEATING_DEGREE_DAYS`: transmission only, no ventilation, infiltration, gains,
+thermal bridges or installations, and null when nothing carries a value. It is framed as indicative
+wherever it appears and is not an NTA 8800 energiebehoefte; the disclaimer says so. The IFC export
+writes the resulting U as `ThermalTransmittance` on the wall, window and door psets so attested software
+can read it. Verified by [tests/energy.test.ts](tests/energy.test.ts).
+
 ## Adding a symbol
 
 Symbols live in `src/render/symbols/<category>.ts` and are aggregated by
@@ -432,6 +462,18 @@ the SVG group and its own DXF layer instead.
   worker persists beyond a tab. A cache-first strategy could continue serving an old
   editor. The cache is used only when the network fails; `check:seo` enforces this order.
 
+- **Enabling a facade picks the side once, then stores it.** The cladding checkbox sets
+  `facadeSide` to the side no room bounds at that moment (`outwardSide()` in
+  [rooms.ts](src/core/rooms.ts)) and leaves it absent, meaning "left", when both or neither side is
+  bounded. It is not re-derived afterwards, for the reason `facadeSide` is stored at all: the probe
+  flips when a wall is redrawn or a room stops closing. A facade enabled before its rooms close can
+  therefore face inward, which `envelopeTakeoff()` reports rather than measuring the inner face in
+  silence.
+- **A pinned fold-out is capped in the wide layout.** An open `.plan-body` scrolls within a
+  `max-height` there, so an expanded Vergunningsblad or Energie section cannot squeeze the inspector
+  above it to nothing. The compact sheet scrolls as a whole and carries no cap: nested scrolling under
+  a finger is worse than a long sheet.
+
 ## Licensing constraint
 
 Wallgraph is **AGPL-3.0-only**, dual-licensed — Jeffrey Ernst is sole copyright holder and
@@ -481,3 +523,10 @@ before changing one:
 - Wall surface counts the two faces of a wall plus the reveals through it. A reveal is measured over
   the structural thickness only — cladding makes it deeper, but that is facade work — and a floor
   build-up is not modelled. A ceiling is one height per room, not a plenum with its own geometry.
+- There is no roof. The takeoff treats the top storey's plate as a flat roof and a set-back's
+  uncovered plate as a terrace roof; a pitched roof, dormer or roof window is not modelled, the
+  underside of an overhang is flagged and not measured, and the envelope face is the structural face,
+  not the outer face of the facade skin.
+- The energy figure is transmission-only at one fixed degree-day figure. The insulation and glazing
+  presets are indicative table values, not a per-year tabulation of the regulations, and nothing
+  checks a stated Rc or U against what the Bbl requires.

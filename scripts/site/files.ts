@@ -103,6 +103,9 @@ automation must use the document channels described above.
   accuracy, completeness, regulatory compliance or suitability for a particular purpose.
 - Area calculations are derived from the drawing. Wallgraph does not issue a certified NEN 2580
   measurement report.
+- Wallgraph produces no BENG calculation and no energy label. The figures under Energy are geometric
+  input plus an indicative transmission figure derived from stated assumptions, not a registered
+  calculation.
 - Wallgraph does not perform structural, fire-safety or services-design assessments. Work requiring
   professional verification must be reviewed by an appropriately qualified person.
 - The user is responsible for the drawing, its verification and its use.

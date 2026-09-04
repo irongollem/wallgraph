@@ -76,6 +76,7 @@ import { furnishingBox } from "../core/furnishing";
 import { furnishingZ0 } from "../core/furnishing3d";
 import { getSymbol, SymbolDef, SymbolCategory } from "../render/symbols";
 import { Placed, LocalBox, worldPoint, symbolFootprintCorners } from "../core/placed";
+import { wallRcOf, openingUOf, uFromRc } from "../model/energy";
 import { Vec, v, add, sub, scale, norm, perp, len, mid, pointInPolygon } from "../geometry/vec";
 import { saveViaHost, downloadBlob } from "./save";
 
@@ -732,6 +733,10 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
 
   const boolValue = (b: boolean): IfcArg => typed("IFCBOOLEAN", enumv(b ? "T" : "F"));
   const labelValue = (s: string): IfcArg => typed("IFCLABEL", str(s));
+  /** Rounded to 3 decimals -- ample precision for a figure derived from a
+   *  two-decimal Rc/U input, and legible in the file. */
+  const transmittanceValue = (u: number): IfcArg =>
+    typed("IFCTHERMALTRANSMITTANCEMEASURE", real(Math.round(u * 1000) / 1000));
 
   /**
    * Attaches one IFCPROPERTYSET to `elementId` via IFCRELDEFINESBYPROPERTIES,
@@ -881,6 +886,10 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
       if (external !== undefined) wallProps.push(ref(propValue("IsExternal", boolValue(external))));
       if (wall.loadBearing !== undefined) wallProps.push(ref(propValue("LoadBearing", boolValue(wall.loadBearing))));
       if (wall.fireRating !== undefined) wallProps.push(ref(propValue("FireRating", labelValue(fireLabel(wall.fireRating)))));
+      const wallRc = wallRcOf(doc, wall);
+      if (wallRc !== null) {
+        wallProps.push(ref(propValue("ThermalTransmittance", transmittanceValue(uFromRc(wallRc, "wall")))));
+      }
       attachPropertySet(wallEntity, `${wall.id}:pset`, "Pset_WallCommon", wallProps);
 
       // ── material ─────────────────────────────────────────────────────────
@@ -951,6 +960,10 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
           // tri-state), so only `true` is ever written.
           if (opening.selfClosing === true) fillProps.push(ref(propValue("SelfClosing", boolValue(true))));
           if (external !== undefined) fillProps.push(ref(propValue("IsExternal", boolValue(external))));
+          const openingU = openingUOf(doc, wall, opening);
+          if (openingU !== null) {
+            fillProps.push(ref(propValue("ThermalTransmittance", transmittanceValue(openingU))));
+          }
           const fillPsetName = opening.kind === "door" ? "Pset_DoorCommon" : "Pset_WindowCommon";
           attachPropertySet(fillEntity, `${opening.id}:fillpset`, fillPsetName, fillProps);
         }
