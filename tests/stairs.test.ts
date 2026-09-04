@@ -3,12 +3,12 @@
 // its selection frame and the export crop all use.
 import {
   Stair, ResolvedStair, StairKind, STAIR_KINDS, stairDefaults, stairParams, stairFields,
-  clampStair, stairAngle, inheritsRise, isSpiral, stairTurns, setStairTurn, turnCount,
+  clampStair, stairAngle, inheritsRise, isSpiral, stairTurns, setStairTurn, turnCount, STAIR_USES,
 } from "../src/model/stair";
 import {
   stairBox, stairCorners, stairHit, spiralOf, stairRun, straightTreads, landingSplit,
   stairMetrics, cutTread, stairNote, stairNoteAt, CUT_HEIGHT, NOTE_OFFSET,
-  resolveStair, stairIssues, STAIR_LIMITS,
+  resolveStair, stairIssues, STAIR_FIGURES, stairFigures,
 } from "../src/core/stair";
 import { turnAbout } from "../src/core/placed";
 import { STAIRS, getStair } from "../src/render/stairs";
@@ -230,7 +230,7 @@ for (const kind of STAIR_KINDS) {
   const codes = stairIssues(absurd).map(i => i.code);
   check("four treads up four metres is flagged", codes.includes("riserHigh"), codes.join(","));
   check("the flag names the figure and what it is read against",
-    stairIssues(absurd)[0]!.value === 800 && stairIssues(absurd)[0]!.limit === STAIR_LIMITS.riserMax,
+    stairIssues(absurd)[0]!.value === 800 && stairIssues(absurd)[0]!.limit === stairFigures(undefined).riserMax,
     JSON.stringify(stairIssues(absurd)[0]));
   check("the annotation carries the flag", (stairNote(absurd) ?? "").endsWith("!"), String(stairNote(absurd)));
 
@@ -251,6 +251,53 @@ for (const kind of STAIR_KINDS) {
   check("climbing irons have nothing to read", stairIssues(mk("klimijzers")).length === 0);
   check("a steep ramp is flagged",
     stairIssues(mk("hellingbaan", { rise: 900 })).some(i => i.code === "slopeSteep"));
+}
+
+/* ── which figures a stair is read against ── */
+
+{
+  const F = STAIR_FIGURES;
+  check("a woonfunctie takes the gentler flight",
+    F.woonfunctie.riserMax < F.overig.riserMax && F.woonfunctie.goingMin > F.overig.goingMin);
+  const wide = stairFigures(undefined);
+  check("no use stated reads against the widest margin of every set",
+    wide.riserMax === Math.max(F.woonfunctie.riserMax, F.overig.riserMax)
+    && wide.goingMin === Math.min(F.woonfunctie.goingMin, F.overig.goingMin)
+    && wide.widthMin === Math.min(F.woonfunctie.widthMin, F.overig.widthMin));
+
+  // An ordinary bedrijfstrap: 14 risers of 200 with a 190 going.
+  const unit = { treads: 13, rise: 2800, going: 190 };
+  const asDwelling = stairIssues(mk("steektrap", { ...unit, use: "woonfunctie" })).map(i => i.code);
+  check("read as a woonfunctie it is flagged on both counts",
+    asDwelling.includes("riserHigh") && asDwelling.includes("goingShort"), asDwelling.join(","));
+  check("read as another gebruiksfunctie it is ordinary",
+    stairIssues(mk("steektrap", { ...unit, use: "overig" })).length === 0,
+    JSON.stringify(stairIssues(mk("steektrap", { ...unit, use: "overig" }))));
+  check("and with no use stated it is ordinary too",
+    stairIssues(mk("steektrap", unit)).length === 0, JSON.stringify(stairIssues(mk("steektrap", unit))));
+  check("the limit named is the stated use's",
+    stairIssues(mk("steektrap", { ...unit, use: "woonfunctie" })).find(i => i.code === "riserHigh")!.limit
+      === F.woonfunctie.riserMax);
+  check("a woningtrap is ordinary under every reading",
+    stairIssues(mk("steektrap", { use: "woonfunctie" })).length === 0
+    && stairIssues(mk("steektrap", { use: "overig" })).length === 0
+    && stairIssues(mk("steektrap")).length === 0);
+  check("a going short for every use is still flagged unstated",
+    stairIssues(mk("steektrap", { going: 180 })).some(i => i.code === "goingShort"));
+
+  const schema = planSchema("");
+  const doc = emptyDoc();
+  doc.floors[0]!.stairs = [{ ...mk("steektrap"), use: "overig" }];
+  check("a stated use validates", validate(schema, doc).length === 0, validate(schema, doc).join(" | "));
+  const bad = JSON.parse(JSON.stringify(doc));
+  bad.floors[0].stairs[0].use = "kantoor";
+  check("an unknown use is rejected", validate(schema, bad).length > 0);
+
+  for (const lang of ["nl", "en"] as const) {
+    const names = (resources[lang].translation as Record<string, unknown>).stairUse as Record<string, unknown>;
+    check(`${lang} names every use and the unstated case`,
+      ["none", ...STAIR_USES].every(u => typeof names[u] === "string"));
+  }
 }
 
 /* ── turns ── */

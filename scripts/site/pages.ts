@@ -9,6 +9,7 @@ import { furnishingMark } from "../../src/render/furnishing";
 import { recordSymbol, type Prim } from "../../src/io/record";
 import { primSvg } from "../../src/io/svg";
 import { resolveFloor } from "../../src/core/resolve";
+import { STAIR_FIGURES } from "../../src/core/stair";
 import { openingMarks } from "../../src/io/marks";
 import {
   WINDOW_KINDS, DOOR_KINDS, type Sash, type Floor, type OpeningKind,
@@ -381,7 +382,12 @@ er een eigen hoogte is ingevuld, wat een trap naar een entresol naast een vide n
 van 15 treden heeft 16 optreden, dus 2800 mm geeft een optrede van 175 en een loopvergelijking van 570.
 De treden, de looplijn, de pijl en de plaats van de breuklijn volgen daaruit. Het paneel zet de uitkomst
 naast de invoer en meldt in rood waar een maat buiten het gebruikelijke valt; Wallgraph toetst geen
-regelgeving. <kbd>R</kbd> draait een kwartslag om het midden van de trap en <kbd>M</kbd> spiegelt, ook
+regelgeving. Welke maten gebruikelijk zijn hangt af van de gebruiksfunctie in het paneel: voor een
+woonfunctie een optrede van ten hoogste ${STAIR_FIGURES.woonfunctie.riserMax} en een aantrede van ten
+minste ${STAIR_FIGURES.woonfunctie.goingMin} mm, voor een andere gebruiksfunctie
+${STAIR_FIGURES.overig.riserMax} en ${STAIR_FIGURES.overig.goingMin}. Een trap zonder opgegeven
+gebruiksfunctie wordt tegen de ruimste marge gelezen, zodat een trap die voor enige gebruiksfunctie
+gewoon is niet wordt gemeld. <kbd>R</kbd> draait een kwartslag om het midden van de trap en <kbd>M</kbd> spiegelt, ook
 vóór het plaatsen. Een trap die draait heeft een draairichting in het paneel, linksom of rechtsom; bij
 een trap met onder- en bovenkwart staat elk kwart daar apart, zodat de trap boven naast zichzelf
 terugkomt of juist naar de andere kant verspringt. De pijl wijst altijd van beneden naar boven; een trap die naar beneden gaat is
@@ -724,7 +730,11 @@ states one of its own, which a flight up to a mezzanine beside a void needs. A f
 16 risers, so a 2800 mm storey gives a 175 riser and a walking rule of 570. The treads, the walking
 line, the arrow and where the break line falls all follow from that. The panel puts the results beside
 the inputs and states in red where a figure falls outside the ordinary; Wallgraph does not check
-regulations. <kbd>R</kbd> turns a quarter about the middle of the stair and <kbd>M</kbd> mirrors,
+regulations. Which figures are ordinary depends on the use set in the panel: for a dwelling
+(woonfunctie) a riser of at most ${STAIR_FIGURES.woonfunctie.riserMax} and a going of at least
+${STAIR_FIGURES.woonfunctie.goingMin} mm, for any other use ${STAIR_FIGURES.overig.riserMax} and
+${STAIR_FIGURES.overig.goingMin}. A stair with no use stated is read against the widest margin, so a
+flight that is ordinary for some use is not flagged. <kbd>R</kbd> turns a quarter about the middle of the stair and <kbd>M</kbd> mirrors,
 before placing as well as after. A stair that turns states its direction in the panel, clockwise or
 anticlockwise; a stair with a quarter at each end sets each quarter on its own, so it either comes
 back beside itself at the top or leaves to the other side. The arrow always points from the bottom of
@@ -991,7 +1001,8 @@ verplicht — weglaten betekent niet &ldquo;recht&rdquo;, het betekent dat de bo
 <li>Een trap draagt zijn eigen maten — <code>width</code>, <code>going</code>, <code>treads</code> en
 <code>rise</code> — omdat dezelfde trapsoort per plattegrond anders uitvalt. De treden zelf staan er
 niet in. Een trap met <code>n</code> treden heeft <code>n+1</code> optreden, dus de optrede en de
-loopvergelijking volgen uit <code>rise</code>, net als de trede waar het snijvlak valt.</li>
+loopvergelijking volgen uit <code>rise</code>, net als de trede waar het snijvlak valt. <code>use</code>
+noemt de gebruiksfunctie waartegen de maten gelezen worden; weggelaten geldt de ruimste marge.</li>
 </ul>
 
 <h2 id="schema">JSON Schema</h2>
@@ -1044,7 +1055,8 @@ required — omitting it does not mean &ldquo;straight&rdquo;, it means the arc 
 <li>A stair carries its own dimensions — <code>width</code>, <code>going</code>, <code>treads</code> and
 <code>rise</code> — because the same kind is built to a different size in every plan. The treads
 themselves are not stored. A flight of <code>n</code> treads has <code>n+1</code> risers, so the riser
-height, the walking rule and the tread the section plane cuts all follow from <code>rise</code>.</li>
+height, the walking rule and the tread the section plane cuts all follow from <code>rise</code>.
+<code>use</code> names the use the figures are read against; absent, the widest margin applies.</li>
 </ul>
 
 <h2 id="schema">JSON Schema</h2>

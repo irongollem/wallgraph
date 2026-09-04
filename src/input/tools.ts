@@ -12,6 +12,7 @@ import type { RoomUse } from "../model/room";
 import {
   Stair, ResolvedStair, StairKind, StairParams, stairDefaults, stairFields, clampStair,
   stairAngle, inheritsRise,
+  type StairUse,
 } from "../model/stair";
 import { Vide, VideSize, VIDE_DEFAULT, clampVide } from "../model/vide";
 import {
@@ -250,6 +251,8 @@ export class Tools {
    */
   stairKind: StairKind = "steektrap";
   stairSize: StairParams = stairDefaults("steektrap");
+  /** The gebruiksfunctie the next stair is placed with; sticky, like the kind. */
+  stairUse: StairUse | undefined = undefined;
   stairRotation = 0;
   stairMirrored = false;
 
@@ -647,6 +650,12 @@ export class Tools {
 
   setStairSize(p: StairParams): void {
     this.stairSize = clampStair(p);
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  setStairUse(use: StairUse | undefined): void {
+    this.stairUse = use;
     this.onToolChange();
     this.requestRender();
   }
@@ -1946,6 +1955,7 @@ export class Tools {
     // Stored whenever the kind reads it, including a deliberate 0: leaving it
     // out means "the kind's own default", which is not the same statement.
     if (stairFields(st.kind).well) st.well = p.well;
+    if (this.stairUse) st.use = this.stairUse;
     if (this.symbolColor) st.color = this.symbolColor;
     return st;
   }

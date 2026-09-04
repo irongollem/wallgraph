@@ -76,6 +76,18 @@ export const STAIR_KINDS: readonly StairKind[] = [
   "hellingbaan",
 ];
 
+/**
+ * The gebruiksfunctie a stair serves, in the Bbl sense: a woonfunctie is built
+ * to a gentler flight than any other use, so the figures a stair is read
+ * against (core/stair.ts, stairFigures()) follow from this. Absent means "not
+ * stated"; such a stair is read against the widest margin of every set rather
+ * than against one of them, so a flight that is ordinary for some use is not
+ * flagged for the lack of a statement.
+ */
+export type StairUse = "woonfunctie" | "overig";
+
+export const STAIR_USES: readonly StairUse[] = ["woonfunctie", "overig"];
+
 export interface Stair {
   id: Id;
   kind: StairKind;
@@ -105,6 +117,8 @@ export interface Stair {
   rise?: number;
   /** Absent where the kind opens no well; see the header. */
   well?: number;
+  /** Which figures the stair is read against; see StairUse. */
+  use?: StairUse;
   /** Pen colour "#rrggbb"; absent means the plan's default ink. */
   color?: string;
 }

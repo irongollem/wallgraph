@@ -10,11 +10,11 @@ import { Tools } from "../input/tools";
 import { stairsOf, floorHeight } from "../model/doc";
 import {
   Stair, ResolvedStair, StairKind, STAIR_KINDS, stairDefaults, stairFields, stairParams,
-  clampStair, stairAngle, inheritsRise, stairTurns, setStairTurn, turnCount,
-  type StairParams, type Turn,
+  clampStair, stairAngle, inheritsRise, stairTurns, setStairTurn, turnCount, STAIR_USES,
+  type StairParams, type StairUse, type Turn,
 } from "../model/stair";
 import {
-  stairBox, stairMetrics, gradient, resolveStair, stairIssues, STAIR_LIMITS,
+  stairBox, stairMetrics, gradient, resolveStair, stairIssues, stairFigures, STAIR_LIMITS,
 } from "../core/stair";
 import { turnAbout } from "../core/placed";
 import { isMixed } from "../core/mixed";
@@ -140,7 +140,8 @@ export function renderStairTool(
   }
   host.append(grid);
 
-  sizeRows(rows, tools.stairKind, tools.stairSize, next => tools.setStairSize(next));
+  useRow(rows, tools.stairUse, use => tools.setStairUse(use));
+  sizeRows(rows, tools.stairKind, tools.stairSize, tools.stairUse, next => tools.setStairSize(next));
   // The same rotation field a placed stair has. R turns a quarter at a time,
   // which is what a stairwell usually wants; this is how any other angle is set.
   rows.numRow(t("panel.rotation"), (tools.stairRotation * 180) / Math.PI,
@@ -179,8 +180,9 @@ export function renderStairProps(store: Store, tools: Tools, rows: PaneRows, id:
       // A ramp never inherits a storey height, so it needs one of its own.
       if (!inheritsRise(kind) && s.rise === undefined) s.rise = stairDefaults(kind).rise;
     }));
+  useRow(rows, stair.use, use => mut(s => { if (use) s.use = use; else delete s.use; }));
 
-  sizeRows(rows, stair.kind, stairParams(stair), next => mut(s => {
+  sizeRows(rows, stair.kind, stairParams(stair), stair.use, next => mut(s => {
     s.width = next.width;
     s.going = next.going;
     s.treads = next.treads;
@@ -215,11 +217,11 @@ export function renderStairProps(store: Store, tools: Tools, rows: PaneRows, id:
 }
 
 /**
- * Properties of every selected stair at once: colour is the one field a
- * bulk edit is reached for -- turning, mirroring and deleting a group already
- * apply to every member through the ordinary R/M/Del paths (see Tools), and
- * a stair's other parameters (kind, going, treads, rise) have no shared
- * reading across a mixed group the way a wall's thickness does.
+ * Properties of every selected stair at once: colour and the gebruiksfunctie
+ * are the fields a bulk edit is reached for -- turning, mirroring and deleting
+ * a group already apply to every member through the ordinary R/M/Del paths
+ * (see Tools), and a stair's other parameters (kind, going, treads, rise) have
+ * no shared reading across a mixed group the way a wall's thickness does.
  */
 export function renderStairBulk(store: Store, tools: Tools, rows: PaneRows, ids: readonly string[]): void {
   const stairs = stairsOf(store.floor).filter(s => ids.includes(s.id));
@@ -233,7 +235,26 @@ export function renderStairBulk(store: Store, tools: Tools, rows: PaneRows, ids:
       for (const s of stairsOf(store.floorOf(d))) if (ids.includes(s.id)) { if (hex) s.color = hex; else delete s.color; }
     }, "color:" + ids.join(","));
   }, { mixed });
+  useRow(rows, first.use, use => store.mutate(d => {
+    for (const s of stairsOf(store.floorOf(d))) if (ids.includes(s.id)) { if (use) s.use = use; else delete s.use; }
+  }), { mixed: isMixed(stairs, s => s.use ?? "") });
   rows.dangerRow(t("panel.deleteOpening"), () => tools.deleteSelected());
+}
+
+/**
+ * The gebruiksfunctie the stair is read against. A blank choice is a value:
+ * it reads the stair against the widest margin of every set (stairFigures()).
+ */
+function useRow(
+  rows: PaneRows, value: StairUse | undefined, onCommit: (use: StairUse | undefined) => void,
+  opts?: { mixed?: boolean },
+): void {
+  const options: Array<[string, string]> = [
+    ["", t("stairUse.none")],
+    ...STAIR_USES.map(u => [u, t("stairUse." + u)] as [string, string]),
+  ];
+  rows.selRow(t("panel.stairUse"), value ?? "", options,
+    v => onCommit(v ? v as StairUse : undefined), opts);
 }
 
 /**
@@ -289,21 +310,21 @@ function metricRows(rows: PaneRows, s: ResolvedStair): void {
 
 /** The parameter rows a kind actually reads; see stairFields(). */
 function sizeRows(
-  rows: PaneRows, kind: StairKind, p: StairParams, commit: (next: StairParams) => void,
-  riseInherited = false,
+  rows: PaneRows, kind: StairKind, p: StairParams, use: StairUse | undefined,
+  commit: (next: StairParams) => void, riseInherited = false,
 ): void {
   const fields = stairFields(kind);
   const set = (patch: Partial<StairParams>): void => commit(clampStair({ ...p, ...patch }));
-  const L = STAIR_LIMITS;
+  const F = stairFigures(use);
   rows.numRow(t("panel.stairWidth"), p.width, n => set({ width: n }), 50,
-    { title: t("panel.stairWidthHelp", { min: L.widthMin }) });
+    { title: t("panel.stairWidthHelp", { min: F.widthMin }) });
   if (fields.going) {
     rows.numRow(t("panel.stairGoing"), p.going, n => set({ going: n }), 10,
-      { title: t("panel.stairGoingHelp", { min: L.goingMin }) });
+      { title: t("panel.stairGoingHelp", { min: F.goingMin }) });
   }
   if (fields.treads) {
     rows.numRow(t("panel.stairTreads"), p.treads, n => set({ treads: n }), 1,
-      { title: t("panel.stairTreadsHelp", { max: L.riserMax }) });
+      { title: t("panel.stairTreadsHelp", { max: F.riserMax }) });
   }
   rows.numRow(t("panel.stairRise"), p.rise, n => set({ rise: n }), 100,
     { title: riseInherited ? t("panel.stairRiseInherited") : t("panel.stairRiseHelp") });
@@ -321,7 +342,10 @@ function footprint(s: ResolvedStair): string {
 }
 
 function draftOf(tools: Tools): ResolvedStair {
-  return { id: "", kind: tools.stairKind, x: 0, y: 0, rotation: 0, ...clampStair(tools.stairSize) };
+  return {
+    id: "", kind: tools.stairKind, x: 0, y: 0, rotation: 0, ...clampStair(tools.stairSize),
+    ...(tools.stairUse ? { use: tools.stairUse } : {}),
+  };
 }
 
 function el(tag: string, cls?: string): HTMLElement {

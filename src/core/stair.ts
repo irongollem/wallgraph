@@ -8,6 +8,7 @@
 import { Floor, floorHeight } from "../model/doc";
 import {
   Stair, ResolvedStair, StairKind, stairParams, stairDefaults, inheritsRise,
+  type StairUse,
 } from "../model/stair";
 import { Vec, v } from "../geometry/vec";
 import { boxCorners, boxHit, worldPoint, type LocalBox } from "./placed";
@@ -232,20 +233,50 @@ export function stairHit(s: ResolvedStair, p: Vec, margin = 0): boolean {
 }
 
 /**
- * What a stair is ordinarily built to in the Netherlands. These are stated so
- * the figures are in front of whoever is drawing, and reported against — they
- * are not enforced and are not a compliance check. Wallgraph draws what it is
- * given; verification of a drawing remains the user's (see the disclaimer).
+ * What a stair is ordinarily built to in the Netherlands, per gebruiksfunctie.
+ * These are stated so the figures are in front of whoever is drawing, and
+ * reported against — they are not enforced and are not a compliance check.
+ * Wallgraph draws what it is given; verification of a drawing remains the
+ * user's (see the disclaimer).
  *
- * The woningtrap figures are the familiar ones: an optrede of at most 188, an
- * aantrede of at least 220, a free width of at least 800. The `any` pair is a
- * far looser sanity bound that holds for every kind — a 4-tread flight climbing
- * 4 m gives an 800 mm optrede, which is not a stair whatever it is called.
+ * A woonfunctie takes the gentler flight: an optrede of at most 188 and an
+ * aantrede of at least 220. Every other gebruiksfunctie takes 210 and 185. The
+ * free width is 800 for both.
+ */
+export interface StairFigures {
+  riserMax: number;
+  goingMin: number;
+  widthMin: number;
+}
+
+export const STAIR_FIGURES: Record<StairUse, StairFigures> = {
+  woonfunctie: { riserMax: 188, goingMin: 220, widthMin: 800 },
+  overig: { riserMax: 210, goingMin: 185, widthMin: 800 },
+};
+
+/**
+ * The figures a stair is read against: those of its stated use, or with none
+ * stated the widest margin over every set — the highest ceiling and the lowest
+ * floor — so a flight that is ordinary for some use is not flagged for the
+ * lack of a statement.
+ */
+export function stairFigures(use: StairUse | undefined): StairFigures {
+  if (use) return STAIR_FIGURES[use];
+  const all = Object.values(STAIR_FIGURES);
+  return {
+    riserMax: Math.max(...all.map(f => f.riserMax)),
+    goingMin: Math.min(...all.map(f => f.goingMin)),
+    widthMin: Math.min(...all.map(f => f.widthMin)),
+  };
+}
+
+/**
+ * Bounds that hold whatever the use. The walking rule is a comfort figure,
+ * stated beside the reading and not flagged. The `any` pair is a far looser
+ * sanity bound that holds for every kind — a 4-tread flight climbing 4 m gives
+ * an 800 mm optrede, which is not a stair whatever it is called.
  */
 export const STAIR_LIMITS = {
-  riserMax: 188,
-  goingMin: 220,
-  widthMin: 800,
   walkRuleMin: 570,
   walkRuleMax: 630,
   riserMaxAny: 300,
@@ -266,7 +297,7 @@ export interface StairIssue {
 }
 
 /**
- * Kinds the woningtrap figures are the yardstick for. The rest are left to the
+ * Kinds the per-use figures are the yardstick for. The rest are left to the
  * loose bound: a vlizotrap is steep by definition, a spiltrap turns tighter than
  * a straight flight is allowed to, and an escalator is machinery with a fixed
  * geometry of its own.
@@ -291,12 +322,13 @@ export function stairIssues(s: ResolvedStair): StairIssue[] {
   if (m.riser === null) return out;   // klimijzers: nothing in plan to read
 
   const strict = isWalkingStair(s.kind);
-  const riserMax = strict ? L.riserMax : L.riserMaxAny;
+  const F = stairFigures(s.use);
+  const riserMax = strict ? F.riserMax : L.riserMaxAny;
   if (m.riser > riserMax) out.push({ code: "riserHigh", value: m.riser, limit: riserMax });
   if (m.riser < L.riserMinAny) out.push({ code: "riserLow", value: m.riser, limit: L.riserMinAny });
   if (strict) {
-    if (p.going < L.goingMin) out.push({ code: "goingShort", value: p.going, limit: L.goingMin });
-    if (p.width < L.widthMin) out.push({ code: "widthNarrow", value: p.width, limit: L.widthMin });
+    if (p.going < F.goingMin) out.push({ code: "goingShort", value: p.going, limit: F.goingMin });
+    if (p.width < F.widthMin) out.push({ code: "widthNarrow", value: p.width, limit: F.widthMin });
   }
   return out;
 }

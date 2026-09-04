@@ -1,7 +1,8 @@
 // Published JSON Schema and the validator used by tests. Runtime enums are
 // imported from their source, and document objects reject unknown properties.
 import { SYMBOL_TYPES } from "../../src/render/symbols";
-import { STAIR_KINDS } from "../../src/model/stair";
+import { STAIR_KINDS, STAIR_USES } from "../../src/model/stair";
+import { STAIR_FIGURES } from "../../src/core/stair";
 import { COLUMN_SHAPES, STRUCTURE_LIMITS } from "../../src/model/structure";
 import { WALL_MATERIALS } from "../../src/model/doc";
 import {
@@ -789,6 +790,16 @@ export function planSchema(siteUrl: string): JsonSchema {
               "The gap the kind opens: between the flights of a bordestrap, around the " +
               "newel of a spiltrap. Absent means the kind's own default, which is 0 for " +
               "kinds that open none.",
+          },
+          use: {
+            enum: [...STAIR_USES],
+            description:
+              "The gebruiksfunctie the stair serves, which decides the ordinary figures it is " +
+              `read against: a woonfunctie an optrede of at most ${STAIR_FIGURES.woonfunctie.riserMax} ` +
+              `and an aantrede of at least ${STAIR_FIGURES.woonfunctie.goingMin} mm, any other use ` +
+              `${STAIR_FIGURES.overig.riserMax} and ${STAIR_FIGURES.overig.goingMin}. Absent means not ` +
+              "stated; the stair is then read against the widest margin of every set. Reported, " +
+              "never enforced.",
           },
           color: {
             type: "string", pattern: "^#[0-9a-fA-F]{6}$",
