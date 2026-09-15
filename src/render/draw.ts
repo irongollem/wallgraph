@@ -2,7 +2,7 @@
 // this scale render in well under a frame). Layers: grid, rooms, walls,
 // opening decorations, routes, furnishings, symbols, stairs, selection, labels
 // (labels in screen space).
-import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, videsOf, furnishingsOf, structureOf, fireLabel, Underlay, Wall, Id, wallInfill } from "../model/doc";
+import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, videsOf, decksOf, furnishingsOf, structureOf, fireLabel, Underlay, Wall, Id, wallInfill } from "../model/doc";
 import { belowCutPlane } from "../model/structure";
 import { Resolved, OpeningGeom, Junction, ResolvedWall } from "../core/resolve";
 import { Room, roomSize, sizeLabel, looseRoomNames, roomArea } from "../core/rooms";
@@ -12,6 +12,7 @@ import { Vec, add, sub, scale, perp, v, angleOf, dist, fromAngle } from "../geom
 import { getSymbol } from "./symbols";
 import { drawStair, drawStairGhost } from "./stair";
 import { drawVide } from "./vide";
+import { drawDeck } from "./deck";
 import { drawStructure } from "./structure";
 import { drawFurnishing } from "./furnishing";
 import { drawRoute, drawRiserMarks } from "./route";
@@ -449,6 +450,16 @@ export function drawScene(
     drawVide(ctx, vd, {
       px, ink: symbolInk(vd), fallbackLabel: t("vide.label"), cut: COLORS.bg,
       selected: isSel("vide", vd.id),
+      select: COLORS.select, wash: COLORS.selectWash,
+    });
+  }
+
+  // Decks after the vides and under the walls they bear on. A deck is floor,
+  // so the room tint stays.
+  for (const dk of decksOf(floor)) {
+    drawDeck(ctx, dk, {
+      px, ink: symbolInk(dk), fallbackLabel: t("deck.label"),
+      selected: isSel("deck", dk.id),
       select: COLORS.select, wash: COLORS.selectWash,
     });
   }

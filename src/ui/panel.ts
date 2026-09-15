@@ -58,6 +58,7 @@ import {
 } from "../core/join";
 import { removeRoutePoint } from "../core/routegraph";
 import { renderVideProps, renderVideBulk } from "./vide";
+import { renderDeckProps, renderDeckBulk } from "./deck";
 import { renderStructureTool, renderStructureProps, renderStructureBulk } from "./structure";
 import {
   renderRouteTool, renderRouteProps, renderRouteBulk, deviceConnectionRows, boardRows,
@@ -2305,7 +2306,7 @@ export class Panel {
 
     // The structure tool, like the stair tool, keeps its picker and fields in
     // the property area. It places columns, beams and railings as well as the
-    // vide, so a selection of either kind shows above the picker.
+    // vide and the deck, so a selection of any of those kinds shows above the picker.
     const structureSel = (): boolean => {
       if (sel?.kind === "structure") {
         const group = this.store.selectedOf("structure");
@@ -2317,6 +2318,12 @@ export class Panel {
         const group = this.store.selectedOf("vide");
         if (group.length > 1) renderVideBulk(this.store, this.tools, rows, group);
         else renderVideProps(this.store, this.tools, rows, sel.id);
+        return true;
+      }
+      if (sel?.kind === "deck") {
+        const group = this.store.selectedOf("deck");
+        if (group.length > 1) renderDeckBulk(this.store, this.tools, rows, group);
+        else renderDeckProps(this.store, this.tools, rows, sel.id);
         return true;
       }
       return false;

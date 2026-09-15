@@ -309,6 +309,27 @@ const rectSlabVol = volumeOf(rectMesh, SLAB_COLOR);
     `${vol} vs ${rectSlabVol - holeVol}`);
 }
 
+// ── a deck: joist volume plus decking, in timber ───────────────────────────
+
+{
+  const f = rectFloor();
+  const joist = { w: 71, d: 171 };
+  f.decks = [{
+    id: newId("d"), x: 2000, y: 1500, rotation: 0, width: 2400, depth: 3600, joistAxis: "y",
+    joistMm: 600, joist, deckingMm: 18, topMm: 2000,
+  }];
+  // 2400 less one joist width, at 600 centres: four bays, five joists.
+  const joistVol = 5 * joist.w * joist.d * (3600 + 2 * 100);
+  const deckingVol = 2400 * 3600 * 18;
+  const vol = volumeOf(buildSceneMesh(emptyDocWith(f)), DOOR_COLOR);
+  check("a deck adds joist volume plus decking", nearRel(vol, joistVol + deckingVol, 1e-3),
+    `${vol} vs ${joistVol + deckingVol}`);
+  delete f.decks[0]!.topMm;
+  const floorLevel = volumeOf(buildSceneMesh(emptyDocWith(f)), DOOR_COLOR);
+  check("a balklaag at floor level adds its joists and no decking slab", nearRel(floorLevel, joistVol, 1e-3),
+    `${floorLevel} vs ${joistVol}`);
+}
+
 // ── two storeys sit one elevation apart, the lower seated under the slab ────
 
 /** Mitred-ring wall area of rectFloor(), mm² (see the one-storey figure). */

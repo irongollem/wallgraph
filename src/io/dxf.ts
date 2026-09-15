@@ -16,7 +16,7 @@
 // context (see recordSymbol) because the library draws them with canvas calls;
 // their arcs flatten to polylines, which is exact enough at symbol scale and
 // avoids guessing how a mirrored, rotated transform maps onto an ARC.
-import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, stairsOf, videsOf, structureOf, furnishingsOf, routesOf, roomNamesOf, Wall, wallGlazed, wallInfill } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, stairsOf, videsOf, decksOf, structureOf, furnishingsOf, routesOf, roomNamesOf, Wall, wallGlazed, wallInfill } from "../model/doc";
 import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames, roomArea } from "../core/rooms";
@@ -26,6 +26,8 @@ import { recordSymbol, Prim } from "./record";
 import { openingMarks, postMarks } from "./marks";
 import { stairPrims } from "./stair";
 import { videPrims } from "./vide";
+import { deckPrims } from "./deck";
+import { deckRaised } from "../core/deck";
 import { structurePrims } from "./structure";
 import { furnishingPrims } from "./furnishing";
 import { furnishingClass, furnishingOverhead, type FurnishingClass } from "../model/furnishing";
@@ -72,6 +74,13 @@ const LAYER = {
   symbols: "SYMBOLS",
   stairs: "STAIRS",
   vides: "VOIDS",
+  /**
+   * Timber floors. A deck at a height is above the section plane and takes a
+   * layer of its own, for the reason CABINETS-OVERHEAD does: the recorder
+   * cannot carry the dash that marks it on the canvas.
+   */
+  decks: "DECKS",
+  decksOverhead: "DECKS-OVERHEAD",
   /**
    * Load-bearing structure that is not a wall. A column is cut with the walls
    * but is its own trade's setting-out; a beam is overhead and a railing below
@@ -157,7 +166,7 @@ const ROUTE_HEAT_RETOUR_LAYER = "ROUTES-HEATING-RETOUR";
 
 /** ACI colour indices — 7 is "by background", i.e. black on white paper. */
 const LAYER_COLOR: Record<string, number> = {
-  WALLS: 7, GLAZING: 4, PANELS: 8, POSTS: 7, FACADE: 8, LINING: 8, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, ROOMS: 8,
+  WALLS: 7, GLAZING: 4, PANELS: 8, POSTS: 7, FACADE: 8, LINING: 8, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, DECKS: 3, "DECKS-OVERHEAD": 3, ROOMS: 8,
   COLUMNS: 7, BEAMS: 7, RAILINGS: 8,
   CABINETS: 6, "CABINETS-OVERHEAD": 6,
   "ROUTES-ELECTRICAL": 1, "ROUTES-WATER": 5, "ROUTES-VENT": 2, "ROUTES-GAS": 2,
@@ -321,7 +330,7 @@ function emitPrims(w: DxfWriter, layer: string, prims: Prim[]): void {
 export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
   const floor: Floor | undefined = doc.floors[floorIndex] ?? doc.floors[0];
   if (!floor || (floor.walls.length === 0 && floor.symbols.length === 0
-      && stairsOf(floor).length === 0 && videsOf(floor).length === 0
+      && stairsOf(floor).length === 0 && videsOf(floor).length === 0 && decksOf(floor).length === 0
       && structureOf(floor).length === 0
       && furnishingsOf(floor).length === 0 && roomNamesOf(floor).length === 0
       && routesOf(floor).length === 0)) return null;
@@ -368,6 +377,9 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
     for (const rw of resolved.walls.values()) emitPrims(w, LAYER.openings, openingMarks(rw));
 
     for (const vd of videsOf(floor)) emitPrims(w, LAYER.vides, videPrims(vd, t("vide.label")));
+    for (const dk of decksOf(floor)) {
+      emitPrims(w, deckRaised(dk) ? LAYER.decksOverhead : LAYER.decks, deckPrims(dk, t("deck.label")));
+    }
 
     const structureLayer = { column: LAYER.columns, beam: LAYER.beams, railing: LAYER.railings } as const;
     for (const el of structureOf(floor)) emitPrims(w, structureLayer[el.kind], structurePrims(el));

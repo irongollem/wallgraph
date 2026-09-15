@@ -220,6 +220,10 @@ export function planSchema(siteUrl: string): JsonSchema {
             type: "array", items: { $ref: "#/$defs/vide" },
             description: "Openings in this floor's slab. Absent means the storey has none.",
           },
+          decks: {
+            type: "array", items: { $ref: "#/$defs/deck" },
+            description: "Timber floors placed on this storey. Absent means the storey has none.",
+          },
           structure: {
             type: "array", items: { $ref: "#/$defs/structural" },
             description:
@@ -456,6 +460,65 @@ export function planSchema(siteUrl: string): JsonSchema {
           width: { type: "integer", minimum: 200, description: "mm." },
           depth: { type: "integer", minimum: 200, description: "mm." },
           label: { type: "string", description: "What the opening is called on the drawing. Absent means the plain word." },
+          color: {
+            type: "string", pattern: "^#[0-9a-fA-F]{6}$",
+            description: "Pen colour; absent means the plan's default ink.",
+          },
+        },
+      },
+      deck: {
+        type: "object",
+        description:
+          "A timber floor: a balklaag between its supports, or a loft (vliering, entresol) at " +
+          "a height inside the storey. The anchor (x, y) is the centre of the platform; the " +
+          "box is the clear span between the supports, and each joist bears `bearingMm` " +
+          "beyond it at both ends. Joists are set out from both edges in equal bays no wider " +
+          "than `joistMm`. Loads are reported, never checked.",
+        required: ["id", "x", "y", "rotation", "width", "depth", "joistAxis", "joistMm"],
+        additionalProperties: false,
+        properties: {
+          id: { $ref: "#/$defs/id" },
+          x: mm("mm."),
+          y: mm("mm, positive down."),
+          rotation: { type: "number", description: "Radians, clockwise on screen." },
+          width: { type: "integer", minimum: 300, maximum: 20000, description: "mm." },
+          depth: { type: "integer", minimum: 300, maximum: 20000, description: "mm." },
+          joistAxis: {
+            enum: ["x", "y"],
+            description: "Joists run along local x (span = width) or local y (span = depth).",
+          },
+          joistMm: { type: "integer", minimum: 200, maximum: 1200, description: "Joist centres, mm." },
+          joist: {
+            type: "object", additionalProperties: false, required: ["w", "d"],
+            description: "Joist section, mm. Absent means not stated; the takeoff reports it incomplete.",
+            properties: {
+              w: { type: "integer", minimum: 30, maximum: 400 },
+              d: { type: "integer", minimum: 30, maximum: 400 },
+            },
+          },
+          bearingMm: {
+            type: "integer", minimum: 50, maximum: 300,
+            description: "Bearing at each joist end, mm. Absent means 100.",
+          },
+          deckingMm: {
+            type: "integer", exclusiveMinimum: 0, maximum: 50,
+            description: "Decking sheet thickness, mm. Absent means no decking counted.",
+          },
+          topMm: {
+            type: "integer", minimum: 0,
+            description:
+              "Top of the deck above this storey's floor, mm. Absent means the storey's own " +
+              "floor: an ordinary balklaag. A loft states one.",
+          },
+          loadG: {
+            type: "integer", minimum: 0,
+            description: "Permanent load, N/m². Absent means not stated.",
+          },
+          loadQ: {
+            type: "integer", minimum: 0,
+            description: "Variable load, N/m². Absent means not stated.",
+          },
+          label: { type: "string", description: "What the deck is called on the drawing. Absent means the plain word." },
           color: {
             type: "string", pattern: "^#[0-9a-fA-F]{6}$",
             description: "Pen colour; absent means the plan's default ink.",

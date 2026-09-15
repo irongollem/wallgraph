@@ -375,7 +375,9 @@ kozijnstijl en aansluitstijl inbegrepen — onder de namen regel en stijl, maar 
 onderstijl: een deurkozijn is daar een eigen bouwdeel. Een blokopbouw levert een aantal blokken uit het
 blokformaat; een sandwichwand een aantal panelen uit de paneelbreedte. Beplating en spouwisolatie leveren
 platen en vierkante meters op, over de kant van de muur die geen gevel draagt. De staat is per bouwsysteem
-gegroepeerd.</p>
+gegroepeerd. Onder <b>Balklagen</b> staan per balklaag het aantal balken op de overspanning plus de
+oplegging aan beide einden, de twee randbalken en de vloerplaten; een balk wordt nooit gelast, een
+randbalk wel. Een balklaag zonder balkdoorsnede telt alleen de vloerplaat.</p>
 <p>De aannames erboven — de standaardstaflengtes, de zaagsnede, de afschrijving en de plaatmaat — zijn
 per document te wijzigen en gelden voor de hele materiaalstaat; zonder eigen opgave gelden de
 gebruikelijke waarden. Regels en platen worden op de staflengtes genest: eerst de langste stukken, in de
@@ -462,7 +464,7 @@ dezelfde trap, omgedraaid. Een trap op de verdieping eronder schemert door op de
 want daar komt hij aan.</p>
 
 <h2 id="constructie">Constructie</h2>
-<p><kbd>H</kbd> opent het constructiegereedschap: kolom, balk, leuning en vide — de dragende en
+<p><kbd>H</kbd> opent het constructiegereedschap: kolom, balk, leuning, vide en balklaag — de dragende en
 begrenzende delen die geen muur zijn. Geen daarvan komt in de muurgraaf: een kolom staat los van de
 hartlijnen ook waar hij in een muur staat, een balk overspant wat hem draagt, en een leuning begrenst
 een rand zonder een ruimte te omsluiten. Elk is een geplaatst object met eigen maten, zoals een trap,
@@ -485,6 +487,14 @@ gat en de plattegrond van die verdieping tekent het. Een trapgat is hetzelfde: d
 van beneden doorheen komt, getekend op de plattegrond van de verdieping erboven. Het merk is de
 omtrek met een diagonaal uit elke hoek; de vloerkleur eronder wordt weggenomen, want een vide is geen
 vloer.</p>
+<p>Een <b>balklaag</b> is het omgekeerde: een houten vloer waar de verdieping er geen heeft. Zonder hoogte
+is het de vloer van de verdieping zelf, met de balken eronder; met een hoogte is het een vliering of
+entresol binnen de verdieping, en die ligt boven het snijvlak en staat dus gestreept. De rechthoek is de
+vrije overspanning tussen de opleggingen; de balken lopen over de breedte of de diepte, op een
+hart-op-hartmaat die vanaf beide randen wordt uitgezet, zodat de twee randbalken altijd staan. Elke balk
+ligt aan beide einden de opgegeven oplegging verder op zijn steunpunt. Balkdoorsnede, vloerplaat en
+belasting zijn eigen opgaven; een gebruik (wonen, berging, balkon) vult alleen de twee belastingen in met
+indicatieve waarden. Wallgraph toetst een balklaag niet.</p>
 <p>Materiaal is een keuze per element, net als bij een muur, en niet opgegeven is een eigen antwoord.
 De IFC-export schrijft kolom, balk en leuning als eigen elementen met hun maten; de 3D-weergave trekt
 ze op tot hun hoogte. Wallgraph rekent niets aan een constructie na: een kolom of balk is een figuur op
@@ -637,7 +647,7 @@ applicatieserver vereist. De plattegrond blijft na het sluiten van het tabblad b
 <tr><td><kbd>D</kbd> <kbd>N</kbd> <kbd>P</kbd></td><td>deur, raam, doorgang</td></tr>
 <tr><td><kbd>S</kbd></td><td>symbool plaatsen</td></tr>
 <tr><td><kbd>T</kbd></td><td>trap plaatsen</td></tr>
-<tr><td><kbd>H</kbd></td><td>constructie: kolom, balk, leuning, vide</td></tr>
+<tr><td><kbd>H</kbd></td><td>constructie: kolom, balk, leuning, vide, balklaag</td></tr>
 <tr><td><kbd>C</kbd></td><td>inrichting plaatsen</td></tr>
 <tr><td><kbd>Z</kbd></td><td>ruimtes: kader slepen, ruimte aanklikken, ruimte benoemen</td></tr>
 <tr><td><kbd>A</kbd></td><td>meetlint: afstand tussen twee punten</td></tr>
@@ -791,7 +801,9 @@ yields the same studs — king and backing included — under the names rail and
 or jack stud: a door frame is its own element there. A block wall yields a number of blocks from the block
 format; a sandwich wall a number of panels from the panel width. Board lining and cavity insulation yield
 sheets and square metres, over the side of the wall that carries no facade. The takeoff is grouped by
-construction system.</p>
+construction system. Under <b>Decks</b> each deck lists its joists at the clear span plus the bearing at
+both ends, its two rim boards and its decking sheets; a joist is never spliced, a rim board may be. A deck
+without a joist section counts its decking only.</p>
 <p>The assumptions above it — the stock lengths, the saw kerf, the waste allowance and the sheet size —
 can be changed per document and apply to the whole takeoff; without a stated value the ordinary figures
 apply. Plates and rails are nested onto the stock lengths: longest pieces first, into the first stock
@@ -874,7 +886,7 @@ the flight to the top; a stair going down is the same stair, turned around. A fl
 below shows through faintly on the plan above it, which is where it arrives.</p>
 
 <h2 id="structure">Structure</h2>
-<p><kbd>H</kbd> opens the structure tool: column, beam, railing and vide — the load-bearing and guarding
+<p><kbd>H</kbd> opens the structure tool: column, beam, railing, vide and deck — the load-bearing and guarding
 parts that are not walls. None of them enters the wall graph: a column stands free of the centerlines
 even where it sits in a wall, a beam spans whatever carries it, and a railing guards an edge without
 bounding a room. Each is a placed object carrying its own dimensions, like a stair, and the drawing
@@ -895,6 +907,13 @@ floor the hole is cut in rather than being a storey of its own — the slab has 
 that storey draws it. A stairwell opening is the same object: the hole a flight from below comes up
 through, drawn on the plan of the floor above. The mark is the outline with a diagonal from each
 corner, and it cuts the floor tint underneath, because a vide is not floor.</p>
+<p>A <b>deck</b> is the reverse: a timber floor where the storey has none. Without a height it is the
+storey's own floor, with its joists below; with a height it is a loft or mezzanine inside the storey,
+which lies above the section plane and is therefore dashed. The rectangle is the clear span between the
+supports; the joists run across the width or the depth, at centres set out from both edges so the two
+edge joists always stand. Each joist bears the stated bearing beyond the span at both ends. Joist section,
+decking and loads are figures of their own; a use (living, storage, balcony) only fills in the two loads
+with indicative figures. Wallgraph does not check a deck.</p>
 <p>Material is a choice per element, as it is for a wall, and not stated is an answer of its own. The
 IFC export writes column, beam and railing as elements of their own with their figures; the 3D view
 extrudes them to their height. Wallgraph checks nothing about a structure: a column or beam is a figure
@@ -1040,7 +1059,7 @@ server. The plan remains available after the tab is closed.</p>
 <tr><td><kbd>D</kbd> <kbd>N</kbd> <kbd>P</kbd></td><td>door, window, passage</td></tr>
 <tr><td><kbd>S</kbd></td><td>place a symbol</td></tr>
 <tr><td><kbd>T</kbd></td><td>place a stair</td></tr>
-<tr><td><kbd>H</kbd></td><td>structure: column, beam, railing, vide</td></tr>
+<tr><td><kbd>H</kbd></td><td>structure: column, beam, railing, vide, deck</td></tr>
 <tr><td><kbd>C</kbd></td><td>place fit-out</td></tr>
 <tr><td><kbd>Z</kbd></td><td>rooms: drag a box, click a room, name a room</td></tr>
 <tr><td><kbd>A</kbd></td><td>tape measure: distance between two points</td></tr>

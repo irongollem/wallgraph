@@ -520,7 +520,7 @@ export function unanchorRoutePoints(f: Floor, symbol: { id: Id; x: number; y: nu
 }
 
 /** The placed objects a copy applies to; walls and openings are not among them. */
-export type PlacedKind = "symbol" | "furnishing" | "stair" | "vide" | "structure";
+export type PlacedKind = "symbol" | "furnishing" | "stair" | "vide" | "deck" | "structure";
 
 /**
  * Copy placed objects on a floor, keeping everything but their identity: what
@@ -546,6 +546,7 @@ export function cloneOnFloor(f: Floor, kind: PlacedKind, ids: readonly Id[]): Ma
   else if (kind === "furnishing") copyInto((f.furnishings ??= []), "i");
   else if (kind === "stair") copyInto((f.stairs ??= []), "t");
   else if (kind === "vide") copyInto((f.vides ??= []), "v");
+  else if (kind === "deck") copyInto((f.decks ??= []), "d");
   else copyInto((f.structure ??= []), "c");
   return made;
 }

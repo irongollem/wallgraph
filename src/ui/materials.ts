@@ -1,5 +1,5 @@
-// The Materialen fold-out: stock-nesting assumptions and the read-only wall
-// takeoff they feed. Mirrors ui/energy.ts -- assumptions are cheap (they only
+// The Materialen fold-out: stock-nesting assumptions and the read-only wall and
+// deck takeoff they feed. Mirrors ui/energy.ts -- assumptions are cheap (they only
 // read/write PlanDoc.materials) and render on every rebuild, while the
 // takeoff itself resolves the active storey (core/materials.ts's
 // floorMaterials) and so is computed by the caller only while the section is
@@ -9,7 +9,8 @@ import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
 import { sqm } from "./walls";
 import { stockLengths, kerfMm, wastePct, sheetMm } from "../model/materials";
-import type { Member, MemberName, WallSystem, WallTakeoff, FloorMaterials } from "../core/materials";
+import type { Member, MemberName, WallSystem, WallTakeoff, DeckTakeoff, FloorMaterials } from "../core/materials";
+import { decksOf } from "../model/doc";
 import type { NestResult } from "../core/stock";
 
 /** materials.system.* key for each WallSystem id -- the id itself carries a
@@ -30,6 +31,21 @@ const INCOMPLETE_FIELD_KEY: Record<WallTakeoff["incomplete"][number], string> = 
   panel: "panel.panelWidthOn",
   lining: "panel.liningOn",
 };
+
+const DECK_INCOMPLETE_KEY: Record<DeckTakeoff["incomplete"][number], string> = {
+  joist: "panel.deckSectionOn",
+};
+
+/** A deck named on a warning row by its caption and size, read off the active storey. */
+function deckLabeller(store: Store): (dt: DeckTakeoff) => string {
+  const byId = new Map(decksOf(store.floor).map(d => [d.id, d]));
+  return dt => {
+    const d = byId.get(dt.deckId);
+    return t("materials.deckLabel", {
+      label: d?.label ?? t("deck.label"), w: d?.width ?? 0, d: d?.depth ?? 0,
+    });
+  };
+}
 
 function wallLabel(lengthMm: number): string {
   return t("materials.wallLabel", { mm: Math.round(lengthMm) });
@@ -160,7 +176,10 @@ export function renderMaterialTakeoff(
   store: Store,
   takeoff: FloorMaterials,
 ): void {
-  if (takeoff.walls.length === 0) { rows.noteRow(t("materials.noWalls")); return; }
+  if (takeoff.walls.length === 0 && takeoff.decks.perDeck.length === 0) {
+    rows.noteRow(t("materials.noWalls"));
+    return;
+  }
 
   let shown = false;
   for (const sys of takeoff.bySystem) {
@@ -180,7 +199,35 @@ export function renderMaterialTakeoff(
     figureRows(rows, sys);
   }
 
+  const decks = takeoff.decks;
+  const deckName = deckLabeller(store);
+  if (decks.members.length > 0 || decks.deckingMm2 > 0) {
+    shown = true;
+    rows.secHead(t("materials.decksHead"), { later: true });
+    for (const dt of decks.perDeck) {
+      if (dt.members.length === 0 && dt.deckingMm2 === 0) continue;
+      rows.noteRow(deckName(dt));
+      for (const m of dt.members) memberRow(rows, m);
+      if (dt.deckingMm2 > 0) rows.infoRow(t("materials.deckingArea"), sqm(dt.deckingMm2));
+    }
+    nestRows(rows, decks.nested);
+    if (decks.sheets > 0) rows.infoRow(t("materials.sheets"), String(decks.sheets));
+  }
+
   const max = maxStock(store);
+  for (const dt of decks.perDeck) {
+    for (const m of dt.members) {
+      if (!m.spliceable && m.lengthMm > max) {
+        shown = true;
+        rows.warnRow(t("materials.unfit",
+          { wall: deckName(dt), member: memberLabel(m.name), length: Math.round(m.lengthMm) }));
+      }
+    }
+    for (const field of dt.incomplete) {
+      shown = true;
+      rows.warnRow(t("materials.incomplete", { wall: deckName(dt), field: t(DECK_INCOMPLETE_KEY[field]) }));
+    }
+  }
   for (const w of takeoff.walls) {
     for (const m of w.members) {
       if (!m.spliceable && m.lengthMm > max) {

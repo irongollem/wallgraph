@@ -429,6 +429,43 @@ function backingCountOf(walls: WallTakeoff[]): number {
   check("nested buys at least one bar when there are members", framed.nested.boughtMm > 0);
 }
 
+// ---- decks: joists at span plus bearing, rim boards, decking sheets ----------
+
+{
+  const { doc, f } = buildDoc();
+  f.decks = [{
+    id: "dk1", x: 2000, y: 1500, rotation: 0, width: 2400, depth: 3600, joistAxis: "y", joistMm: 600,
+    joist: { w: 71, d: 171 }, deckingMm: 18,
+  }];
+  const { m } = materialsOf(doc, f);
+  const dt = m.decks.perDeck[0]!;
+  const joist = dt.members.find(x => x.name === "joist")!;
+  check("a deck counts a joist at every set-out position", joist.count === 5, String(joist.count));
+  check("a joist is the clear span plus the bearing at both ends", joist.lengthMm === 3600 + 2 * 100, String(joist.lengthMm));
+  check("a joist is never spliced", !joist.spliceable);
+  check("a joist carries the stated section", joist.sectionMm.w === 71 && joist.sectionMm.d === 171);
+  const rim = dt.members.find(x => x.name === "rim")!;
+  check("two rim boards across the joist ends, spliceable", rim.count === 2 && rim.lengthMm === 2400 && rim.spliceable);
+  // 8.64 m² plus 10 % waste over 1200 × 2600 sheets.
+  check("decking sheets come off the platform area with waste", dt.deckingMm2 === 2400 * 3600 && dt.sheets === 4,
+    `${dt.deckingMm2} ${dt.sheets}`);
+  check("the deck group nests its members", m.decks.nested.totalMm === 5 * 3800 + 2 * 2400, String(m.decks.nested.totalMm));
+
+  f.decks[0]!.bearingMm = 150;
+  check("a stated bearing lengthens every joist",
+    materialsOf(doc, f).m.decks.perDeck[0]!.members.find(x => x.name === "joist")!.lengthMm === 3900);
+
+  f.decks[0]!.depth = 6000;
+  const long = materialsOf(doc, f).m.decks;
+  check("a joist longer than every stock length fits no bar", long.nested.unfit.some(u => u.name === "joist" && u.lengthMm === 6300),
+    JSON.stringify(long.nested.unfit));
+
+  delete f.decks[0]!.joist;
+  const bare = materialsOf(doc, f).m.decks.perDeck[0]!;
+  check("a deck without a section is incomplete and counts no timber",
+    bare.incomplete.includes("joist") && bare.members.length === 0 && bare.sheets > 0);
+}
+
 // ---- purity: mutating the wall changes the result on the next call ----------
 
 {

@@ -12,6 +12,7 @@ import { stairDefaults } from "../src/model/stair";
 import { stairBox, resolveStair } from "../src/core/stair";
 import { furnishingBox } from "../src/core/furnishing";
 import { videBox } from "../src/core/vide";
+import { deckBox } from "../src/core/deck";
 import { Vec, v } from "../src/geometry/vec";
 import { resources } from "../src/i18n";
 import { isHandleDrag } from "../src/input/tools";
@@ -37,7 +38,7 @@ function boundsOf(pts: readonly Vec[]): { min: Vec; max: Vec } {
 // --- MULTI_SELECT_KINDS: node is deliberately excluded ---
 {
   check("node is not a multi-select kind", !MULTI_SELECT_KINDS.has("node"));
-  const rest: SelKind[] = ["wall", "opening", "symbol", "stair", "vide", "structure", "furnishing", "route"];
+  const rest: SelKind[] = ["wall", "opening", "symbol", "stair", "vide", "deck", "structure", "furnishing", "route"];
   check("every other kind is", rest.every(k => MULTI_SELECT_KINDS.has(k)));
 }
 
@@ -134,6 +135,9 @@ function boundsOf(pts: readonly Vec[]): { min: Vec; max: Vec } {
   // One vide.
   const vide = { id: "vd1", x: 3000, y: 8000, rotation: 0, width: 1200, depth: 2600 };
   f.vides = [vide];
+  // One deck.
+  const deck = { id: "dk1", x: 9000, y: 8000, rotation: 0, width: 2400, depth: 3600, joistAxis: "y" as const, joistMm: 600 };
+  f.decks = [deck];
   // One route, three waypoints.
   f.routes = [{ id: "rt1", discipline: "electrical", points: [{ id: "p0", x: 3000, y: 10500 }, { id: "p1", x: 3200, y: 10500 }, { id: "p2", x: 3200, y: 10700 }] , segments: [{ id: "s0", a: "p0", b: "p1" }, { id: "s1", a: "p1", b: "p2" }]}];
   // Two walls with an opening on the first.
@@ -173,6 +177,24 @@ function boundsOf(pts: readonly Vec[]): { min: Vec; max: Vec } {
     const picked = marqueePick(f, growRect(bb.min, bb.max, 10));
     check("a rect around the vide picks only it", picked?.kind === "vide" && picked.ids.join() === "vd1",
       JSON.stringify(picked));
+  }
+  {
+    const box = deckBox(deck);
+    const bb = boundsOf([v(deck.x + box.x0, deck.y + box.y0), v(deck.x + box.x1, deck.y + box.y1)]);
+    const picked = marqueePick(f, growRect(bb.min, bb.max, 10));
+    check("a rect around the deck picks only it", picked?.kind === "deck" && picked.ids.join() === "dk1",
+      JSON.stringify(picked));
+  }
+  {
+    // The vide and the deck together: 1 vs 1, vide wins.
+    const vBox = videBox(vide), dBox = deckBox(deck);
+    const bb = boundsOf([
+      v(vide.x + vBox.x0, vide.y + vBox.y0), v(vide.x + vBox.x1, vide.y + vBox.y1),
+      v(deck.x + dBox.x0, deck.y + dBox.y0), v(deck.x + dBox.x1, deck.y + dBox.y1),
+    ]);
+    const picked = marqueePick(f, growRect(bb.min, bb.max, 10));
+    check("a 1-1 tie between vide and deck favours vide",
+      picked?.kind === "vide" && picked.ids.join() === "vd1", JSON.stringify(picked));
   }
   {
     const bb = boundsOf([v(3000, 10500), v(3200, 10500), v(3200, 10700)]);

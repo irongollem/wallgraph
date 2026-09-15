@@ -1,13 +1,14 @@
 // Rubber-band selection: pure geometry, no DOM/Tools coupling, so it is
 // unit-testable on a bare Floor. Tools.ts converts the dragged screen rect to
 // world mm and hands it here; the result feeds store.selectMany().
-import { Floor, Id, stairsOf, videsOf, structureOf, furnishingsOf, routesOf } from "../model/doc";
+import { Floor, Id, stairsOf, videsOf, decksOf, structureOf, furnishingsOf, routesOf } from "../model/doc";
 import type { SelKind } from "../model/store";
 import { Vec } from "../geometry/vec";
 import { getSymbol } from "../render/symbols";
 import { resolveFloor } from "../core/resolve";
 import { stairCorners, resolveStair } from "../core/stair";
 import { videCorners } from "../core/vide";
+import { deckCorners } from "../core/deck";
 import { structureCorners } from "../core/structure";
 import { furnishingCorners } from "../core/furnishing";
 import { resolveRoutePoints } from "../core/route";
@@ -22,7 +23,7 @@ export interface MarqueeRect { min: Vec; max: Vec }
  * -- a marquee never picks nodes, same as a shift-click never does.
  */
 const KIND_PRIORITY: readonly SelKind[] =
-  ["symbol", "furnishing", "stair", "structure", "vide", "route", "opening", "wall"];
+  ["symbol", "furnishing", "stair", "structure", "vide", "deck", "route", "opening", "wall"];
 
 function inRect(r: MarqueeRect, p: Vec): boolean {
   return p.x >= r.min.x && p.x <= r.max.x && p.y >= r.min.y && p.y <= r.max.y;
@@ -53,6 +54,7 @@ function candidatesByKind(floor: Floor, rect: MarqueeRect): Map<SelKind, Id[]> {
   for (const fn of furnishingsOf(floor)) if (allIn(rect, furnishingCorners(fn))) add("furnishing", fn.id);
   for (const st of stairsOf(floor)) if (allIn(rect, stairCorners(resolveStair(floor, st)))) add("stair", st.id);
   for (const vd of videsOf(floor)) if (allIn(rect, videCorners(vd))) add("vide", vd.id);
+  for (const dk of decksOf(floor)) if (allIn(rect, deckCorners(dk))) add("deck", dk.id);
   for (const el of structureOf(floor)) if (allIn(rect, structureCorners(el))) add("structure", el.id);
   for (const rt of routesOf(floor)) if (allIn(rect, resolveRoutePoints(floor, rt))) add("route", rt.id);
 

@@ -230,6 +230,8 @@ export const FEATURES: Record<Lang, string[]> = {
       "nogging rows, cavity insulation and panel width",
     "Materials takeoff per storey: studs, plates, headers and noggings counted from the drawing " +
       "and nested onto standard stock lengths, with sheets, insulation and blocks",
+    "Timber decks and lofts with joist set-out, bearing, decking and loads, counted in the " +
+      "materials takeoff and extruded in 3D",
     "Elevation of a framed wall at true scale, with studs, king studs, headers, noggings and " +
       "backing from the materials takeoff, downloadable as SVG",
     "Export to PNG, SVG and DXF at true scale",

@@ -13,7 +13,7 @@
 // The drawing itself is assembled as a scene (io/scene.ts) rather than as
 // markup, because io/pdf.ts renders the same scene onto the permit sheet.
 // This module is the SVG renderer for it plus the scene the plan makes.
-import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, stairsOf, videsOf, furnishingsOf, structureOf, roomNamesOf } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, stairsOf, videsOf, decksOf, furnishingsOf, structureOf, roomNamesOf } from "../model/doc";
 import { Vec } from "../geometry/vec";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames, roomArea } from "../core/rooms";
@@ -30,6 +30,8 @@ import { Group, Item, Look, ROOT, arcSteps, group, onCircle, poly, resolve, text
 import { openingMarks, postMarks } from "./marks";
 import { stairPrims, stairRegionPrims } from "./stair";
 import { videPrims } from "./vide";
+import { deckPrims } from "./deck";
+import { deckRaised } from "../core/deck";
 import { structurePrims } from "./structure";
 import { BEAM_DASH } from "../render/structure";
 import { furnishingPrims } from "./furnishing";
@@ -209,6 +211,20 @@ export function planScene(doc: PlanDoc, floor: Floor, resolved: ReturnType<typeo
       items.push(group(videPrims(vd, t("vide.label")), { ink: symbolInk(vd) }));
     }
     out.push(group(items, { fill: "none", width: W_SYMBOL, cap: "round" }, "vides"));
+  }
+
+  // Decks under the walls they bear on, as on the canvas. A deck at a height is
+  // dashed on its group, since the recorder discards dash patterns.
+  const decks = decksOf(floor);
+  if (decks.length > 0) {
+    const items = decks.map(dk => group(deckPrims(dk, t("deck.label")), {
+      ink: symbolInk(dk),
+      ...(deckRaised(dk) ? { dash: BEAM_DASH } : {}),
+    }));
+    out.push(group(items, {
+      fill: "none", width: W_SYMBOL, cap: "round",
+      family: LABEL_FONT, anchor: "middle", baseline: "central",
+    }, "decks"));
   }
 
   // Walls: filled outlines, so an opening is a real gap in the masonry.

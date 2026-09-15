@@ -5,9 +5,10 @@
 // z is height above Peil (mm, positive up); a renderer maps axes itself. Pure
 // and uncached like the rest of the derived geometry — callers cache against
 // the store revision.
-import { PlanDoc, Floor, Id, floorElevation, floorHeight, stairsOf, furnishingsOf } from "../model/doc";
+import { PlanDoc, Floor, Id, floorElevation, floorHeight, stairsOf, furnishingsOf, decksOf } from "../model/doc";
 import { floorSolids, FloorSolids } from "../core/solids";
 import { structureSolids } from "../core/structure";
+import { deckSolids } from "../core/deck";
 import { stairSteps, StairStep } from "../core/stair3d";
 import { furnishingSolids, type FitoutMaterial } from "../core/furnishing3d";
 import { Vec, v, dist, polygonArea, mid, norm, add, sub, scale, clipHalfPlane } from "../geometry/vec";
@@ -165,6 +166,12 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
     for (const s of structureSolids(f)) {
       const color = s.material === "steel" ? STEEL_COLOR : s.material === "timber" ? DOOR_COLOR : WALL_COLOR;
       emitPrism(acc, s.poly, [], elev + s.z0, elev + seat(s.z1), color);
+    }
+
+    // A deck stands on its own for the same reason: a vliering is built into a
+    // storey whether or not its walls are drawn. Timber, like a door leaf.
+    for (const dk of decksOf(f)) {
+      for (const s of deckSolids(dk)) emitPrism(acc, s.poly, [], elev + s.z0, elev + s.z1, DOOR_COLOR);
     }
 
     // The inrichting stands on its own for the same reason: each piece as the

@@ -3,7 +3,7 @@
 import { Store, MULTI_SELECT_KINDS, type Selection } from "../model/store";
 import { marqueePick, type MarqueeRect } from "./marquee";
 import {
-  Floor, Wall, Opening, PlanNode, SymbolInstance, Id, newId, stairsOf, videsOf, furnishingsOf,
+  Floor, Wall, Opening, PlanNode, SymbolInstance, Id, newId, stairsOf, videsOf, decksOf, furnishingsOf,
   structureOf,
   routesOf, roomNamesOf, floorHeight, DOOR_DEFAULT_WIDTH, WINDOW_DEFAULT_WIDTH, PASSAGE_DEFAULT_WIDTH,
   OpeningKind, FireRating, dimModeOf, WallMaterial,
@@ -15,6 +15,7 @@ import {
   type StairUse,
 } from "../model/stair";
 import { Vide, VideSize, VIDE_DEFAULT, clampVide } from "../model/vide";
+import { Deck, DeckSize, DECK_DEFAULT, clampDeckSize } from "../model/deck";
 import {
   Structural, Column, Beam, Railing, StructureKind, ColumnSize, SpanSize,
   COLUMN_DEFAULT, BEAM_DEFAULT, BEAM_LABEL_DEFAULT,
@@ -62,6 +63,8 @@ import { stairHit, resolveStair, stairBox, stairCorners, stairIssues, gradient }
 import { drawStairGhost } from "../render/stair";
 import { videHit, videCorners } from "../core/vide";
 import { drawVideGhost } from "../render/vide";
+import { deckHit, deckCorners } from "../core/deck";
+import { drawDeckGhost } from "../render/deck";
 import { structureHit, structureCorners, columnBox, spanTurned } from "../core/structure";
 import { drawStructureGhost } from "../render/structure";
 import { furnishingHit, furnishingBox, furnishingCorners } from "../core/furnishing";
@@ -85,8 +88,8 @@ export type ToolName =
   | "select" | "wall" | "door" | "window" | "passage" | "symbol" | "stair" | "structure"
   | "furnishing" | "route" | "zoom" | "measure";
 
-/** What the structure tool places: the three structural kinds and the vide. */
-export type StructureTarget = StructureKind | "vide";
+/** What the structure tool places: the three structural kinds, the vide and the deck. */
+export type StructureTarget = StructureKind | "vide" | "deck";
 
 /** Finger travel that still counts as a tap rather than a drag. */
 const TAP_SLOP_PX = 10;
@@ -141,7 +144,7 @@ const MEASURE_LEG_LABEL_PX = 60;
 export interface SnapResult { p: Vec; kind: "node" | "wall" | "grid" | "free"; wall?: Wall; tMm?: number; node?: PlanNode }
 
 interface DragState {
-  kind: "node" | "wall" | "symbol" | "stair" | "vide" | "structure" | "furnishing"
+  kind: "node" | "wall" | "symbol" | "stair" | "vide" | "deck" | "structure" | "furnishing"
       | "bow" | "opening" | "pan" | "zoomBox" | "routeVertex" | "marquee";
   id?: string;
   wallId?: string;
@@ -273,12 +276,14 @@ export class Tools {
 
   /**
    * What the structure tool places next: a column at one click, a beam or a
-   * railing between two, or a vide. Each kind keeps its own armed figures, so
+   * railing between two, a vide or a deck. Each kind keeps its own armed figures, so
    * switching between them does not lose what was set up.
    */
   structureKind: StructureTarget = "column";
   videSize: VideSize = { ...VIDE_DEFAULT };
   videRotation = 0;
+  deckSize: DeckSize = { ...DECK_DEFAULT };
+  deckRotation = 0;
   columnSize: ColumnSize = { ...COLUMN_DEFAULT };
   columnRotation = 0;
   beamSize: SpanSize = { ...BEAM_DEFAULT };
@@ -683,6 +688,18 @@ export class Tools {
 
   setVideSize(s: VideSize): void {
     this.videSize = clampVide(s);
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  setDeckSize(s: DeckSize): void {
+    this.deckSize = clampDeckSize(s);
+    this.onToolChange();
+    this.requestRender();
+  }
+
+  setDeckRotation(radians: number): void {
+    this.deckRotation = stairAngle(radians);
     this.onToolChange();
     this.requestRender();
   }
@@ -1321,6 +1338,11 @@ export class Tools {
     if (sel.kind === "vide") {
       const vd = videsOf(f).find(x => x.id === sel.id);
       return vd ? polyBounds(videCorners(vd)) : null;
+    }
+    if (sel.kind === "deck") {
+      const group = this.store.selectedOf("deck");
+      const pts = decksOf(f).filter(dk => group.includes(dk.id)).flatMap(deckCorners);
+      return pts.length > 0 ? polyBounds(pts) : null;
     }
     if (sel.kind === "structure") {
       const group = this.store.selectedOf("structure");
@@ -2011,6 +2033,28 @@ export class Tools {
     this.store.select({ kind: "vide", id: vd.id });
   }
 
+  private draftDeck(id: string): Deck {
+    const g = this.gridStep;
+    const s = clampDeckSize(this.deckSize);
+    return {
+      id,
+      x: Math.round(this.cursor.x / g) * g,
+      y: Math.round(this.cursor.y / g) * g,
+      rotation: this.deckRotation,
+      ...s,
+      ...(this.symbolColor ? { color: this.symbolColor } : {}),
+    };
+  }
+
+  private placeDeck(): void {
+    const dk = this.draftDeck(newId("d"));
+    this.store.mutate(doc => {
+      const f = this.store.floorOf(doc);
+      (f.decks ??= []).push(dk);
+    });
+    this.store.select({ kind: "deck", id: dk.id });
+  }
+
   // ---- structure ----
   /** True while the armed kind is set out between two points. */
   get spanArmed(): boolean {
@@ -2022,6 +2066,7 @@ export class Tools {
 
   private structureClick(): void {
     if (this.structureKind === "vide") this.placeVide();
+    else if (this.structureKind === "deck") this.placeDeck();
     else if (this.structureKind === "column") this.placeColumn();
     else this.spanClick();
   }
@@ -2902,6 +2947,17 @@ export class Tools {
     return undefined;
   }
 
+  /** Topmost deck covering `w`. Picked after the walls, which a deck bears on,
+   *  and before a vide: a deck is floor standing above the storey's own. */
+  private deckAt(w: Vec): Deck | undefined {
+    const list = decksOf(this.floor);
+    for (let i = list.length - 1; i >= 0; i--) {
+      const dk = list[i]!;
+      if (deckHit(dk, w, 30)) return dk;
+    }
+    return undefined;
+  }
+
   /** Topmost vide covering `w`. Picked after the walls: a vide is floor level. */
   private videAt(w: Vec): Vide | undefined {
     const list = videsOf(this.floor);
@@ -3080,6 +3136,13 @@ export class Tools {
         }
         return;
       }
+    }
+    const deckPick = this.deckAt(w);
+    if (deckPick) {
+      if (this.pick({ kind: "deck", id: deckPick.id })) {
+        this.drag = { kind: "deck", id: deckPick.id, startWorld: w, moved: false, clone: this.altKey };
+      }
+      return;
     }
     // A vide last of all: it is the floor, so anything standing on it wins the
     // click, and its own area is otherwise empty.
@@ -3330,7 +3393,7 @@ export class Tools {
    */
   private groupTranslate(
     d: DragState, w: Vec, g: number, group: readonly Id[],
-    kind: "symbol" | "furnishing" | "stair" | "vide" | "structure", always = false,
+    kind: "symbol" | "furnishing" | "stair" | "vide" | "deck" | "structure", always = false,
   ): boolean {
     const grouped = group.length > 1;
     if (!always && !grouped) return false;
@@ -3349,6 +3412,7 @@ export class Tools {
         kind === "symbol" ? f.symbols
         : kind === "furnishing" ? furnishingsOf(f)
         : kind === "stair" ? stairsOf(f)
+        : kind === "deck" ? decksOf(f)
         : videsOf(f);
       for (const item of list) if (targets.includes(item.id)) { item.x += dx; item.y += dy; }
     }, "drag" + d.id);
@@ -3363,7 +3427,7 @@ export class Tools {
     if (d.clone) {
       d.clone = false;
       const kind = d.kind === "symbol" || d.kind === "furnishing"
-        || d.kind === "stair" || d.kind === "vide" || d.kind === "structure" ? d.kind : null;
+        || d.kind === "stair" || d.kind === "vide" || d.kind === "deck" || d.kind === "structure" ? d.kind : null;
       const copy = kind && d.id ? this.cloneForDrag(kind, d.id) : null;
       if (copy) d.id = copy;
     }
@@ -3419,6 +3483,8 @@ export class Tools {
       this.groupTranslate(d, w, g, this.store.selectedOf("stair"), "stair", true);
     } else if (d.kind === "vide") {
       this.groupTranslate(d, w, g, this.store.selectedOf("vide"), "vide", true);
+    } else if (d.kind === "deck") {
+      this.groupTranslate(d, w, g, this.store.selectedOf("deck"), "deck", true);
     } else if (d.kind === "structure") {
       this.groupTranslate(d, w, g, this.store.selectedOf("structure"), "structure", true);
     } else if (d.kind === "furnishing") {
@@ -3690,6 +3756,7 @@ export class Tools {
     if (this.tool === "structure") {
       // A span has no armed angle: its direction is the two points clicked.
       if (this.structureKind === "vide") this.videRotation = stairAngle(this.videRotation + Math.PI / 2);
+      else if (this.structureKind === "deck") this.deckRotation = stairAngle(this.deckRotation + Math.PI / 2);
       else if (this.structureKind === "column") this.columnRotation = stairAngle(this.columnRotation + Math.PI / 2);
       else return;
       this.onToolChange();
@@ -3734,6 +3801,16 @@ export class Tools {
       this.store.mutate(doc => {
         const vd = videsOf(this.store.floorOf(doc)).find(x => x.id === sel.id);
         if (vd) vd.rotation = stairAngle(vd.rotation + Math.PI / 2);
+      });
+      return;
+    }
+    if (sel?.kind === "deck") {
+      // Each about its own centre, which is its anchor, as the vide turns.
+      const group = this.store.selectedOf("deck");
+      this.store.mutate(doc => {
+        for (const dk of decksOf(this.store.floorOf(doc))) {
+          if (group.includes(dk.id)) dk.rotation = stairAngle(dk.rotation + Math.PI / 2);
+        }
       });
       return;
     }
@@ -3837,6 +3914,7 @@ export class Tools {
       }
       else if (sel.kind === "stair") f.stairs = stairsOf(f).filter(s => !group.includes(s.id));
       else if (sel.kind === "vide") f.vides = videsOf(f).filter(s => !group.includes(s.id));
+      else if (sel.kind === "deck") f.decks = decksOf(f).filter(s => !group.includes(s.id));
       else if (sel.kind === "structure") f.structure = structureOf(f).filter(s => !group.includes(s.id));
       else if (sel.kind === "route") {
         f.routes = routesOf(f).filter(r => !group.includes(r.id));
@@ -4569,6 +4647,8 @@ export class Tools {
     if (this.tool === "structure") {
       if (this.structureKind === "vide") {
         drawVideGhost(ctx, this.draftVide("ghost"), this.symbolColor ?? COLORS.symbol);
+      } else if (this.structureKind === "deck") {
+        drawDeckGhost(ctx, this.draftDeck("ghost"), this.symbolColor ?? COLORS.symbol);
       } else if (this.structureKind === "column") {
         const c = this.draftColumn("ghost");
         drawStructureGhost(ctx, c, this.symbolColor ?? COLORS.wallStroke, this.symbolColor ?? COLORS.wallFill);

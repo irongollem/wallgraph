@@ -3,6 +3,7 @@
 import type { Stair } from "./stair";
 import type { BoardData } from "./board";
 import type { Vide } from "./vide";
+import type { Deck } from "./deck";
 import type { Structural } from "./structure";
 import type { Furnishing } from "./furnishing";
 import type { Route } from "./route";
@@ -423,6 +424,11 @@ export interface Floor {
    */
   vides?: Vide[];
   /**
+   * Timber floors placed on this storey: a balklaag between its supports, or a
+   * loft at a height inside the storey. See model/deck.ts.
+   */
+  decks?: Deck[];
+  /**
    * Columns, beams and railings: the structure that is not a wall. Placed
    * objects carrying their own dimensions, outside the wall graph; see
    * model/structure.ts.
@@ -471,6 +477,9 @@ export function stairsOf(f: Floor): Stair[] { return f.stairs ?? []; }
 
 /** A floor's vides. Absent means none, not an error. */
 export function videsOf(f: Floor): Vide[] { return f.vides ?? []; }
+
+/** A floor's decks. Absent means none, not an error. */
+export function decksOf(f: Floor): Deck[] { return f.decks ?? []; }
 
 /** A floor's columns, beams and railings. Absent means none, not an error. */
 export function structureOf(f: Floor): Structural[] { return f.structure ?? []; }
@@ -647,7 +656,7 @@ export function emptyDoc(): PlanDoc {
     continuations: [],
     floors: [{
       id: newId("f"), name: "Floor 1",
-      nodes: [], walls: [], symbols: [], stairs: [], vides: [], structure: [], furnishings: [], routes: [], roomNames: [],
+      nodes: [], walls: [], symbols: [], stairs: [], vides: [], decks: [], structure: [], furnishings: [], routes: [], roomNames: [],
     }],
   };
 }

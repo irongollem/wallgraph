@@ -363,7 +363,7 @@ for (const lng of ["nl", "en"] as const) {
   const tool = dict.tool ?? {}, panel = dict.panel ?? {}, hint = dict.hint ?? {};
   check(`${lng}: the tool is named`, typeof tool.structure === "string" && typeof tool.shortStructure === "string");
   check(`${lng}: every kind has a name`,
-    ["structureColumn", "structureBeam", "structureRailing", "structureVide"].every(k => typeof panel[k] === "string"));
+    ["structureColumn", "structureBeam", "structureRailing", "structureVide", "structureDeck"].every(k => typeof panel[k] === "string"));
   check(`${lng}: the span hints name the kind`,
     (hint.structureSpan ?? "").includes("{{label}}") && (hint.structureSpanTo ?? "").includes("{{label}}"));
 }

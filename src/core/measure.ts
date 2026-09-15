@@ -5,12 +5,13 @@
 // wall faces, jambs and footprints as well as the centerline graph -- because a
 // tape is held against a surface, and the figure a builder wants is face to
 // face rather than axis to axis.
-import { Floor, stairsOf, videsOf, structureOf, furnishingsOf, routesOf } from "../model/doc";
+import { Floor, stairsOf, videsOf, decksOf, structureOf, furnishingsOf, routesOf } from "../model/doc";
 import { Resolved } from "./resolve";
 import { getSymbol } from "../render/symbols";
 import { symbolFootprintCorners } from "./placed";
 import { stairCorners, resolveStair } from "./stair";
 import { videCorners } from "./vide";
+import { deckCorners } from "./deck";
 import { structureCorners } from "./structure";
 import { furnishingCorners } from "./furnishing";
 import { resolveRoutePoints } from "./route";
@@ -79,6 +80,7 @@ export function measureTargets(floor: Floor, resolved: Resolved): MeasureTargets
   }
   for (const st of stairsOf(floor)) ring(quad(stairCorners(resolveStair(floor, st))));
   for (const vd of videsOf(floor)) ring(quad(videCorners(vd)));
+  for (const dk of decksOf(floor)) ring(quad(deckCorners(dk)));
   for (const el of structureOf(floor)) ring(quad(structureCorners(el)));
   for (const fn of furnishingsOf(floor)) ring(quad(furnishingCorners(fn)));
   // A run's true vertices, not the fanned lanes it is drawn as (see

@@ -318,6 +318,17 @@ a door because it is counted whole and cut out after standing; a run-end nogging
 centre-to-centre cut and overlaps the end stud by half a post. Verified by
 [tests/frame.test.ts](tests/frame.test.ts).
 
+**A deck is the vide's counterpart: floor put where the storey has none.** `Floor.decks`
+([model/deck.ts](src/model/deck.ts)) is a rectangle placed at its centre whose box is the clear span
+between the supports. `deckJoistsLocal()` in [core/deck.ts](src/core/deck.ts) sets the joists out from
+both edges in equal bays no wider than `joistMm`, half a joist in where a section is stated, and the
+mark, `deckSolids()` and the `decks` group of `floorMaterials()` all read that one set-out: a joist is
+the span plus `bearingMm` at both ends and never spliced, the two rim boards splice. Without `topMm` the
+deck is the storey's floor, drawn solid, with no slab of its own in 3D; with one it lies above the
+section plane, dashed on the canvas and in the SVG and on `DECKS-OVERHEAD` in the DXF. A `DECK_USES`
+preset only fills `loadG`/`loadQ`. Loads are stored and reported; nothing checks them. Verified by
+[tests/deck.test.ts](tests/deck.test.ts).
+
 ## Adding a symbol
 
 Symbols live in `src/render/symbols/<category>.ts` and are aggregated by

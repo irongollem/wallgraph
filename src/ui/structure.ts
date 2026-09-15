@@ -1,11 +1,11 @@
 // The structure pane: the kind picker with the tool armed — column, beam,
-// railing or vide — the figures the next one is placed with, and the
+// railing, vide or deck — the figures the next one is placed with, and the
 // properties of a placed element.
 //
 // One pane for the four because they are placed the same way and edited in
 // the same terms: a section, a run, a height, a material and a designation.
-// The vide keeps its own rows (ui/vide.ts); this pane only hosts them under
-// the shared picker.
+// The vide and the deck keep their own rows (ui/vide.ts, ui/deck.ts); this pane
+// only hosts them under the shared picker.
 import { Store } from "../model/store";
 import { Tools, type StructureTarget } from "../input/tools";
 import { structureOf, floorHeight, WALL_MATERIALS, type Floor, type WallMaterial } from "../model/doc";
@@ -20,12 +20,15 @@ import { isMixed } from "../core/mixed";
 import { columnMark, beamMark, railingMark, BEAM_DASH } from "../render/structure";
 import { videMark } from "../render/vide";
 import { VIDE_DEFAULT } from "../model/vide";
+import { deckMark } from "../render/deck";
+import { DECK_DEFAULT } from "../model/deck";
 import { COLORS, wallPen } from "../render/draw";
 import { renderVideTool } from "./vide";
+import { renderDeckTool } from "./deck";
 import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
 
-const TARGETS: readonly StructureTarget[] = ["column", "beam", "railing", "vide"];
+const TARGETS: readonly StructureTarget[] = ["column", "beam", "railing", "vide", "deck"];
 
 const kindLabel = (kind: StructureTarget): string =>
   t("panel.structure" + kind[0]!.toUpperCase() + kind.slice(1));
@@ -65,6 +68,8 @@ function drawSample(ctx: CanvasRenderingContext2D, kind: StructureTarget, tools:
     beamMark(ctx, { kind, id: "", a, b, width: 200, depth: 190 });
   } else if (kind === "railing") {
     railingMark(ctx, { kind, id: "", a, b, width: 50, height: 1000, postMm: 400 });
+  } else if (kind === "deck") {
+    deckMark(ctx, { id: "", x: 0, y: 0, rotation: 0, ...DECK_DEFAULT });
   } else {
     videMark(ctx, { id: "", x: 0, y: 0, rotation: 0, ...VIDE_DEFAULT });
   }
@@ -77,6 +82,7 @@ function sampleReach(kind: StructureTarget, tools: Tools): number {
     return Math.max(s.width, s.depth);
   }
   if (kind === "vide") return Math.max(VIDE_DEFAULT.width, VIDE_DEFAULT.depth);
+  if (kind === "deck") return Math.max(DECK_DEFAULT.width, DECK_DEFAULT.depth);
   return SAMPLE_RUN;
 }
 
@@ -148,6 +154,9 @@ export function renderStructureTool(
     }
     case "vide":
       renderVideTool(tools, rows);
+      return;
+    case "deck":
+      renderDeckTool(tools, rows);
       return;
   }
   void store;

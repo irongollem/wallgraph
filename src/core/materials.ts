@@ -1,14 +1,17 @@
-// Wall material takeoff: what a storey's walls need, counted off the
-// construction facts on each wall and the mitered geometry resolveFloor()
-// derives, nested into stock lengths per system. Pure and uncached like the
+// Material takeoff: what a storey's walls need, counted off the construction
+// facts on each wall and the mitered geometry resolveFloor() derives, and what
+// its decks need, counted off their joist set-out; nested into stock lengths
+// per system. Pure and uncached like the
 // rest of core/ -- `resolved` and `surface` are passed in rather than
 // recomputed so a caller already holding revision-cached geometry does not
 // derive the floor twice. Reported, never enforced: nothing here decides what
 // gets built, only what the drawn construction implies.
 import type { Floor, Id, PlanDoc, Wall } from "../model/doc";
 import {
-  isBlockMaterial, isFramedMaterial, liningSideOf, wallHeight, wallPostMm,
+  isBlockMaterial, isFramedMaterial, liningSideOf, wallHeight, wallPostMm, decksOf,
 } from "../model/doc";
+import { type Deck, bearingOf } from "../model/deck";
+import { deckAcrossMm, deckJoistsLocal, deckSpanMm } from "./deck";
 import { kerfMm, sheetMm, stockLengths, wastePct } from "../model/materials";
 import type { Resolved, ResolvedWall } from "./resolve";
 import type { FloorSurface } from "./surface";
@@ -38,7 +41,7 @@ function systemOf(w: Wall): WallSystem {
 /** A structural member of a wall system: one shape, one count. */
 export type MemberName =
   | "stud" | "plate" | "nogging" | "header" | "sill" | "cripple" | "rail"
-  | "king" | "jack" | "backing";
+  | "king" | "jack" | "backing" | "joist" | "rim";
 
 export interface Member {
   name: MemberName;
@@ -69,8 +72,28 @@ export interface WallTakeoff {
   incomplete: ("postWidth" | "block" | "panel" | "lining")[];
 }
 
+export interface DeckTakeoff {
+  deckId: Id;
+  /** Clear span between the supports, mm. */
+  spanMm: number;
+  /** Joists and the two rim boards, empty when no section is stated. */
+  members: Member[];
+  /** Decking area, mm²; 0 when the deck states no decking. Waste is in `sheets` only. */
+  deckingMm2: number;
+  sheets: number;
+  incomplete: "joist"[];
+}
+
 export interface FloorMaterials {
   walls: WallTakeoff[];
+  /** The storey's decks: per deck, and summed and nested as one system. */
+  decks: {
+    perDeck: DeckTakeoff[];
+    members: Member[];
+    nested: NestResult;
+    deckingMm2: number;
+    sheets: number;
+  };
   bySystem: {
     system: WallSystem;
     walls: number;
@@ -184,6 +207,32 @@ function wallTakeoffOf(
   };
 }
 
+/**
+ * One deck's timber: a joist at every set-out position, cut to the clear span
+ * plus the bearing at both ends and never spliced, since a joist spliced
+ * between its supports is not the member that was set out; and a rim board
+ * across each joist end at the same section, spliceable like a wall plate.
+ * Decking sheets come off the platform area.
+ */
+export function deckTakeoffOf(d: Deck, waste: number, sheetArea: number): DeckTakeoff {
+  const spanMm = deckSpanMm(d);
+  const incomplete: DeckTakeoff["incomplete"] = [];
+  const members: Member[] = [];
+  if (d.joist) {
+    const sectionMm = { w: d.joist.w, d: d.joist.d };
+    members.push({
+      name: "joist", sectionMm, lengthMm: spanMm + 2 * bearingOf(d),
+      count: deckJoistsLocal(d).length, spliceable: false,
+    });
+    members.push({ name: "rim", sectionMm: { ...sectionMm }, lengthMm: deckAcrossMm(d), count: 2, spliceable: true });
+  } else {
+    incomplete.push("joist");
+  }
+  const deckingMm2 = d.deckingMm ? d.width * d.depth : 0;
+  const sheets = deckingMm2 > 0 ? Math.ceil((deckingMm2 * (1 + waste)) / sheetArea) : 0;
+  return { deckId: d.id, spanMm, members, deckingMm2, sheets, incomplete };
+}
+
 export function floorMaterials(doc: PlanDoc, f: Floor, resolved: Resolved, surface: FloorSurface): FloorMaterials {
   const waste = wastePct(doc) / 100;
   const sheet = sheetMm(doc);
@@ -234,5 +283,16 @@ export function floorMaterials(doc: PlanDoc, f: Floor, resolved: Resolved, surfa
     };
   });
 
-  return { walls, bySystem };
+  const perDeck = decksOf(f).map(d => deckTakeoffOf(d, waste, sheetArea));
+  const deckMembers: Member[] = [];
+  let deckingMm2 = 0;
+  for (const dt of perDeck) { mergeMembers(deckMembers, dt.members); deckingMm2 += dt.deckingMm2; }
+  const decks = {
+    perDeck, members: deckMembers,
+    nested: nest(deckMembers.map(m => ({ name: m.name, lengthMm: m.lengthMm, count: m.count, spliceable: m.spliceable })), stock, kerf),
+    deckingMm2,
+    sheets: deckingMm2 > 0 ? Math.ceil((deckingMm2 * (1 + waste)) / sheetArea) : 0,
+  };
+
+  return { walls, bySystem, decks };
 }
