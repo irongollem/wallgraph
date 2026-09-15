@@ -115,6 +115,7 @@ export class Store {
         {
           id: newId("f"), name,
           nodes: [], walls: [], symbols: [], stairs: [], vides: [], decks: [], structure: [], furnishings: [], routes: [], roomNames: [],
+          roofPlanes: [],
         });
     });
     this.activeFloor = Math.min(this.activeFloor + 1, this.doc.floors.length - 1);
@@ -154,6 +155,7 @@ export class Store {
       for (const vd of copy.vides ?? []) vd.id = newId("v");
       for (const dk of copy.decks ?? []) dk.id = newId("d");
       for (const el of copy.structure ?? []) el.id = newId("c");
+      for (const rp of copy.roofPlanes ?? []) rp.id = newId("rfp");
       const furnishingMap = new Map<Id, Id>();
       for (const fn of copy.furnishings ?? []) {
         const id = newId("i"); furnishingMap.set(fn.id, id); fn.id = id;

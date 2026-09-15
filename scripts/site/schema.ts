@@ -257,6 +257,13 @@ export function planSchema(siteUrl: string): JsonSchema {
               "fragment (see io/link.ts's encodePlan) -- a share link carries the " +
               "drawing, not the scan. JSON export/import keeps it verbatim.",
           },
+          roofPlanes: {
+            type: "array", items: { $ref: "#/$defs/roofPlane" },
+            description:
+              "This storey's roof, as authored planes -- a flat roof is one plane with " +
+              "no pitch. Authored, not derived from the walls or their own top profiles. " +
+              "Absent means the storey states none.",
+          },
         },
       },
       node: {
@@ -576,6 +583,37 @@ export function planSchema(siteUrl: string): JsonSchema {
           color: {
             type: "string", pattern: "^#[0-9a-fA-F]{6}$",
             description: "Pen colour; absent means the plan's default ink.",
+          },
+        },
+      },
+      roofPlane: {
+        type: "object",
+        description:
+          "One roof plane: its own outline in plan, the height of its low edge (the " +
+          "eave) and its pitch. A flat roof is one plane with pitchDeg 0. The underside " +
+          "at a point is eaveMm plus the distance from the (infinite) eave line, measured " +
+          "into the outline, times tan(pitchDeg); where two planes' outlines overlap the " +
+          "LOWEST underside applies, which is what lets a ridge or a hip come out right " +
+          "without the planes having to meet exactly.",
+        required: ["id", "outline", "eaveEdge", "eaveMm", "pitchDeg"],
+        additionalProperties: false,
+        properties: {
+          id: { $ref: "#/$defs/id" },
+          outline: {
+            type: "array", minItems: 3, items: { $ref: "#/$defs/point" },
+            description: "Plan outline of this plane, integer mm, counter-clockwise under y-down like a room boundary.",
+          },
+          eaveEdge: {
+            type: "integer", minimum: 0,
+            description:
+              "Index into `outline` of the eave edge -- the plane's low edge, running " +
+              "from outline[eaveEdge] to the next point (wrapping).",
+          },
+          eaveMm: { type: "integer", minimum: 100, maximum: 20000, description: "Height of the eave above this storey's floor, mm." },
+          pitchDeg: { type: "number", minimum: 0, maximum: 75, description: "Degrees, 0 (flat) to 75. Rises away from the eave edge, into the outline." },
+          thicknessMm: {
+            type: "integer", exclusiveMinimum: 0, maximum: 2000,
+            description: "Structural roof build-up thickness, mm, measured square to the plane. Absent means not stated; 200 is the reported placeholder.",
           },
         },
       },

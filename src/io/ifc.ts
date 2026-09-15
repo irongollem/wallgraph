@@ -20,6 +20,12 @@
 // geometry — extruded footprints, not modelled construction — because the
 // point of this export is where things are and what they are, not how they
 // are built; see the per-kind comments below for exactly what is left out.
+// This is BIM 8, which adds a storey's own roof planes (model/roof.ts): one
+// IFCROOF aggregating one IFCSLAB (PredefinedType ROOF) per plane, each
+// slab a vertical prism over the plane's own outline clipped down to its
+// underside and back up from below it by a tilted IfcPolygonalBoundedHalfSpace
+// -- see the per-plane comment below for why that construction is used
+// instead of a single extrusion in the plane's own tilted placement.
 //
 // Geometry comes from core/solids.floorSolids() for walls/openings, and from
 // core/rooms.detectRooms() directly for spaces — floorSolids() already calls
@@ -78,6 +84,8 @@ import { furnishingZ0 } from "../core/furnishing3d";
 import { getSymbol, SymbolDef, SymbolCategory } from "../render/symbols";
 import { Placed, LocalBox, worldPoint, symbolFootprintCorners } from "../core/placed";
 import { wallRcOf, openingUOf, uFromRc } from "../model/energy";
+import { roofPlanesOf, roofThicknessOf } from "../model/roof";
+import { eaveLineOf, planeUndersideAt } from "../core/roof";
 import { Vec, v, add, sub, scale, norm, perp, len, mid, dot, pointInPolygon } from "../geometry/vec";
 import { saveViaHost, downloadBlob } from "./save";
 
@@ -797,6 +805,52 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
   }
 
   /**
+   * A DIFFERENCE clip of `baseId` against the half-space on one side of a
+   * tilted plane through `origin` (IFC axes), built the same way
+   * slopedPieceSolid() builds its own IfcPlane/IfcPolygonalBoundedHalfSpace:
+   * `tiltedDir` is the plane's own RefDirection (local X), `flatDir` a unit
+   * vector perpendicular to it in the SAME plane (so Axis x RefDirection
+   * comes out equal to `flatDir`, the same relationship slopedPieceSolid
+   * relies on), and Axis = tiltedDir x flatDir.
+   *
+   * Used for a roof plane instead of an extrusion in the plane's own tilted
+   * Position (which reads back wrong through web-ifc's tessellator for a
+   * closed 2D profile -- this boundary-clip shape is the one this file
+   * already has verified working, via slopedPieceSolid() and
+   * tests/ifcclip.test.ts, for a genuinely tilted cut): a plain vertical
+   * prism over the plane's own outline is clipped down to the underside from
+   * above and back up to it from below, at a fixed vertical offset apart
+   * (the bottom and top planes share the same tilt, only their origin
+   * differs) -- see the roof-slab loop below.
+   *
+   * `keepBelow` true removes material ABOVE the plane (AgreementFlag "F",
+   * the halfspace being the +Axis side); false removes material BELOW it
+   * (AgreementFlag "T"). The boundary is a rectangle in the plane's own
+   * local XY, [loX, hiX] x [loY, hiY], generous enough to cover the whole
+   * outline with margin to spare.
+   */
+  function clipByTiltedPlane(
+    baseId: number, origin: readonly [number, number, number],
+    tiltedDir: readonly [number, number, number], flatDir: readonly [number, number, number],
+    loX: number, hiX: number, loY: number, hiY: number, keepBelow: boolean,
+  ): number {
+    const cross3 = (a: readonly [number, number, number], b: readonly [number, number, number]):
+      [number, number, number] => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const normal = cross3(tiltedDir, flatDir);
+    const locPt = w.entity("IFCCARTESIANPOINT", [list(real(origin[0]), real(origin[1]), real(origin[2]))]);
+    const axisDir = w.entity("IFCDIRECTION", [list(real(normal[0]), real(normal[1]), real(normal[2]))]);
+    const refDir = w.entity("IFCDIRECTION", [list(real(tiltedDir[0]), real(tiltedDir[1]), real(tiltedDir[2]))]);
+    const placement = w.entity("IFCAXIS2PLACEMENT3D", [ref(locPt), ref(axisDir), ref(refDir)]);
+    const plane = w.entity("IFCPLANE", [ref(placement)]);
+    const corners: Array<[number, number]> = [[loX, loY], [hiX, loY], [hiX, hiY], [loX, hiY], [loX, loY]];
+    const boundaryPts = corners.map(([x, y]) => w.entity("IFCCARTESIANPOINT", [list(real(x), real(y))]));
+    const boundary = w.entity("IFCPOLYLINE", [list(...boundaryPts.map(ref))]);
+    const halfSpace = w.entity("IFCPOLYGONALBOUNDEDHALFSPACE",
+      [ref(plane), enumv(keepBelow ? "F" : "T"), ref(placement), ref(boundary)]);
+    return w.entity("IFCBOOLEANCLIPPINGRESULT", [enumv("DIFFERENCE"), ref(baseId), ref(halfSpace)]);
+  }
+
+  /**
    * The distribution systems the file will declare, filled in as the storeys
    * are written and emitted once at the end: a service network is a property
    * of the BUILDING, not of the storey a leg of it happens to cross, so a
@@ -1211,6 +1265,74 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
           [str(ifcGuid(seed, `${vide.id}:void`)), ref(ownerHistory), UNSET, UNSET,
             ref(slabEntity), ref(openingEntity)]);
       });
+    }
+
+    // ── roof: one IFCROOF aggregating one IFCSLAB (ROOF) per plane ──────────
+    //
+    // A vertical prism (extrudedSolid(), identity placement, plain and
+    // already proven reliable) over the plane's own outline, from the floor
+    // up to comfortably above its highest point, clipped down to the
+    // underside by clipByTiltedPlane() and back up from below it the same
+    // way -- the exact two-plane sandwich a constant-thickness slab is, the
+    // bottom and top planes sharing one tilt and differing only in their
+    // origin's height (see core/solids.ts's roofSlabSolids(), which states
+    // the same "top = bottom + thicknessMm / cos(pitch), vertically" slab).
+    // A single IfcExtrudedAreaSolid built directly in the plane's own tilted
+    // Position was tried first and reads back wrong through web-ifc's own
+    // tessellator for a closed 2D profile; this boundary-clip construction
+    // is the one already verified working, by slopedPieceSolid() above and
+    // tests/ifcclip.test.ts. Only the IfcRoof itself joins `contained`, the
+    // way an IfcStair (not its flight) does -- the aggregation already
+    // places the slabs.
+    const roofPlanes = roofPlanesOf(floor);
+    if (roofPlanes.length > 0) {
+      const roofSlabs: number[] = [];
+      for (const plane of roofPlanes) {
+        if (plane.outline.length < 3) continue;
+        const eave = eaveLineOf(plane);
+        const pitchRad = (plane.pitchDeg * Math.PI) / 180;
+        const cosPitch = Math.cos(pitchRad);
+        const thickness = roofThicknessOf(plane);
+        const vertical = cosPitch > 1e-6 ? thickness / cosPitch : thickness;
+
+        const outlineWorld = plane.outline.map(p => v(p.x, p.y));
+        const bottomHs = outlineWorld.map(p => planeUndersideAt(plane, p));
+        const topHs = bottomHs.map(h => h + vertical);
+        const maxTop = Math.max(...topHs);
+        const baseId = extrudedSolid(outlineWorld, 0, maxTop + 10);
+        if (baseId === null) continue;
+
+        // IFC's y-up axes: negate every plan-space y, as extrudedSolid() does.
+        const dirIfc: [number, number, number] = [eave.dir.x, -eave.dir.y, 0];
+        const inwardIfc: [number, number, number] = [eave.inward.x, -eave.inward.y, 0];
+        const tiltedDir: [number, number, number] =
+          [inwardIfc[0] * cosPitch, inwardIfc[1] * cosPitch, Math.sin(pitchRad)];
+        const eaveVals = outlineWorld.map(p => dot(sub(p, eave.a), eave.dir));
+        const intoVals = outlineWorld.map(p => dot(sub(p, eave.a), eave.inward));
+        const PAD = 1000;
+        const eaveLo = Math.min(...eaveVals) - PAD, eaveHi = Math.max(...eaveVals) + PAD;
+        const slopeLo = Math.min(0, ...intoVals) / cosPitch - PAD, slopeHi = Math.max(...intoVals) / cosPitch + PAD;
+
+        const bottomOrigin: [number, number, number] = [eave.a.x, -eave.a.y, plane.eaveMm];
+        const topOrigin: [number, number, number] = [eave.a.x, -eave.a.y, plane.eaveMm + vertical];
+        let solidId = clipByTiltedPlane(baseId, topOrigin, tiltedDir, dirIfc, slopeLo, slopeHi, eaveLo, eaveHi, true);
+        solidId = clipByTiltedPlane(solidId, bottomOrigin, tiltedDir, dirIfc, slopeLo, slopeHi, eaveLo, eaveHi, false);
+        const shape = bodyShape([solidId], "Clipping");
+
+        const slabEntity = w.entity("IFCSLAB",
+          [str(ifcGuid(seed, `${plane.id}:slab`)), ref(ownerHistory), str("Roof"), UNSET, UNSET,
+            ref(levelPlacement), shape, UNSET, enumv("ROOF")]);
+        roofSlabs.push(slabEntity);
+      }
+      if (roofSlabs.length > 0) {
+        const roofEntity = w.entity("IFCROOF",
+          [str(ifcGuid(seed, `${floor.id}:roof`)), ref(ownerHistory), str("Roof"), UNSET, UNSET,
+            ref(levelPlacement), UNSET, UNSET, enumv("NOTDEFINED")]);
+        w.entity("IFCRELAGGREGATES",
+          [str(ifcGuid(seed, `${floor.id}:roof:parts`)), ref(ownerHistory), UNSET, UNSET,
+            ref(roofEntity), list(...roofSlabs.map(ref))]);
+        contained.push(roofEntity);
+      }
     }
 
     // ── stairs: one IFCSTAIR aggregating one IFCSTAIRFLIGHT ─────────────────

@@ -4,8 +4,10 @@
 //
 // What this measures:
 //   envelope   opaque wall, glazing, door and passage area, plus the roof
-//              (the top storey's plate, treated as a flat roof -- there is no
-//              roof object) and the ground floor plate, at the structural
+//              (a storey's own authored planes where it has any -- see
+//              model/roof.ts -- summed as sloped area over the part not
+//              covered by the storey above, otherwise its plate treated as a
+//              flat roof) and the ground floor plate, at the structural
 //              CLAD face -- resolveFloor()'s mitered face length. The facade
 //              skin's own thickness is not added to that length; it is a
 //              layer outside the structure, the same distinction
@@ -30,11 +32,12 @@ import {
   HEATING_DEGREE_DAYS, isEnvelopeWall, openingIsGlazing, openingUOf, uFromRc, wallRcOf,
 } from "../model/energy";
 import { wallTopRange } from "../model/profile";
+import { roofPlanesOf } from "../model/roof";
 import { resolveFloor, type Resolved } from "./resolve";
 import { detectRooms, outerBoundary, outwardSide, roomArea, type Room } from "./rooms";
 import { grossAreaUnderTop, localTop } from "./surface";
 import {
-  Vec, distToSeg, norm, perp, pointInPolygon, scale, sub,
+  Vec, v, clipHalfPlane, distToSeg, norm, perp, pointInPolygon, polygonArea, scale, sub,
 } from "../geometry/vec";
 import { arcTangentAt } from "../geometry/arc";
 import type { AreaMode } from "../model/doc";
@@ -276,6 +279,57 @@ function overhangBetween(lower: Vec[] | null, upper: Vec[] | null): boolean {
   return false;
 }
 
+const ENERGY_DEG = Math.PI / 180;
+
+/** A storey outline re-wound counter-clockwise under y-down like a roof
+ *  plane's own outline -- outerBoundary() returns the unbounded face's own
+ *  (opposite) winding, see core/rooms.ts. */
+function ccwOuter(outer: Vec[] | null): Vec[] | null {
+  if (!outer || outer.length < 3) return null;
+  return polygonArea(outer) < 0 ? [...outer].reverse() : outer;
+}
+
+/** `subject` clipped to `clip`, one half-plane per edge of `clip` (inward =
+ *  +perp(edge direction), the CCW-under-y-down winding roof outlines and
+ *  storey outlines share here). Exact for a convex `clip`, the same
+ *  approximation core/solids.ts's plateHoles() and core/headroom.ts already
+ *  accept for a building outline otherwise. */
+function clipToPolygon(subject: Vec[], clip: readonly Vec[]): Vec[] {
+  let out = subject;
+  const n = clip.length;
+  for (let i = 0; i < n && out.length >= 3; i++) {
+    const a = clip[i]!, b = clip[(i + 1) % n]!;
+    const edge = sub(b, a);
+    if (Math.hypot(edge.x, edge.y) < 1e-9) continue;
+    out = clipHalfPlane(out, a, perp(norm(edge)));
+  }
+  return out;
+}
+
+/**
+ * A storey's own roof area, mm²: where it has authored roof planes
+ * (model/roof.ts), the sum of their sloped areas (plan area / cos(pitch))
+ * over the part NOT covered by the storey above's own outline -- so a set-back
+ * upper storey does not double the roof the lower storey's own plane already
+ * states. `flatFallback` (the top-storey's-plate figure the takeoff has
+ * always reported) applies byte-identical where the storey has no planes.
+ */
+function storeyRoofMm2(f: Floor, aboveOuter: Vec[] | null, flatFallback: number): number {
+  const planes = roofPlanesOf(f);
+  if (planes.length === 0) return flatFallback;
+  let area = 0;
+  for (const plane of planes) {
+    if (plane.outline.length < 3) continue;
+    const outline = plane.outline.map(p => v(p.x, p.y));
+    const fullPlan = Math.abs(polygonArea(outline));
+    const coveredPlan = aboveOuter ? Math.abs(polygonArea(clipToPolygon(outline, aboveOuter))) : 0;
+    const notCoveredPlan = Math.max(0, fullPlan - coveredPlan);
+    const c = Math.cos(plane.pitchDeg * ENERGY_DEG);
+    area += c > 1e-6 ? notCoveredPlan / c : notCoveredPlan;
+  }
+  return area;
+}
+
 export function envelopeTakeoff(doc: PlanDoc): EnvelopeTakeoff {
   const northDeg = doc.northDeg;
   const mode = areaModeOf(doc);
@@ -297,11 +351,12 @@ export function envelopeTakeoff(doc: PlanDoc): EnvelopeTakeoff {
   const storeys: StoreyEnvelope[] = per.map((it, i) => {
     const above = per[i + 1];
     const heightMm = floorHeight(it.floor);
+    const flatRoofMm2 = above ? Math.max(0, it.plateMm2 - above.plateMm2) : it.plateMm2;
     return {
       floorIndex: i, name: it.floor.name, heightMm,
       plateMm2: it.plateMm2, usableMm2: it.usableMm2,
       volumeMm3: it.plateMm2 * heightMm,
-      roofMm2: above ? Math.max(0, it.plateMm2 - above.plateMm2) : it.plateMm2,
+      roofMm2: storeyRoofMm2(it.floor, above ? ccwOuter(above.outer) : null, flatRoofMm2),
       groundMm2: i === 0 ? it.plateMm2 : 0,
       walls: it.walls,
       unstatedExterior: it.unstatedExterior,

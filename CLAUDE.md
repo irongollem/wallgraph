@@ -250,6 +250,26 @@ the same profile, mapped onto the clad face the way `floorSurface()` does. Verif
 [tests/ifc.test.ts](tests/ifc.test.ts), [tests/energy.test.ts](tests/energy.test.ts) and
 [tests/ifcclip.test.ts](tests/ifcclip.test.ts), which reads the clipped geometry back through web-ifc.
 
+**A roof plane is authored too, and separately from a wall's own top.** `RoofPlane`
+([model/roof.ts](src/model/roof.ts)) states a plane's own outline, the height of its eave (the
+low edge) and its pitch; `Floor.roofPlanes` is a storey's roof, absent meaning none stated. The
+underside at a point is the LOWEST underside of every plane whose outline contains it
+(`roofUndersideAt()` in [core/roof.ts](src/core/roof.ts)) — the eave height plus the distance
+from the eave's own infinite line, measured into the outline, times tan(pitch) — which is what
+lets a ridge or a hip come out right without two planes having to meet exactly.
+`roofWallMismatches()` samples a wall's own top against the roof over it, at the profile's
+breakpoints and every 250 mm, and reports the worst gap past 20 mm; like `topMismatches()`, it
+reports and never repairs, because a wall's profile stays its own statement of what was built.
+`profileFromRoof()` runs the other way, proposing a wall's profile FROM a plane, and
+[core/roofsuggest.ts](src/core/roofsuggest.ts)'s `suggestRoof()` proposes planes FROM the walls
+already drawn — a gable pair, a lean-to wall, or a flat plane over the storey's own outline when
+neither is found, or when a gable pair disagrees. Both directions are proposals only: the panel
+writes what they return in one explicit mutation, and nothing here re-derives a plane or a
+profile afterwards. `core/headroom.ts`'s `roomLowHeadroom()` and `stairRoofClearanceMm()`, and
+`core/energy.ts`'s roof area, all read the same planes; `core/solids.ts`'s `roofSlabSolids()` and
+`io/ifc.ts`'s `IfcRoof` build each plane as a slab on its underside. Verified by
+[tests/roof.test.ts](tests/roof.test.ts).
+
 **`resolveRoutes()`** — waypoints resolved through their anchors, then straight legs that
 share a corridor with another run fanned into parallel lanes. The fan is drawn legibility
 ONLY: it is applied per segment, and anything that makes a geometric claim about where a
@@ -615,7 +635,8 @@ before changing one:
 - Varying-thickness walls; a wall is one thickness, not a material build-up. A facade and a
   lining are skins outside that thickness, not layers within it.
 - A wall's top profile is read by the wall surface, 3D, IFC, energy, the frame and the materials
-  takeoff; there is no roof surface for it to agree with yet (#57).
+  takeoff. A roof plane over it is a separate statement, checked against the profile and never
+  repaired (`roofWallMismatches()`) rather than the two being reconciled automatically.
 - Exact wall-to-arc miters (tangent-line approximation instead).
 - Stair figures are reported, never enforced; a stair does not snap to a wall the way a
   wall-mounted symbol does.
@@ -647,10 +668,15 @@ before changing one:
 - Wall surface counts the two faces of a wall plus the reveals through it. A reveal is measured over
   the structural thickness only — cladding makes it deeper, but that is facade work — and a floor
   build-up is not modelled. A ceiling is one height per room, not a plenum with its own geometry.
-- There is no roof. The takeoff treats the top storey's plate as a flat roof and a set-back's
-  uncovered plate as a terrace roof; a pitched roof, dormer or roof window is not modelled, the
-  underside of an overhang is flagged and not measured, and the envelope face is the structural face,
-  not the outer face of the facade skin.
+- A roof is authored planes (`RoofPlane`), not a modelled build-up: no dormer, roof window or
+  valley flashing is an object, the outline is written by a suggestion or a preset and is not yet
+  edited as geometry point by point, and a plane carries one thickness with no layers (sarking,
+  battens, tiles) the way a wall's own `thickness` carries none either. A storey with no roof
+  planes still has its plate treated as a flat roof for the envelope takeoff, and a set-back's
+  uncovered plate still reports as a terrace roof; the underside of an overhang is flagged and not
+  measured, and the envelope face is the structural face, not the outer face of the facade skin.
+  `roofWallMismatches()` and `roomLowHeadroom()` report what does not add up; nothing here repairs
+  a wall or refuses a plan over it.
 - The energy figure is transmission-only at one fixed degree-day figure. The insulation and glazing
   presets are indicative table values, not a per-year tabulation of the regulations, and nothing
   checks a stated Rc or U against what the Bbl requires.

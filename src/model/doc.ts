@@ -9,6 +9,7 @@ import type { Furnishing } from "./furnishing";
 import type { Route } from "./route";
 import type { RouteContinuation } from "./continuation";
 import type { RoomName } from "./room";
+import type { RoofPlane } from "./roof";
 import type { EnergyAssumptions } from "./energy";
 import type { MaterialAssumptions } from "./materials";
 import { newDocGuid } from "./guid";
@@ -629,6 +630,15 @@ export interface Floor {
    * (RoomName.ceilingMm); this is what the rest of the storey falls back to.
    */
   ceilingMm?: number;
+  /**
+   * This storey's roof, as authored planes -- a flat roof is one plane with
+   * no pitch. Absent means the storey carries none: a plan drawn before this
+   * existed, an intermediate storey under another one, or a roof not yet
+   * stated. Authored, not derived from the walls or their top profiles (see
+   * model/profile.ts and model/roof.ts); core/roofsuggest.ts proposes planes
+   * from what is already drawn, but nothing here re-derives them afterwards.
+   */
+  roofPlanes?: RoofPlane[];
 }
 
 /** A floor's stairs. Absent means none, not an error. */
@@ -816,6 +826,7 @@ export function emptyDoc(): PlanDoc {
     floors: [{
       id: newId("f"), name: "Floor 1",
       nodes: [], walls: [], symbols: [], stairs: [], vides: [], decks: [], structure: [], furnishings: [], routes: [], roomNames: [],
+      roofPlanes: [],
     }],
   };
 }

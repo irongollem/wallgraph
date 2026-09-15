@@ -17,6 +17,7 @@ import {
   stairsOf, type WallMaterial,
 } from "../model/doc";
 import { wallTopAt, wallTopPolyline } from "../model/profile";
+import { roofPlanesOf, roofThicknessOf } from "../model/roof";
 import {
   Vec, v, add, sub, scale, dot, mid, pointInPolygon, distToSeg, clipHalfPlane, polygonArea, perp, norm, cross,
   angleOf,
@@ -25,6 +26,7 @@ import { arcInfo, arcPointAt, arcTangentAt, sweepOf } from "../geometry/arc";
 import { stairwellHole } from "./stair3d";
 import { resolveFloor, type ResolvedWall } from "./resolve";
 import { detectRooms, outerBoundary } from "./rooms";
+import { planeUndersideAt } from "./roof";
 import { videBox } from "./vide";
 import { worldPoint } from "./placed";
 import type { Vide } from "../model/vide";
@@ -463,6 +465,47 @@ function coveredBy(inner: Vec[], outer: Vec[]): boolean {
     }
     return false;
   });
+}
+
+/**
+ * One roof plane as a slab standing on its own underside: `poly` is the
+ * plane's own outline, `bottom` its underside per vertex (this plane's own
+ * formula -- see core/roof.ts's planeUndersideAt(), not the lowest-of-all
+ * roofUndersideAt() a ridge reads), `top` the same vertices offset VERTICALLY
+ * by thickness/cos(pitch). That vertical offset is exactly a prism of
+ * `thicknessMm` (or the ROOF_THICKNESS_DEFAULT_MM placeholder) measured
+ * SQUARE TO THE PLANE: moving every point of a tilted plane the same amount
+ * straight up puts the two planes a perpendicular distance of
+ * (vertical offset) x cos(pitch) apart, which is `thicknessMm` exactly when
+ * the vertical offset is thicknessMm / cos(pitch). Parallel arrays, like
+ * Prism.top, so a renderer or exporter can build the six faces directly
+ * without re-deriving the plane's own equation.
+ */
+export interface RoofSlabSolid {
+  planeId: Id;
+  poly: Vec[];
+  bottom: number[];
+  top: number[];
+}
+
+/**
+ * Every roof plane on this storey as a slab. Standalone rather than folded
+ * into FloorSolids: a roof plane is authored independently of the wall graph
+ * (model/roof.ts) and can exist on a floor with no walls at all, where
+ * floorSolids() returns null outright.
+ */
+export function roofSlabSolids(f: Floor): RoofSlabSolid[] {
+  const out: RoofSlabSolid[] = [];
+  for (const plane of roofPlanesOf(f)) {
+    if (plane.outline.length < 3) continue;
+    const poly = plane.outline.map(p => v(p.x, p.y));
+    const cosPitch = Math.cos((plane.pitchDeg * Math.PI) / 180);
+    const vertical = cosPitch > 1e-6 ? roofThicknessOf(plane) / cosPitch : roofThicknessOf(plane);
+    const bottom = poly.map(p => planeUndersideAt(plane, p));
+    const top = bottom.map(h => h + vertical);
+    out.push({ planeId: plane.id, poly, bottom, top });
+  }
+  return out;
 }
 
 /** A vide's footprint as a world-space quad, corners in traversal order —

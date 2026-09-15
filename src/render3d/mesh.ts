@@ -6,7 +6,7 @@
 // and uncached like the rest of the derived geometry — callers cache against
 // the store revision.
 import { PlanDoc, Floor, Id, floorElevation, floorHeight, stairsOf, furnishingsOf, decksOf } from "../model/doc";
-import { floorSolids, FloorSolids } from "../core/solids";
+import { floorSolids, FloorSolids, roofSlabSolids } from "../core/solids";
 import { structureSolids } from "../core/structure";
 import { deckSolids } from "../core/deck";
 import { stairSteps, StairStep } from "../core/stair3d";
@@ -43,6 +43,8 @@ type Rgb = readonly [number, number, number];
 export const WALL_COLOR: Rgb = [0.93, 0.92, 0.9];
 /** Slab prisms: a step darker than the walls they carry. */
 export const SLAB_COLOR: Rgb = [0.8, 0.79, 0.77];
+/** Roof plane slabs: a warm tone told apart from the flat slabs beneath. */
+export const ROOF_COLOR: Rgb = [0.64, 0.49, 0.4];
 /** Stair steps: muted warm tone. */
 export const STAIR_COLOR: Rgb = [0.85, 0.8, 0.72];
 /** Door leaves: timber, told from wall and stair at a glance. */
@@ -183,6 +185,12 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
         emitPrism(acc, part.poly, part.holes ?? [], elev + part.z0, elev + part.z1,
           FITOUT_COLORS[part.material]);
       }
+    }
+    // Roof planes stand on their own for the same reason as structure and
+    // decks: authored independently of the wall graph (model/roof.ts), a
+    // plane can cover a storey with no walls at all.
+    for (const rs of roofSlabSolids(f)) {
+      emitRoofSlab(acc, rs.poly, rs.bottom.map(h => elev + h), rs.top.map(h => elev + h), ROOF_COLOR);
     }
     if (!fs) continue;
 
@@ -352,6 +360,50 @@ function emitPrism(
       if (turnCos(prev, cur, next) < EDGE_TURN_COS) {
         acc.edges.push(cur.x, cur.y, z0, cur.x, cur.y, rTop ? rTop[i]! : z1);
       }
+    }
+  }
+}
+
+/**
+ * A roof plane slab: bottom and top are BOTH per-vertex (core/solids.ts's
+ * RoofSlabSolid), unlike emitPrism()'s flat z0 with an optional sloped top --
+ * a roof plane has no flat face at all, top and bottom being the same
+ * outline offset a constant vertical amount apart. Caps triangulated once and
+ * read at both heights (reversed winding for the bottom, which faces -z);
+ * sides and outline edges follow the same per-edge shape emitPrism() uses.
+ */
+function emitRoofSlab(acc: MeshAcc, footprint: Vec[], bottomIn: number[], topIn: number[], color: Rgb): void {
+  const ring: Vec[] = [], bottom: number[] = [], top: number[] = [];
+  for (let i = 0; i < footprint.length; i++) {
+    const p = footprint[i]!;
+    const last = ring[ring.length - 1];
+    if (!last || dist(last, p) > RING_EPS) { ring.push(p); bottom.push(bottomIn[i]!); top.push(topIn[i]!); }
+  }
+  while (ring.length > 1 && dist(ring[0]!, ring[ring.length - 1]!) <= RING_EPS) { ring.pop(); bottom.pop(); top.pop(); }
+  if (ring.length < 3 || Math.abs(polygonArea(ring)) <= AREA_EPS) return;
+  if (polygonArea(ring) < 0) { ring.reverse(); bottom.reverse(); top.reverse(); }
+
+  const tris = triangulatePolygon(ring);
+  for (let i = 0; i + 2 < tris.length; i += 3) {
+    const ia = tris[i]!, ib = tris[i + 1]!, ic = tris[i + 2]!;
+    const a = ring[ia]!, b = ring[ib]!, c = ring[ic]!;
+    pushTri(acc, a.x, a.y, top[ia]!, b.x, b.y, top[ib]!, c.x, c.y, top[ic]!, color);
+    pushTri(acc, a.x, a.y, bottom[ia]!, c.x, c.y, bottom[ic]!, b.x, b.y, bottom[ib]!, color);
+  }
+
+  const n = ring.length;
+  for (let i = 0; i < n; i++) {
+    const p = ring[i]!, q = ring[(i + 1) % n]!;
+    const pb = bottom[i]!, qb = bottom[(i + 1) % n]!, pt = top[i]!, qt = top[(i + 1) % n]!;
+    pushTri(acc, p.x, p.y, pb, q.x, q.y, qb, q.x, q.y, qt, color);
+    pushTri(acc, p.x, p.y, pb, q.x, q.y, qt, p.x, p.y, pt, color);
+    acc.edges.push(p.x, p.y, pb, q.x, q.y, qb);
+    acc.edges.push(p.x, p.y, pt, q.x, q.y, qt);
+  }
+  for (let i = 0; i < n; i++) {
+    const prev = ring[(i + n - 1) % n]!, cur = ring[i]!, next = ring[(i + 1) % n]!;
+    if (turnCos(prev, cur, next) < EDGE_TURN_COS) {
+      acc.edges.push(cur.x, cur.y, bottom[i]!, cur.x, cur.y, top[i]!);
     }
   }
 }
