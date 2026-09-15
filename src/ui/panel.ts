@@ -47,6 +47,12 @@ import { renderZoomTool, type RoomEdit } from "./zoom";
 import { renderOpeningTool } from "./openings";
 import { renderWallTool, renderWallSurface, renderPostLayout } from "./walls";
 import { renderEnergyAssumptions, renderEnergyTakeoff } from "./energy";
+import {
+  renderRoof, renderRoofTakeoff, roofHeadroomRooms, type RoofProposal, type RoofTakeoffData,
+} from "./roof";
+import { roofPlanesOf } from "../model/roof";
+import { roofWallMismatches } from "../core/roof";
+import type { RoofSuggestion } from "../core/roofsuggest";
 import { renderMaterialAssumptions, renderMaterialTakeoff, renderWallMaterial } from "./materials";
 import { renderFrameButton, openFrameDialog } from "./frame";
 import { floorSurface, type WallSurface } from "../core/surface";
@@ -95,6 +101,7 @@ function layersPresent(floor: Floor): LayerKey[] {
     if (cat) on.add(LAYER_OF_CATEGORY[cat]);
   }
   if (furnishingsOf(floor).length > 0) on.add("furnishing");
+  if (roofPlanesOf(floor).length > 0) on.add("roof");
   return LAYER_KEYS.filter(k => on.has(k));
 }
 
@@ -159,6 +166,7 @@ export class Panel {
   private underlayEl: HTMLElement;
   private permitEl: HTMLElement;
   private energyEl: HTMLElement;
+  private roofEl: HTMLElement;
   private materialsEl: HTMLElement;
   /** Everything the pane's structure depends on; a change rebuilds it. */
   private lastPaneSig = "";
@@ -168,6 +176,7 @@ export class Panel {
   private underlayOpen = false;
   private permitOpen = false;
   private energyOpen = false;
+  private roofOpen = false;
   private materialsOpen = false;
   /** The storey-management pane is open in the context area (renderFloorsPane).
    *  Pane state like roomEditKey: it has to survive the rebuilds it causes. */
@@ -190,6 +199,20 @@ export class Panel {
    *  permitCacheItems above. */
   private energyCacheRev = -1;
   private energyCacheTakeoff: EnvelopeTakeoff | null = null;
+  /** The Dak takeoff's container; repopulated in place while open. */
+  private roofTakeoffEl: HTMLElement | null = null;
+  /** roofWallMismatches()/roomLowHeadroom() cache, keyed on store.revision --
+   *  the mismatches sample every wall against the roof and the headroom rows
+   *  read detectRooms() (via Tools.rooms()), so recomputing them on every
+   *  store notification would repeat that work per mutation during a drag
+   *  while the Dak section happens to be open. Same pattern as
+   *  energyCacheTakeoff above. */
+  private roofCacheRev = -1;
+  private roofCacheData: RoofTakeoffData | null = null;
+  /** The pending "Voorstel uit muren" suggestion, held until Accept writes it
+   *  or the visitor changes storey -- see ui/roof.ts's RoofProposal. */
+  private roofProposalValue: RoofSuggestion | null = null;
+  private roofProposalFloor: string | null = null;
   /** The Materialen takeoff's container; repopulated in place while open. */
   private materialsTakeoffEl: HTMLElement | null = null;
   /** floorMaterials() cache, keyed on store.revision -- it resolves the active
@@ -246,6 +269,7 @@ export class Panel {
     this.underlayEl = this.buildUnderlaySection();
     this.permitEl = this.buildPermitSection();
     this.energyEl = this.buildEnergySection();
+    this.roofEl = this.buildRoofSection();
     this.materialsEl = this.buildMaterialsSection();
 
     this.mode = watchLayout(next => {
@@ -308,7 +332,7 @@ export class Panel {
       const sideBody = el("div", "side-body");
       sideBody.append(this.rail, this.pane);
       this.pane.replaceChildren(this.storeyEl, this.paneScroll, this.planEl, this.underlayEl, this.permitEl,
-        this.energyEl, this.materialsEl);
+        this.energyEl, this.roofEl, this.materialsEl);
       this.root.replaceChildren(this.head, sideBody, this.status, this.foot);
       return;
     }
@@ -334,7 +358,7 @@ export class Panel {
     this.modeBar = null;
     this.modeBarSig = "";
     sheet.body.replaceChildren(this.paneScroll, this.planEl, this.underlayEl, this.permitEl, this.energyEl,
-      this.materialsEl, this.foot);
+      this.roofEl, this.materialsEl, this.foot);
     this.root.replaceChildren(top, modes, sheet.el);
   }
 
@@ -380,6 +404,28 @@ export class Panel {
         this.refreshToolbar();
       },
       clear: () => { this.roomEditKey = null; },
+    };
+  }
+
+  /**
+   * The pending roof suggestion, scoped to the active storey -- switching
+   * floors drops a suggestion computed for the one left behind rather than
+   * carrying it over and accepting it onto the wrong storey.
+   */
+  private get roofProposal(): RoofProposal {
+    if (this.roofProposalFloor !== this.store.floor.id) {
+      this.roofProposalValue = null;
+      this.roofProposalFloor = this.store.floor.id;
+    }
+    return {
+      value: this.roofProposalValue,
+      set: s => {
+        this.roofProposalValue = s;
+        this.roofProposalFloor = this.store.floor.id;
+        const roof = this.buildRoofSection();
+        this.roofEl.replaceWith(roof);
+        this.roofEl = roof;
+      },
     };
   }
 
@@ -704,7 +750,7 @@ export class Panel {
       d.gridMm, areaModeOf(d), floorHeight(this.store.floor),
       this.store.floor.ceilingMm ?? "", d.groundMm ?? "", this.tools.lastThickness,
       JSON.stringify(d.project ?? null), d.northDeg ?? "", JSON.stringify(d.energy ?? null),
-      JSON.stringify(d.materials ?? null),
+      JSON.stringify(d.materials ?? null), JSON.stringify(this.store.floor.roofPlanes ?? null),
       this.store.floor.underlay ? "u1" : "u0", this.tools.calibrating ? "c1" : "c0",
       // The Plan section's per-discipline toggles only show once the floor
       // has routes, so a route being added or removed has to rebuild it too.
@@ -731,6 +777,9 @@ export class Panel {
       const energy = this.buildEnergySection();
       this.energyEl.replaceWith(energy);
       this.energyEl = energy;
+      const roof = this.buildRoofSection();
+      this.roofEl.replaceWith(roof);
+      this.roofEl = roof;
       const materials = this.buildMaterialsSection();
       this.materialsEl.replaceWith(materials);
       this.materialsEl = materials;
@@ -740,6 +789,7 @@ export class Panel {
     // see — so they refresh in place.
     this.syncPermitChecks();
     this.syncEnergyTakeoff();
+    this.syncRoofTakeoff();
     this.syncMaterialsTakeoff();
 
     const swap = selSig !== this.lastSelSig;
@@ -1847,6 +1897,91 @@ export class Panel {
     box.replaceChildren();
     const { infoRow, noteRow, warnRow } = this.rowKit(box);
     renderEnergyTakeoff({ infoRow, noteRow, warnRow }, this.store, takeoff);
+  }
+
+  /**
+   * A lighter sub-heading for a box that has no use for secHead's selection
+   * close/Done affordances -- the same "later" (de-emphasized) style
+   * renderStoreySurface uses for the same kind of grouping. Shared by the
+   * roof section's per-plane rows and its mismatch/headroom takeoff.
+   */
+  private secHeadLater(
+    box: HTMLElement,
+  ): (label: string, _opts?: { sel?: boolean; later?: boolean; mode?: boolean }) => void {
+    return label => {
+      const wrap = el("div", "sec sec-later");
+      const lbl = el("span", "sec-label");
+      lbl.textContent = label;
+      wrap.append(lbl, el("div", "sec-rule"));
+      box.append(wrap);
+    };
+  }
+
+  /**
+   * Roof planes: suggested from the walls, a flat or gable preset, or edited
+   * per plane, plus the mismatch and headroom takeoff. Its own section under
+   * Plan, after Energie, with the same fold behaviour -- see ui/roof.ts for
+   * the rows themselves.
+   *
+   * The mismatch/headroom takeoff reads detectRooms() (via Tools.rooms()),
+   * so it is computed only while the section is open: syncRoofTakeoff()
+   * repopulates roofTakeoffEl in place, the same split buildEnergySection/
+   * syncEnergyTakeoff uses above.
+   */
+  private buildRoofSection(): HTMLElement {
+    const open = this.roofOpen;
+    const wrap = el("div", "plan-sec");
+    const head = el("button", "plan-head") as HTMLButtonElement;
+    head.type = "button";
+    head.setAttribute("aria-expanded", String(open));
+    const chev = el("span", "chev");
+    chev.append(icon("chevron", 14));
+    head.append(chev, Object.assign(el("span", "sec-label"), { textContent: t("roof.title") }));
+    const body = el("div", "plan-body" + (open ? " is-open" : ""));
+    const inner = el("div", "plan-rows");
+    body.append(inner);
+    head.onclick = () => {
+      const next = !body.classList.contains("is-open");
+      this.roofOpen = next;
+      body.classList.toggle("is-open", next);
+      head.setAttribute("aria-expanded", String(next));
+      this.syncRoofTakeoff();
+    };
+
+    const { numRow, checkRow, infoRow, noteRow, warnRow, btnRow } = this.rowKit(inner);
+    renderRoof({ secHead: this.secHeadLater(inner), numRow, checkRow, infoRow, noteRow, warnRow, btnRow },
+      this.store, this.store.floor, this.roofProposal);
+
+    this.roofTakeoffEl = el("div");
+    inner.append(this.roofTakeoffEl);
+    noteRow(t("roof.closingNote"));
+
+    wrap.append(head, body);
+    this.syncRoofTakeoff();
+    return wrap;
+  }
+
+  /**
+   * The mismatch and headroom rows, refreshed in place while the section is
+   * open -- see buildRoofSection().
+   */
+  private syncRoofTakeoff(): void {
+    const box = this.roofTakeoffEl;
+    if (!box || !this.roofOpen) return;
+    if (this.store.revision !== this.roofCacheRev) {
+      this.roofCacheRev = this.store.revision;
+      const f = this.store.floor;
+      this.roofCacheData = {
+        mismatches: roofWallMismatches(f),
+        headroomRooms: roofHeadroomRooms(f, this.tools.rooms()),
+      };
+    }
+    const data = this.roofCacheData;
+    if (!data) return;
+    box.replaceChildren();
+    const { infoRow, noteRow, warnRow, btnRow } = this.rowKit(box);
+    renderRoofTakeoff({ secHead: this.secHeadLater(box), infoRow, noteRow, warnRow, btnRow },
+      this.store, this.store.floor, data);
   }
 
   /**

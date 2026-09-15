@@ -15,11 +15,15 @@ import type { SymbolCategory } from "./symbols";
  * Verwarming is a Discipline now, so it is here through that rather than as a
  * key of its own: the layer that used to carry only the CV symbols carries the
  * CV runs with them.
+ *
+ * "roof" carries no discipline and no symbol category -- a roof plane is
+ * authored on the storey directly (model/roof.ts) -- so it is declared here
+ * on its own rather than through Discipline or LAYER_OF_CATEGORY.
  */
-export type LayerKey = Discipline | "safety" | "furnishing";
+export type LayerKey = Discipline | "safety" | "furnishing" | "roof";
 
 export const LAYER_KEYS: readonly LayerKey[] = [
-  "electrical", "water", "heating", "vent", "gas", "safety", "furnishing",
+  "electrical", "water", "heating", "vent", "gas", "safety", "furnishing", "roof",
 ];
 
 /** Which layer a symbol's category belongs to. Routes key on their discipline. */
@@ -35,7 +39,7 @@ export type LayerFlags = Record<LayerKey, boolean>;
 
 export const allLayersOn = (): LayerFlags => ({
   electrical: true, water: true, heating: true, vent: true, gas: true,
-  safety: true, furnishing: true,
+  safety: true, furnishing: true, roof: true,
 });
 
 /** How faint a layer the current tool cannot touch is drawn. */

@@ -35,15 +35,23 @@ export interface EaveGeom { a: Vec; dir: Vec; inward: Vec }
  * line at the 1500 mm underside, and io/ifc.ts, which builds the plane's own
  * placement from `a`/`dir`/`inward` directly.
  */
-export function eaveLineOf(plane: RoofPlane): EaveGeom {
+/** The eave edge's own two endpoints, in outline order -- the segment
+ *  eaveLineOf's `a`/`dir` describe only as an infinite line. Shared by the
+ *  plan drawing (canvas, SVG, DXF), which draws this edge solid while the
+ *  rest of a plane's outline is dashed (see render/roof.ts). */
+export function eaveSegment(plane: RoofPlane): { a: Vec; b: Vec } {
   const n = plane.outline.length;
   const idx = n > 0 ? Math.max(0, Math.min(n - 1, Math.round(plane.eaveEdge))) : 0;
   const a = plane.outline[idx] ?? { x: 0, y: 0 };
   const b = plane.outline[(idx + 1) % Math.max(1, n)] ?? a;
-  const A = v(a.x, a.y), B = v(b.x, b.y);
+  return { a: v(a.x, a.y), b: v(b.x, b.y) };
+}
+
+export function eaveLineOf(plane: RoofPlane): EaveGeom {
+  const { a: A, b: B } = eaveSegment(plane);
   const dir = norm(sub(B, A));
   const cand = perp(dir);
-  const centroid = n >= 3 ? polygonCentroid(plane.outline.map(p => v(p.x, p.y))) : A;
+  const centroid = plane.outline.length >= 3 ? polygonCentroid(plane.outline.map(p => v(p.x, p.y))) : A;
   const inward = dot(cand, sub(centroid, A)) >= 0 ? cand : scale(cand, -1);
   return { a: A, dir, inward };
 }

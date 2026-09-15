@@ -6,6 +6,7 @@
 // and open on screen with them cropped off, which is exactly what happened while
 // main.ts fitted the view to the node positions alone.
 import { Floor, stairsOf, videsOf, decksOf, structureOf, furnishingsOf, roomNamesOf, routesOf } from "../model/doc";
+import { roofPlanesOf } from "../model/roof";
 import { Resolved } from "./resolve";
 import { getSymbol } from "../render/symbols";
 import { stairCorners, resolveStair } from "./stair";
@@ -64,6 +65,9 @@ export function planBounds(floor: Floor, resolved: Resolved): Bounds | null {
   // A room name is a point, and a plan that is nothing but names still has to
   // frame somewhere rather than reporting itself empty.
   for (const rn of roomNamesOf(floor)) b.add(rn.x, rn.y);
+  // A roof plane's eave can overhang past the walls it covers, so the outline
+  // -- not just the wall graph underneath -- has to be in the crop.
+  for (const p of roofPlanesOf(floor)) for (const pt of p.outline) b.add(pt.x, pt.y);
   return b.result();
 }
 

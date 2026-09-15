@@ -18,6 +18,8 @@
 // avoids guessing how a mirrored, rotated transform maps onto an ARC.
 import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, stairsOf, videsOf, decksOf, structureOf, furnishingsOf, routesOf, roomNamesOf, Wall, wallGlazed, wallInfill } from "../model/doc";
 import { Vec } from "../geometry/vec";
+import { roofPlanesOf } from "../model/roof";
+import { roofRidges } from "../core/roof";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames, roomArea } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
@@ -70,6 +72,12 @@ const LAYER = {
    * and the net area is measured to it.
    */
   lining: "LINING",
+  /**
+   * Roof planes. Above the section plane like DECKS-OVERHEAD and
+   * CABINETS-OVERHEAD, but with no cut/overhead split to carry -- a roof
+   * plane is never cut -- so it takes one layer rather than a pair.
+   */
+  roof: "ROOF",
   openings: "OPENINGS",
   symbols: "SYMBOLS",
   stairs: "STAIRS",
@@ -166,7 +174,7 @@ const ROUTE_HEAT_RETOUR_LAYER = "ROUTES-HEATING-RETOUR";
 
 /** ACI colour indices — 7 is "by background", i.e. black on white paper. */
 const LAYER_COLOR: Record<string, number> = {
-  WALLS: 7, GLAZING: 4, PANELS: 8, POSTS: 7, FACADE: 8, LINING: 8, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, DECKS: 3, "DECKS-OVERHEAD": 3, ROOMS: 8,
+  WALLS: 7, GLAZING: 4, PANELS: 8, POSTS: 7, FACADE: 8, LINING: 8, ROOF: 8, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, DECKS: 3, "DECKS-OVERHEAD": 3, ROOMS: 8,
   COLUMNS: 7, BEAMS: 7, RAILINGS: 8,
   CABINETS: 6, "CABINETS-OVERHEAD": 6,
   "ROUTES-ELECTRICAL": 1, "ROUTES-WATER": 5, "ROUTES-VENT": 2, "ROUTES-GAS": 2,
@@ -383,6 +391,15 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
 
     const structureLayer = { column: LAYER.columns, beam: LAYER.beams, railing: LAYER.railings } as const;
     for (const el of structureOf(floor)) emitPrims(w, structureLayer[el.kind], structurePrims(el));
+
+    // Roof planes: full outline plus each ridge or hip, on their own layer --
+    // DXF carries no dash, so the eave/rest-of-outline distinction the canvas
+    // and SVG draw is left to the layer alone, the same trade-off
+    // DECKS-OVERHEAD and CABINETS-OVERHEAD already make.
+    for (const plane of roofPlanesOf(floor)) {
+      if (plane.outline.length >= 3) w.polyline(LAYER.roof, plane.outline, true);
+    }
+    for (const ridge of roofRidges(floor)) w.line(LAYER.roof, ridge.a, ridge.b);
 
     if (hasRoutes) {
       for (const rr of resolveRoutes(floor)) {

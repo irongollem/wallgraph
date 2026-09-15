@@ -28,9 +28,11 @@ export interface RoofSuggestion {
   planes: RoofPlane[];
   basis: "gable" | "leanTo" | "flat";
   /** Why rule 1 or 2 could not be used, when a flatter rule was reached
-   *  despite sloped walls being present. Absent when rule 3 applies simply
-   *  because nothing on the floor is sloped. */
-  note?: string;
+   *  despite sloped walls being present. A key the caller words (i18n's
+   *  roof.note*), not a sentence: core states the reason, the panel says it.
+   *  Absent when rule 3 applies simply because nothing on the floor is
+   *  sloped. */
+  note?: "gableDisagree";
 }
 
 function clampPitchDeg(n: number): number {
@@ -252,7 +254,7 @@ export function suggestRoof(f: Floor): RoofSuggestion {
     }
     return {
       planes: flatPlanesOver(f, outline), basis: "flat",
-      note: "roofsuggest: gable walls disagree (different peak heights, or not opposite each other) -- proposing a flat roof instead.",
+      note: "gableDisagree",
     };
   }
 

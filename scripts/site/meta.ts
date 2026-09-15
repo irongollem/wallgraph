@@ -210,6 +210,9 @@ export const FEATURES: Record<Lang, string[]> = {
       "spouwisolatie en paneelbreedte",
     "Hellende muren met een bovenprofiel per muur: puntgevel- en lessenaarvorm, wandoppervlak over " +
       "het profiel en een melding waar buurmuren een andere hoogte opgeven",
+    "Dakvlakken per verdieping: voorgesteld uit de getekende muren of als plat of zadeldak gezet, met " +
+      "hellend oppervlak, een melding waar een muur van het dak afwijkt en het lage-ruimteoppervlak " +
+      "onder NEN 2580",
     "Materiaalstaat per verdieping: stijlen, regels, latei en klossen geteld uit de tekening en " +
       "genest op standaard staflengtes, met platen, isolatie en blokken",
     "Aanzicht van een regelwand op ware schaal, met stijlen, kozijnstijlen, latei, klossen en " +
@@ -232,6 +235,8 @@ export const FEATURES: Record<Lang, string[]> = {
       "nogging rows, cavity insulation and panel width",
     "Sloped walls with a top profile per wall: gable and lean-to shapes, wall surface measured over " +
       "the profile, and a report where neighbouring walls state a different height",
+    "Roof planes per storey: suggested from the drawn walls or set as a flat or gable roof, with " +
+      "sloped area, a report where a wall differs from the roof, and the NEN 2580 low-headroom area",
     "Materials takeoff per storey: studs, plates, headers and noggings counted from the drawing " +
       "and nested onto standard stock lengths, with sheets, insulation and blocks",
     "Timber decks and lofts with joist set-out, bearing, decking and loads, counted in the " +

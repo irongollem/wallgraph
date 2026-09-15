@@ -14,10 +14,13 @@
 // markup, because io/pdf.ts renders the same scene onto the permit sheet.
 // This module is the SVG renderer for it plus the scene the plan makes.
 import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, stairsOf, videsOf, decksOf, furnishingsOf, structureOf, roomNamesOf } from "../model/doc";
-import { Vec, add, sub, scale, perp, norm } from "../geometry/vec";
+import { Vec, add, sub, scale, perp, norm, polygonCentroid } from "../geometry/vec";
 import { arcPointAt } from "../geometry/arc";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames, roomArea } from "../core/rooms";
+import { roofPlanesOf } from "../model/roof";
+import { roofRidges, eaveSegment } from "../core/roof";
+import { ROOF_DASH } from "../render/roof";
 import { getSymbol } from "../render/symbols";
 import { mountMarkOf } from "../core/mount";
 import { COLORS, routeInk, routeMapLabel, symbolInk, wallPen, junctionPen, type WallPen } from "../render/draw";
@@ -346,6 +349,31 @@ export function planScene(doc: PlanDoc, floor: Floor, resolved: ReturnType<typeo
       fill: "none", width: W_SYMBOL, cap: "round", join: "round",
       family: LABEL_FONT, anchor: "middle", baseline: "central",
     }, "structure"));
+  }
+
+  // Roof planes: above the section plane, so drawn dashed like a wall
+  // cabinet -- see the same mark on the canvas (render/roof.ts). The eave
+  // edge is solid, a ridge or hip (core/roof.ts's roofRidges()) is its own
+  // solid line, and a small pitch label sits near each plane's centroid.
+  const roofPlanes = roofPlanesOf(floor);
+  if (roofPlanes.length > 0) {
+    const dashed: Item[] = [];
+    const solid: Item[] = [];
+    const labels: Item[] = [];
+    for (const plane of roofPlanes) {
+      if (plane.outline.length < 3) continue;
+      dashed.push(poly(plane.outline, true));
+      const { a, b } = eaveSegment(plane);
+      solid.push(poly([a, b], false));
+      const c = polygonCentroid(plane.outline);
+      labels.push(text(c, LABEL_MM, Math.round(plane.pitchDeg) + "°"));
+    }
+    for (const ridge of roofRidges(floor)) solid.push(poly([ridge.a, ridge.b], false));
+    out.push(group([
+      group(dashed, { dash: ROOF_DASH }),
+      group(solid),
+      group(labels, { fill: COLORS.roof, ink: "none", family: LABEL_FONT, anchor: "middle", baseline: "central" }),
+    ], { fill: "none", ink: COLORS.roof, width: W_SYMBOL }, "roof"));
   }
 
   // Cabinetry between the masonry and the symbols, as on the canvas. A wall

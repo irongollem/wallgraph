@@ -377,6 +377,29 @@ BRL 9500. Zoals elke maat hier geldt: alles wordt gemeld en niet getoetst. De IF
 Rc afgeleide U-waarde van elke gevelmuur en de opgegeven U van ramen en deuren mee als
 <code>ThermalTransmittance</code>, zodat gecertificeerde software het cijfer kan overnemen.</p>
 
+<h2 id="dak">Dak</h2>
+<p>Onder <b>Dak</b> staan de dakvlakken van de verdieping: een omtrek in het grondvlak, de hoogte van de
+dakrand — de lage kant — en de hellingshoek. Een dakvlak is <em>opgegeven</em>, niet afgeleid: het
+bovenprofiel van een muur blijft zijn eigen opgave, en waar de twee niet overeenkomen wordt dat gemeld in
+plaats van opgelost.</p>
+<p><b>Voorstel uit muren</b> stelt dakvlakken voor uit wat al getekend staat: twee puntgevels die aan
+elkaars hoogte en dakrand gelijk zijn en tegenover elkaar staan leveren een zadeldak met de nok tussen de
+twee toppen; één lessenaarmuur levert één hellend vlak met de dakrand aan de lage kant; anders wordt één
+plat vlak over de buitenomtrek van de verdieping voorgesteld, op verdiepingshoogte. Het voorstel wordt pas
+vastgelegd na <b>Overnemen</b>; <b>Plat dak</b> en <b>Zadeldak 45°</b> zetten diezelfde twee eenvoudige
+vormen direct neer, zonder eerst een voorstel te tonen.</p>
+<p>Per dakvlak staan de dakrandhoogte, de hellingshoek en, optioneel, een eigen dakdikte — zonder eigen
+opgave geldt de standaarddikte. Het hellend oppervlak (vlakoppervlak gedeeld door de cosinus van de hoek)
+staat ernaast, en elk vlak is ook los te verwijderen. Waar een muur onder een dakvlak een andere hoogte
+opgeeft dan het dak daar heeft, meldt het paneel de afwijking met de knop <b>Volg dak</b>, die het
+bovenprofiel van die muur naar het dak overneemt.</p>
+<p>Het dak verandert drie dingen die elders in het paneel staan. Onder Energie telt het hellend
+dakoppervlak mee in plaats van de platte bovenste vloerplaat. Onder Zoomen krijgt een ruimte met minder
+dan 1500 mm vrije hoogte onder een dakvlak een gemeld <em>lage-ruimte</em>-oppervlak, en het
+gebruiksoppervlak dat NEN 2580 telt is het netto oppervlak min dat deel. In de 3D-weergave en de
+IFC-export staat elk dakvlak als een plaat op zijn dakdikte, samengevoegd tot één <code>IfcRoof</code>.
+Zoals overal hier: gemeld, niet getoetst.</p>
+
 <h2 id="materialen">Materialen</h2>
 <p>Onder <b>Materialen</b> staat de materiaalstaat van de verdieping: wat de getekende muren aan
 staafhout, staal, beplating, isolatie en blokken vragen, geteld uit de stijlafstand, het blokformaat, het
@@ -829,6 +852,27 @@ under NTA 8800; a registered BENG calculation requires attested software and an 
 BRL 9500. As with every figure here: everything is reported, nothing is checked. The IFC export carries
 the U-value derived from Rc for each facade wall, and the stated U for windows and doors, as
 <code>ThermalTransmittance</code>, so attested software can read the figure.</p>
+
+<h2 id="roof">Roof</h2>
+<p><b>Roof</b> states the storey's roof planes: an outline in plan, the height of the eave — the low
+edge — and the pitch. A roof plane is <em>stated</em>, not derived: a wall's own top profile stays its
+own statement, and where the two disagree that is reported rather than resolved.</p>
+<p><b>Suggest from walls</b> proposes planes from what is already drawn: two gable walls that agree on
+height and eave and stand opposite each other yield a gable roof with the ridge between their two peaks;
+one lean-to wall yields a single sloped plane with the eave on its low side; otherwise one flat plane is
+proposed over the storey's own outer outline, at storey height. The proposal is only written once
+<b>Accept</b> is pressed; <b>Flat roof</b> and <b>Gable roof 45°</b> place those same two simple shapes
+directly, without showing a proposal first.</p>
+<p>Each plane states its eave height, its pitch and, optionally, a roof thickness of its own — without a
+stated value the default thickness applies. The sloped area (plan area divided by the cosine of the
+pitch) sits beside it, and each plane can be removed on its own. Where a wall under a roof plane states a
+different height than the roof has there, the panel reports the mismatch with a <b>Follow roof</b>
+button that carries that wall's top profile from the roof.</p>
+<p>A roof changes three figures stated elsewhere in the panel. Under Energy, the sloped roof area counts
+instead of the flat top plate. Under the room list, a room with less than 1500 mm of headroom under a
+roof plane reports a <em>low-headroom</em> area, and the usable area NEN 2580 counts is the net area
+minus that part. In the 3D view and the IFC export, each plane is a slab at its own thickness, grouped
+under one <code>IfcRoof</code>. As everywhere here: reported, never checked.</p>
 
 <h2 id="materials">Materials</h2>
 <p><b>Materials</b> states the storey's materials takeoff: what the drawn walls ask for in timber,
@@ -1349,6 +1393,8 @@ geregistreerde berekening vereist gecertificeerde software en een erkend adviseu
 <p>De materiaalstaat onder Materialen is een schatting uit de getekende constructie en de opgegeven
 aannames, geen bestelling. Wallgraph toetst geen constructieve geschiktheid van stijlen, regels of
 lateien en rekent geen mortel, lijm, bevestigingsmiddelen of aansluitdetails.</p>
+<p>Het lage-ruimteoppervlak onder Zoomen en het hellend dakoppervlak onder Dak zijn afgeleid van de
+getekende dakvlakken en zijn geen NEN 2580-meetrapport.</p>
 
 <h2 id="aansprakelijkheid">Aansprakelijkheid</h2>
 <p>Voor zover de wet dat toestaat aanvaardt de maker <b>geen enkele aansprakelijkheid</b> voor schade
@@ -1411,6 +1457,8 @@ attested software and a certified adviser.</p>
 <p>The takeoff under Materials is an estimate from the drawn construction and the stated assumptions,
 not an order. Wallgraph does not assess the structural adequacy of studs, noggings or headers and does
 not count mortar, adhesive, fixings or junction details.</p>
+<p>The low-headroom area under the room list and the sloped roof area under Roof are derived from the
+drawn roof planes and are not a NEN 2580 measurement report.</p>
 
 <h2 id="liability">Liability</h2>
 <p>To the fullest extent permitted by law the author accepts <b>no liability</b> for any damage

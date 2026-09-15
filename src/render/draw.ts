@@ -6,9 +6,12 @@ import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, vid
 import { belowCutPlane } from "../model/structure";
 import { Resolved, OpeningGeom, Junction, ResolvedWall } from "../core/resolve";
 import { Room, roomSize, sizeLabel, looseRoomNames, roomArea } from "../core/rooms";
+import { roofPlanesOf } from "../model/roof";
+import { roofRidges } from "../core/roof";
+import { drawRoofPlane, drawRoofRidge } from "./roof";
 import { Selection } from "../model/store";
 import { Viewport } from "./viewport";
-import { Vec, add, sub, scale, perp, norm, v, angleOf, dist, fromAngle } from "../geometry/vec";
+import { Vec, add, sub, scale, perp, norm, v, angleOf, dist, fromAngle, polygonCentroid } from "../geometry/vec";
 import { arcPointAt } from "../geometry/arc";
 import { getSymbol } from "./symbols";
 import { drawStair, drawStairGhost } from "./stair";
@@ -105,6 +108,12 @@ export const COLORS = {
   routeHeating: "#7d4fbf",
   routeVent: "#9c7a1f",
   routeGas: "#b8860b",
+  /**
+   * A roof plane's outline, eave and ridges. Its own warm, muted tone rather
+   * than a route colour or the wall pen: a roof is neither fabric nor a
+   * service, and dashing already says it is above the section plane.
+   */
+  roof: "#8a6f4a",
 };
 
 /**
@@ -607,6 +616,14 @@ export function drawScene(
     ctx.restore();
   };
 
+  // Roof planes: above the section plane, so dashed like a wall cabinet --
+  // see render/roof.ts. The eave edge is solid, and a ridge where two planes
+  // meet (core/roof.ts's roofRidges()) is its own solid line.
+  onLayer("roof", () => {
+    for (const plane of roofPlanesOf(floor)) drawRoofPlane(ctx, plane, COLORS.roof);
+    for (const ridge of roofRidges(floor)) drawRoofRidge(ctx, ridge, COLORS.roof);
+  });
+
   const visibleRoutes = resolveRoutes(floor).filter(rr => alphaOf(rr.route.discipline) > 0);
   const linkedByRoute = new Map<string, Set<string>>();
   for (const mark of extras.riserMarks ?? []) for (const member of mark.members) {
@@ -718,6 +735,23 @@ export function drawScene(
     ctx.fillText("∠", c.x, c.y);
   }
   ctx.restore();
+
+  // Roof pitch: a small label near each plane's own centroid, screen space
+  // like the room labels below, so it stays legible at any zoom. Hidden with
+  // the rest of the layer's geometry, not drawn on its own.
+  if (alphaOf("roof") > 0) {
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "600 12px system-ui, sans-serif";
+    ctx.fillStyle = COLORS.roof;
+    for (const plane of roofPlanesOf(floor)) {
+      if (plane.outline.length < 3) continue;
+      const c = vp.toScreen(polygonCentroid(plane.outline.map(p => v(p.x, p.y))));
+      ctx.fillText(Math.round(plane.pitchDeg) + "°", c.x, c.y);
+    }
+    ctx.restore();
+  }
 
   // Room labels (constant px size): the name over the area, where one has been
   // written. Screen-space, so a plan stays readable at any zoom.
