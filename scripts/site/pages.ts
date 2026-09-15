@@ -386,6 +386,10 @@ stijlbreedte, een blokformaat of een paneelbreedte niet opgeeft telt voor dat on
 apart gemeld.</p>
 <p>De materiaalstaat is een schatting uit de getekende constructie, op basis van de opgegeven aannames —
 geen bestellijst en geen controle op wat een aannemer daadwerkelijk nodig heeft.</p>
+<p>Een regelwand met een opgegeven stijlbreedte biedt in haar eigen paneel de knop <b>Aanzicht</b>: een
+zijaanzicht van het regelwerk op ware schaal, met onder- en bovenregel, stijlen, kozijnstijlen,
+onderstijlen, klossen, aansluitstijlen en de sparingen zoals ze in de muur staan, elk gerekend zoals de
+materiaalstaat ze telt. Het aanzicht volgt de muur mee terwijl het openstaat en is als SVG te downloaden.</p>
 
 <h2 id="selecteren">Selecteren, verplaatsen, krommen</h2>
 <p><kbd>V</kbd> activeert het selectiegereedschap voor knopen, muren en symbolen. Een geselecteerde muur
@@ -797,6 +801,10 @@ no stock length instead, naming the wall and the member. A wall that states no p
 or no panel width is left out of that part of the count and reported separately.</p>
 <p>The materials takeoff is an estimate from the drawn construction, under the stated assumptions — not an
 order, and no check on what a contractor actually needs.</p>
+<p>A framed wall that states a stud width offers an <b>Elevation</b> button in its own panel: a side
+elevation of the frame at true scale, with the bottom and top plate, studs, king studs, jack studs,
+noggings, backing and the openings as drawn in the wall, each counted the way the materials takeoff
+counts them. The elevation follows the wall while it stays open and downloads as SVG.</p>
 
 <h2 id="select">Selecting, moving, curving</h2>
 <p><kbd>V</kbd> activates selection and dragging for nodes, walls and symbols. A selected wall displays

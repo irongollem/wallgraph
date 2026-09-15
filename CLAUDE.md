@@ -214,6 +214,18 @@ the storey height finishes nothing extra and reads as absent (`storeyCeiling()`)
 ceiling inside the slab. The per-room one rides on the name for the reason `RoomName.use` does:
 there is no stored room to hang it on, so an unnamed room falls back to the storey's.
 
+**A lining is a skin, like the facade: outside the structural faces, drawn, and measured only by the
+net area.** `Wall.lining` (board thickness × layers) lies on every face that does not carry the facade,
+so `thickness` stays the frame or block depth, and the wall graph, room detection and the centerline and
+bvo areas do not see it. `resolveFloor()` builds it with the same corner pass as the facade band
+(`skinFor()`), so two lined walls miter their boards and a lined wall teeing into another stops at that
+wall's board face; the canvas, SVG and DXF draw it as a paper-coloured band the way they draw the facade.
+`detectRooms()` insets the net boundary by half the thickness plus the lining on a lined face, so the
+`net` area mode measures to the finished face and a plan does not show more room than there is.
+`floorSurface()` keeps measuring the structural face; the pane says so where a lining is stated. A wall
+stating no facade is lined on both faces, outside included, because the document does not then say
+which side is out. Verified by [tests/core.test.ts](tests/core.test.ts).
+
 **`resolveRoutes()`** — waypoints resolved through their anchors, then straight legs that
 share a corridor with another run fanned into parallel lanes. The fan is drawn legibility
 ONLY: it is applied per segment, and anything that makes a geometric claim about where a
@@ -294,6 +306,17 @@ structural member longer than every stock length lands in `unfit` and is never s
 are read only through the accessors in [model/materials.ts](src/model/materials.ts), which supply the
 indicative defaults. Verified by [tests/stock.test.ts](tests/stock.test.ts) and
 [tests/materials.test.ts](tests/materials.test.ts).
+
+**The takeoff counts a layout, and the elevation draws the same layout.** `frameLayout()` in
+[frame.ts](src/core/frame.ts) places every member of one framed wall as a rectangle in the wall's own
+plane — x along the frame from node `a`, y up from the floor — and `WallTakeoff.members` is that list
+aggregated by name, section and length. The aanzicht overlay draws it through `drawFrame()` under the
+symbol draw contract, so `recordSymbol()` replays it into the SVG download. There is no second member
+construction: a count that changes changes the drawing with it. x is the centerline distance, the same
+`t` openings and `postBays()` use, clamped into the mitered frame length. The bottom plate runs through
+a door because it is counted whole and cut out after standing; a run-end nogging keeps the takeoff's
+centre-to-centre cut and overlaps the end stud by half a post. Verified by
+[tests/frame.test.ts](tests/frame.test.ts).
 
 ## Adding a symbol
 
@@ -515,7 +538,8 @@ sells commercial exceptions. Consequences for changes here:
 Deliberate cuts, not oversights — check the [roadmap issues](https://github.com/irongollem/wallgraph/issues)
 before changing one:
 
-- Sloped or varying-thickness walls; a wall is one thickness, not a material build-up.
+- Sloped or varying-thickness walls; a wall is one thickness, not a material build-up. A facade and a
+  lining are skins outside that thickness, not layers within it.
 - Exact wall-to-arc miters (tangent-line approximation instead).
 - Stair figures are reported, never enforced; a stair does not snap to a wall the way a
   wall-mounted symbol does.

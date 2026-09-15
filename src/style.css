@@ -406,6 +406,27 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 .dialog-row { display: flex; gap: 6px; justify-content: flex-end; }
 .dim-input { position: absolute; width: 86px; padding: 2px 6px; border: 1.5px solid #2d7de0; border-radius: 5px; font: 600 12px system-ui, sans-serif; color: #2d7de0; background: #fff; z-index: 5; }
 
+/* The frame elevation dialog (ui/frame.ts). */
+.frame-dialog { display: flex; flex-direction: column; gap: 10px; width: min(760px, 92vw); max-height: 88vh; }
+.frame-head { display: flex; align-items: center; justify-content: space-between; }
+.frame-canvas-wrap { flex: 1 1 auto; min-height: 220px; height: min(60vh, 460px); border: 1px solid #eceadf; border-radius: 6px; overflow: hidden; background: #fff; }
+.frame-canvas-wrap canvas { display: block; width: 100%; height: 100%; }
+/* :not([hidden]) rather than a bare display on the class -- otherwise this
+   rule's display:flex would outrank the hidden attribute's own UA default of
+   display:none, and toggling .hidden would stop working. */
+.frame-legend:not([hidden]) { display: flex; flex-wrap: wrap; gap: 4px 14px; font: 12px system-ui, sans-serif; color: #6b675c; }
+.frame-incomplete:not([hidden]) { font: 12px system-ui, sans-serif; color: #8a8577; text-align: center; padding: 30px 0; }
+
+/* Full-screen below the same breakpoint ui/layout.ts's layoutFor() switches
+   the sidebar to the compact shell at (COMPACT_MAX_PX / SHORT_MAX_PX) -- a
+   plain media query rather than an is-compact class, since this overlay sits
+   outside the .side element that class is toggled on. */
+@media (max-width: 767px), (max-height: 500px) {
+  .frame-overlay { padding: 0; }
+  .frame-dialog { width: 100%; max-width: none; height: 100%; max-height: none; border-radius: 0; }
+  .frame-canvas-wrap { height: auto; }
+}
+
 /* Minimal survivors: only the paste dialog's Load/Cancel buttons still use these. */
 .tool-btn { border: 1px solid #d8d4c8; background: #faf9f5; color: #2b2e33; border-radius: 6px; padding: 6px 9px; cursor: pointer; font: inherit; }
 .tool-btn:hover { background: #f0eee6; }

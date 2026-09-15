@@ -48,6 +48,7 @@ import { renderOpeningTool } from "./openings";
 import { renderWallTool, renderWallSurface } from "./walls";
 import { renderEnergyAssumptions, renderEnergyTakeoff } from "./energy";
 import { renderMaterialAssumptions, renderMaterialTakeoff, renderWallMaterial } from "./materials";
+import { renderFrameButton, openFrameDialog } from "./frame";
 import { floorSurface } from "../core/surface";
 import { envelopeTakeoff, type EnvelopeTakeoff } from "../core/energy";
 import { floorMaterials, type FloorMaterials } from "../core/materials";
@@ -2626,6 +2627,9 @@ export class Panel {
       // every build-up field above it, the way a summary follows what it
       // summarises rather than leading it.
       renderWallMaterial(rows, wallMaterials);
+      // The frame elevation, right under the takeoff it draws the same
+      // members from -- see ui/frame.ts.
+      renderFrameButton(p, wallMaterials, () => openFrameDialog(this.store, sel.id));
       // Recolouring one wall arms the pen, the way editing its thickness sets
       // the thickness of the next one: a wall marked as new work is nearly
       // always the first of a run of them.

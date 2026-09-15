@@ -253,6 +253,10 @@ export class Store {
   }
 
   onChange(fn: Listener): void { this.listeners.push(fn); }
+  /** Drops a listener added by onChange -- for a transient subscriber (a
+   *  dialog open on top of the pane) that must stop hearing about changes
+   *  once it closes, rather than accumulate across repeated opens. */
+  offChange(fn: Listener): void { this.listeners = this.listeners.filter(l => l !== fn); }
   private notify(): void { this.revision++; for (const l of this.listeners) l(); }
 
   /** Cheap 32-bit content hash (FNV-1a), hex-encoded — not cryptographic,

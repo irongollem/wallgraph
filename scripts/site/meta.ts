@@ -210,6 +210,8 @@ export const FEATURES: Record<Lang, string[]> = {
       "spouwisolatie en paneelbreedte",
     "Materiaalstaat per verdieping: stijlen, regels, latei en klossen geteld uit de tekening en " +
       "genest op standaard staflengtes, met platen, isolatie en blokken",
+    "Aanzicht van een regelwand op ware schaal, met stijlen, kozijnstijlen, latei, klossen en " +
+      "aansluitstijlen uit de materiaalstaat, te downloaden als SVG",
     "Exporteren naar PNG, SVG en DXF op ware schaal",
     "Werkt offline, slaat lokaal op, geen account nodig",
   ],
@@ -228,6 +230,8 @@ export const FEATURES: Record<Lang, string[]> = {
       "nogging rows, cavity insulation and panel width",
     "Materials takeoff per storey: studs, plates, headers and noggings counted from the drawing " +
       "and nested onto standard stock lengths, with sheets, insulation and blocks",
+    "Elevation of a framed wall at true scale, with studs, king studs, headers, noggings and " +
+      "backing from the materials takeoff, downloadable as SVG",
     "Export to PNG, SVG and DXF at true scale",
     "Works offline, saves locally, no account required",
   ],

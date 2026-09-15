@@ -706,6 +706,14 @@ export const resources = {
         wallHead: "Materiaal",
         closingNote: "Een schatting uit de getekende constructie, op basis van de opgegeven aannames. Gemeld, geen bestellijst.",
       },
+      frame: {
+        title: "Aanzicht",
+        open: "Aanzicht",
+        openTitle: "Aanzicht van dit regelwerk openen",
+        legend: "Onderdelen",
+        svg: "SVG downloaden",
+        incomplete: "Profielbreedte niet opgegeven — geen aanzicht te tekenen",
+      },
       sheet: {
         project: "Project",
         address: "Adres",
@@ -1778,6 +1786,14 @@ export const resources = {
         incompleteField: "{{field}} not stated — material not counted",
         wallHead: "Material",
         closingNote: "An estimate from the drawn construction, under the stated assumptions. Reported, not an order.",
+      },
+      frame: {
+        title: "Elevation",
+        open: "Elevation",
+        openTitle: "Open this frame's elevation",
+        legend: "Members",
+        svg: "Download SVG",
+        incomplete: "No post width stated — nothing to draw",
       },
       sheet: {
         project: "Project",
