@@ -277,6 +277,19 @@ wherever it appears and is not an NTA 8800 energiebehoefte; the disclaimer says 
 writes the resulting U as `ThermalTransmittance` on the wall, window and door psets so attested software
 can read it. Verified by [tests/energy.test.ts](tests/energy.test.ts).
 
+**`floorMaterials()`** — the wall takeoff, counted off the construction facts on each wall and the
+geometry already derived: frame length is the mean of the two mitered faces from `resolveFloor()`,
+board, insulation and block areas are the per-face `netMm2` from `floorSurface()`. A frame's studs are
+the drawn posts, and the bays its noggings divide are `postBays()` in [resolve.ts](src/core/resolve.ts),
+the same division `postsFor()` draws from — a second bay rule would let the plan and the order disagree
+about where a stud stands. A frame counts only with `postMm`; a missing profile width, block format or
+panel width is reported in `incomplete`, never assumed. `nest()` in [stock.ts](src/core/stock.ts) packs
+each system's members into `PlanDoc.materials` stock lengths first-fit decreasing: plates splice, a
+structural member longer than every stock length lands in `unfit` and is never split. The assumptions
+are read only through the accessors in [model/materials.ts](src/model/materials.ts), which supply the
+indicative defaults. Verified by [tests/stock.test.ts](tests/stock.test.ts) and
+[tests/materials.test.ts](tests/materials.test.ts).
+
 ## Adding a symbol
 
 Symbols live in `src/render/symbols/<category>.ts` and are aggregated by
@@ -520,6 +533,9 @@ before changing one:
   door, a bowl is a recess rather than a moulded basin, and nothing is cut against the fabric — a
   unit drawn through a wall renders through it, the way the plan draws it.
 - The permit sheet is bouwkundig and carries no services at all.
+- The materials takeoff counts only the drawn posts as studs: no end, king or jack studs, no corner
+  or junction backing, and every frame member shares the post's section. Mortar, adhesive, fixings and
+  floor, roof and finish materials are not counted; nothing checks a member's structural adequacy.
 - Wall surface counts the two faces of a wall plus the reveals through it. A reveal is measured over
   the structural thickness only — cladding makes it deeper, but that is facade work — and a floor
   build-up is not modelled. A ceiling is one height per room, not a plenum with its own geometry.

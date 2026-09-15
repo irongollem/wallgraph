@@ -124,6 +124,40 @@ export function planSchema(siteUrl: string): JsonSchema {
           },
         },
       },
+      materials: {
+        type: "object",
+        additionalProperties: false,
+        description:
+          "Document-level assumptions for the wall material takeoff: stock lengths, saw " +
+          "kerf, waste allowance and lining sheet size. Absent means the trade defaults " +
+          "apply. All fields are indicative and reported, never enforced.",
+        properties: {
+          stockMm: {
+            type: "array", items: { type: "integer", exclusiveMinimum: 0 },
+            description:
+              "Stock lengths timber is bought in, mm. Cleaned to positive integers, " +
+              "deduplicated and sorted before use; the default list applies when absent " +
+              "or empty after cleaning.",
+          },
+          kerfMm: {
+            type: "number", minimum: 0,
+            description: "Saw kerf charged per cut when nesting pieces into stock lengths, mm.",
+          },
+          wastePct: {
+            type: "number", minimum: 0,
+            description: "Waste allowance applied to sheet and block quantities, percent.",
+          },
+          sheetMm: {
+            type: "object", additionalProperties: false,
+            required: ["width", "height"],
+            description: "Board sheet the lining is cut from, mm.",
+            properties: {
+              width: { type: "integer", exclusiveMinimum: 0 },
+              height: { type: "integer", exclusiveMinimum: 0 },
+            },
+          },
+        },
+      },
       continuations: {
         type: "array", items: { $ref: "#/$defs/routeContinuation" },
         description:

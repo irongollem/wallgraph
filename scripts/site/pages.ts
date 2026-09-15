@@ -359,6 +359,29 @@ BRL 9500. Zoals elke maat hier geldt: alles wordt gemeld en niet getoetst. De IF
 Rc afgeleide U-waarde van elke gevelmuur en de opgegeven U van ramen en deuren mee als
 <code>ThermalTransmittance</code>, zodat gecertificeerde software het cijfer kan overnemen.</p>
 
+<h2 id="materialen">Materialen</h2>
+<p>Onder <b>Materialen</b> staat de materiaalstaat van de verdieping: wat de getekende muren aan
+staafhout, staal, beplating, isolatie en blokken vragen, geteld uit de stijlafstand, het blokformaat, het
+aantal rijen klossen en de spouwisolatie die bij elke muur zijn opgegeven, en versneden op de vlaklengte
+uit <b>Wandoppervlak</b>. Een regelwand levert een onder- en een bovenregel op de volledige lengte en
+stijlen op elke getekende stijlpositie; onder een sparing komt een latei met twee stijlbreedtes extra,
+verdubbeld op de kant, met een onderdorpel onder een raam en kortstijlen tussen de latei of de
+onderdorpel en de regel. Een stalen spant levert dezelfde vorm onder de namen regel en stijl, zonder
+klossen of latei — een deurkozijn is daar een eigen bouwdeel. Een blokopbouw levert een aantal blokken
+uit het blokformaat; een sandwichwand een aantal panelen uit de paneelbreedte. Beplating en spouwisolatie
+leveren platen en vierkante meters op, over de kant van de muur die geen gevel draagt. De staat is per
+bouwsysteem gegroepeerd.</p>
+<p>De aannames erboven — de standaardstaflengtes, de zaagsnede, de afschrijving en de plaatmaat — zijn
+per document te wijzigen en gelden voor de hele materiaalstaat; zonder eigen opgave gelden de
+gebruikelijke waarden. Regels en platen worden op de staflengtes genest: eerst de langste stukken, in de
+eerste voorraadlengte met nog ruimte, elke snede met de zaagsnede erbij; een regel langer dan de langste
+voorraadlengte wordt in stukken van die lengte gelast, een stijl, latei, klos of kortstijl nooit — die
+komt in de lijst te staan als niet passend, met de muur en het onderdeel erbij genoemd. Een muur die een
+stijlbreedte, een blokformaat of een paneelbreedte niet opgeeft telt voor dat onderdeel niet mee en staat
+apart gemeld.</p>
+<p>De materiaalstaat is een schatting uit de getekende constructie, op basis van de opgegeven aannames —
+geen bestellijst en geen controle op wat een aannemer daadwerkelijk nodig heeft.</p>
+
 <h2 id="selecteren">Selecteren, verplaatsen, krommen</h2>
 <p><kbd>V</kbd> activeert het selectiegereedschap voor knopen, muren en symbolen. Een geselecteerde muur
 krijgt een ruitvormige greep op het midden; verslepen buigt de muur tot een cirkelboog. De pijlhoogte in millimeters
@@ -743,6 +766,27 @@ under NTA 8800; a registered BENG calculation requires attested software and an 
 BRL 9500. As with every figure here: everything is reported, nothing is checked. The IFC export carries
 the U-value derived from Rc for each facade wall, and the stated U for windows and doors, as
 <code>ThermalTransmittance</code>, so attested software can read the figure.</p>
+
+<h2 id="materials">Materials</h2>
+<p><b>Materials</b> states the storey's materials takeoff: what the drawn walls ask for in timber,
+steel, board lining, insulation and blocks, counted from the post centres, the block format, the number
+of nogging rows and the cavity insulation stated on each wall, and cut to the face length from
+<b>Wall surface</b>. A framed wall yields a bottom and a top plate at the full frame length and studs at
+every drawn post position; under an opening a header carries two post widths extra, doubled on edge, with
+a sill under a window and cripples between the header or the sill and the plate. A steel frame yields the
+same shapes under the names rail and stud, with no noggings and no header — a door frame is its own
+element there. A block wall yields a number of blocks from the block format; a sandwich wall a number of
+panels from the panel width. Board lining and cavity insulation yield sheets and square metres, over the
+side of the wall that carries no facade. The takeoff is grouped by construction system.</p>
+<p>The assumptions above it — the stock lengths, the saw kerf, the waste allowance and the sheet size —
+can be changed per document and apply to the whole takeoff; without a stated value the ordinary figures
+apply. Plates and rails are nested onto the stock lengths: longest pieces first, into the first stock
+length that still has room, each cut charged the saw kerf; a plate longer than the longest stock length is
+spliced into lengths of that stock, never a stud, header, nogging or cripple — those are listed as fitting
+no stock length instead, naming the wall and the member. A wall that states no post width, no block format
+or no panel width is left out of that part of the count and reported separately.</p>
+<p>The materials takeoff is an estimate from the drawn construction, under the stated assumptions — not an
+order, and no check on what a contractor actually needs.</p>
 
 <h2 id="select">Selecting, moving, curving</h2>
 <p><kbd>V</kbd> activates selection and dragging for nodes, walls and symbols. A selected wall displays
@@ -1213,6 +1257,9 @@ bevoegde gezag. Wallgraph controleert deze eisen niet.</p>
 het Besluit bouwwerken leefomgeving of NTA 8800. De cijfers onder Energie zijn geometrische
 invoergegevens en een indicatief transmissieverlies, afgeleid van de opgegeven aannames. Een
 geregistreerde berekening vereist gecertificeerde software en een erkend adviseur.</p>
+<p>De materiaalstaat onder Materialen is een schatting uit de getekende constructie en de opgegeven
+aannames, geen bestelling. Wallgraph toetst geen constructieve geschiktheid van stijlen, regels of
+lateien en rekent geen mortel, lijm, bevestigingsmiddelen of aansluitdetails.</p>
 
 <h2 id="aansprakelijkheid">Aansprakelijkheid</h2>
 <p>Voor zover de wet dat toestaat aanvaardt de maker <b>geen enkele aansprakelijkheid</b> voor schade
@@ -1272,6 +1319,9 @@ competent authority. Wallgraph does not verify those requirements.</p>
 (Besluit bouwwerken leefomgeving) or NTA 8800. The figures under Energy are geometric inputs and an
 indicative transmission figure derived from the stated assumptions. A registered calculation requires
 attested software and a certified adviser.</p>
+<p>The takeoff under Materials is an estimate from the drawn construction and the stated assumptions,
+not an order. Wallgraph does not assess the structural adequacy of studs, noggings or headers and does
+not count mortar, adhesive, fixings or junction details.</p>
 
 <h2 id="liability">Liability</h2>
 <p>To the fullest extent permitted by law the author accepts <b>no liability</b> for any damage

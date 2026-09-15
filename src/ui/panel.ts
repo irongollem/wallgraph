@@ -47,8 +47,10 @@ import { renderZoomTool, type RoomEdit } from "./zoom";
 import { renderOpeningTool } from "./openings";
 import { renderWallTool, renderWallSurface } from "./walls";
 import { renderEnergyAssumptions, renderEnergyTakeoff } from "./energy";
+import { renderMaterialAssumptions, renderMaterialTakeoff, renderWallMaterial } from "./materials";
 import { floorSurface } from "../core/surface";
 import { envelopeTakeoff, type EnvelopeTakeoff } from "../core/energy";
+import { floorMaterials, type FloorMaterials } from "../core/materials";
 import {
   planWallJoin, applyWallJoin, isJoinPlan,
   applyNodeDissolve, isDissolvePlan, planWallMerge, planNodeRemoval, removeNode,
@@ -149,6 +151,7 @@ export class Panel {
   private underlayEl: HTMLElement;
   private permitEl: HTMLElement;
   private energyEl: HTMLElement;
+  private materialsEl: HTMLElement;
   /** Everything the pane's structure depends on; a change rebuilds it. */
   private lastPaneSig = "";
   /** Selection alone — drives the fade, so a grid tweak does not flash. */
@@ -157,6 +160,7 @@ export class Panel {
   private underlayOpen = false;
   private permitOpen = false;
   private energyOpen = false;
+  private materialsOpen = false;
   /** The storey-management pane is open in the context area (renderFloorsPane).
    *  Pane state like roomEditKey: it has to survive the rebuilds it causes. */
   private floorsOpen = false;
@@ -178,6 +182,15 @@ export class Panel {
    *  permitCacheItems above. */
   private energyCacheRev = -1;
   private energyCacheTakeoff: EnvelopeTakeoff | null = null;
+  /** The Materialen takeoff's container; repopulated in place while open. */
+  private materialsTakeoffEl: HTMLElement | null = null;
+  /** floorMaterials() cache, keyed on store.revision -- it resolves the active
+   *  storey and nests every system's members (core/materials.ts's floorMaterials
+   *  + core/stock.ts's nest), so recomputing it on every store notification
+   *  would repeat that work per mutation during a drag while the Materialen
+   *  section happens to be open. Same pattern as energyCacheTakeoff above. */
+  private materialsCacheRev = -1;
+  private materialsCacheTakeoff: FloorMaterials | null = null;
   /** Which room's name field is open in the zoom pane; see RoomEdit. */
   private roomEditKey: string | null = null;
   /** True mid drag-scrub: the pane must not rebuild and yank the input out
@@ -225,6 +238,7 @@ export class Panel {
     this.underlayEl = this.buildUnderlaySection();
     this.permitEl = this.buildPermitSection();
     this.energyEl = this.buildEnergySection();
+    this.materialsEl = this.buildMaterialsSection();
 
     this.mode = watchLayout(next => {
       if (next === this.mode) return;
@@ -286,7 +300,7 @@ export class Panel {
       const sideBody = el("div", "side-body");
       sideBody.append(this.rail, this.pane);
       this.pane.replaceChildren(this.storeyEl, this.paneScroll, this.planEl, this.underlayEl, this.permitEl,
-        this.energyEl);
+        this.energyEl, this.materialsEl);
       this.root.replaceChildren(this.head, sideBody, this.status, this.foot);
       return;
     }
@@ -312,7 +326,7 @@ export class Panel {
     this.modeBar = null;
     this.modeBarSig = "";
     sheet.body.replaceChildren(this.paneScroll, this.planEl, this.underlayEl, this.permitEl, this.energyEl,
-      this.foot);
+      this.materialsEl, this.foot);
     this.root.replaceChildren(top, modes, sheet.el);
   }
 
@@ -682,6 +696,7 @@ export class Panel {
       d.gridMm, areaModeOf(d), floorHeight(this.store.floor),
       this.store.floor.ceilingMm ?? "", d.groundMm ?? "", this.tools.lastThickness,
       JSON.stringify(d.project ?? null), d.northDeg ?? "", JSON.stringify(d.energy ?? null),
+      JSON.stringify(d.materials ?? null),
       this.store.floor.underlay ? "u1" : "u0", this.tools.calibrating ? "c1" : "c0",
       // The Plan section's per-discipline toggles only show once the floor
       // has routes, so a route being added or removed has to rebuild it too.
@@ -708,12 +723,16 @@ export class Panel {
       const energy = this.buildEnergySection();
       this.energyEl.replaceWith(energy);
       this.energyEl = energy;
+      const materials = this.buildMaterialsSection();
+      this.materialsEl.replaceWith(materials);
+      this.materialsEl = materials;
     }
-    // The checklist and the takeoff read derived geometry (rooms, chains),
-    // which changes on edits the pane signature does not see — so they
-    // refresh in place.
+    // The checklist and the takeoffs read derived geometry (rooms, chains,
+    // the wall takeoff), which changes on edits the pane signature does not
+    // see — so they refresh in place.
     this.syncPermitChecks();
     this.syncEnergyTakeoff();
+    this.syncMaterialsTakeoff();
 
     const swap = selSig !== this.lastSelSig;
     this.lastSelSig = selSig;
@@ -1823,6 +1842,82 @@ export class Panel {
   }
 
   /**
+   * The wall materials takeoff: stock-nesting assumptions (stock lengths,
+   * saw kerf, waste allowance, sheet size) and the read-only per-system
+   * breakdown they feed. Its own section under Plan, after Energie, with the
+   * same fold behaviour -- see ui/materials.ts for the rows themselves.
+   *
+   * The takeoff resolves the active storey and nests every system's members
+   * (core/materials.ts's floorMaterials), so it is computed only while the
+   * section is open: syncMaterialsTakeoff() repopulates materialsTakeoffEl in
+   * place, the same split buildEnergySection/syncEnergyTakeoff uses above.
+   */
+  private buildMaterialsSection(): HTMLElement {
+    const open = this.materialsOpen;
+    const wrap = el("div", "plan-sec");
+    const head = el("button", "plan-head") as HTMLButtonElement;
+    head.type = "button";
+    head.setAttribute("aria-expanded", String(open));
+    const chev = el("span", "chev");
+    chev.append(icon("chevron", 14));
+    head.append(chev, Object.assign(el("span", "sec-label"), { textContent: t("materials.title") }));
+    const body = el("div", "plan-body" + (open ? " is-open" : ""));
+    const inner = el("div", "plan-rows");
+    body.append(inner);
+    head.onclick = () => {
+      const next = !body.classList.contains("is-open");
+      this.materialsOpen = next;
+      body.classList.toggle("is-open", next);
+      head.setAttribute("aria-expanded", String(next));
+      this.syncMaterialsTakeoff();
+    };
+
+    const { numRow, textRow, noteRow } = this.rowKit(inner);
+    renderMaterialAssumptions({ numRow, textRow, noteRow }, this.store);
+
+    this.materialsTakeoffEl = el("div");
+    inner.append(this.materialsTakeoffEl);
+
+    noteRow(t("materials.closingNote"));
+
+    wrap.append(head, body);
+    this.syncMaterialsTakeoff();
+    return wrap;
+  }
+
+  /**
+   * The read-only per-system breakdown, refreshed in place while the section
+   * is open -- see buildMaterialsSection().
+   */
+  private syncMaterialsTakeoff(): void {
+    const box = this.materialsTakeoffEl;
+    if (!box || !this.materialsOpen) return;
+    if (this.store.revision !== this.materialsCacheRev) {
+      this.materialsCacheRev = this.store.revision;
+      const f = this.store.floor;
+      const resolved = this.tools.resolvedFloor();
+      const surface = floorSurface(f, resolved, this.tools.rooms());
+      this.materialsCacheTakeoff = floorMaterials(this.store.doc, f, resolved, surface);
+    }
+    const takeoff = this.materialsCacheTakeoff;
+    if (!takeoff) return;
+    box.replaceChildren();
+    const { infoRow, noteRow, warnRow } = this.rowKit(box);
+    // A plain sub-heading per system -- renderProps' own secHead carries the
+    // selection close/Done affordances this box has no use for, so a lighter
+    // one is built here instead, always in the "later" (de-emphasized) style
+    // renderStoreySurface uses for the same kind of grouping.
+    const secHead = (label: string): void => {
+      const wrap = el("div", "sec sec-later");
+      const lbl = el("span", "sec-label");
+      lbl.textContent = label;
+      wrap.append(lbl, el("div", "sec-rule"));
+      box.append(wrap);
+    };
+    renderMaterialTakeoff({ secHead, infoRow, noteRow, warnRow }, this.store, takeoff);
+  }
+
+  /**
    * Properties of every selected wall at once: thickness, own-height,
    * load-bearing and fire rating -- the fields a bulk edit is actually
    * reached for ("make this whole run 200mm", "mark it load-bearing").
@@ -2338,9 +2433,17 @@ export class Panel {
       // Through the storey's takeoff rather than a wall-sized one of its own:
       // a face is finished to the ceiling of the room it looks into, and only
       // the storey's rooms say which room that is.
-      const surface = floorSurface(f, this.tools.resolvedFloor(), this.tools.rooms())
-        .walls.find(x => x.wallId === sel.id);
+      const resolved = this.tools.resolvedFloor();
+      const floorSurf = floorSurface(f, resolved, this.tools.rooms());
+      const surface = floorSurf.walls.find(x => x.wallId === sel.id);
       if (surface) renderWallSurface(rows, surface, w.lining !== undefined);
+      // Own members and figures -- computed here, alongside the surface
+      // figure above, but rendered at the end of this pane (see below),
+      // after the build-up fields it summarises rather than above them.
+      // No caching here, either, for the same reason the surface figure has
+      // none: see renderWallMaterial.
+      const wallMaterials = floorMaterials(this.store.doc, f, resolved, floorSurf)
+        .walls.find(x => x.wallId === sel.id);
       // Tri-state: "" is not stated, not the same fact as "no" for IFC.
       selRow(t("panel.loadBearing"), w.loadBearing === undefined ? "" : w.loadBearing ? "yes" : "no",
         [["", t("panel.loadBearingUnknown")], ["yes", t("panel.loadBearingYes")], ["no", t("panel.loadBearingNo")]],
@@ -2519,6 +2622,10 @@ export class Panel {
           }), 50);
         }
       }
+      // The takeoff for this wall alone, under a "Materiaal" head -- after
+      // every build-up field above it, the way a summary follows what it
+      // summarises rather than leading it.
+      renderWallMaterial(rows, wallMaterials);
       // Recolouring one wall arms the pen, the way editing its thickness sets
       // the thickness of the next one: a wall marked as new work is nearly
       // always the first of a run of them.

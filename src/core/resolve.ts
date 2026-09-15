@@ -40,6 +40,10 @@ export interface Junction extends SolidPiece { walls: Id[] }
  */
 export interface PostMark { a: Vec; b: Vec; poly?: Vec[] }
 
+/** One run of solid wall body between openings (or the whole wall), mm along
+ *  the centerline from end `a`. */
+export interface WallRun { from: number; to: number }
+
 export interface OpeningGeom {
   opening: Opening;
   wall: Wall;
@@ -77,6 +81,13 @@ export interface ResolvedWall {
    * `pieces` is built from — see Wall.postMm.
    */
   posts: PostMark[];
+  /**
+   * The same solid runs `posts` and `pieces` are divided from -- see
+   * postBays(). Exposed so a caller dividing something else into bays over
+   * this wall's body (core/materials.ts's noggings) uses the identical runs
+   * rather than re-deriving them from the openings.
+   */
+  intervals: WallRun[];
   /**
    * The cladding band outside the structural body, empty where the wall states
    * no facade. Split by the same openings the pieces are — a window goes
@@ -270,6 +281,7 @@ export function resolveFloor(f: Floor): Resolved {
       faces, clearLength: Math.min(faces.left, faces.right),
       pieces, outline, openings: ogs,
       posts: postsFor(w, A, B, L, half, intervals),
+      intervals,
       facade: fm === undefined ? [] : skinFor(
         facadeSideOf(w), fm, w, A, B, L, half, flat, params, intervals, ca, cb, oa, ob,
       ),
@@ -285,15 +297,39 @@ export function resolveFloor(f: Floor): Resolved {
   return { walls, junctions };
 }
 
+/** One run of body divided into equal bays -- see postBays(). */
+export interface PostBay { from: number; to: number; bays: number; widthMm: number }
+
 /**
- * One wall's posts, per run of body between its openings.
+ * A wall's runs of solid body, each divided into equal bays no wider than its
+ * post spacing.
  *
  * The spacing is a maximum bay width, not a grid pitch: each run is divided
  * into `ceil(run / spacing)` equal bays, so a run shorter than the spacing gets
- * none and a door pushes the posts of its own run aside rather than having one
- * land in the doorway. `intervals` are the same solid runs the wall's pieces
- * are built from, which is what makes that true without the openings being
- * consulted again here.
+ * one bay (no interior posts) and a door pushes the posts of its own run aside
+ * rather than having one land in the doorway. `intervals` are the same solid
+ * runs the wall's pieces are built from (ResolvedWall.intervals), which is
+ * what makes that true without the openings being consulted again here.
+ *
+ * The one place this division happens: postsFor() places the posts
+ * themselves from it, and core/materials.ts divides noggings the same way,
+ * rather than re-deriving the bay count from the openings a second time.
+ * Absent `postMm`, every run is one bay wide, matching "no interior posts".
+ */
+export function postBays(w: Wall, intervals: readonly WallRun[]): PostBay[] {
+  const spacing = wallPostMm(w);
+  return intervals.map(iv => {
+    const run = iv.to - iv.from;
+    if (spacing === undefined) return { from: iv.from, to: iv.to, bays: 1, widthMm: run };
+    // Rounded before the ceiling so a run that divides exactly — a 3600 run at
+    // 1200 — takes 3 bays rather than 4 on a floating-point hair.
+    const bays = Math.max(1, Math.ceil(Number((run / spacing).toFixed(6))));
+    return { from: iv.from, to: iv.to, bays, widthMm: run / bays };
+  });
+}
+
+/**
+ * One wall's posts, at the interior division points of postBays().
  *
  * A stated profile width also produces the member's footprint, built the way
  * an opening's void quad is (core/solids.ts): each side of the post's own
@@ -302,28 +338,23 @@ export function resolveFloor(f: Floor): Resolved {
  */
 function postsFor(
   w: Wall, A: Vec, B: Vec, L: number, half: number,
-  intervals: ReadonlyArray<{ from: number; to: number }>,
+  intervals: ReadonlyArray<WallRun>,
 ): PostMark[] {
-  const spacing = wallPostMm(w);
-  if (spacing === undefined || L <= 0) return [];
+  if (wallPostMm(w) === undefined || L <= 0) return [];
   const out: PostMark[] = [];
   const at = (s: number): { p: Vec; n: Vec } => {
     const t = s / L;
     return { p: arcPointAt(A, B, w.bulge, t), n: perp(arcTangentAt(A, B, w.bulge, t)) };
   };
-  for (const iv of intervals) {
-    const run = iv.to - iv.from;
-    // Rounded before the ceiling so a run that divides exactly — a 3600 run at
-    // 1200 — takes 3 bays rather than 4 on a floating-point hair.
-    const bays = Math.max(1, Math.ceil(Number((run / spacing).toFixed(6))));
-    const width = wallPostWidthMm(w, run / bays);
-    for (let i = 1; i < bays; i++) {
-      const s = iv.from + (run * i) / bays;
+  for (const bay of postBays(w, intervals)) {
+    const width = wallPostWidthMm(w, bay.widthMm);
+    for (let i = 1; i < bay.bays; i++) {
+      const s = bay.from + bay.widthMm * i;
       const { p, n } = at(s);
       const mark: PostMark = { a: add(p, scale(n, half)), b: add(p, scale(n, -half)) };
       if (width !== undefined) {
-        const lo = at(Math.max(iv.from, s - width / 2));
-        const hi = at(Math.min(iv.to, s + width / 2));
+        const lo = at(Math.max(bay.from, s - width / 2));
+        const hi = at(Math.min(bay.to, s + width / 2));
         mark.poly = [
           add(lo.p, scale(lo.n, half)), add(hi.p, scale(hi.n, half)),
           add(hi.p, scale(hi.n, -half)), add(lo.p, scale(lo.n, -half)),

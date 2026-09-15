@@ -208,6 +208,8 @@ export const FEATURES: Record<Lang, string[]> = {
       "tekening, met een indicatief transmissieverlies",
     "Muuropbouw per muur vastgelegd voor de materiaalstaat: beplating, blokformaat, klossen, " +
       "spouwisolatie en paneelbreedte",
+    "Materiaalstaat per verdieping: stijlen, regels, latei en klossen geteld uit de tekening en " +
+      "genest op standaard staflengtes, met platen, isolatie en blokken",
     "Exporteren naar PNG, SVG en DXF op ware schaal",
     "Werkt offline, slaat lokaal op, geen account nodig",
   ],
@@ -224,6 +226,8 @@ export const FEATURES: Record<Lang, string[]> = {
       "drawing, with an indicative transmission loss",
     "Wall build-up recorded per wall for the materials takeoff: board lining, block format, " +
       "nogging rows, cavity insulation and panel width",
+    "Materials takeoff per storey: studs, plates, headers and noggings counted from the drawing " +
+      "and nested onto standard stock lengths, with sheets, insulation and blocks",
     "Export to PNG, SVG and DXF at true scale",
     "Works offline, saves locally, no account required",
   ],

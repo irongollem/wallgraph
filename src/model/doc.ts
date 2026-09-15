@@ -9,6 +9,7 @@ import type { Route } from "./route";
 import type { RouteContinuation } from "./continuation";
 import type { RoomName } from "./room";
 import type { EnergyAssumptions } from "./energy";
+import type { MaterialAssumptions } from "./materials";
 import { newDocGuid } from "./guid";
 
 export type Id = string;
@@ -594,6 +595,12 @@ export interface PlanDoc {
    * gives its envelope a figure. See model/energy.ts and core/energy.ts.
    */
   energy?: EnergyAssumptions;
+  /**
+   * Document-level assumptions for the wall material takeoff -- stock
+   * lengths, saw kerf, waste allowance and sheet size. Absent means none
+   * stated; see model/materials.ts and core/materials.ts.
+   */
+  materials?: MaterialAssumptions;
   /** Storeys, lowest first: floors[0] is the ground floor, the storey picker
    *  and floorElevation() both rely on that order. */
   floors: Floor[];
