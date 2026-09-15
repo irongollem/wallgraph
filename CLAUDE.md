@@ -279,11 +279,16 @@ can read it. Verified by [tests/energy.test.ts](tests/energy.test.ts).
 
 **`floorMaterials()`** — the wall takeoff, counted off the construction facts on each wall and the
 geometry already derived: frame length is the mean of the two mitered faces from `resolveFloor()`,
-board, insulation and block areas are the per-face `netMm2` from `floorSurface()`. A frame's studs are
-the drawn posts, and the bays its noggings divide are `postBays()` in [resolve.ts](src/core/resolve.ts),
-the same division `postsFor()` draws from — a second bay rule would let the plan and the order disagree
-about where a stud stands. A frame counts only with `postMm`; a missing profile width, block format or
-panel width is reported in `incomplete`, never assumed. `nest()` in [stock.ts](src/core/stock.ts) packs
+board, insulation and block areas are the per-face `netMm2` from `floorSurface()`.
+
+**A takeoff counts the frame that stands, not the posts that are drawn**, because a build planned from
+it must not come out short. Studs are the drawn posts — `postBays()` in [resolve.ts](src/core/resolve.ts),
+the division `postsFor()` draws from — plus one at each wall end, a king stud either side of every
+opening (replacing the end stud where a jamb stands within a post width of the node), two jack studs
+under each timber header, and backing where framed walls meet: one at an L, two at a T or crossing, none
+where two collinear walls split a straight run. `computeBacking()` gives a node's backing to the lowest
+wall id, so per-wall figures sum to the system total. A frame counts only with `postMm`; a missing
+profile width, block format or panel width is reported in `incomplete`, never assumed. `nest()` in [stock.ts](src/core/stock.ts) packs
 each system's members into `PlanDoc.materials` stock lengths first-fit decreasing: plates splice, a
 structural member longer than every stock length lands in `unfit` and is never split. The assumptions
 are read only through the accessors in [model/materials.ts](src/model/materials.ts), which supply the
@@ -533,9 +538,12 @@ before changing one:
   door, a bowl is a recess rather than a moulded basin, and nothing is cut against the fabric — a
   unit drawn through a wall renders through it, the way the plan draws it.
 - The permit sheet is bouwkundig and carries no services at all.
-- The materials takeoff counts only the drawn posts as studs: no end, king or jack studs, no corner
-  or junction backing, and every frame member shares the post's section. Mortar, adhesive, fixings and
-  floor, roof and finish materials are not counted; nothing checks a member's structural adequacy.
+- End, king, jack and backing studs are totals only: unlike the drawn posts (`rw.posts`/`PostMark`),
+  none carries a position on the plan. Header sizing is not engineered — a header is two post widths of
+  the frame section, on edge, whatever the span — and every frame member, backing included, shares the
+  post's own section rather than one chosen for its span. Blocking behind a fixture and an extra stud at
+  a lining board joint are not counted, nor are mortar, adhesive, fixings, or floor, roof and finish
+  materials; nothing checks a member's structural adequacy.
 - Wall surface counts the two faces of a wall plus the reveals through it. A reveal is measured over
   the structural thickness only — cladding makes it deeper, but that is facade work — and a floor
   build-up is not modelled. A ceiling is one height per room, not a plenum with its own geometry.

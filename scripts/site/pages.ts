@@ -363,14 +363,19 @@ Rc afgeleide U-waarde van elke gevelmuur en de opgegeven U van ramen en deuren m
 <p>Onder <b>Materialen</b> staat de materiaalstaat van de verdieping: wat de getekende muren aan
 staafhout, staal, beplating, isolatie en blokken vragen, geteld uit de stijlafstand, het blokformaat, het
 aantal rijen klossen en de spouwisolatie die bij elke muur zijn opgegeven, en versneden op de vlaklengte
-uit <b>Wandoppervlak</b>. Een regelwand levert een onder- en een bovenregel op de volledige lengte en
-stijlen op elke getekende stijlpositie; onder een sparing komt een latei met twee stijlbreedtes extra,
-verdubbeld op de kant, met een onderdorpel onder een raam en kortstijlen tussen de latei of de
-onderdorpel en de regel. Een stalen spant levert dezelfde vorm onder de namen regel en stijl, zonder
-klossen of latei — een deurkozijn is daar een eigen bouwdeel. Een blokopbouw levert een aantal blokken
-uit het blokformaat; een sandwichwand een aantal panelen uit de paneelbreedte. Beplating en spouwisolatie
-leveren platen en vierkante meters op, over de kant van de muur die geen gevel draagt. De staat is per
-bouwsysteem gegroepeerd.</p>
+uit <b>Wandoppervlak</b>. Een regelwand levert een onder- en een bovenregel op de volledige lengte en telt
+stijlen op elke getekende stijlpositie, aan beide wandeinden (tenzij een sparing daar tot op een
+stijlbreedte tegen het einde staat — dan staat de kozijnstijl van die sparing er al), als kozijnstijl aan
+beide zijden van elke sparing, en als aansluitstijl op elke hoek en aftakking waar twee of meer regelwanden
+met een opgegeven stijlbreedte samenkomen (één op een hoek, twee op een T of kruising; een rechte
+doorlopende aansluiting telt niet mee). Onder een sparing komt een latei met twee stijlbreedtes extra,
+verdubbeld op de kant, gedragen door een onderstijl aan elke kant, met een onderdorpel onder een raam en
+kortstijlen tussen de latei of de onderdorpel en de regel. Een stalen spant levert dezelfde stijlen —
+kozijnstijl en aansluitstijl inbegrepen — onder de namen regel en stijl, maar zonder klossen, latei of
+onderstijl: een deurkozijn is daar een eigen bouwdeel. Een blokopbouw levert een aantal blokken uit het
+blokformaat; een sandwichwand een aantal panelen uit de paneelbreedte. Beplating en spouwisolatie leveren
+platen en vierkante meters op, over de kant van de muur die geen gevel draagt. De staat is per bouwsysteem
+gegroepeerd.</p>
 <p>De aannames erboven — de standaardstaflengtes, de zaagsnede, de afschrijving en de plaatmaat — zijn
 per document te wijzigen en gelden voor de hele materiaalstaat; zonder eigen opgave gelden de
 gebruikelijke waarden. Regels en platen worden op de staflengtes genest: eerst de langste stukken, in de
@@ -771,13 +776,18 @@ the U-value derived from Rc for each facade wall, and the stated U for windows a
 <p><b>Materials</b> states the storey's materials takeoff: what the drawn walls ask for in timber,
 steel, board lining, insulation and blocks, counted from the post centres, the block format, the number
 of nogging rows and the cavity insulation stated on each wall, and cut to the face length from
-<b>Wall surface</b>. A framed wall yields a bottom and a top plate at the full frame length and studs at
-every drawn post position; under an opening a header carries two post widths extra, doubled on edge, with
-a sill under a window and cripples between the header or the sill and the plate. A steel frame yields the
-same shapes under the names rail and stud, with no noggings and no header — a door frame is its own
-element there. A block wall yields a number of blocks from the block format; a sandwich wall a number of
-panels from the panel width. Board lining and cavity insulation yield sheets and square metres, over the
-side of the wall that carries no facade. The takeoff is grouped by construction system.</p>
+<b>Wall surface</b>. A framed wall yields a bottom and a top plate at the full frame length and counts a
+stud at every drawn post position, at both wall ends (unless an opening's jamb already stands within one
+stud width of that end, where its own king stud takes over), as a king stud on both sides of every
+opening, and as backing at every corner or junction where two or more framed walls with a stated stud
+width meet (one at a corner, two at a T or a crossing; a straight run split into two walls needs none).
+Under an opening a header carries two post widths extra, doubled on edge, carried on a jack stud on each
+side, with a sill under a window and cripples between the header or the sill and the plate. A steel frame
+yields the same studs — king and backing included — under the names rail and stud, but no noggings, header
+or jack stud: a door frame is its own element there. A block wall yields a number of blocks from the block
+format; a sandwich wall a number of panels from the panel width. Board lining and cavity insulation yield
+sheets and square metres, over the side of the wall that carries no facade. The takeoff is grouped by
+construction system.</p>
 <p>The assumptions above it — the stock lengths, the saw kerf, the waste allowance and the sheet size —
 can be changed per document and apply to the whole takeoff; without a stated value the ordinary figures
 apply. Plates and rails are nested onto the stock lengths: longest pieces first, into the first stock

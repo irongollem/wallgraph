@@ -14,6 +14,8 @@ import { kerfMm, sheetMm, stockLengths, wastePct } from "../model/materials";
 import { postBays, type Resolved, type ResolvedWall } from "./resolve";
 import type { FloorSurface } from "./surface";
 import { nest, type NestResult, type Piece } from "./stock";
+import { arcTangentAt } from "../geometry/arc";
+import { dot, scale, v, type Vec } from "../geometry/vec";
 
 /** What a wall's frame is built as -- decides which members and quantities
  *  the takeoff counts, not just what draws as poché. */
@@ -36,7 +38,9 @@ function systemOf(w: Wall): WallSystem {
 }
 
 /** A structural member of a wall system: one shape, one count. */
-export type MemberName = "stud" | "plate" | "nogging" | "header" | "sill" | "cripple" | "rail";
+export type MemberName =
+  | "stud" | "plate" | "nogging" | "header" | "sill" | "cripple" | "rail"
+  | "king" | "jack" | "backing";
 
 export interface Member {
   name: MemberName;
@@ -52,8 +56,8 @@ export interface WallTakeoff {
   /** Frame length: mean of the two mitered face lengths from resolveFloor(). */
   lengthMm: number;
   heightMm: number;
-  /** Studs, plates/rails, noggings, headers, sills, cripples -- empty for
-   *  "block", "sandwich" and "other". */
+  /** Studs, plates/rails, noggings, headers, sills, cripples, king studs,
+   *  jack studs and backing -- empty for "block", "sandwich" and "other". */
   members: Member[];
   /** Lining board area over both lined faces (see liningSideOf), waste
    *  included only in `sheets`. */
@@ -101,15 +105,71 @@ function crippleCount(width: number, spacing: number): number {
   return bays - 1;
 }
 
+/** ~5 degrees either side of exactly opposite, in cosine terms -- the
+ *  tolerance computeBacking() treats two collinear wall-ends as a straight
+ *  pass-through rather than a corner. */
+const STRAIGHT_COS = -Math.cos(5 * Math.PI / 180);
+
 /**
- * Studs, plates (rails for steel), noggings, headers, sills and cripples of
- * one framed wall. Empty with `incomplete: ["postWidth"]` when the wall
- * states no post profile width -- a frame at these centres exists, but its
- * member sizes do not.
+ * The backing stud(s) hidden in a corner or T/cross, per node, assigned to
+ * exactly one of the framed walls that meet there -- the one with the lowest
+ * `id`, so per-wall figures sum to the storey figure without double
+ * counting. Only walls stating both a framed material and a post width
+ * count toward a node's degree; a block wall meeting a framed one triggers
+ * nothing and is not counted.
+ *
+ * Degree 2: one backing stud (the three-stud corner) unless the two walls'
+ * outgoing tangents at the node are within ~5 degrees of exactly opposite --
+ * a straight run split into two walls, which resolveFloor() itself treats as
+ * a plain pass-through (see its "parallel" miter case) and which needs no
+ * extra stud. Degree 3+ (T or cross): two backing studs, no angle check --
+ * every branch needs something to nail into regardless of the angle it
+ * meets at.
+ */
+function computeBacking(f: Floor): Map<Id, number> {
+  const nodePos = new Map<Id, Vec>();
+  for (const n of f.nodes) nodePos.set(n.id, v(n.x, n.y));
+
+  const byNode = new Map<Id, { wall: Wall; out: Vec }[]>();
+  const addEnd = (nodeId: Id, e: { wall: Wall; out: Vec }): void => {
+    const arr = byNode.get(nodeId);
+    if (arr) arr.push(e); else byNode.set(nodeId, [e]);
+  };
+  for (const w of f.walls) {
+    if (!isFramedMaterial(w.material) || wallPostWidthMm(w) === undefined) continue;
+    const A = nodePos.get(w.a), B = nodePos.get(w.b);
+    if (!A || !B) continue;
+    addEnd(w.a, { wall: w, out: arcTangentAt(A, B, w.bulge, 0) });
+    addEnd(w.b, { wall: w, out: scale(arcTangentAt(A, B, w.bulge, 1), -1) });
+  }
+
+  const result = new Map<Id, number>();
+  for (const ends of byNode.values()) {
+    if (ends.length < 2) continue;
+    if (ends.length === 2 && dot(ends[0]!.out, ends[1]!.out) <= STRAIGHT_COS) continue;
+    const count = ends.length === 2 ? 1 : 2;
+    const wallId = ends.reduce((min, e) => (e.wall.id < min ? e.wall.id : min), ends[0]!.wall.id);
+    result.set(wallId, (result.get(wallId) ?? 0) + count);
+  }
+  return result;
+}
+
+/**
+ * Studs, plates (rails for steel), noggings, headers, sills, cripples, king
+ * studs, jack studs and corner/junction backing of one framed wall. Empty
+ * with `incomplete: ["postWidth"]` when the wall states no post profile
+ * width -- a frame at these centres exists, but its member sizes do not.
+ *
+ * The count exceeds what `rw.posts` draws on the plan on purpose: a stud
+ * also stands at each wall end (unless a king stud already stands there --
+ * see below), a king beside each opening's jambs, a jack under each header,
+ * and backing at every corner and junction a framed wall's own id claims.
+ * This is what a real frame needs to stand, and a takeoff someone builds
+ * from must not come out short.
  */
 function framedMembers(
   w: Wall, rw: ResolvedWall, lengthMm: number, heightMm: number,
-  system: "framed-timber" | "framed-steel", incomplete: WallTakeoff["incomplete"],
+  system: "framed-timber" | "framed-steel", backingCount: number, incomplete: WallTakeoff["incomplete"],
 ): Member[] {
   const postWidth = wallPostWidthMm(w); // the takeoff's own figure -- not a per-bay clamp
   if (postWidth === undefined) {
@@ -118,10 +178,19 @@ function framedMembers(
   }
   const section = frameSection(postWidth, w.thickness);
   const members: Member[] = [];
-
   const studLen = heightMm - 2 * postWidth; // plates laid flat, top and bottom
-  if (rw.posts.length > 0 && studLen > 0) {
-    members.push({ name: "stud", sectionMm: section, lengthMm: studLen, count: rw.posts.length, spliceable: false });
+
+  // A stud at each drawn post position (postBays()/postsFor()'s own
+  // division, so the order and the plan cannot disagree) plus one at each
+  // wall end -- unless an opening's jamb sits within one post width of that
+  // end, i.e. no run of body stands between the jamb and the node, in which
+  // case the king stud below already occupies it.
+  const nearA = w.openings.length > 0 ? Math.min(...w.openings.map(o => o.t - o.width / 2)) : Infinity;
+  const nearB = w.openings.length > 0 ? Math.min(...w.openings.map(o => rw.length - (o.t + o.width / 2))) : Infinity;
+  const endStuds = (nearA > postWidth ? 1 : 0) + (nearB > postWidth ? 1 : 0);
+  const studCount = rw.posts.length + endStuds;
+  if (studCount > 0 && studLen > 0) {
+    members.push({ name: "stud", sectionMm: section, lengthMm: studLen, count: studCount, spliceable: false });
   }
   if (lengthMm > 0) {
     members.push({
@@ -130,7 +199,32 @@ function framedMembers(
     });
   }
 
-  if (system === "framed-steel") return members; // no noggings; a door frame is its own trade
+  // King studs stand full height beside every opening's jambs, timber and
+  // steel alike -- a metal-stud opening is trimmed the same way a timber one
+  // is, even though its header is someone else's trade (see below).
+  if (w.openings.length > 0 && studLen > 0) {
+    members.push({
+      name: "king", sectionMm: section, lengthMm: studLen, count: 2 * w.openings.length, spliceable: false,
+    });
+  }
+
+  // Backing at this wall's share of its corners and junctions -- see
+  // computeBacking(). Also shared by both systems: a corner needs a nailing
+  // face whether the frame is timber or steel.
+  if (backingCount > 0 && studLen > 0) {
+    members.push({ name: "backing", sectionMm: section, lengthMm: studLen, count: backingCount, spliceable: false });
+  }
+
+  if (system === "framed-steel") return members; // no noggings, headers or jacks; a door frame is its own trade
+
+  // Jack (trimmer) studs carry the header, one pair per opening.
+  for (const o of w.openings) {
+    const head = openingSill(o) + openingHeight(o);
+    const jackLen = head - postWidth; // stands on the bottom plate
+    if (jackLen > 0) {
+      members.push({ name: "jack", sectionMm: section, lengthMm: jackLen, count: 2, spliceable: false });
+    }
+  }
 
   const spacing = wallPostMm(w); // defined: systemOf() would not have chosen "framed-*" otherwise
   if (spacing !== undefined && w.noggingRows && w.noggingRows > 0) {
@@ -158,10 +252,11 @@ function framedMembers(
 
       const cripples = crippleCount(o.width, spacing);
       if (cripples > 0) {
-        // Above the header: storey height less the top plate, the header's
-        // own depth (postWidth, laid on edge) and the head height.
+        // Above the header: storey height less the top plate (laid flat, one
+        // post width), the header's own depth (on edge, so the frame's
+        // thickness) and the head height.
         const head = sill + openingHeight(o);
-        const above = heightMm - 2 * postWidth - head;
+        const above = heightMm - postWidth - w.thickness - head;
         if (above > 0) {
           members.push({ name: "cripple", sectionMm: section, lengthMm: above, count: cripples, spliceable: false });
         }
@@ -180,6 +275,7 @@ function framedMembers(
 
 function wallTakeoffOf(
   f: Floor, w: Wall, rw: ResolvedWall, surface: FloorSurface, waste: number, sheetArea: number,
+  backingCount: number,
 ): WallTakeoff {
   const system = systemOf(w);
   // Whole mm: a cut length, and what nest() and the member merge compare exactly.
@@ -188,7 +284,7 @@ function wallTakeoffOf(
   const incomplete: WallTakeoff["incomplete"] = [];
 
   const members = system === "framed-timber" || system === "framed-steel"
-    ? framedMembers(w, rw, lengthMm, heightMm, system, incomplete)
+    ? framedMembers(w, rw, lengthMm, heightMm, system, backingCount, incomplete)
     : [];
 
   const wsurf = surface.walls.find(s => s.wallId === w.id);
@@ -254,11 +350,12 @@ export function floorMaterials(doc: PlanDoc, f: Floor, resolved: Resolved, surfa
   const sheet = sheetMm(doc);
   const sheetArea = sheet.width * sheet.height;
 
+  const backing = computeBacking(f);
   const walls: WallTakeoff[] = [];
   for (const w of f.walls) {
     const rw = resolved.walls.get(w.id);
     if (!rw) continue;
-    walls.push(wallTakeoffOf(f, w, rw, surface, waste, sheetArea));
+    walls.push(wallTakeoffOf(f, w, rw, surface, waste, sheetArea, backing.get(w.id) ?? 0));
   }
 
   interface SystemEntry {

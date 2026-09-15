@@ -172,6 +172,9 @@ export function renderMaterialTakeoff(
     if (!hasFigures) continue;
     shown = true;
     rows.secHead(systemLabel(sys.system), { later: true });
+    if (sys.system === "framed-timber" || sys.system === "framed-steel") {
+      rows.noteRow(t("materials.studsNote"));
+    }
     for (const m of sys.members) memberRow(rows, m);
     nestRows(rows, sys.nested);
     figureRows(rows, sys);
@@ -214,6 +217,9 @@ export function renderWallMaterial(
   if (!hasFigures) return;
 
   rows.secHead(t("materials.wallHead"), { later: true });
+  if (wt.system === "framed-timber" || wt.system === "framed-steel") {
+    rows.noteRow(t("materials.studsNote"));
+  }
   for (const m of wt.members) memberRow(rows, m);
   figureRows(rows, wt);
   for (const field of wt.incomplete) {

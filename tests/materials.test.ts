@@ -6,12 +6,12 @@
 // calling it again after mutating the document and checking the result
 // tracks the change.
 import {
-  emptyDoc, newId, Wall, Opening, Floor, PlanDoc,
+  emptyDoc, newId, Wall, Opening, Floor, PlanDoc, Id,
 } from "../src/model/doc";
 import { resolveFloor } from "../src/core/resolve";
 import { detectRooms } from "../src/core/rooms";
 import { floorSurface, type FloorSurface } from "../src/core/surface";
-import { floorMaterials } from "../src/core/materials";
+import { floorMaterials, type WallTakeoff } from "../src/core/materials";
 import { v } from "../src/geometry/vec";
 
 let failures = 0;
@@ -81,10 +81,10 @@ const materialsOf = (doc: PlanDoc, f: Floor) => {
   const rw = resolved.walls.get(top.id)!;
   const stud = wt.members.find(x => x.name === "stud");
   check("a stud member exists", stud !== undefined);
-  check("stud count equals the drawn post count", stud!.count === rw.posts.length,
-    `${stud!.count} vs ${rw.posts.length}`);
-  check("stud count is 6 (a 4000 mm run at 600 mm centres takes 7 bays, 6 interior posts)",
-    rw.posts.length === 6, String(rw.posts.length));
+  check("stud count is the drawn posts plus one at each end of the run", stud!.count === rw.posts.length + 2,
+    `${stud!.count} vs ${rw.posts.length} + 2`);
+  check("stud count is 8 (a 4000 mm run at 600 mm centres takes 7 bays: 6 interior posts and 2 end studs)",
+    stud!.count === 8, String(stud!.count));
   check("stud length is storey height less two post widths",
     stud!.lengthMm === H - 2 * POST_WIDTH, String(stud!.lengthMm));
   check("stud section is postWidth x thickness",
@@ -134,11 +134,55 @@ const materialsOf = (doc: PlanDoc, f: Floor) => {
 
   const above = wt.members.find(x => x.name === "cripple");
   check("cripples stand above the header", above !== undefined);
-  const expectedAbove = H - 2 * POST_WIDTH - (0 + 2315); // storey - 2 posts - head (sill 0 + height)
-  check("cripple-above length is storey height less two posts and the head",
+  // storey - top plate (flat) - header (on edge: the frame thickness) - head (sill 0 + height)
+  const expectedAbove = H - POST_WIDTH - FRAME_TH - (0 + 2315);
+  check("cripple-above length is storey height less the plate, the header and the head",
     above!.lengthMm === expectedAbove, `${above?.lengthMm} vs ${expectedAbove}`);
   check("no below-sill cripples for a door with no sill",
     wt.members.filter(x => x.name === "cripple").length === 1);
+}
+
+// ---- a door's king and jack studs ---------------------------------------------
+
+{
+  const { doc, f, right } = buildDoc();
+  const { m } = materialsOf(doc, f);
+  const wt = m.walls.find(x => x.wallId === right.id)!;
+
+  const king = wt.members.find(x => x.name === "king");
+  check("a door produces two king studs", king !== undefined && king.count === 2, String(king?.count));
+  check("king studs run full stud height", king?.lengthMm === H - 2 * POST_WIDTH, String(king?.lengthMm));
+  check("king studs are not spliceable", king?.spliceable === false);
+
+  const jack = wt.members.find(x => x.name === "jack");
+  const expectedJack = (0 + 2315) - POST_WIDTH; // door sillHeight 0 + height, less the bottom plate
+  check("a door produces two jack studs", jack !== undefined && jack.count === 2, String(jack?.count));
+  check("jack studs run from the plate to the head",
+    jack?.lengthMm === expectedJack, `${jack?.lengthMm} vs ${expectedJack}`);
+  check("jack studs are not spliceable", jack?.spliceable === false);
+}
+
+// ---- an opening flush at a wall end drops that end's stud --------------------
+
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.height = H;
+  const n1 = newId("n"), n2 = newId("n");
+  f.nodes = [{ id: n1, x: 0, y: 0 }, { id: n2, x: 4000, y: 0 }];
+  // width 830 at t 415: the near jamb sits exactly at the wall's start.
+  const flushDoor = opening({ kind: "door", t: 415, width: 830, sillHeight: 0, height: 2315 });
+  const w: Wall = {
+    id: newId("w"), a: n1, b: n2, thickness: FRAME_TH, bulge: 0, openings: [flushDoor],
+    material: "timber", postMm: POST_MM, postWidthMm: POST_WIDTH,
+  };
+  f.walls = [w];
+  const { resolved, m } = materialsOf(doc, f);
+  const wt = m.walls.find(x => x.wallId === w.id)!;
+  const rw = resolved.walls.get(w.id)!;
+  const stud = wt.members.find(x => x.name === "stud")!;
+  check("a door flush at a wall end drops that end's stud",
+    stud.count === rw.posts.length + 1, `${stud.count} vs ${rw.posts.length} + 1`);
 }
 
 // ---- a window also gets a sill piece and cripples below it ------------------
@@ -195,6 +239,102 @@ const materialsOf = (doc: PlanDoc, f: Floor) => {
   check("blocks is the face area with waste over one block's area",
     wt.blocks === expectedBlocks, `${wt.blocks} vs ${expectedBlocks}`);
   check("a block wall carries no frame members", wt.members.length === 0);
+}
+
+// ---- corner and junction backing -----------------------------------------------
+
+function framedWall(a: Id, b: Id): Wall {
+  return {
+    id: newId("w"), a, b, thickness: FRAME_TH, bulge: 0, openings: [],
+    material: "timber", postMm: POST_MM, postWidthMm: POST_WIDTH,
+  };
+}
+function backingCountOf(walls: WallTakeoff[]): number {
+  return walls.reduce((n, wt) => n + (wt.members.find(x => x.name === "backing")?.count ?? 0), 0);
+}
+
+{
+  // L corner: two framed walls meeting at a right angle.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.height = H;
+  const n1 = newId("n"), n2 = newId("n"), n3 = newId("n");
+  f.nodes = [{ id: n1, x: 0, y: 0 }, { id: n2, x: 4000, y: 0 }, { id: n3, x: 4000, y: 3000 }];
+  f.walls = [framedWall(n1, n2), framedWall(n2, n3)];
+  const { m } = materialsOf(doc, f);
+  check("an L of two framed walls yields exactly one backing stud", backingCountOf(m.walls) === 1,
+    String(backingCountOf(m.walls)));
+  const holders = m.walls.filter(wt => (wt.members.find(x => x.name === "backing")?.count ?? 0) > 0);
+  check("the L's backing is assigned to exactly one wall", holders.length === 1, String(holders.length));
+}
+
+{
+  // T: three framed walls at one node.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.height = H;
+  const n1 = newId("n"), n2 = newId("n"), n3 = newId("n"), n4 = newId("n");
+  f.nodes = [
+    { id: n1, x: 0, y: 0 }, { id: n2, x: 4000, y: 0 },
+    { id: n3, x: 8000, y: 0 }, { id: n4, x: 4000, y: 3000 },
+  ];
+  f.walls = [framedWall(n1, n2), framedWall(n2, n3), framedWall(n2, n4)];
+  const { m } = materialsOf(doc, f);
+  check("a T of three framed walls yields two backing studs", backingCountOf(m.walls) === 2,
+    String(backingCountOf(m.walls)));
+}
+
+{
+  // Straight split: two collinear framed walls -- resolveFloor()'s own
+  // "parallel" pass-through, nothing to back.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.height = H;
+  const n1 = newId("n"), n2 = newId("n"), n3 = newId("n");
+  f.nodes = [{ id: n1, x: 0, y: 0 }, { id: n2, x: 2000, y: 0 }, { id: n3, x: 4000, y: 0 }];
+  f.walls = [framedWall(n1, n2), framedWall(n2, n3)];
+  const { m } = materialsOf(doc, f);
+  check("a straight split yields no backing", backingCountOf(m.walls) === 0, String(backingCountOf(m.walls)));
+}
+
+{
+  // A framed wall meeting a block wall: the block wall doesn't count toward
+  // the node's degree, so there is nothing to back either.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.height = H;
+  const n1 = newId("n"), n2 = newId("n"), n3 = newId("n");
+  f.nodes = [{ id: n1, x: 0, y: 0 }, { id: n2, x: 4000, y: 0 }, { id: n3, x: 4000, y: 3000 }];
+  const blockWall: Wall = {
+    id: newId("w"), a: n2, b: n3, thickness: 240, bulge: 0, openings: [],
+    material: "aerated", blockMm: { length: 600, height: 250 },
+  };
+  f.walls = [framedWall(n1, n2), blockWall];
+  const { m } = materialsOf(doc, f);
+  check("a framed wall meeting a block wall yields no backing", backingCountOf(m.walls) === 0,
+    String(backingCountOf(m.walls)));
+}
+
+{
+  // Per-wall backing summed equals the system total: a closed rectangle of
+  // four framed walls has four corners.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.height = H;
+  const pts = [v(0, 0), v(4000, 0), v(4000, 3000), v(0, 3000)];
+  const ids = pts.map(p => { const id = newId("n"); f.nodes.push({ id, x: p.x, y: p.y }); return id; });
+  f.walls = [
+    framedWall(ids[0]!, ids[1]!), framedWall(ids[1]!, ids[2]!),
+    framedWall(ids[2]!, ids[3]!), framedWall(ids[3]!, ids[0]!),
+  ];
+  const { m } = materialsOf(doc, f);
+  const perWallTotal = backingCountOf(m.walls);
+  const framed = m.bySystem.find(x => x.system === "framed-timber")!;
+  const systemTotal = framed.members.find(x => x.name === "backing")?.count ?? 0;
+  check("a closed rectangle of framed walls has four corners' worth of backing", perWallTotal === 4,
+    String(perWallTotal));
+  check("per-wall backing summed equals the system total", perWallTotal === systemTotal,
+    `${perWallTotal} vs ${systemTotal}`);
 }
 
 // ---- incomplete markers -------------------------------------------------------
