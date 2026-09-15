@@ -7,6 +7,8 @@ import {
   emptyDoc, newId, floorHeight, FLOOR_HEIGHT_DEFAULT,
   Wall, Opening, Floor,
 } from "../src/model/doc";
+import { gableProfile } from "../src/model/profile";
+import { wallLength } from "../src/model/ops";
 import { resolveFloor } from "../src/core/resolve";
 import { detectRooms, roomKey } from "../src/core/rooms";
 import { floorSurface } from "../src/core/surface";
@@ -475,6 +477,49 @@ const reveal = (w: number, h: number, th = TH): number => (2 * h + w) * th;
     near(inside.openingsMm2, 900 * 2000, 1), String(inside.openingsMm2));
   check("while the face at full height loses the whole door",
     near(outside.openingsMm2, 900 * 2315, 1), String(outside.openingsMm2));
+}
+
+// ---- sloped tops (profile) ---------------------------------------------------
+
+{
+  // A gable: the centerline area under the top, scaled onto each face's own
+  // mitered length -- the same proportional mapping surface.ts documents.
+  const f = rectFloor();
+  const w = f.walls[0]!;
+  const L = wallLength(f, w);
+  w.profile = gableProfile(f, w, L);
+  const one = surfaceOf(f).walls.find(x => x.wallId === w.id)!;
+  const h = floorHeight(f);
+
+  check("the wall's own top range is eave to ridge",
+    one.minHeightMm === h && one.heightMm === h + 1000);
+  const faceSum = one.faces[0]!.lengthMm + one.faces[1]!.lengthMm;
+  // A 1-point gable over [0, L] is a triangle: eave, ridge at L/2, eave --
+  // its average height is half the ridge's rise above the eave, so its
+  // centerline area is L * (h + 500).
+  const centerlineArea = L * (h + 500);
+  check("gross area under a gable, mapped onto the mitered faces",
+    near(one.grossMm2, centerlineArea * (faceSum / L), 5), String(one.grossMm2));
+}
+
+{
+  // A window near the low end of a wall sloping down from eave to a lower
+  // far end: its head pokes above the wall's own top there.
+  const f = rectFloor();
+  const w = f.walls[0]!;
+  const L = wallLength(f, w);
+  w.profile = [{ t: 0, height: 2800 }, { t: L, height: 1800 }];
+  const win = opening({ kind: "window", t: L - 300, width: 600, sillHeight: 0, height: 2200 });
+  w.openings.push(win);
+  const one = surfaceOf(f).walls.find(x => x.wallId === w.id)!;
+
+  check("an opening poking through the slope is listed in openingsAbove",
+    one.openingsAbove.includes(win.id), JSON.stringify(one.openingsAbove));
+  // The top over the opening's span [L-600, L] bottoms out at L itself,
+  // where the profile states 1800 -- so the deduction stops there, not at
+  // the opening's own (taller) stated head.
+  check("and deducted only up to the top, not its own stated height",
+    near(one.openingsMm2, 2 * 600 * 1800, 1), String(one.openingsMm2));
 }
 
 console.log(failures === 0 ? "ALL SURFACE TESTS PASSED" : `${failures} FAILURES`);

@@ -38,6 +38,7 @@ const full: PlanDoc = {
       id: "w1", a: "n1", b: "n2", thickness: 300, bulge: 0.25,
       material: "aerated", blockMm: { length: 600, height: 250 },
       lining: { boardMm: 12, layers: 1 }, panelMm: 1000,
+      profile: [{ t: 2000, height: 3800 }],
       openings: [{
         id: "o1", kind: "door", t: 2000, width: 1800,
         glazed: true, powered: true, selfClosing: true,

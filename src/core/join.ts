@@ -15,6 +15,7 @@ import { arcTangentAt } from "../geometry/arc";
 import {
   nodeAt, mergeNodes, wallLength, flipWall, cleanOrphanNodes, clampOpening, deleteWall,
 } from "../model/ops";
+import { clampProfile, wallTopPolyline } from "../model/profile";
 
 /** Which end of a wall a join moves. */
 export interface JoinEnd { wallId: Id; end: "a" | "b" }
@@ -302,10 +303,22 @@ function mergeThrough(f: Floor, keep: Wall, drop: Wall, nodeId: Id): void {
     o.t += keepLength;
     keep.openings.push(o);
   }
+  // The profile carries across as both walls' full polylines, the ends each one
+  // leaves to wallHeight() made explicit, so the merged wall keeps the shape of
+  // the two it replaces; `drop`'s points need keepLength added, same as an
+  // opening's `t`.
+  if ((keep.profile?.length ?? 0) > 0 || (drop.profile?.length ?? 0) > 0) {
+    const dropLength = wallLength(f, drop);
+    keep.profile = [
+      ...wallTopPolyline(f, keep, keepLength).map(p => ({ t: p.s, height: p.h })),
+      ...wallTopPolyline(f, drop, dropLength).map(p => ({ t: p.s + keepLength, height: p.h })),
+    ];
+  }
   keep.b = drop.b;
   f.walls = f.walls.filter(w => w.id !== drop.id);
   cleanOrphanNodes(f);
   for (const o of keep.openings) clampOpening(f, keep, o);
+  clampProfile(f, keep);
 }
 
 /**

@@ -334,6 +334,18 @@ tot de vloer erboven, en dat is precies wat het paneel van die muur laat zien. E
 <em>afwerking</em>: het verandert niets aan de verdiepingshoogte, aan wat een trap overbrugt, aan de
 ruimteoppervlaktes of aan de export. Een opgegeven hoogte gelijk aan of boven de verdiepingshoogte
 werkt niets extra af en telt daarom niet mee. Een vloeropbouw is niet bekend.</p>
+<p>Een muur kan een <b>bovenprofiel</b> opgeven: hoogtes op punten langs de hartlijn, in plaats van één
+hoogte over de volle lengte — een puntgevel onder de nok, een lessenaar die van dakrand naar nok oploopt.
+Het paneel toont dit als <b>Hellend</b>; aanzetten plaatst één punt op het midden, de knoppen
+<b>Puntgevel</b> en <b>Lessenaar</b> zetten er direct een vorm op en een derde punt is los toe te voegen
+en te verwijderen. Tussen de punten loopt de bovenkant recht; een muuruiteinde zonder eigen punt staat op
+de hoogte hierboven, die dan de hoogte aan de muuruiteinden wordt. Het bovenprofiel is opgegeven
+per muur en niet afgeleid van een dakvlak: twee muren die op een knoop samenkomen kunnen dus een andere
+hoogte opgeven, wat het paneel bij een hellende muur meldt zonder het op te lossen. Het wandoppervlak wordt over dit profiel
+gemeten in plaats van over één hoogte, en een sparing waarvan de bovendorpel boven het profiel uitsteekt
+wordt gemeld en alleen afgetrokken tot waar het profiel loopt. De plattegrond zelf is een doorsnede op
+vaste hoogte en blijft ongewijzigd; alleen een klein hoekteken bij het midden van een hellende muur laat
+zien dat hij een profiel draagt.</p>
 
 <h2 id="energie">Energie</h2>
 <p>Onder <b>Energie</b> staat de meetkundige BENG-invoer van het gebouw: het verliesoppervlak Als —
@@ -760,6 +772,18 @@ the bathroom under a dropped ceiling while the rest runs on. The wall between th
 shows. A ceiling is a <em>finish</em>: it changes nothing about the storey height, what a stair climbs,
 the room areas or the exports. A stated height at or above the storey height finishes nothing extra and
 so does not count. A floor build-up is not modelled.</p>
+<p>A wall can state a <b>top profile</b>: heights at points along its centreline, instead of one height
+over its full length — a gable end peaking under the ridge, a lean-to wall rising from eave to top. The
+panel shows this as <b>Sloped</b>; turning it on seeds one point at the midpoint, the <b>Gable</b> and
+<b>Lean-to</b> buttons set a shape directly, and a further point is added and removed freely. The top runs
+straight between the points; a wall end without a point of its own stands at the height above, which then
+becomes the height at the wall's ends. The profile is stated per wall rather than derived from a roof plane, so two
+walls meeting at a node can state a different height there, which the panel reports without resolving it
+where one of them is sloped.
+Wall surface is measured over this profile instead of one height, and an opening whose head pokes through
+it is reported and deducted only up to where the profile runs. The plan itself is a section at a fixed
+height and stays unchanged; only a small angle mark near the midpoint of a sloped wall shows that it
+carries one.</p>
 
 <h2 id="energy">Energy</h2>
 <p><b>Energy</b> states the geometric BENG input for the building: the envelope area Als — facade area

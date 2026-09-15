@@ -1,7 +1,9 @@
 // Graph-maintenance operations shared by tools: node reuse, wall splitting,
 // welded wall insertion, opening placement bounds, orphan cleanup. All take the
 // floor mutably; callers wrap them in store.mutate().
-import { Floor, PlanNode, Wall, Opening, Id, newId, roomNamesOf, routesOf, Underlay } from "./doc";
+import {
+  Floor, PlanNode, Wall, Opening, ProfilePoint, Id, newId, roomNamesOf, routesOf, Underlay, wallHeight,
+} from "./doc";
 import { routeInstallation } from "./route";
 import { Vec, dist, distToSeg, v, add, sub, scale, dot, cross, norm, perp, lineIntersect } from "../geometry/vec";
 import { arcLength, arcPointAt, arcFlatten, arcTangentAt } from "../geometry/arc";
@@ -63,6 +65,42 @@ export function splitWall(f: Floor, w: Wall, tMm: number): PlanNode | null {
   }
   w.openings = keep;
   w2.openings = moved;
+  // The top profile splits the same way, read against the ORIGINAL (pre-split)
+  // shape -- wallHeight() anchors the ends the profile does not state, same
+  // as model/profile.ts -- so both halves state the same height where they
+  // meet regardless of whether the cut lands strictly between two points, on
+  // one, or beyond the outermost stated point. `L` and `w.profile` are read
+  // before either is touched below; wallHeight() does not depend on the
+  // node positions splitWall moves, so it is safe to read at any point here.
+  if (w.profile && w.profile.length > 0) {
+    const base = wallHeight(f, w);
+    const sorted = [...w.profile].sort((p1, p2) => p1.t - p2.t);
+    const anchored = [...sorted];
+    if (anchored[0]!.t > 0) anchored.unshift({ t: 0, height: base });
+    if (anchored[anchored.length - 1]!.t < L) anchored.push({ t: L, height: base });
+    let cutHeight = base;
+    for (let i = 0; i < anchored.length; i++) {
+      const p0 = anchored[i]!;
+      if (p0.t === tt) { cutHeight = p0.height; break; }
+      const p1 = anchored[i + 1];
+      if (p1 && tt > p0.t && tt < p1.t) {
+        cutHeight = Math.round(p0.height + (p1.height - p0.height) * (tt - p0.t) / (p1.t - p0.t));
+        break;
+      }
+    }
+    const keepProfile: ProfilePoint[] = [];
+    const movedProfile: ProfilePoint[] = [];
+    for (const p of sorted) {
+      if (p.t < tt) keepProfile.push({ ...p });
+      else if (p.t > tt) movedProfile.push({ t: p.t - tt, height: p.height });
+    }
+    keepProfile.push({ t: tt, height: cutHeight });
+    movedProfile.unshift({ t: 0, height: cutHeight });
+    w.profile = keepProfile;
+    w2.profile = movedProfile;
+  } else {
+    delete w2.profile;
+  }
   // A wall attachment is parameterised from node a just like an opening. Keep
   // points beyond the cut on the same physical part of the wall rather than
   // letting their old wallT clamp them to the new end of the first half.
@@ -129,6 +167,7 @@ export function cleanOrphanNodes(f: Floor): void {
  *   bulge        positive bows toward perp(chord), and perp reverses
  *   facadeSide   "left" is +perp(tangent), likewise
  *   opening.t    measured from node a, so it becomes L - t
+ *   profile.t    likewise, measured from node a
  *   sash order   sashes run along a->b, so the list reverses
  *   sash hinge / slideTo / outward
  *                the jambs swap names, and `outward` picks a face off the
@@ -159,6 +198,7 @@ export function flipWall(f: Floor, w: Wall): void {
       outward: sh.outward !== true,
     }));
   }
+  if (w.profile) for (const p of w.profile) p.t = L - p.t;
 }
 
 /** Merge node b into node a (used when dragging one node onto another). */

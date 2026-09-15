@@ -14,7 +14,8 @@
 // markup, because io/pdf.ts renders the same scene onto the permit sheet.
 // This module is the SVG renderer for it plus the scene the plan makes.
 import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, stairsOf, videsOf, decksOf, furnishingsOf, structureOf, roomNamesOf } from "../model/doc";
-import { Vec } from "../geometry/vec";
+import { Vec, add, sub, scale, perp, norm } from "../geometry/vec";
+import { arcPointAt } from "../geometry/arc";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames, roomArea } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
@@ -306,6 +307,24 @@ export function planScene(doc: PlanDoc, floor: Floor, resolved: ReturnType<typeo
   }
   out.push(group(marks,
     { fill: "none", ink: COLORS.opening, width: W_OPENING, cap: "round" }, "openings"));
+
+  // Sloped-wall mark: a small angle glyph near the midpoint of a wall that
+  // states a top profile -- see the same mark in render/draw.ts. An editor
+  // annotation rather than an NEN symbol, so it carries no DXF layer.
+  const slopeMarks: Item[] = [];
+  for (const rw of resolved.walls.values()) {
+    if (!rw.wall.profile || rw.wall.profile.length === 0) continue;
+    const mid = arcPointAt(rw.a, rw.b, rw.wall.bulge, 0.5);
+    const dir = norm(sub(rw.b, rw.a));
+    const at = add(mid, scale(perp(dir), rw.wall.thickness / 2 + 150));
+    const ink = wallPen(rw.wall).mark;
+    slopeMarks.push(group([text(at, LABEL_MM, "∠")], ink === COLORS.opening ? {} : { fill: ink }));
+  }
+  if (slopeMarks.length > 0) {
+    out.push(group(slopeMarks, {
+      fill: COLORS.opening, ink: "none", family: LABEL_FONT, anchor: "middle", baseline: "central",
+    }, "profile"));
+  }
 
   // Structure over the masonry, as on the canvas: a column in the wall pen it
   // would be cut in, a beam dashed as overhead work, a railing outlined. The

@@ -226,6 +226,17 @@ wall's board face; the canvas, SVG and DXF draw it as a paper-coloured band the 
 stating no facade is lined on both faces, outside included, because the document does not then say
 which side is out. Verified by [tests/core.test.ts](tests/core.test.ts).
 
+**A sloped wall states its top; nothing derives it.** `Wall.profile` is heights at points along the
+centerline, `t` in mm from node `a` like an opening's, so moving, splitting, flipping and merging a wall
+carry it the way they carry openings. A wall end with no point of its own stands at `wallHeight()`, which
+is what makes one point a gable. Read it only through [model/profile.ts](src/model/profile.ts)
+(`wallTopAt()`, `wallAreaUnder()`); `wallHeight()` is the flat height and the end height, not the top.
+The plan is a section at a fixed height, so the graph, rooms and drawing are unchanged. Walls do not have
+to agree: `topMismatches()` in [core/profile.ts](src/core/profile.ts) reports a corner where a sloped wall
+and its neighbour differ — at a junction of three or more only the two highest are compared, a lower
+partition being ordinary — and never repairs it. `floorSurface()` measures under the profile and lists an
+opening whose head rises above it (`openingsAbove`). Verified by [tests/profile.test.ts](tests/profile.test.ts).
+
 **`resolveRoutes()`** — waypoints resolved through their anchors, then straight legs that
 share a corridor with another run fanned into parallel lanes. The fan is drawn legibility
 ONLY: it is applied per segment, and anything that makes a geometric claim about where a
@@ -549,8 +560,10 @@ sells commercial exceptions. Consequences for changes here:
 Deliberate cuts, not oversights — check the [roadmap issues](https://github.com/irongollem/wallgraph/issues)
 before changing one:
 
-- Sloped or varying-thickness walls; a wall is one thickness, not a material build-up. A facade and a
+- Varying-thickness walls; a wall is one thickness, not a material build-up. A facade and a
   lining are skins outside that thickness, not layers within it.
+- A wall's top profile is read by the wall surface only; 3D, IFC, energy, the frame and the takeoff still
+  read `wallHeight()` (#55, #56), and there is no roof surface for it to agree with (#57).
 - Exact wall-to-arc miters (tangent-line approximation instead).
 - Stair figures are reported, never enforced; a stair does not snap to a wall the way a
   wall-mounted symbol does.

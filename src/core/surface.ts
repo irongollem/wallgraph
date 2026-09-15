@@ -15,11 +15,22 @@
 //   height   PER FACE, because the two faces of one wall stand in two different
 //            rooms and each is finished to its own room's ceiling. A room with
 //            a suspended ceiling is finished to it; otherwise the wall's own
-//            height, floor to floor, applies. Nothing here knows about a floor
+//            top, floor to top, applies. Nothing here knows about a floor
 //            build-up.
+//   top      a wall's own top may be a profile rather than one flat height
+//            (model/profile.ts) -- a gable end, a lean-to. grossMm2 is the
+//            area under that top, mapped from the centerline [0, L] onto the
+//            face's own MITERED length proportionally: the profile is stated
+//            once per wall, not once per face, so the face's area is the
+//            centerline area scaled by faceLength / L. A ceiling still caps a
+//            face, now pointwise along the top rather than as one flat
+//            height. Flat where the wall states no profile, and bit-identical
+//            to a plain length x height in that case.
 //   openings each opening is deducted at its stated size (width x height,
-//            clamped to the face's own height) from BOTH faces, which is what a
-//            kozijn schedule states.
+//            clamped to the top over its own width) from BOTH faces, which is
+//            what a kozijn schedule states. An opening whose head pokes above
+//            the wall's own top anywhere across its width is listed in
+//            `WallSurface.openingsAbove` and deducted only up to the top.
 //   reveals  the dagkanten: the surface of the hole itself, through the wall's
 //            thickness. Two jambs and a head, never a sill -- under a door the
 //            sill is the floor, and under a window it takes a vensterbank
@@ -30,8 +41,10 @@
 // Reported, never enforced, like every other figure in this product. Nothing
 // here decides what is finished; it states what area the walls present.
 import {
-  Floor, Opening, Id, wallHeight, wallFacadeMm, facadeSideOf, openingSill, openingHeight,
+  Floor, Wall, Opening, Id, wallFacadeMm, facadeSideOf, openingSill, openingHeight,
 } from "../model/doc";
+import { wallLength } from "../model/ops";
+import { wallTopAt, wallTopPolyline, wallTopRange } from "../model/profile";
 import type { Resolved, ResolvedWall } from "./resolve";
 import { roomKey, type Room } from "./rooms";
 
@@ -41,11 +54,15 @@ export interface WallFaceSurface {
   side: "left" | "right";
   lengthMm: number;
   /**
-   * The height this face is finished to: the ceiling of the room it looks into
-   * where one is stated, the wall's own height otherwise. Never above the
-   * wall itself -- a ceiling inside the slab is not a taller face.
+   * The highest point this face is finished to: the ceiling of the room it
+   * looks into where one is stated, the highest point of the wall's own top
+   * otherwise. Never above the top itself -- a ceiling inside the slab is not
+   * a taller face.
    */
   heightMm: number;
+  /** The lowest point this face is finished to, by the same rule. Equal to
+   *  `heightMm` on a flat wall. */
+  minHeightMm: number;
   grossMm2: number;
   openingsMm2: number;
   netMm2: number;
@@ -72,12 +89,21 @@ export interface WallFaceSurface {
 
 export interface WallSurface {
   wallId: Id;
-  /** The wall's own height, floor to floor. A face may be finished to less. */
+  /** The highest point of the wall's own top. A face may be finished to less. */
   heightMm: number;
+  /** The lowest point of the wall's own top. Equal to `heightMm` on a flat wall. */
+  minHeightMm: number;
   /** Left face first, right second. */
   faces: [WallFaceSurface, WallFaceSurface];
   /** Openings deducted, counted once per face they cut. */
   openings: number;
+  /**
+   * Openings whose head (sill + height) pokes above the wall's OWN top
+   * anywhere across their width -- independent of any room ceiling, which is
+   * a finish rather than a fact about the wall's shape. Deducted only up to
+   * the top; never repositioned.
+   */
+  openingsAbove: Id[];
   grossMm2: number;
   openingsMm2: number;
   /** Both faces, openings deducted. Reveals are NOT in this figure. */
@@ -143,29 +169,74 @@ export interface FloorSurface {
  * What one opening does to one face, mm²: the area it takes out, and the reveal
  * it opens up.
  *
- * Both are clamped to the face. An opening taller than the face it cuts takes
- * the face and not more, and the part of a reveal above a suspended ceiling is
- * above the ceiling -- so the jambs are measured over the height that shows,
- * and the head counts only where the opening's own head is below the face.
+ * `localTopMm` is the top the opening is measured against -- the lowest point
+ * of the face's own (possibly ceiling-capped) top over the opening's width,
+ * so a sloped or capped top never yields more area than is actually there.
+ * Both figures are clamped to it: an opening taller than the top takes the
+ * top and not more, the jambs are measured over the height that shows, and
+ * the head counts only where the opening's own head is under the top.
  *
  * `thicknessMm` is the STRUCTURAL body. A clad wall's reveal is deeper by its
  * facade, but that depth is an exterior detail rather than plasterwork, and
  * this figure is read by the trades working inside.
  */
-function openingOn(heightMm: number, thicknessMm: number, o: Opening): {
+function openingOn(localTopMm: number, thicknessMm: number, o: Opening): {
   cutMm2: number; revealMm2: number;
 } {
   const sill = openingSill(o);
   const head = sill + openingHeight(o);
-  const top = Math.min(head, heightMm);
+  const top = Math.min(head, localTopMm);
   const bottom = Math.min(sill, top);
   const width = Math.max(0, o.width);
   const clear = Math.max(0, top - bottom);
   const jambs = 2 * clear * thicknessMm;
   // No sill: under a door or a passage it is the floor, and under a window a
-  // vensterbank rather than plaster. A head clipped by the ceiling is above it.
-  const headArea = head <= heightMm ? width * thicknessMm : 0;
+  // vensterbank rather than plaster. A head clipped by the top is above it.
+  const headArea = head <= localTopMm ? width * thicknessMm : 0;
   return { cutMm2: width * clear, revealMm2: jambs + headArea };
+}
+
+/**
+ * The lowest point of the wall's own top -- capped pointwise at `cap` when
+ * one is given -- over [s0, s1]. A piecewise-linear function's minimum over
+ * an interval is always at one of its breakpoints or the interval's own
+ * ends, never strictly between them, so this only has to look at those.
+ */
+function localTop(
+  f: Floor, w: Wall, L: number, s0: number, s1: number, cap: number | undefined,
+): number {
+  const lo = Math.max(0, Math.min(s0, s1)), hi = Math.min(L, Math.max(s0, s1));
+  let m = Math.min(wallTopAt(f, w, lo), wallTopAt(f, w, hi));
+  for (const p of wallTopPolyline(f, w, L)) if (p.s > lo && p.s < hi) m = Math.min(m, p.h);
+  return cap === undefined ? m : Math.min(m, cap);
+}
+
+/**
+ * Trapezoid area under min(topAt(s), cap) between two adjacent breakpoints of
+ * the wall's own top, inserting the crossing exactly once where the segment
+ * crosses `cap`.
+ */
+function cappedSegmentArea(s0: number, h0: number, s1: number, h1: number, cap: number | undefined): number {
+  const width = s1 - s0;
+  if (width <= 0) return 0;
+  if (cap === undefined || (h0 <= cap && h1 <= cap)) return (h0 + h1) / 2 * width;
+  if (h0 >= cap && h1 >= cap) return cap * width;
+  const u = (cap - h0) / (h1 - h0);
+  const sC = s0 + u * width;
+  return h0 <= cap
+    ? (h0 + cap) / 2 * (sC - s0) + cap * (s1 - sC)
+    : cap * (sC - s0) + (cap + h1) / 2 * (s1 - sC);
+}
+
+/** Area under the wall's own top over the full centerline [0, L], capped
+ *  pointwise at `cap` (a room's ceiling) when one is given. */
+function grossAreaUnderTop(f: Floor, w: Wall, L: number, cap: number | undefined): number {
+  const poly = wallTopPolyline(f, w, L);
+  let area = 0;
+  for (let i = 0; i + 1 < poly.length; i++) {
+    area += cappedSegmentArea(poly[i]!.s, poly[i]!.h, poly[i + 1]!.s, poly[i + 1]!.h, cap);
+  }
+  return area;
 }
 
 /** The room each wall face looks into, keyed "wallId:side". A face belongs to
@@ -180,17 +251,33 @@ function roomsByFace(rooms: readonly Room[]): Map<string, Room> {
 
 function wallSurface(f: Floor, rw: ResolvedWall, byFace: ReadonlyMap<string, Room>): WallSurface {
   const w = rw.wall;
-  const heightMm = wallHeight(f, w);
+  const L = wallLength(f, w);
+  const range = wallTopRange(f, w, L);
+  const heightMm = range.max, minHeightMm = range.min;
   const cladSide = wallFacadeMm(w) === undefined ? null : facadeSideOf(w);
+
+  // An opening pokes through the wall's own top when the top somewhere over
+  // its width is lower than its head -- a fact about the wall's shape, so it
+  // is checked once, uncapped by whatever a room's ceiling happens to be.
+  const openingsAbove = w.openings
+    .filter(o => openingSill(o) + openingHeight(o) > localTop(f, w, L, o.t - o.width / 2, o.t + o.width / 2, undefined))
+    .map(o => o.id);
 
   const face = (side: "left" | "right", lengthMm: number): WallFaceSurface => {
     const room = byFace.get(w.id + ":" + side);
-    // A ceiling is a finish under the slab, so it can only lower the face.
-    const faceHeight = Math.min(room?.ceilingMm ?? heightMm, heightMm);
-    const grossMm2 = lengthMm * faceHeight;
+    // A ceiling is a finish under the slab, so it can only lower the face --
+    // capping the top pointwise rather than by one flat figure.
+    const cap = room?.ceilingMm;
+    const faceHeight = Math.min(heightMm, cap ?? Infinity);
+    const faceMinHeight = Math.min(minHeightMm, cap ?? Infinity);
+    // The mitered face length differs from the centerline L (a corner miter
+    // runs one face long and the other short), so the centerline area under
+    // the top is scaled onto the face's own length proportionally.
+    const grossMm2 = L > 0 ? grossAreaUnderTop(f, w, L, cap) * (lengthMm / L) : lengthMm * faceHeight;
     let cut = 0, reveal = 0;
     for (const o of w.openings) {
-      const on = openingOn(faceHeight, w.thickness, o);
+      const top = localTop(f, w, L, o.t - o.width / 2, o.t + o.width / 2, cap);
+      const on = openingOn(top, w.thickness, o);
       cut += on.cutMm2;
       reveal += on.revealMm2;
     }
@@ -204,7 +291,7 @@ function wallSurface(f: Floor, rw: ResolvedWall, byFace: ReadonlyMap<string, Roo
     const netMm2 = grossMm2 - openingsMm2;
     const revealsMm2 = reveal / 2;
     return {
-      side, lengthMm, heightMm: faceHeight, grossMm2, openingsMm2,
+      side, lengthMm, heightMm: faceHeight, minHeightMm: faceMinHeight, grossMm2, openingsMm2,
       netMm2,
       revealsMm2,
       finishMm2: netMm2 + revealsMm2,
@@ -221,8 +308,10 @@ function wallSurface(f: Floor, rw: ResolvedWall, byFace: ReadonlyMap<string, Roo
   return {
     wallId: w.id,
     heightMm,
+    minHeightMm,
     faces,
     openings: w.openings.length,
+    openingsAbove,
     grossMm2: sum(x => x.grossMm2),
     openingsMm2: sum(x => x.openingsMm2),
     netMm2: sum(x => x.netMm2),

@@ -73,6 +73,14 @@ export interface Sash {
   bars?: number;
 }
 
+/**
+ * One stated height along a wall's top, positioned the way an opening is:
+ * `t` is mm from node `a` along the centerline (arc length on a bulged wall).
+ * Linear between points; the wall's own `wallHeight()` anchors the ends where
+ * no point states one. See model/profile.ts.
+ */
+export interface ProfilePoint { t: number; height: number }
+
 export interface Opening {
   id: Id;
   kind: OpeningKind;
@@ -251,6 +259,16 @@ export interface Wall {
   insulated?: boolean;
   /** Panel width along the wall for a `sandwich` body, mm. Absent means not stated. */
   panelMm?: number;
+  /**
+   * Top of the wall along its length, for a wall under a pitched roof: a
+   * gable end peaks under the ridge, a wall under a lean-to rises from eave
+   * to top. Absent or empty means flat at `wallHeight()`. Points are read
+   * through model/profile.ts, never directly -- what lies between and beyond
+   * them is a rule, not a stored fact. The plan is a section at a fixed
+   * height, so this never changes it: the wall graph, room detection and
+   * every consumer outside this phase keep reading `wallHeight()`.
+   */
+  profile?: ProfilePoint[];
 }
 
 /** True when the wall's body is glazed, and so drawn as faces rather than fill. */

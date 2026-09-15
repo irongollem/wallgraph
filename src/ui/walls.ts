@@ -18,6 +18,7 @@ import {
 import type { Wall } from "../model/doc";
 import { wallLength, MIN_WALL_MM } from "../model/ops";
 import { floorSurface, type FloorSurface, type WallSurface } from "../core/surface";
+import { topMismatches } from "../core/profile";
 import { v } from "../geometry/vec";
 import { foldOut } from "./foldout";
 import { icon, type IconName } from "./icons";
@@ -134,7 +135,35 @@ export function renderWallTool(
   const surface = floorSurface(store.floor, tools.resolvedFloor(), tools.rooms());
   const lined = store.floor.walls.some(w => w.lining !== undefined);
   renderStoreySurface(rows, surface, lined);
+  renderTopMismatches(rows, store);
   renderWallList(host, store, tools, surface);
+}
+
+/**
+ * Every pair of walls on this storey that meet at a node and disagree about
+ * their top height there -- reported beside the other storey-wide warnings,
+ * repaired by nobody (see core/profile.ts). A node with three or more walls
+ * lists every disagreeing pair once, not the whole node as a group, since a
+ * pair is what the single-wall pane names too.
+ */
+function renderTopMismatches(rows: PaneRows, store: Store): void {
+  const f = store.floor;
+  const mismatches = topMismatches(f);
+  if (mismatches.length === 0) return;
+  rows.secHead(t("profile.mismatches"), { later: true });
+  for (const m of mismatches) {
+    for (let i = 0; i < m.walls.length; i++) {
+      for (let j = i + 1; j < m.walls.length; j++) {
+        const a = m.walls[i]!, b = m.walls[j]!;
+        const wa = f.walls.find(x => x.id === a.wallId);
+        const wb = f.walls.find(x => x.id === b.wallId);
+        rows.warnRow(t("profile.mismatchPair", {
+          lengthA: wa ? Math.round(wallLength(f, wa)) : 0, heightA: a.heightMm,
+          lengthB: wb ? Math.round(wallLength(f, wb)) : 0, heightB: b.heightMm,
+        }));
+      }
+    }
+  }
 }
 
 /** Square metres, as a paint or plaster quantity is written. */

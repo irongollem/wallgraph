@@ -8,7 +8,8 @@ import { Resolved, OpeningGeom, Junction, ResolvedWall } from "../core/resolve";
 import { Room, roomSize, sizeLabel, looseRoomNames, roomArea } from "../core/rooms";
 import { Selection } from "../model/store";
 import { Viewport } from "./viewport";
-import { Vec, add, sub, scale, perp, v, angleOf, dist, fromAngle } from "../geometry/vec";
+import { Vec, add, sub, scale, perp, norm, v, angleOf, dist, fromAngle } from "../geometry/vec";
+import { arcPointAt } from "../geometry/arc";
 import { getSymbol } from "./symbols";
 import { drawStair, drawStairGhost } from "./stair";
 import { drawVide } from "./vide";
@@ -696,6 +697,27 @@ export function drawScene(
   extras.preview?.(ctx, vp);
 
   ctx.restore(); // back to screen space
+
+  // Sloped-wall mark: a small angle glyph near the midpoint of a wall that
+  // states a top profile, so a slope is visible without opening its pane.
+  // The plan is a section at a fixed height and stays unchanged (see
+  // model/profile.ts), so this is the only trace of a profile on it. An
+  // editor annotation, not an NEN symbol: screen space, constant size, no
+  // code() and no DXF layer.
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "600 20px system-ui, sans-serif";
+  for (const rw of resolved.walls.values()) {
+    if (!rw.wall.profile || rw.wall.profile.length === 0) continue;
+    const mid = arcPointAt(rw.a, rw.b, rw.wall.bulge, 0.5);
+    const dir = norm(sub(rw.b, rw.a));
+    const at = add(mid, scale(perp(dir), rw.wall.thickness / 2 + 150));
+    const c = vp.toScreen(at);
+    ctx.fillStyle = isSel("wall", rw.wall.id) ? COLORS.select : wallPen(rw.wall).mark;
+    ctx.fillText("∠", c.x, c.y);
+  }
+  ctx.restore();
 
   // Room labels (constant px size): the name over the area, where one has been
   // written. Screen-space, so a plan stays readable at any zoom.

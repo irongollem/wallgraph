@@ -49,7 +49,11 @@ import { renderWallTool, renderWallSurface } from "./walls";
 import { renderEnergyAssumptions, renderEnergyTakeoff } from "./energy";
 import { renderMaterialAssumptions, renderMaterialTakeoff, renderWallMaterial } from "./materials";
 import { renderFrameButton, openFrameDialog } from "./frame";
-import { floorSurface } from "../core/surface";
+import { floorSurface, type WallSurface } from "../core/surface";
+import {
+  gableProfile, leanToProfile, addProfilePoint, clampProfile,
+} from "../model/profile";
+import { topMismatches } from "../core/profile";
 import { envelopeTakeoff, type EnvelopeTakeoff } from "../core/energy";
 import { floorMaterials, type FloorMaterials } from "../core/materials";
 import {
@@ -1953,6 +1957,22 @@ export class Panel {
         w.height = Math.max(100, Math.round(n));
       }), 50, { mixed: heightMixed });
     }
+    // The top profile itself is single-wall only (see renderWallProfile):
+    // several different shapes have no one editable value in common. Only
+    // whether each wall has one at all is offered here, mixed where they
+    // differ.
+    const slopedMixed = isMixed(walls, w => (w.profile?.length ?? 0) > 0);
+    rows.checkRow(t("profile.sloped"), (first.profile?.length ?? 0) > 0, on => {
+      this.store.mutate(d => {
+        const fl = this.store.floorOf(d);
+        for (const w of fl.walls) {
+          if (!group.includes(w.id)) continue;
+          if (on) w.profile = gableProfile(fl, w, wallLength(fl, w));
+          else delete w.profile;
+          clampProfile(fl, w);
+        }
+      });
+    }, { mixed: slopedMixed });
     const lbMixed = isMixed(walls, w => w.loadBearing);
     rows.selRow(t("panel.loadBearing"), first.loadBearing === undefined ? "" : first.loadBearing ? "yes" : "no",
       [["", t("panel.loadBearingUnknown")], ["yes", t("panel.loadBearingYes")], ["no", t("panel.loadBearingNo")]],
@@ -2120,6 +2140,82 @@ export class Panel {
       this.store.mutate(d => { applyWallJoin(this.store.floorOf(d), plan); });
       this.store.select(null);
     }, t(weld ? "panel.wallJoinWeldTitle" : "panel.wallJoinTitle"));
+  }
+
+  /**
+   * The wall's top profile: the "Hellend" toggle, a row per point with a
+   * delete button, an "add point" row, and the Gable/Lean-to presets --
+   * every edit through store.mutate() with clampProfile() after, the way
+   * clampOpening() follows an opening edit. Points are addressed by their
+   * index in the render, which is safe because a mutation always triggers a
+   * fresh render before the next one can be reached.
+   *
+   * Below that: a warn row per opening whose head pokes through the top
+   * (WallSurface.openingsAbove), and one per neighbouring wall that
+   * disagrees about the top height where they meet (core/profile.ts). Both
+   * are independent of whether THIS wall itself is sloped -- two flat walls
+   * of different heights meeting at a node disagree just as much.
+   */
+  private renderWallProfile(
+    rows: PaneRows, w: Wall, wid: Id, hasProfile: boolean, surface: WallSurface | undefined,
+  ): void {
+    const { checkRow, numRow, btnRow, warnRow, noteRow } = rows;
+    const mutWall = (fn: (fl: Floor, wall: Wall) => void): void => this.store.mutate(d => {
+      const fl = this.store.floorOf(d);
+      const wall = fl.walls.find(x => x.id === wid);
+      if (!wall) return;
+      fn(fl, wall);
+      clampProfile(fl, wall);
+    });
+
+    checkRow(t("profile.sloped"), hasProfile, on => mutWall((fl, wall) => {
+      if (on) wall.profile = gableProfile(fl, wall, wallLength(fl, wall));
+      else delete wall.profile;
+    }));
+    if (hasProfile && w.profile) {
+      noteRow(t("profile.help"));
+      w.profile.forEach((pt, index) => {
+        numRow(t("panel.fromCorner"), pt.t, n => mutWall((_fl, wall) => {
+          const p = wall.profile?.[index];
+          if (p) p.t = Math.round(n);
+        }));
+        numRow(t("profile.pointHeight"), pt.height, n => mutWall((_fl, wall) => {
+          const p = wall.profile?.[index];
+          if (p) p.height = Math.round(n);
+        }), 50);
+        btnRow(t("profile.pointRemove", { n: index + 1 }), () => mutWall((_fl, wall) => {
+          if (wall.profile) wall.profile = wall.profile.filter((_, i) => i !== index);
+        }));
+      });
+      btnRow(t("profile.addPoint"), () => mutWall((fl, wall) => {
+        const added = addProfilePoint(fl, wall, wallLength(fl, wall));
+        wall.profile = [...(wall.profile ?? []), added];
+      }));
+      btnRow(t("profile.gable"), () => mutWall((fl, wall) => {
+        wall.profile = gableProfile(fl, wall, wallLength(fl, wall));
+      }));
+      btnRow(t("profile.leanTo"), () => mutWall((fl, wall) => {
+        wall.profile = leanToProfile(fl, wall, wallLength(fl, wall));
+      }));
+    }
+    for (const openingId of surface?.openingsAbove ?? []) {
+      const opening = w.openings.find(o => o.id === openingId);
+      if (!opening) continue;
+      const kind = opening.kind === "door" ? t("panel.door")
+        : opening.kind === "window" ? t("panel.window") : t("panel.passage");
+      warnRow(t("profile.openingAbove", { kind, mm: Math.round(opening.t) }));
+    }
+    const f = this.store.floor;
+    for (const m of topMismatches(f)) {
+      const mine = m.walls.find(x => x.wallId === wid);
+      if (!mine) continue;
+      for (const other of m.walls) {
+        if (other.wallId === wid) continue;
+        const neighbour = f.walls.find(x => x.id === other.wallId);
+        const length = neighbour ? Math.round(wallLength(f, neighbour)) : 0;
+        warnRow(t("profile.mismatch", { length, hereMm: mine.heightMm, otherMm: other.heightMm }));
+      }
+    }
   }
 
   /**
@@ -2431,11 +2527,15 @@ export class Panel {
         if (!wall) return;
         if (on) wall.height = floorHeight(fl); else delete wall.height;
       }));
+      // A profile turns this from the wall's one height into the height at
+      // its ends -- see renderWallProfile below.
+      const hasProfile = (w.profile?.length ?? 0) > 0;
       if (w.height !== undefined) {
-        numRow(t("panel.wallHeight"), wallHeight(f, w), n => this.store.mutate(d => {
-          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
-          if (wall) wall.height = Math.max(100, Math.round(n));
-        }), 50);
+        numRow(hasProfile ? t("profile.endHeight") : t("panel.wallHeight"), wallHeight(f, w),
+          n => this.store.mutate(d => {
+            const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+            if (wall) wall.height = Math.max(100, Math.round(n));
+          }), 50);
       }
       // Face area, straight after the two dimensions it is the product of.
       // Through the storey's takeoff rather than a wall-sized one of its own:
@@ -2444,6 +2544,10 @@ export class Panel {
       const resolved = this.tools.resolvedFloor();
       const floorSurf = floorSurface(f, resolved, this.tools.rooms());
       const surface = floorSurf.walls.find(x => x.wallId === sel.id);
+      // The top profile: the Sloped toggle, its points and presets, and the
+      // warnings that follow from it. Placed beside the height row it
+      // relabels and before the surface figure that reads openingsAbove off it.
+      this.renderWallProfile(rows, w, sel.id, hasProfile, surface);
       if (surface) renderWallSurface(rows, surface, w.lining !== undefined);
       // Own members and figures -- computed here, alongside the surface
       // figure above, but rendered at the end of this pane (see below),

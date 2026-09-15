@@ -386,6 +386,16 @@ export function planSchema(siteUrl: string): JsonSchema {
             type: "integer", minimum: 300, maximum: 3000,
             description: "Panel width along the wall for a sandwich body, mm. Absent means not stated.",
           },
+          profile: {
+            type: "array", items: { $ref: "#/$defs/profilePoint" },
+            description:
+              "Top of the wall along its length, for a wall under a pitched roof: a gable " +
+              "end peaks under the ridge, a wall under a lean-to rises from eave to top. " +
+              "Linear between points; the wall's own height anchors the ends where no point " +
+              "states one there, so a single point at the ridge is enough for a gable. " +
+              "Absent or empty means flat at the wall's own height. The plan is a section at " +
+              "a fixed height, so this never changes it.",
+          },
         },
       },
       opening: {
@@ -423,6 +433,16 @@ export function planSchema(siteUrl: string): JsonSchema {
               "Absent means not stated; the document's energy.windowU or energy.doorU default " +
               "then applies, but only within a wall that states a facade.",
           },
+        },
+      },
+      profilePoint: {
+        type: "object",
+        description: "One stated height along a wall's top, positioned like an opening.",
+        required: ["t", "height"],
+        additionalProperties: false,
+        properties: {
+          t: mm("Distance from node a along the centerline, mm."),
+          height: mm("mm above this storey's floor."),
         },
       },
       sash: {
