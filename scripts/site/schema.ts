@@ -311,10 +311,34 @@ export function planSchema(siteUrl: string): JsonSchema {
             description:
               "Post (stijl) centres, mm — the frame the body is carried on, whether those " +
               "members are the mullions of a curtain wall, the columns of a steel portal " +
-              "frame or the studs of a timber wall. Read as a MAXIMUM bay width: each run " +
-              "between openings is divided into equal bays no wider than this, so a door " +
-              "pushes the posts of its run aside instead of one landing in the doorway. " +
-              "Absent means no frame is drawn.",
+              "frame or the studs of a timber wall. How this spacing is set out is " +
+              "postLayout. Absent means no frame is drawn.",
+          },
+          postLayout: {
+            enum: ["even", "grid"],
+            description:
+              "How posts are set out along postMm. \"even\": each run of body between " +
+              "openings is divided into equal bays no wider than postMm, so a door pushes " +
+              "the posts of its own run aside instead of one landing in the doorway -- right " +
+              "for a glass wall or a column run. \"grid\": fixed centres of postMm from " +
+              "postFrom, carried across openings and stacked bands alike, with a shorter " +
+              "last gap -- what a timber or steel stud frame is actually set out at. Absent " +
+              "means \"grid\" on a timber or steel wall and \"even\" otherwise.",
+          },
+          postFrom: {
+            enum: ["a", "b"],
+            description:
+              "The end a \"grid\" postLayout is set out from. Absent means \"a\". Ignored by " +
+              "\"even\".",
+          },
+          postOffsetMm: {
+            type: "integer", minimum: 0,
+            description:
+              "Phase of a \"grid\" postLayout, mm: the grid stands at postOffsetMm + " +
+              "k*postMm from postFrom's own end. Absent means 0 -- the plain postMm, " +
+              "2*postMm, ... grid a plan is drawn with. A non-zero value only ever arises " +
+              "from splitting or merging a grid wall, to keep the far half's studs at the " +
+              "same physical positions the whole wall's did.",
           },
           postWidthMm: {
             type: "integer", minimum: 1,

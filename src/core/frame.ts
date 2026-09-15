@@ -3,11 +3,11 @@
 // draws it, so the drawing and the order cannot disagree.
 import type { Floor, Id, Opening, Wall } from "../model/doc";
 import {
-  isFramedMaterial, openingHeight, openingSill, wallPostMm, wallPostWidthMm,
+  isFramedMaterial, openingHeight, openingSill, wallPostMm, wallPostWidthMm, postLayoutOf,
 } from "../model/doc";
 import { wallTopAt, wallTopPolyline, wallTopRange } from "../model/profile";
 import type { MemberName } from "./materials";
-import { postBays, type ResolvedWall, type WallRun } from "./resolve";
+import { postBays, postPositions, type ResolvedWall, type WallRun } from "./resolve";
 import { arcTangentAt } from "../geometry/arc";
 import { dot, scale, v, type Vec } from "../geometry/vec";
 
@@ -135,6 +135,9 @@ export function computeBacking(f: Floor): Map<Id, WallBacking> {
  * divides a run of wall body: `ceil(width / spacing)` bays, rounded before
  * the ceiling so an exact division does not tip into an extra bay. Cripples
  * stand at the interior division points, one fewer than the bay count.
+ * Only the "even" postLayout (see Wall.postLayout) uses this -- a "grid" wall's
+ * cripples stand at whichever wall-wide grid positions fall inside the
+ * opening instead (see layoutWithBacking()'s own cripple placement).
  */
 function crippleCount(width: number, spacing: number): number {
   const bays = Math.max(1, Math.ceil(Number((width / spacing).toFixed(6))));
@@ -195,13 +198,12 @@ function bandOverlapsOpening(band: Band, o: Opening): boolean {
 }
 
 /**
- * The solid runs (WallRun[], the shape postBays() and postsFor() in
- * resolve.ts divide) over [0, L] cut around the openings that overlap THIS
+ * The solid runs (WallRun[], the shape postPositions() and postsFor() in
+ * resolve.ts read) over [0, L] cut around the openings that overlap THIS
  * band -- not every wall opening. Mirrors resolveFloor()'s own cut, applied
  * to a band-specific subset: a window whose head sits in a lower band cuts
  * no run out of a band above it, so that band's studs and noggings run
- * clear across, the same equal-bay division postBays() gives an unbroken
- * span anywhere else.
+ * clear across, the same as an unbroken span anywhere else.
  */
 function bandRunIntervals(openings: readonly Opening[], L: number): WallRun[] {
   const sorted = [...openings].sort((a, b) => a.t - b.t);
@@ -231,6 +233,46 @@ function edgeTop(f: Floor, w: Wall, x: number, width: number): { hi: number; slo
   return { hi: Math.max(tl, tr), slope: tl === tr ? undefined : (tr - tl) / width };
 }
 
+/** The wall's top polyline no higher than `cap`, with a point inserted
+ *  wherever it crosses the cap. Unchanged when `cap` is undefined. */
+function cappedTop(poly: { s: number; h: number }[], cap: number | undefined): { s: number; h: number }[] {
+  if (cap === undefined) return poly;
+  const out: { s: number; h: number }[] = [];
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i]!;
+    const prev = poly[i - 1];
+    if (prev && (prev.h - cap) * (p.h - cap) < 0) {
+      out.push({ s: prev.s + (cap - prev.h) / (p.h - prev.h) * (p.s - prev.s), h: cap });
+    }
+    out.push({ s: p.s, h: Math.min(p.h, cap) });
+  }
+  return out;
+}
+
+/** The spans along the wall where its top is at or above `level`, clamped to
+ *  [0, Lf]. A band's bottom plate runs only there: beyond them the top leaves
+ *  no room for the band's two plates. */
+function spansAbove(poly: readonly { s: number; h: number }[], level: number, Lf: number): { from: number; to: number }[] {
+  const out: { from: number; to: number }[] = [];
+  let start: number | null = null;
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i]!;
+    const prev = poly[i - 1];
+    if (prev && (prev.h - level) * (p.h - level) < 0) {
+      const x = prev.s + (level - prev.h) / (p.h - prev.h) * (p.s - prev.s);
+      if (start === null) start = x; else { out.push({ from: start, to: x }); start = null; }
+    }
+    if (p.h >= level && start === null) start = p.s;
+    if (p.h < level && start !== null && !(prev && (prev.h - level) * (p.h - level) < 0)) {
+      out.push({ from: start, to: prev ? prev.s : p.s }); start = null;
+    }
+  }
+  if (start !== null) out.push({ from: start, to: poly[poly.length - 1]!.s });
+  return out
+    .map(r => ({ from: Math.max(0, Math.min(Lf, r.from)), to: Math.max(0, Math.min(Lf, r.to)) }))
+    .filter(r => r.to - r.from >= 1);
+}
+
 /**
  * The top band's own top plate: one member per straight segment of the
  * profile, clipped to the span where the top band actually exists (its top
@@ -241,21 +283,24 @@ function edgeTop(f: Floor, w: Wall, x: number, width: number): { hi: number; slo
  */
 function rakedTopPlateSegments(
   f: Floor, w: Wall, L: number, Lf: number, bandBottom: number, pw: number,
-  plateName: MemberName, section: { w: number; d: number },
+  plateName: MemberName, section: { w: number; d: number }, cap?: number,
 ): PlacedMember[] {
-  const poly = wallTopPolyline(f, w, L);
+  const poly = cappedTop(wallTopPolyline(f, w, L), cap);
+  // The plate's underside rests on the band's bottom plate, so it starts
+  // where the top clears that plate and its own depth.
+  const clip = bandBottom + 2 * pw;
   const out: PlacedMember[] = [];
   for (let i = 0; i + 1 < poly.length; i++) {
     let s0 = poly[i]!.s, h0 = poly[i]!.h;
     let s1 = poly[i + 1]!.s, h1 = poly[i + 1]!.h;
     if (s1 <= s0) continue;
-    if (h0 <= bandBottom && h1 <= bandBottom) continue; // the top band doesn't exist over this span
-    if (h0 <= bandBottom) {
-      const frac = (bandBottom - h0) / (h1 - h0);
-      s0 = s0 + frac * (s1 - s0); h0 = bandBottom;
-    } else if (h1 <= bandBottom) {
-      const frac = (bandBottom - h0) / (h1 - h0);
-      s1 = s0 + frac * (s1 - s0); h1 = bandBottom;
+    if (h0 <= clip && h1 <= clip) continue; // no room for the band's plates over this span
+    if (h0 < clip) {
+      const frac = (clip - h0) / (h1 - h0);
+      s0 = s0 + frac * (s1 - s0); h0 = clip;
+    } else if (h1 < clip) {
+      const frac = (clip - h0) / (h1 - h0);
+      s1 = s0 + frac * (s1 - s0); h1 = clip;
     }
     const x = Math.max(0, Math.min(Lf, s0));
     const x1 = Math.max(0, Math.min(Lf, s1));
@@ -295,7 +340,7 @@ function suggestBreaks(topMax: number, pw: number, maxStockMm: number): number[]
  * a frame at these centres exists, but its member sizes do not.
  *
  * `x`/`y` positions use the centerline distances the document stores (t for
- * an opening, the bay divisions of postBays() for a stud) directly against
+ * an opening, postPositions() for a stud) directly against
  * the frame length `lengthMm` (the mean of the two mitered faces, same as
  * core/materials.ts's own WallTakeoff.lengthMm) -- the two differ only where
  * a mitered face runs long or short at the wall's ends, which is exactly
@@ -353,6 +398,13 @@ function layoutWithBacking(
   const steel = w.material === "steel";
   const plateName: MemberName = steel ? "rail" : "plate";
   const section = { w: pw, d: T };
+  const grid = postLayoutOf(w) === "grid";
+  // Every band reads the SAME wall-wide grid, ignoring every band's own run
+  // cuts -- the [0, L] interval keeps a position that falls inside an
+  // opening too, which a band's own runs (bandIntervals, below) would
+  // otherwise hide; that is exactly what the cripple placement further down
+  // needs to tell "inside this opening" from "outside every opening".
+  const rawGrid = grid ? postPositions(w, L, [{ from: 0, to: L }]) : [];
 
   const bands = bandsOf(w, topMax);
   const openingsAcrossBreak: Id[] = [];
@@ -410,26 +462,46 @@ function layoutWithBacking(
     return { name, x: cx, y: band.bottom + pw, w: pw, h, sectionMm: section, lengthMm: h, count: 1, spliceable: false, slope };
   };
 
+  // Every band's own full-height member centres, gathered while they are
+  // placed below -- read back by the "grid" nogging pass further down.
+  const bandFullCenters = new Map<Band, number[]>();
+
   for (const band of bands) {
     const bandOpenings = openingsByBand.get(bands.indexOf(band)) ?? [];
+    // Every full-height member this band places (end studs, kings, grid/even
+    // studs, backing) -- not cripples, which stop at the header or the sill.
+    // Collected as centres so the nogging pass below can bridge the actual
+    // gaps between them, the way a builder sets noggings between whichever
+    // studs happen to stand either side.
+    const bandCenters: number[] = [];
 
-    // A stud at each drawn post position -- postBays()'s own division, but
-    // over THIS band's own runs (bandIntervals.get(band)), cut only around
-    // the openings that reach into this band. A band with no opening of its
-    // own runs clear across even where a band below or above it is cut --
-    // see bandRunIntervals(). Plus one at each wall end -- unless one of
-    // THIS band's openings has a jamb within one post width of that end,
-    // i.e. the king stud below already occupies it.
-    for (const bay of postBays(w, bandIntervals.get(band)!)) {
-      for (let i = 1; i < bay.bays; i++) {
-        const m = full("stud", bay.from + bay.widthMm * i - pw / 2, band);
-        if (m) members.push(m);
+    // A stud at each drawn post position, over THIS band's own runs
+    // (bandIntervals.get(band)), cut only around the openings that reach
+    // into this band. A band with no opening of its own runs clear across
+    // even where a band below or above it is cut -- see bandRunIntervals().
+    // "grid": postPositions() already drops a position inside this band's
+    // own opening (no run there) or too close to its jamb to clear a king
+    // (WallRun.ts's 1.5*postWidth run-end margin) -- exactly the two "drops
+    // a grid position" cases CLAUDE.md's stud-layout paragraph states.
+    // "even": postBays()'s own equal division, unchanged.
+    if (grid) {
+      for (const s of postPositions(w, L, bandIntervals.get(band)!)) {
+        const m = full("stud", s - pw / 2, band);
+        if (m) { members.push(m); bandCenters.push(s); }
+      }
+    } else {
+      for (const bay of postBays(w, bandIntervals.get(band)!)) {
+        for (let i = 1; i < bay.bays; i++) {
+          const s = bay.from + bay.widthMm * i;
+          const m = full("stud", s - pw / 2, band);
+          if (m) { members.push(m); bandCenters.push(s); }
+        }
       }
     }
     const nearA = bandOpenings.length > 0 ? Math.min(...bandOpenings.map(o => o.t - o.width / 2)) : Infinity;
     const nearB = bandOpenings.length > 0 ? Math.min(...bandOpenings.map(o => rw.length - (o.t + o.width / 2))) : Infinity;
-    if (nearA > pw) { const m = full("stud", 0, band); if (m) members.push(m); }
-    if (nearB > pw) { const m = full("stud", Lf - pw, band); if (m) members.push(m); }
+    if (nearA > pw) { const m = full("stud", 0, band); if (m) { members.push(m); bandCenters.push(pw / 2); } }
+    if (nearB > pw) { const m = full("stud", Lf - pw, band); if (m) { members.push(m); bandCenters.push(Lf - pw / 2); } }
 
     // Plates (rails for steel): the band's own bottom plate always flat;
     // its top plate flat too, except in the top band, where it follows the
@@ -437,17 +509,28 @@ function layoutWithBacking(
     // this band's own top plate and the next band's own bottom plate are
     // two separate members, never merged into one.
     if (Lf > 0) {
-      members.push({
-        name: plateName, x: 0, y: band.bottom, w: Lf, h: pw,
-        sectionMm: section, lengthMm: Lf, count: 1, spliceable: true,
-      });
-      if (band.top !== undefined) {
+      // A band above the floor stops its bottom plate where the wall's top
+      // no longer leaves room for both plates, so the plate does not stand
+      // out past a gable's raked plates at the eaves.
+      const topPoly = wallTopPolyline(f, w, L);
+      const spans = band.bottom > 0 ? spansAbove(topPoly, band.bottom + 2 * pw, Lf) : [{ from: 0, to: Lf }];
+      for (const sp of spans) {
+        const full = sp.from === 0 && sp.to === Lf;
+        members.push({
+          name: plateName, x: sp.from, y: band.bottom, w: sp.to - sp.from, h: pw,
+          sectionMm: section, lengthMm: full ? Lf : Math.ceil(sp.to - sp.from), count: 1, spliceable: true,
+        });
+      }
+      const topClears = band.top !== undefined && topPoly.every(p => p.h >= band.top!);
+      if (band.top !== undefined && topClears) {
         members.push({
           name: plateName, x: 0, y: band.top - pw, w: Lf, h: pw,
           sectionMm: section, lengthMm: Lf, count: 1, spliceable: true,
         });
       } else {
-        members.push(...rakedTopPlateSegments(f, w, L, Lf, band.bottom, pw, plateName, section));
+        // The top band, or a lower band the profile dips into: the top plate
+        // follows the lower of the band's break and the wall's top.
+        members.push(...rakedTopPlateSegments(f, w, L, Lf, band.bottom, pw, plateName, section, band.top));
       }
     }
 
@@ -457,14 +540,21 @@ function layoutWithBacking(
     for (const o of bandOpenings) {
       const jambL = o.t - o.width / 2, jambR = o.t + o.width / 2;
       const pair = steel ? [jambL - pw, jambR] : [jambL - 2 * pw, jambR + pw];
-      for (const x of pair) { const m = full("king", x, band); if (m) members.push(m); }
+      for (const x of pair) { const m = full("king", x, band); if (m) { members.push(m); bandCenters.push(x + pw / 2); } }
     }
 
     // Backing at this wall's share of its corners and junctions -- see
     // computeBacking(). Every band gets its own: a corner needs a nailing
     // face at every storey of a stacked frame, not only the lowest.
-    for (let k = 0; k < backing.a; k++) { const m = full("backing", pw + k * pw, band); if (m) members.push(m); }
-    for (let k = 0; k < backing.b; k++) { const m = full("backing", Lf - 2 * pw - k * pw, band); if (m) members.push(m); }
+    for (let k = 0; k < backing.a; k++) {
+      const x = pw + k * pw;
+      const m = full("backing", x, band); if (m) { members.push(m); bandCenters.push(x + pw / 2); }
+    }
+    for (let k = 0; k < backing.b; k++) {
+      const x = Lf - 2 * pw - k * pw;
+      const m = full("backing", x, band); if (m) { members.push(m); bandCenters.push(x + pw / 2); }
+    }
+    bandFullCenters.set(band, bandCenters);
   }
 
   const openings: FrameLayout["openings"] = w.openings.map(o => ({
@@ -499,28 +589,61 @@ function layoutWithBacking(
       }
     }
 
-    // Noggings: rows are spaced proportionally within EACH BAY'S OWN local
-    // height -- the band's own top for a flat band, or the profile at that
-    // bay's own centre for the top band -- the same "own position" rule
-    // every full member is cut by. A bay whose local height does not clear
-    // two plates plus a whit has nothing to space a row within and is
-    // dropped, never shortened.
+    // Noggings: level rows across the WHOLE band -- ordinary building
+    // practice, easier to set out and lining up for fixing boards, rather
+    // than stepping up the slope with each bay's own local height. Row
+    // heights are spaced over the band's own bandHeight: its flat top on a
+    // flat band, or the band's own HIGHEST top (topMax) on the top band of a
+    // sloped wall, so rows are spread over the full height of the gable. A
+    // row is kept in a bay only where its own top (centre + half a post)
+    // sits at least a post width below the top at BOTH of that bay's edges
+    // -- the lower edge governs -- dropped, never shortened: a short bay
+    // near the eaves then carries no nogging, which is normal for short
+    // studs.
     if (w.noggingRows && w.noggingRows > 0) {
-      for (const bay of postBays(w, bandIntervals.get(band)!)) {
-        for (let j = 0; j < bay.bays; j++) {
-          const cellStart = bay.from + bay.widthMm * j;
-          const cellCenter = cellStart + bay.widthMm / 2;
-          const cutW = Math.round(bay.widthMm - pw);
-          if (cutW <= 0) continue;
-          const localTop = band.top ?? wallTopAt(f, w, cellCenter);
-          const cellH = localTop - band.bottom - 2 * pw;
-          if (cellH <= 0) continue;
-          for (let r = 1; r <= w.noggingRows; r++) {
-            const centerY = band.bottom + pw + r * cellH / (w.noggingRows + 1);
+      const bandHeight = band.top ?? topMax;
+      const clear = bandHeight - band.bottom - 2 * pw;
+      if (clear > 0) {
+        const rowCenters: number[] = [];
+        for (let r = 1; r <= w.noggingRows; r++) {
+          rowCenters.push(band.bottom + pw + r * clear / (w.noggingRows + 1));
+        }
+        const nogging = (x0: number, cutW: number, topAt0: number, topAt1: number): void => {
+          if (cutW <= 0) return;
+          const bound = Math.min(topAt0, topAt1) - pw;
+          for (const centerY of rowCenters) {
+            if (centerY + pw / 2 > bound) continue;
             members.push({
-              name: "nogging", x: clampX(cellStart + pw / 2, cutW), y: centerY - pw / 2, w: cutW, h: pw,
+              name: "nogging", x: clampX(x0, cutW), y: centerY - pw / 2, w: cutW, h: pw,
               sectionMm: section, lengthMm: cutW, count: 1, spliceable: false,
             });
+          }
+        };
+        if (grid) {
+          // Per actual gap between consecutive full-height members THIS band
+          // placed (end studs, kings, grid studs, backing -- bandFullCenters,
+          // gathered above; a cripple does not count, it stops at the header
+          // or the sill) -- a builder's own noggings run stud to stud,
+          // whatever the two studs either side of a gap happen to be, not to
+          // an equal bay. A gap is skipped unless some run holds it whole:
+          // that is what keeps a king-to-king gap across a door from getting
+          // one nogging spanning the opening's own hole.
+          const runs = bandIntervals.get(band)!;
+          const centers = [...new Set(bandFullCenters.get(band) ?? [])].sort((a, b) => a - b);
+          for (let i = 0; i + 1 < centers.length; i++) {
+            const c1 = centers[i]!, c2 = centers[i + 1]!;
+            if (!runs.some(r => c1 >= r.from - 0.5 && c2 <= r.to + 0.5)) continue;
+            const cutW = Math.round(c2 - c1 - pw);
+            if (cutW < 100) continue;
+            nogging(c1 + pw / 2, cutW, band.top ?? wallTopAt(f, w, c1), band.top ?? wallTopAt(f, w, c2));
+          }
+        } else {
+          for (const bay of postBays(w, bandIntervals.get(band)!)) {
+            for (let j = 0; j < bay.bays; j++) {
+              const cellStart = bay.from + bay.widthMm * j;
+              nogging(cellStart + pw / 2, Math.round(bay.widthMm - pw),
+                band.top ?? wallTopAt(f, w, cellStart), band.top ?? wallTopAt(f, w, cellStart + bay.widthMm));
+            }
           }
         }
       }
@@ -544,34 +667,47 @@ function layoutWithBacking(
         });
       }
 
-      const cripples = crippleCount(o.width, spacing);
-      if (cripples > 0) {
-        const bays = cripples + 1;
-        for (let i = 1; i <= cripples; i++) {
-          const cx = jambL + i * (o.width / bays);
-          // Above the header: cut to the top at the cripple's own position,
-          // the same way a stud is -- never shortened, and dropped where
-          // even the top plate has nothing left above it.
-          const edge = band.top !== undefined
-            ? { hi: band.top, slope: undefined }
-            : edgeTop(f, w, clampX(cx - pw / 2, pw), pw);
-          const above = Math.floor(edge.hi - pw - T - head);
-          if (above > 0) {
-            members.push({
-              name: "cripple", x: clampX(cx - pw / 2, pw), y: head + T, w: pw, h: above,
-              sectionMm: section, lengthMm: above, count: 1, spliceable: false, slope: edge.slope,
-            });
-          }
-          // Below the sill: the sill height less the bottom plate and the
-          // sill piece itself -- always well clear of the roofline, so
-          // unaffected by the profile.
-          const below = sill - band.bottom - 2 * pw;
-          if (sill > band.bottom && below > 0) {
-            members.push({
-              name: "cripple", x: clampX(cx - pw / 2, pw), y: band.bottom + pw, w: pw, h: below,
-              sectionMm: section, lengthMm: below, count: 1, spliceable: false,
-            });
-          }
+      // "grid": the wall-wide grid positions that fall strictly inside this
+      // opening's own span -- CLAUDE.md's stud-layout paragraph. A position
+      // near enough a jamb to be in the king's own territory never reaches
+      // here at all: rawGrid is the unfiltered wall-wide candidate list, but
+      // jambL/jambR are the opening's own bounds, so a position between them
+      // is "inside the opening" regardless of how close it stands to a jamb
+      // -- which is right, since nothing else stands there to fill the gap.
+      // "even": crippleCount()'s own equal division, unchanged.
+      const jambR = o.t + o.width / 2;
+      const cripplePositions = grid
+        ? rawGrid.filter(g => g > jambL + 0.5 && g < jambR - 0.5)
+        : (() => {
+            const cripples = crippleCount(o.width, spacing);
+            const bays = cripples + 1;
+            return cripples > 0
+              ? Array.from({ length: cripples }, (_, i) => jambL + (i + 1) * (o.width / bays))
+              : [];
+          })();
+      for (const cx of cripplePositions) {
+        // Above the header: cut to the top at the cripple's own position, the
+        // same way a stud is -- never shortened, and dropped where even the
+        // top plate has nothing left above it.
+        const edge = band.top !== undefined
+          ? { hi: band.top, slope: undefined }
+          : edgeTop(f, w, clampX(cx - pw / 2, pw), pw);
+        const above = Math.floor(edge.hi - pw - T - head);
+        if (above > 0) {
+          members.push({
+            name: "cripple", x: clampX(cx - pw / 2, pw), y: head + T, w: pw, h: above,
+            sectionMm: section, lengthMm: above, count: 1, spliceable: false, slope: edge.slope,
+          });
+        }
+        // Below the sill: the sill height less the bottom plate and the sill
+        // piece itself -- always well clear of the roofline, so unaffected
+        // by the profile.
+        const below = sill - band.bottom - 2 * pw;
+        if (sill > band.bottom && below > 0) {
+          members.push({
+            name: "cripple", x: clampX(cx - pw / 2, pw), y: band.bottom + pw, w: pw, h: below,
+            sectionMm: section, lengthMm: below, count: 1, spliceable: false,
+          });
         }
       }
     }

@@ -3,6 +3,7 @@
 // floor mutably; callers wrap them in store.mutate().
 import {
   Floor, PlanNode, Wall, Opening, ProfilePoint, Id, newId, roomNamesOf, routesOf, Underlay, wallHeight,
+  postLayoutOf, postFromOf, wallPostMm, flipGridOffset, canonPostOffset,
 } from "./doc";
 import { routeInstallation } from "./route";
 import { Vec, dist, distToSeg, v, add, sub, scale, dot, cross, norm, perp, lineIntersect } from "../geometry/vec";
@@ -61,6 +62,33 @@ export function splitWall(f: Floor, w: Wall, tMm: number): PlanNode | null {
     // leave both halves pointing at the one array.
     ...(w.frameBreaksMm ? { frameBreaksMm: [...w.frameBreaksMm] } : {}),
   };
+  // A "grid" postLayout is set out from one end (Wall.postFrom). Whichever
+  // half keeps THAT end as its own unmoved 'a' or 'b' needs no correction at
+  // all -- w2 already carries it via the spread above, and stays right when
+  // the original was "b" (w2's own b is still the wall's original, unmoved,
+  // far end). The other half has to re-express the identical physical grid
+  // from the end it DOES keep, and the two cases are different transforms:
+  //   postFrom "a": w2's own a is the NEW mid node, `tt` from the original
+  //     a, in the SAME direction -- a plain shift of the phase by `tt`.
+  //   postFrom "b": w's own b is now the mid node, not the original far end
+  //     postFrom named -- w has to reference its own (unmoved) a instead,
+  //     via the "same wall, other end" transform flipWall() and
+  //     planNodeDissolve()'s gridPhaseMatches() both use (flipGridOffset()
+  //     over the ORIGINAL, pre-split length, since that is the length the
+  //     two ends' phases relate each other across).
+  if (postLayoutOf(w) === "grid") {
+    const spacing = wallPostMm(w);
+    if (spacing !== undefined) {
+      if (postFromOf(w) === "a") {
+        const offset = canonPostOffset((w.postOffsetMm ?? 0) - tt, spacing);
+        if (offset === 0) delete w2.postOffsetMm; else w2.postOffsetMm = offset;
+      } else {
+        const offset = flipGridOffset(w.postOffsetMm ?? 0, L, spacing);
+        w.postFrom = "a";
+        if (offset === 0) delete w.postOffsetMm; else w.postOffsetMm = offset;
+      }
+    }
+  }
   w.b = mid.id;
   w.bulge = bulge1;
   // Redistribute openings by centre position.
@@ -174,6 +202,12 @@ export function cleanOrphanNodes(f: Floor): void {
  *   facadeSide   "left" is +perp(tangent), likewise
  *   opening.t    measured from node a, so it becomes L - t
  *   profile.t    likewise, measured from node a
+ *   postOffsetMm a "grid" postLayout's phase is stated relative to `postFrom`
+ *                -- itself untouched by a flip, it still names "a" or "b" --
+ *                but which PHYSICAL end that letter now points at has just
+ *                swapped, so the studs would silently jump to the mirrored
+ *                positions unless the phase is re-expressed via
+ *                flipGridOffset()
  *   sash order   sashes run along a->b, so the list reverses
  *   sash hinge / slideTo / outward
  *                the jambs swap names, and `outward` picks a face off the
@@ -193,6 +227,17 @@ export function flipWall(f: Floor, w: Wall): void {
   const a = w.a; w.a = w.b; w.b = a;
   w.bulge = -w.bulge;
   if (w.facadeSide !== undefined) w.facadeSide = w.facadeSide === "left" ? "right" : "left";
+  // postFrom is left exactly as stated -- it is still "a" or "b", the same
+  // LETTERS, just naming the other physical node now that a and b swapped.
+  // Only the phase needs correcting, via the same "same wall, other end"
+  // transform planNodeDissolve()'s gridPhaseMatches() uses.
+  if (postLayoutOf(w) === "grid") {
+    const spacing = wallPostMm(w);
+    if (spacing !== undefined) {
+      const offset = flipGridOffset(w.postOffsetMm ?? 0, L, spacing);
+      if (offset === 0) delete w.postOffsetMm; else w.postOffsetMm = offset;
+    }
+  }
   const jamb = (e: "a" | "b" | "head" | "sill" | undefined): typeof e =>
     e === "a" ? "b" : e === "b" ? "a" : e;
   for (const o of w.openings) {

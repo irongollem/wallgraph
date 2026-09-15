@@ -179,14 +179,51 @@ export interface Wall {
    * of a timber wall are all vertical members at centres, and a plan shows a
    * vertical member. Dutch says stijl for every one of them.
    *
-   * Read as a MAXIMUM bay width rather than as a fixed grid: each run of body
-   * between openings is divided into equal bays no wider than this. A door set
-   * into the wall therefore pushes the posts of its own run aside instead of
-   * one landing in the doorway, and its jambs read as the posts they are in a
-   * real pui. Absent means none — a frameless pane, or a wall whose frame is
-   * not being drawn.
+   * How this spacing is SET OUT is `postLayout`: a maximum bay width for a
+   * pui or a column run, or a fixed grid for a stud frame. Absent means
+   * none — a frameless pane, or a wall whose frame is not being drawn.
    */
   postMm?: number;
+  /**
+   * How posts are set out along `postMm`.
+   *   "even" each run of body between openings is divided into equal bays no
+   *     wider than postMm — right for a glass wall or a column run ("no wider
+   *     than this"), wrong for a stud frame: a door pushes the posts of its
+   *     own run aside instead of one landing in the doorway.
+   *   "grid" fixed centres of postMm from `postFrom`, carried across openings
+   *     and stacked bands alike; the last gap before the far end is simply
+   *     shorter. What a builder actually sets a timber or steel frame out at,
+   *     so board edges (1200 plasterboard at 600 centres, 1250 OSB at 625)
+   *     land on a stud and insulation batts fit between.
+   * Absent means "grid" on a framed material (see isFramedMaterial()) and
+   * "even" otherwise — read through postLayoutOf().
+   */
+  postLayout?: "even" | "grid";
+  /**
+   * The end a "grid" layout is set out from -- "a" or "b" as LETTERS, not as
+   * a physical node: flipWall() leaves this exactly as stated (the letters
+   * still name a wall end each), but re-expresses `postOffsetMm` via
+   * flipGridOffset() so the studs stay at the same physical positions once
+   * a and b themselves have swapped which node they point at.
+   * Absent means "a". Ignored by "even", which has no single set-out point.
+   */
+  postFrom?: "a" | "b";
+  /**
+   * Phase of a "grid" layout, mm, canonical in [0, postMm): the grid stands
+   * at postOffsetMm + k*postMm from `postFrom`'s own end, k = 0, 1, 2, ...
+   * within the wall. Absent means 0, which is the plain "postMm, 2*postMm,
+   * ..." grid this states when nothing has moved it.
+   *
+   * A wall this document authors always states 0 (or omits it) — a plan is
+   * drawn from one end, not from a phase. The field exists because flipping,
+   * splitting or merging a grid wall can leave its own `postFrom` end
+   * standing somewhere other than on a grid line, or naming a node that
+   * moved or stopped being this wall's own end, while the wall still has to
+   * carry the SAME physical stud positions it did before. `flipWall()`,
+   * `splitWall()` and `core/join.ts`'s merge compute it there; nothing else
+   * should need to.
+   */
+  postOffsetMm?: number;
   /**
    * The post's own width along the wall, mm. Its depth is not stored because
    * the wall already carries it: a post runs through the thickness.
@@ -296,7 +333,7 @@ export const wallGlazed = (w: Wall): boolean => w.material === "glass";
  * on penanten is a real thing too; what a post is called changes, what it is
  * does not.
  */
-export function wallPostMm(w: Wall): number | undefined {
+export function wallPostMm(w: Pick<Wall, "postMm">): number | undefined {
   return w.postMm !== undefined && w.postMm > 0 ? w.postMm : undefined;
 }
 
@@ -327,10 +364,102 @@ export const facadeSideOf = (w: Wall): "left" | "right" => w.facadeSide ?? "left
 /** An ordinary outer leaf or cladding thickness, mm. */
 export const FACADE_DEFAULT_MM = 100;
 
-/** Ordinary curtain-walling / portal-frame centres, offered when posts go on. */
+/** Ordinary curtain-walling / portal-frame centres, offered when posts go on
+ *  an unframed material (glass, or masonry/concrete on columns). */
 export const POST_DEFAULT_MM = 1200;
+/** Ordinary houtskeletbouw / metal-stud centres: 600 mm, matching 1200 mm
+ *  plasterboard. Offered when posts go on a timber or steel wall. */
+export const FRAME_POST_DEFAULT_MM = 600;
 /** An ordinary mullion or column face width, mm. */
 export const POST_WIDTH_DEFAULT = 60;
+
+/**
+ * How this wall's posts are set out: the stated value, or "grid" on a framed
+ * material (isFramedMaterial()) and "even" otherwise — a timber or steel wall
+ * is ordinarily a stud grid; a glazed pui or a column run is ordinarily an
+ * equal division. See Wall.postLayout.
+ */
+export function postLayoutOf(w: Pick<Wall, "postLayout" | "material">): "even" | "grid" {
+  return w.postLayout ?? (isFramedMaterial(w.material) ? "grid" : "even");
+}
+
+/** Which end a "grid" layout is set out from. Absent means "a". */
+export const postFromOf = (w: Pick<Wall, "postFrom">): "a" | "b" => w.postFrom ?? "a";
+
+function mod(x: number, p: number): number { return ((x % p) + p) % p; }
+
+/** A grid offset, canonicalised into [0, spacingMm). */
+export function canonPostOffset(offsetMm: number, spacingMm: number): number {
+  return spacingMm > 0 ? mod(offsetMm, spacingMm) : 0;
+}
+
+/**
+ * The offset that re-expresses a "grid" layout's phase from the OTHER end of
+ * a wall `lengthMm` long, stating the same set of physical stud positions --
+ * an involution up to canonicalisation, since re-expressing twice over the
+ * same length returns the original offset. Two different uses read from the
+ * same identity:
+ *   `flipWall()` keeps `postFrom`'s own LETTER as stated, but that letter now
+ *     names the other physical node than it did (a and b themselves just
+ *     swapped), so the offset it pairs with has to become this re-expression
+ *     for the studs to stay put.
+ *   `splitWall()` (the half whose own stable end is the one `postFrom` did
+ *     NOT originally name) and the merge in `core/join.ts` (the same case,
+ *     found by `postFromOf(keep) === "b"`) use it to switch `postFrom` itself
+ *     from the end that stopped being this wall's own to the end that is --
+ *     the SAME identity, because "swap which physical node a letter names"
+ *     and "swap which letter names the same physical node" are the same sum.
+ */
+export function flipGridOffset(offsetMm: number, lengthMm: number, spacingMm: number): number {
+  return canonPostOffset(lengthMm - canonPostOffset(offsetMm, spacingMm), spacingMm);
+}
+
+/**
+ * A preset over (postLayout, postMm), offered so a plan is set out at the
+ * board width it will be lined in rather than a spacing typed by hand.
+ * `layout` absent means "even" states nothing about `postMm` beyond its own
+ * value — the "even" entry only ever matches a wall that carries no other
+ * postLayout.
+ */
+export interface PostLayoutPreset { id: string; layout?: "grid"; postMm?: number }
+
+/**
+ * Plasterboard-600 first: it is the ordinary houtskeletbouw/metal-stud set-out
+ * (1200 mm plasterboard on 600 mm centres) and the one turning posts on for a
+ * framed wall seeds — see postDefaultsFor(). OSB-625 is the same idea at OSB's
+ * own sheet width. "even" is the plain equal-bay division, offered last as the
+ * exception rather than the rule for a framed material.
+ */
+export const POST_LAYOUT_PRESETS: readonly PostLayoutPreset[] = [
+  { id: "plasterboard", layout: "grid", postMm: 600 },
+  { id: "osb", layout: "grid", postMm: 625 },
+  { id: "even" },
+];
+
+/** Which POST_LAYOUT_PRESETS entry a wall currently matches, or "custom" for
+ *  a grid at a spacing none of them states. */
+export function postLayoutPresetOf(w: Pick<Wall, "postLayout" | "material" | "postMm">): string {
+  if (postLayoutOf(w) === "even") return "even";
+  const spacing = wallPostMm(w);
+  const match = POST_LAYOUT_PRESETS.find(p => p.layout === "grid" && p.postMm === spacing);
+  return match ? match.id : "custom";
+}
+
+/**
+ * What turning a wall's posts ON should seed: the plasterboard-600 grid for a
+ * timber or steel wall — the ordinary houtskeletbouw/metal-stud set-out — or
+ * the plain 1200 spacing otherwise (glass, or masonry/concrete on columns).
+ *
+ * Only for the moment posts go from off to on. Changing the material
+ * afterwards seeds nothing — existing posts are a choice already made, not
+ * reopened by a later material edit (see postLayoutOf(), which still reads a
+ * framed material's ABSENT postLayout as "grid" either way).
+ */
+export function postDefaultsFor(material: WallMaterial | undefined): { postMm: number; postLayout?: "grid" } {
+  return isFramedMaterial(material)
+    ? { postMm: FRAME_POST_DEFAULT_MM, postLayout: "grid" }
+    : { postMm: POST_DEFAULT_MM };
+}
 
 /** The lining's skin depth on one face, mm. 0 when the wall states no lining. */
 export function wallLiningMm(w: Wall): number {

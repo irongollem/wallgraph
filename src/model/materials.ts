@@ -18,6 +18,20 @@ export interface MaterialAssumptions {
 
 /** Ordinary Dutch timber stock lengths, mm, ascending. */
 export const STOCK_MM_DEFAULT: readonly number[] = [2400, 2700, 3000, 3600, 4200, 4800, 5400, 6000];
+
+/**
+ * Named stock-length presets a document's list is often set out from rather
+ * than typed by hand -- the bouwmarkt's common structural lengths, or the
+ * full houthandel range (equal to STOCK_MM_DEFAULT, so choosing it is the
+ * same as clearing the field back to default; see stockPresetOf()).
+ */
+export interface StockPreset { id: "diy" | "merchant"; stockMm: readonly number[] }
+
+export const STOCK_PRESETS: readonly StockPreset[] = [
+  { id: "diy", stockMm: [2400, 2700, 3000] },
+  { id: "merchant", stockMm: STOCK_MM_DEFAULT },
+];
+
 /** An ordinary hand or panel saw kerf, mm. */
 export const KERF_MM_DEFAULT = 3;
 /** An ordinary trade waste allowance on sheet and block quantities, percent. */
@@ -37,6 +51,17 @@ export function stockLengths(d: PlanDoc): readonly number[] {
   if (!raw || raw.length === 0) return STOCK_MM_DEFAULT;
   const cleaned = [...new Set(raw.filter(n => Number.isInteger(n) && n > 0))].sort((a, b) => a - b);
   return cleaned.length > 0 ? cleaned : STOCK_MM_DEFAULT;
+}
+
+/**
+ * The preset whose stock lengths exactly match the document's own list (the
+ * default list counts as "merchant", since it equals that preset), or null
+ * for a genuine custom list -- mirrors model/energy.ts's insulationClassOf().
+ */
+export function stockPresetOf(d: PlanDoc): StockPreset["id"] | null {
+  const cur = stockLengths(d);
+  const hit = STOCK_PRESETS.find(p => p.stockMm.length === cur.length && p.stockMm.every((v, i) => v === cur[i]));
+  return hit?.id ?? null;
 }
 
 /** Saw kerf per cut, mm: the document's own figure when stated and not

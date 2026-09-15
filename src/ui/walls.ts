@@ -10,9 +10,10 @@ import {
   WALL_SHAPES, POLYGON_MIN_SIDES, POLYGON_MAX_SIDES, type WallShape,
 } from "../model/shape";
 import {
-  WALL_MATERIALS, POST_DEFAULT_MM, POST_WIDTH_DEFAULT, isBlockMaterial,
+  WALL_MATERIALS, POST_WIDTH_DEFAULT, isBlockMaterial, postLayoutOf,
   LINING_DEFAULT, BLOCK_DEFAULT_MM, PANEL_DEFAULT_MM,
   clampLiningBoard, clampLiningLayers, clampBlockLength, clampBlockHeight, clampNoggingRows, clampPanel,
+  POST_LAYOUT_PRESETS,
   type WallMaterial,
 } from "../model/doc";
 import type { Wall } from "../model/doc";
@@ -27,6 +28,37 @@ import type { PaneRows } from "./stairs";
 
 /** Thicknesses a plan is ordinarily drawn at, mm. Anything else is typed. */
 const THICKNESSES: readonly number[] = [70, 100, 150, 200, 300];
+
+/**
+ * The stud-layout select: Plasterboard 600 (the usual houtskeletbouw/metal-
+ * stud set-out -- see postDefaultsFor() -- listed first and marked as such),
+ * OSB 625, Even, or Custom grid when the current spacing matches none of the
+ * presets. Shared by the wall pen (raw fields, no Wall to read) and the
+ * panel's own post rows (an actual Wall, or several) so the three cannot
+ * offer different wording or a different preset order.
+ */
+export function renderPostLayout(
+  rows: PaneRows,
+  material: WallMaterial | null | undefined, layout: "even" | "grid" | null | undefined,
+  postMm: number | null | undefined,
+  onPick: (layout: "even" | "grid", postMm?: number) => void,
+  opts?: { mixed?: boolean },
+): void {
+  const effective = postLayoutOf({ postLayout: layout ?? undefined, material: material ?? undefined });
+  const current = effective === "even" ? "even"
+    : POST_LAYOUT_PRESETS.find(p => p.layout === "grid" && p.postMm === postMm)?.id ?? "custom";
+  const options: Array<[string, string]> = [
+    ["plasterboard", t("panel.postLayout_plasterboard")],
+    ["osb", t("panel.postLayout_osb")],
+    ["even", t("panel.postLayout_even")],
+  ];
+  if (current === "custom") options.push(["custom", t("panel.postLayout_custom")]);
+  rows.selRow(t("panel.postLayout"), current, options, value => {
+    if (value === "custom") return; // reached only by editing the spacing directly, not by picking it
+    const preset = POST_LAYOUT_PRESETS.find(p => p.id === value);
+    if (preset) onPick(preset.layout ?? "even", preset.postMm);
+  }, opts);
+}
 
 const SHAPE_ICON: Record<WallShape, IconName> = {
   line: "shapeLine", rect: "shapeRect", circle: "shapeCircle", polygon: "shapePoly",
@@ -62,10 +94,23 @@ export function renderWallTool(
       ...WALL_MATERIALS.map(m => [m, t("panel.material_" + m)] as [string, string])],
     value => tools.setWallPen({ wallMaterial: value ? value as WallMaterial : null }));
   rows.checkRow(t("panel.postsOn"), tools.wallPostMm !== null,
-    on => tools.setWallPen({ wallPostMm: on ? POST_DEFAULT_MM : null }));
+    on => on ? tools.armWallPosts() : tools.setWallPen({ wallPostMm: null }));
   if (tools.wallPostMm !== null) {
+    renderPostLayout(rows,
+      tools.wallMaterial, tools.wallPostLayout, tools.wallPostMm,
+      (layout, postMm) => tools.setWallPen({
+        wallPostLayout: layout, ...(postMm !== undefined ? { wallPostMm: postMm } : {}),
+      }));
     rows.numRow(t("panel.posts"), tools.wallPostMm,
       n => tools.setWallPen({ wallPostMm: Math.max(100, Math.round(n)) }), 100);
+    const effectiveLayout = postLayoutOf({
+      postLayout: tools.wallPostLayout ?? undefined, material: tools.wallMaterial ?? undefined,
+    });
+    if (effectiveLayout === "grid") {
+      rows.selRow(t("panel.postFrom"), tools.wallPostFrom ?? "a",
+        [["a", t("panel.postFromA")], ["b", t("panel.postFromB")]],
+        v => tools.setWallPen({ wallPostFrom: v === "b" ? "b" : "a" }));
+    }
     rows.checkRow(t("panel.postWidthOn"), tools.wallPostWidthMm !== null,
       on => tools.setWallPen({ wallPostWidthMm: on ? POST_WIDTH_DEFAULT : null }));
     if (tools.wallPostWidthMm !== null) {

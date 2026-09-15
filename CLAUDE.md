@@ -317,9 +317,26 @@ can read it. Verified by [tests/energy.test.ts](tests/energy.test.ts).
 geometry already derived: frame length is the mean of the two mitered faces from `resolveFloor()`,
 board, insulation and block areas are the per-face `netMm2` from `floorSurface()`.
 
+**A post's spacing is authored, but how it is set out is a separate choice.** `Wall.postLayout`
+(`"even"` / `"grid"`, absent meaning `"grid"` on a timber or steel wall — `isFramedMaterial()` — and
+`"even"` otherwise, read through `postLayoutOf()`) says how `postMm` applies. `"even"` divides each run
+of body between openings into equal bays no wider than `postMm` — right for a pui or a column run, where
+only the maximum bay width matters. `"grid"` sets out fixed centres of `postMm` from `Wall.postFrom`'s
+own end, straight across openings and stacked frame bands alike, with only the gap before the far end
+left short — what a timber or steel stud frame is actually built at (600 for 1200 plasterboard, 625 for
+1250 OSB, so board edges land on a stud and insulation fits cleanly between). `postPositions()` in
+[resolve.ts](src/core/resolve.ts) is the one function both the plan (`postsFor()`) and the frame
+(`core/frame.ts`) read post centres from, so the two cannot disagree; a `"grid"` band drops a position
+that falls inside one of its own openings (framed as a cripple there instead) or within 1.5 × the post
+width of a jamb or a wall end. `Wall.postOffsetMm` phases a `"grid"` layout where `postFrom`'s own end is
+not where the grid was originally set out from — `splitWall()`, `flipWall()` and the merge in
+[core/join.ts](src/core/join.ts) are the only writers, keeping a wall's studs at the same physical
+positions through a split, a flip, or a straight-run merge; `planNodeDissolve()` refuses the merge
+(`"differs"`) where the two walls' grids do not already land on the same phase at the node they share.
+
 **A takeoff counts the frame that stands, not the posts that are drawn**, because a build planned from
-it must not come out short. Studs are the drawn posts — `postBays()` in [resolve.ts](src/core/resolve.ts),
-the division `postsFor()` draws from — plus one at each wall end, a king stud either side of every
+it must not come out short. Studs are the drawn posts — `postPositions()` in [resolve.ts](src/core/resolve.ts),
+the positions `postsFor()` draws from — plus one at each wall end, a king stud either side of every
 opening (replacing the end stud where a jamb stands within a post width of the node), two jack studs
 under each timber header, and backing where framed walls meet: one at an L, two at a T or crossing, none
 where two collinear walls split a straight run. `computeBacking()` gives a node's backing to the lowest
@@ -337,7 +354,7 @@ plane — x along the frame from node `a`, y up from the floor — and `WallTake
 aggregated by name, section and length. The aanzicht overlay draws it through `drawFrame()` under the
 symbol draw contract, so `recordSymbol()` replays it into the SVG download. There is no second member
 construction: a count that changes changes the drawing with it. x is the centerline distance, the same
-`t` openings and `postBays()` use, clamped into the mitered frame length. The bottom plate runs through
+`t` openings and `postPositions()` use, clamped into the mitered frame length. The bottom plate runs through
 a door because it is counted whole and cut out after standing; a run-end nogging keeps the takeoff's
 centre-to-centre cut and overlaps the end stud by half a post. Verified by
 [tests/frame.test.ts](tests/frame.test.ts).
@@ -356,7 +373,8 @@ framed whole in the band holding its head (`bandForHead()`); one whose sill-to-h
 is listed in `openingsAcrossBreak`, not moved. **Each band divides its own runs**, cut only around the
 openings that reach into IT (`bandOverlapsOpening()`, `bandRunIntervals()`) -- a window framed in a lower
 band cuts no run out of a band above it, so that band's studs and noggings run clear across at the same
-equal-bay division `postBays()` gives anywhere else. This is also why an upper band's studs are NOT the
+set-out `postPositions()` gives anywhere else -- a `"grid"` band's own wall-wide centres, unbroken by a
+run it does not itself cut around. This is also why an upper band's studs are NOT the
 plan's drawn posts: the plan is a section through the lowest band, and only that band's own runs are
 built from `rw.intervals` unchanged, which is what keeps an ordinary (unbanded) wall's studs and its
 takeoff agreeing exactly. `FrameLayout.suggestedBreaksMm` reports the smallest number

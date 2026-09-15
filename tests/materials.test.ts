@@ -12,6 +12,7 @@ import { resolveFloor } from "../src/core/resolve";
 import { detectRooms } from "../src/core/rooms";
 import { floorSurface, type FloorSurface } from "../src/core/surface";
 import { floorMaterials, type WallTakeoff } from "../src/core/materials";
+import { stockPresetOf, STOCK_PRESETS, STOCK_MM_DEFAULT } from "../src/model/materials";
 import { v } from "../src/geometry/vec";
 
 let failures = 0;
@@ -514,11 +515,22 @@ function backingCountOf(walls: WallTakeoff[]): number {
   check("the flat lower band's stud length (storey height less two plates) is among them",
     studs.some(s => s.lengthMm === H - 2 * POST_WIDTH));
 
+  // The break sits exactly at the eave, so the upper band's OWN bottom plate
+  // has no room to run full width -- near each end the profile has not yet
+  // risen enough above the break to clear that plate and its own depth
+  // (a 2*postWidth margin), so it -- and the raked segments standing on it --
+  // are clipped short of the wall's own ends. Only the lower band's two flat
+  // plates (bottom and top) are the full 4000; the upper band's own bottom
+  // plate is a shorter, separate entry.
   const plates = wt.members.filter(x => x.name === "plate");
   const flatPlate = plates.find(p => p.lengthMm === W);
-  check("the three flat plates (lower bottom, lower top, upper bottom) merge into one entry",
-    flatPlate !== undefined && flatPlate.count === 3, JSON.stringify(flatPlate));
-  const rakedPlate = plates.find(p => near(p.lengthMm, Math.hypot(2000, 2000), 1));
+  check("the lower band's own bottom and top plates merge into one entry",
+    flatPlate !== undefined && flatPlate.count === 2, JSON.stringify(flatPlate));
+  const upperBottom = plates.find(p => p.lengthMm === W - 2 * POST_WIDTH * 2);
+  check("the upper band's own (clipped) bottom plate is a separate entry",
+    upperBottom !== undefined && upperBottom.count === 1, JSON.stringify(upperBottom));
+  const rise = 2000 - POST_WIDTH * 2; // run once the plate clears the eave-end clip
+  const rakedPlate = plates.find(p => near(p.lengthMm, Math.hypot(rise, rise), 1));
   check("the upper band's two raked top-plate segments merge into a second entry",
     rakedPlate !== undefined && rakedPlate.count === 2, JSON.stringify(rakedPlate));
 
@@ -548,6 +560,28 @@ function backingCountOf(walls: WallTakeoff[]): number {
     stud.lengthMm > 6000, String(stud.lengthMm));
   check("suggestedBreaksMm proposes the smallest break that would make every stud fit: 3500",
     JSON.stringify(wt.suggestedBreaksMm) === JSON.stringify([3500]), JSON.stringify(wt.suggestedBreaksMm));
+}
+
+// ---- stockPresetOf: which named preset the document's stock list matches --
+
+{
+  const doc = emptyDoc();
+  check("a document with no stock list at all matches \"merchant\" (it equals the default)",
+    stockPresetOf(doc) === "merchant");
+
+  doc.materials = { stockMm: [...STOCK_MM_DEFAULT] };
+  check("a stock list equal to STOCK_MM_DEFAULT matches \"merchant\"", stockPresetOf(doc) === "merchant");
+
+  const diy = STOCK_PRESETS.find(p => p.id === "diy")!;
+  doc.materials = { stockMm: [...diy.stockMm] };
+  check("a stock list equal to the diy preset matches \"diy\"", stockPresetOf(doc) === "diy");
+
+  doc.materials = { stockMm: [2400, 3000] };
+  check("a stock list matching no preset returns null", stockPresetOf(doc) === null);
+
+  doc.materials = { stockMm: [3000, 2700, 2400] }; // unsorted, same set as diy
+  check("stockPresetOf reads the cleaned (sorted) list, so order in the field doesn't matter",
+    stockPresetOf(doc) === "diy");
 }
 
 console.log(failures === 0 ? "ok" : `FAIL (${failures} failures)`);

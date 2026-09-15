@@ -273,10 +273,16 @@ zwart is bestaand, rood te bouwen, geel te slopen — en vult het muurvlak, zoal
 Die keuzes blijven staan voor de volgende muur, net als de dikte.</p>
 <p>Elke muur kan stijlen dragen: het raamwerk waarop het muurlichaam rust. Dat is één begrip voor wat in
 plattegrond één ding is — de stijlen van een pui, de kolommen van een stalen spant met sandwichpanelen,
-de regels van een houten wand. De stijlafstand geldt hart-op-hart als maximale vakbreedte: elk vlak
-tussen de sparingen wordt in gelijke vakken verdeeld die niet breder zijn dan de opgegeven maat. Een
-deur verschuift daarmee de stijlen van zijn eigen vlak in plaats van er een in de doorgang te laten
-vallen; de deurstijlen zijn dan de stijlen, zoals in een echte pui.</p>
+de regels van een houten wand. Hoe die stijlafstand wordt uitgezet is een eigen keuze. <b>Gelijk
+verdeeld</b> deelt elk vlak tussen de sparingen in gelijke vakken die niet breder zijn dan de opgegeven
+maat — goed voor een pui of een kolommenrij, waar alleen de maximale vakbreedte telt: een deur
+verschuift daarmee de stijlen van zijn eigen vlak in plaats van er een in de doorgang te laten vallen,
+en de deurstijlen lezen dan als de stijlen die ze zijn, zoals in een echte pui. <b>Raster</b> zet een
+vaste hart-op-hart-maat uit vanaf één muureinde, dwars door sparingen en gestapelde regelwerklagen heen,
+met alleen de laatste maat korter — zo wordt een houten of stalen regelwand ook echt gebouwd: 600 mm
+voor 1200 mm gipsplaat, 625 mm voor 1250 mm OSB, zodat platenaden op een stijl vallen en isolatie precies
+tussen de stijlen past. Een hout- of staalwand kiest raster als er niets anders is opgegeven; het paneel
+biedt de gipsplaat- en OSB-maat als voorkeuze, met "gelijk verdeeld" en een eigen maat ernaast.</p>
 <p>De stijlbreedte is los op te geven. Zonder breedte staat een stijl als lijn — de hart-op-hart-maat is
 bekend, het profiel nog niet. Mét breedte is het een echt staafje op de maat waarop het wordt gebouwd;
 de diepte is de muurdikte zelf. Een stijl wordt nooit breder getekend dan zijn eigen vak. Een muur met
@@ -724,10 +730,15 @@ existing, red to be built, yellow to be removed — and it fills the wall body, 
 Those choices stay armed for the next wall, the way the thickness does.</p>
 <p>Any wall can carry posts: the frame its body is held in. That is one idea for what is one thing in
 plan — the mullions of a curtain wall, the columns of a steel portal frame carrying sandwich panels, the
-studs of a timber wall. The spacing is centre to centre and reads as a maximum bay width: each run
-between openings is divided into equal bays no wider than the stated figure. A door therefore pushes the
-posts of its own run aside instead of one landing in the doorway, and the door jambs read as the posts
-they are in a real pui.</p>
+studs of a timber wall. How that spacing is set out is its own choice. <b>Even</b> divides each run
+between openings into equal bays no wider than the stated figure — right for a pui or a column run,
+where only the maximum bay width matters: a door pushes the posts of its own run aside instead of one
+landing in the doorway, and the door jambs read as the posts they are in a real pui. <b>Grid</b> sets out
+fixed centres from one wall end, straight through openings and stacked frame bands alike, with only the
+last gap left short — the way a timber or steel stud frame is actually built: 600 mm for 1200 mm
+plasterboard, 625 mm for 1250 mm OSB, so board edges land on a stud and insulation batts fit cleanly
+between them. A timber or steel wall defaults to grid unless stated otherwise; the panel offers the
+plasterboard and OSB spacings as presets, alongside "even" and a spacing of its own.</p>
 <p>The post width is stated separately. Without one a post draws as a line — the centres are known, the
 section is not yet. With one it is a member at the size it is built to, its depth being the wall
 thickness itself, and it is never drawn wider than its own bay. A wall carrying posts exports as an IFC

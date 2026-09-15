@@ -1,5 +1,5 @@
 // Engine sanity tests, run with tsx.
-import { emptyDoc, newId, Wall, GRID_DEFAULT_MM } from "../src/model/doc";
+import { emptyDoc, newId, Wall, GRID_DEFAULT_MM, type Floor } from "../src/model/doc";
 import { Store } from "../src/model/store";
 import { sashesOf, sashSpecsOf, doorKindOf, windowKindOf, DOOR_KINDS, WINDOW_KINDS, type Opening } from "../src/model/doc";
 import { detectRooms, rectSize, roomSize, roomArea } from "../src/core/rooms";
@@ -24,7 +24,10 @@ import {
 import { openingMarks } from "../src/io/marks";
 import { alignToNeighbours } from "../src/input/tools";
 import { symbolInk, wallPen, junctionPen, COLORS, INKS } from "../src/render/draw";
-import { POST_DEFAULT_MM, POST_WIDTH_DEFAULT, type WallMaterial } from "../src/model/doc";
+import {
+  POST_DEFAULT_MM, POST_WIDTH_DEFAULT, FRAME_POST_DEFAULT_MM, postDefaultsFor, postLayoutOf,
+  postLayoutPresetOf, type WallMaterial,
+} from "../src/model/doc";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ""): void {
@@ -1163,6 +1166,180 @@ function rectFloor(wallTh = 100) {
   check("a profile is clamped to its bay", fatWidth <= 1200 + 0.5, String(fatWidth));
   check("a width with no centres to sit on states nothing",
     posts(framed(undefined, undefined, { postWidthMm: 60 })).length === 0);
+}
+
+// --- postLayout: a fixed grid, set out from one end, vs an equal division ---
+{
+  const wallOf = (over: Partial<Wall> = {}): { f: ReturnType<typeof emptyDoc>["floors"][0]; w: Wall } => {
+    const f = emptyDoc().floors[0]!;
+    const a = nodeAt(f, v(0, 0)).id, b = nodeAt(f, v(4000, 0)).id;
+    const w: Wall = {
+      id: newId("w"), a, b, thickness: 100, bulge: 0, openings: [],
+      material: "timber", postMm: 600, postWidthMm: 38, ...over,
+    };
+    f.walls.push(w);
+    return { f, w };
+  };
+  const centres = (f: ReturnType<typeof wallOf>["f"]): number[] =>
+    [...resolveFloor(f).walls.values()][0]!.posts
+      .map(m => Math.round((m.a.x + m.b.x) / 2)).sort((p, q) => p - q);
+
+  // A timber wall states no postLayout: it defaults to "grid" (postLayoutOf()).
+  const { f, w } = wallOf();
+  check("a timber wall with no stated postLayout reads as grid", postLayoutOf(w) === "grid");
+  check("a 4000mm wall, grid 600 from a: posts at 600..3600, last gap 400",
+    centres(f).join(",") === "600,1200,1800,2400,3000,3600", centres(f).join(","));
+
+  const { f: fb } = wallOf({ postFrom: "b" });
+  check("the same wall, grid 600 from b: posts at 400..3400, first gap (from a) 400",
+    centres(fb).join(",") === "400,1000,1600,2200,2800,3400", centres(fb).join(","));
+
+  const { f: fo } = wallOf({ postMm: 625, postFrom: "a" });
+  check("OSB 625 from a: posts at 625..3750",
+    centres(fo).join(",") === "625,1250,1875,2500,3125,3750", centres(fo).join(","));
+
+  // "even" is unchanged from before postLayout existed -- a glass wall at
+  // 1200 still divides 4000mm into four equal bays (1000 wide each, not a
+  // 1200 grid): ceil(4000/1200) = 4, matching the "posts: divided per run"
+  // block above for an unstated (so "even") glass wall.
+  const { f: fe, w: we } = wallOf({ material: "glass", postMm: 1200, postLayout: undefined });
+  check("an unframed material with no stated postLayout reads as even", postLayoutOf(we) === "even");
+  check("even: a 4000mm run at 1200 still divides into four equal 1000mm bays",
+    centres(fe).join(",") === "1000,2000,3000", centres(fe).join(","));
+}
+
+// --- turning posts on seeds a grid for a framed material, even otherwise ---
+{
+  check("postDefaultsFor a timber wall seeds the plasterboard-600 grid",
+    JSON.stringify(postDefaultsFor("timber")) === JSON.stringify({ postMm: FRAME_POST_DEFAULT_MM, postLayout: "grid" }));
+  check("postDefaultsFor a steel wall seeds the same grid",
+    JSON.stringify(postDefaultsFor("steel")) === JSON.stringify({ postMm: FRAME_POST_DEFAULT_MM, postLayout: "grid" }));
+  check("postDefaultsFor a glass wall seeds the plain 1200 spacing, no layout stated",
+    JSON.stringify(postDefaultsFor("glass")) === JSON.stringify({ postMm: POST_DEFAULT_MM }));
+  check("postDefaultsFor a wall with no material seeds the plain spacing too",
+    JSON.stringify(postDefaultsFor(undefined)) === JSON.stringify({ postMm: POST_DEFAULT_MM }));
+
+  // The seed matches the "usual" preset exactly.
+  const timberWall: Wall = { id: "w", a: "a", b: "b", thickness: 89, bulge: 0, openings: [], material: "timber" };
+  Object.assign(timberWall, postDefaultsFor(timberWall.material));
+  check("turning posts on for a timber wall gives 600 on a grid",
+    timberWall.postMm === 600 && postLayoutOf(timberWall) === "grid");
+  check("and it matches the plasterboard preset", postLayoutPresetOf(timberWall) === "plasterboard");
+
+  const glassWall: Wall = { id: "w", a: "a", b: "b", thickness: 12, bulge: 0, openings: [], material: "glass" };
+  Object.assign(glassWall, postDefaultsFor(glassWall.material));
+  check("turning posts on for a glass wall gives 1200 even",
+    glassWall.postMm === 1200 && postLayoutOf(glassWall) === "even");
+  check("and it matches the even preset", postLayoutPresetOf(glassWall) === "even");
+
+  // Changing material afterwards seeds nothing -- postLayoutOf() still reads
+  // an absent postLayout as grid for the new material, but no field was
+  // touched by the material edit itself.
+  const wall: Wall = { id: "w", a: "a", b: "b", thickness: 100, bulge: 0, openings: [] };
+  check("no posts, no material: still no postMm stated", wall.postMm === undefined);
+  wall.material = "timber";
+  check("changing material alone seeds nothing -- postMm stays unstated",
+    wall.postMm === undefined);
+}
+
+// --- flipping and splitting a "grid" wall keep every stud's physical position ---
+{
+  const gridWall = (over: Partial<Wall> = {}): { f: ReturnType<typeof emptyDoc>["floors"][0]; w: Wall } => {
+    const f = emptyDoc().floors[0]!;
+    const a = nodeAt(f, v(0, 0)).id, b = nodeAt(f, v(4000, 0)).id;
+    const w: Wall = {
+      id: newId("w"), a, b, thickness: 100, bulge: 0, openings: [],
+      material: "timber", postMm: 600, postWidthMm: 38, ...over,
+    };
+    f.walls.push(w);
+    return { f, w };
+  };
+  // World-space stud centres over EVERY wall on the floor (a split leaves
+  // two), independent of which node is currently "a" -- read off the
+  // resolved posts (world mm) rather than off postFrom/t, which is exactly
+  // the point: the DRAWING must not move.
+  const worldCentres = (f: Floor): number[] =>
+    [...resolveFloor(f).walls.values()]
+      .flatMap(rw => rw.posts.map(m => Math.round((m.a.x + m.b.x) / 2)))
+      .sort((p, q) => p - q);
+
+  {
+    const { f, w } = gridWall();
+    const before = worldCentres(f);
+    flipWall(f, w);
+    check("flipping a grid wall keeps every stud at the same world position",
+      worldCentres(f).join(",") === before.join(","), `${worldCentres(f)} vs ${before}`);
+    // postFrom is left exactly as stated -- flipping does not touch the
+    // LETTER, only the phase (postOffsetMm) that keeps it pointing at the
+    // same physical positions now that a and b have swapped.
+    check("flipWall leaves postFrom as it was (absent, meaning a)",
+      w.postFrom === undefined || w.postFrom === "a");
+    check("and states a non-zero phase, since a and b did swap",
+      (w.postOffsetMm ?? 0) !== 0, String(w.postOffsetMm));
+    flipWall(f, w);
+    check("flipping twice restores the original phase",
+      w.postOffsetMm === undefined || w.postOffsetMm === 0);
+    check("and the drawing throughout", worldCentres(f).join(",") === before.join(","));
+  }
+
+  // Split off-grid (2300 is not a multiple of 600): the far half's own grid
+  // has to carry a phase (postOffsetMm) to keep standing at 2400, 3000, 3600.
+  {
+    const { f, w } = gridWall();
+    const before = worldCentres(f);
+    const mid = splitWall(f, w, 2300)!;
+    check("a split keeps every stud at the same world position",
+      worldCentres(f).join(",") === before.join(","), `${worldCentres(f)} vs ${before}`);
+    const far = f.walls.find(x => x.id !== w.id)!;
+    check("the far half is still a grid wall", postLayoutOf(far) === "grid");
+
+    // Re-merging (dissolving the split node) is the inverse: one wall again,
+    // spanning the same studs.
+    const plan = planNodeDissolve(f, mid.id);
+    check("the split halves can be re-merged (their grids agree)", isDissolvePlan(plan));
+    if (isDissolvePlan(plan)) {
+      applyNodeDissolve(f, plan);
+      check("one wall again", f.walls.length === 1);
+      check("and every stud stands where it did before the split and the merge",
+        worldCentres(f).join(",") === before.join(","), `${worldCentres(f)} vs ${before}`);
+    }
+  }
+
+  // Split exactly on a grid line (2400): the far half needs no phase at
+  // all -- and the stud that stood exactly at the cut drops out of both
+  // halves' own posts, the same as any post standing at a wall's own end
+  // always has (postsFor() draws only the INTERIOR division points; the
+  // corner where the two halves now meet is where that stud physically
+  // still is, just no longer drawn as a separate interior mark).
+  {
+    const { f, w } = gridWall();
+    const before = worldCentres(f).filter(x => x !== 2400);
+    splitWall(f, w, 2400);
+    check("a split exactly on a grid line keeps every OTHER stud in place",
+      worldCentres(f).join(",") === before.join(","), `${worldCentres(f)} vs ${before}`);
+    const far = f.walls.find(x => x.id !== w.id)!;
+    check("the on-grid far half carries no offset",
+      far.postOffsetMm === undefined || far.postOffsetMm === 0);
+  }
+
+  // A merge refuses where the two walls' grids do NOT land on the same phase
+  // -- forcing one through would silently move a wall's studs.
+  {
+    const f = emptyDoc().floors[0]!;
+    const shared = nodeAt(f, v(2000, 0)).id;
+    const w1: Wall = {
+      id: newId("w"), a: nodeAt(f, v(0, 0)).id, b: shared, thickness: 100, bulge: 0, openings: [],
+      material: "timber", postMm: 600, postWidthMm: 38,
+    };
+    const w2: Wall = {
+      id: newId("w"), a: shared, b: nodeAt(f, v(4000, 0)).id, thickness: 100, bulge: 0, openings: [],
+      material: "timber", postMm: 600, postWidthMm: 38, postOffsetMm: 100, // off-phase on purpose
+    };
+    f.walls = [w1, w2];
+    const plan = planNodeDissolve(f, shared);
+    check("a merge refuses two grids that do not share a phase at the shared node",
+      !isDissolvePlan(plan) && (plan as { reason?: string })?.reason === "differs", JSON.stringify(plan));
+  }
 }
 
 // --- a junction wedge belongs to no wall, so it draws what its walls agree on ---

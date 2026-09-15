@@ -6,7 +6,7 @@ import {
   Floor, Wall, Opening, PlanNode, SymbolInstance, Id, newId, stairsOf, videsOf, decksOf, furnishingsOf,
   structureOf,
   routesOf, roomNamesOf, floorHeight, DOOR_DEFAULT_WIDTH, WINDOW_DEFAULT_WIDTH, PASSAGE_DEFAULT_WIDTH,
-  OpeningKind, FireRating, dimModeOf, WallMaterial,
+  OpeningKind, FireRating, dimModeOf, WallMaterial, postDefaultsFor,
 } from "../model/doc";
 import type { RoomUse } from "../model/room";
 import {
@@ -245,6 +245,12 @@ export class Tools {
   wallMaterial: WallMaterial | null = null;
   wallPostMm: number | null = null;
   wallPostWidthMm: number | null = null;
+  /** How the next wall's posts are set out; null leaves it unstated (see
+   *  postLayoutOf()'s own material-based default). Ignored while wallPostMm
+   *  is null. */
+  wallPostLayout: "even" | "grid" | null = null;
+  /** The end a "grid" wallPostLayout is set out from; null means "a". */
+  wallPostFrom: "a" | "b" | null = null;
   /** Board lining, block format, nogging rows, cavity insulation and sandwich
    *  panel width for the next wall struck out -- armed the same way, so a run
    *  drawn to one construction does not need each wall corrected afterwards. */
@@ -845,6 +851,8 @@ export class Tools {
       if (this.wallMaterial) w.material = this.wallMaterial;
       if (this.wallPostMm) w.postMm = this.wallPostMm;
       if (this.wallPostMm && this.wallPostWidthMm) w.postWidthMm = this.wallPostWidthMm;
+      if (this.wallPostMm && this.wallPostLayout) w.postLayout = this.wallPostLayout;
+      if (this.wallPostMm && this.wallPostLayout === "grid" && this.wallPostFrom) w.postFrom = this.wallPostFrom;
       if (this.wallLining) w.lining = { ...this.wallLining };
       if (this.wallBlockMm) w.blockMm = { ...this.wallBlockMm };
       if (this.wallPostMm && this.wallNoggingRows) w.noggingRows = this.wallNoggingRows;
@@ -857,6 +865,7 @@ export class Tools {
   setWallPen(
     patch: Partial<Pick<Tools,
       | "wallColor" | "wallMaterial" | "wallPostMm" | "wallPostWidthMm"
+      | "wallPostLayout" | "wallPostFrom"
       | "wallLining" | "wallBlockMm" | "wallNoggingRows" | "wallInsulated" | "wallPanelMm"
     >>,
   ): void {
@@ -865,8 +874,22 @@ export class Tools {
     // width goes with the centres rather than waiting for them to come back.
     if (this.wallPostMm === null) this.wallPostWidthMm = null;
     if (this.wallPostMm === null) this.wallNoggingRows = null;
+    if (this.wallPostMm === null) this.wallPostLayout = null;
+    if (this.wallPostLayout !== "grid") this.wallPostFrom = null;
     this.onToolChange();
     this.requestRender();
+  }
+
+  /**
+   * Turn the next wall's posts on, seeded from its own material -- the
+   * plasterboard-600 grid for timber/steel, the plain 1200 spacing otherwise
+   * (see postDefaultsFor()). The pane's "posts on" checkbox for the wall
+   * pen calls this rather than writing POST_DEFAULT_MM itself, so the seed
+   * cannot drift from what turning posts on writes onto an existing wall.
+   */
+  armWallPosts(): void {
+    const d = postDefaultsFor(this.wallMaterial ?? undefined);
+    this.setWallPen({ wallPostMm: d.postMm, wallPostLayout: d.postLayout ?? null });
   }
 
   /**

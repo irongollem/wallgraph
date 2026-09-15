@@ -9,7 +9,10 @@
 // own directions to where those directions cross, and the two ends become one
 // node. That handles a gap and an overlap with the same arithmetic, because the
 // intersection is behind one end and beyond the other in the overlap case.
-import { Floor, Wall, Id, wallFacadeMm, facadeSideOf } from "../model/doc";
+import {
+  Floor, Wall, Id, wallFacadeMm, facadeSideOf,
+  postLayoutOf, postFromOf, wallPostMm, flipGridOffset, canonPostOffset,
+} from "../model/doc";
 import { Vec, v, add, sub, scale, dist, norm, perp, lineIntersect } from "../geometry/vec";
 import { arcTangentAt } from "../geometry/arc";
 import {
@@ -217,6 +220,25 @@ export function planNodeDissolve(f: Floor, nodeId: Id): NodeDissolveResult | nul
   const n1 = facadeNormal(w1), n2 = facadeNormal(w2);
   const sameFacadeSide = (n1 === null && n2 === null)
     || (n1 !== null && n2 !== null && n1.x * n2.x + n1.y * n2.y > 0.99);
+  // A "grid" postLayout is a physical set-out, not just a spacing: merging
+  // keeps only ONE wall's postFrom/postOffsetMm (see mergeThrough()), so the
+  // merge is refused unless the two walls' grids already land on the same
+  // physical stud positions at the node they share -- gridPhaseMatches()
+  // below -- the same way a mismatched thickness or fire rating is refused
+  // rather than silently discarded.
+  const gridPhaseMatches = (): boolean => {
+    const spacing = wallPostMm(w1); // w1.postMm === w2.postMm is checked below
+    if (spacing === undefined) return true;
+    const l1 = postLayoutOf(w1), l2 = postLayoutOf(w2);
+    if (l1 !== l2) return false;
+    if (l1 !== "grid") return true;
+    const end1 = w1.a === nodeId ? "a" : "b", end2 = w2.a === nodeId ? "a" : "b";
+    const phaseAt = (w: Wall, end: "a" | "b"): number => {
+      const offset = w.postOffsetMm ?? 0, length = wallLength(f, w);
+      return postFromOf(w) === end ? canonPostOffset(offset, spacing) : flipGridOffset(offset, length, spacing);
+    };
+    return canonPostOffset(phaseAt(w1, end1) + phaseAt(w2, end2), spacing) === 0;
+  };
   const same = w1.thickness === w2.thickness
     && w1.height === w2.height
     && w1.loadBearing === w2.loadBearing
@@ -227,7 +249,8 @@ export function planNodeDissolve(f: Floor, nodeId: Id): NodeDissolveResult | nul
     && w1.facadeMm === w2.facadeMm
     && sameFacadeSide
     && w1.fireRating?.kind === w2.fireRating?.kind
-    && w1.fireRating?.minutes === w2.fireRating?.minutes;
+    && w1.fireRating?.minutes === w2.fireRating?.minutes
+    && gridPhaseMatches();
   if (!same) return { reason: "differs" };
 
   // The merged wall runs keep.a -> drop.b, so `keep` has to END at the node and
@@ -299,6 +322,22 @@ function mergeThrough(f: Floor, keep: Wall, drop: Wall, nodeId: Id): void {
   if (keep.a === nodeId) flipWall(f, keep);
   if (drop.b === nodeId) flipWall(f, drop);
   const keepLength = wallLength(f, keep);
+  // `keep.b` (== nodeId) is about to become an interior point, not the merged
+  // wall's own b -- a "grid" postLayout set out from "b" has to be
+  // re-anchored to keep's OWN stable end (its "a", unmoved by this merge)
+  // before that happens, via the same flipGridOffset() transform flipWall()
+  // uses. planNodeDissolve()'s gridPhaseMatches() already established that
+  // this is the SAME physical grid drop's own end continues, so nothing here
+  // needs to touch drop's post fields at all -- they are simply dropped with
+  // the rest of it.
+  if (postLayoutOf(keep) === "grid" && postFromOf(keep) === "b") {
+    const spacing = wallPostMm(keep);
+    if (spacing !== undefined) {
+      const offset = flipGridOffset(keep.postOffsetMm ?? 0, keepLength, spacing);
+      keep.postFrom = "a";
+      if (offset === 0) delete keep.postOffsetMm; else keep.postOffsetMm = offset;
+    }
+  }
   for (const o of drop.openings) {
     o.t += keepLength;
     keep.openings.push(o);

@@ -22,8 +22,8 @@ import {
   wallHeight, openingSill, openingHeight, projectOf,
   sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS,
   doorKindOf, DOOR_KINDS, widthsFor, DOOR_WIDTHS_DOUBLE, FIRE_KINDS, FIRE_MINUTES,
-  FIRE_MINUTES_DEFAULT, routesOf, furnishingsOf, decksOf, WALL_MATERIALS, POST_DEFAULT_MM, POST_WIDTH_DEFAULT,
-  FACADE_DEFAULT_MM, facadeSideOf, wallPostMm,
+  FIRE_MINUTES_DEFAULT, routesOf, furnishingsOf, decksOf, WALL_MATERIALS, POST_WIDTH_DEFAULT,
+  FACADE_DEFAULT_MM, facadeSideOf, wallPostMm, postDefaultsFor, postLayoutOf,
   isBlockMaterial, LINING_DEFAULT, BLOCK_DEFAULT_MM, PANEL_DEFAULT_MM,
   clampLiningBoard, clampLiningLayers, clampBlockLength, clampBlockHeight, clampNoggingRows, clampPanel,
   type AreaMode, type DimMode, type Sash, type HingeEdge, type Opening, type Wall, type Floor, type FireKind,
@@ -45,7 +45,7 @@ import { incompleteDevices } from "../core/port";
 import { renderFurnishingTool, renderFurnishingProps } from "./furnishing";
 import { renderZoomTool, type RoomEdit } from "./zoom";
 import { renderOpeningTool } from "./openings";
-import { renderWallTool, renderWallSurface } from "./walls";
+import { renderWallTool, renderWallSurface, renderPostLayout } from "./walls";
 import { renderEnergyAssumptions, renderEnergyTakeoff } from "./energy";
 import { renderMaterialAssumptions, renderMaterialTakeoff, renderWallMaterial } from "./materials";
 import { renderFrameButton, openFrameDialog } from "./frame";
@@ -1880,8 +1880,8 @@ export class Panel {
       this.syncMaterialsTakeoff();
     };
 
-    const { numRow, textRow, noteRow } = this.rowKit(inner);
-    renderMaterialAssumptions({ numRow, textRow, noteRow }, this.store);
+    const { numRow, textRow, noteRow, btnRow } = this.rowKit(inner);
+    renderMaterialAssumptions({ numRow, textRow, noteRow, btnRow }, this.store);
 
     this.materialsTakeoffEl = el("div");
     inner.append(this.materialsTakeoffEl);
@@ -2002,13 +2002,25 @@ export class Panel {
       }), { mixed: matMixed });
     const postsMixed = isMixed(walls, w => w.postMm !== undefined);
     rows.checkRow(t("panel.postsOn"), first.postMm !== undefined, on => mutAll(w => {
-      if (on) w.postMm = POST_DEFAULT_MM;
-      else { delete w.postMm; delete w.postWidthMm; }
+      if (on) Object.assign(w, postDefaultsFor(w.material));
+      else { delete w.postMm; delete w.postWidthMm; delete w.postLayout; delete w.postFrom; delete w.postOffsetMm; }
     }), { mixed: postsMixed });
     if (!postsMixed && first.postMm !== undefined) {
+      const layoutMixed = isMixed(walls, w => postLayoutOf(w) === "grid" ? `grid:${wallPostMm(w)}` : "even");
+      renderPostLayout(rows, layoutMixed ? undefined : first.material, first.postLayout, first.postMm,
+        (layout, postMm) => mutAll(w => {
+          w.postLayout = layout;
+          if (postMm !== undefined) w.postMm = Math.max(100, Math.round(postMm));
+        }), { mixed: layoutMixed });
       rows.numRow(t("panel.posts"), first.postMm, n => mutAll(w => {
         w.postMm = Math.max(100, Math.round(n));
       }), 100, { mixed: isMixed(walls, w => w.postMm) });
+      const fromMixed = isMixed(walls, w => w.postFrom ?? "a");
+      if (walls.every(w => postLayoutOf(w) === "grid")) {
+        rows.selRow(t("panel.postFrom"), first.postFrom ?? "a",
+          [["a", t("panel.postFromA")], ["b", t("panel.postFromB")]],
+          v => mutAll(w => { w.postFrom = v === "b" ? "b" : "a"; }), { mixed: fromMixed });
+      }
       const widthMixed = isMixed(walls, w => w.postWidthMm !== undefined);
       rows.checkRow(t("panel.postWidthOn"), first.postWidthMm !== undefined, on => mutAll(w => {
         if (on) w.postWidthMm = POST_WIDTH_DEFAULT; else delete w.postWidthMm;
@@ -2019,6 +2031,7 @@ export class Panel {
         }), 10, { mixed: isMixed(walls, w => w.postWidthMm) });
       }
       rows.noteRow(t("panel.postsHelp"));
+      rows.noteRow(t("panel.postLayoutHelp"));
     }
     const facadeMixed = isMixed(walls, w => w.facadeMm !== undefined);
     rows.checkRow(t("panel.facadeOn"), first.facadeMm !== undefined, on => {
@@ -2654,15 +2667,31 @@ export class Panel {
       checkRow(t("panel.postsOn"), w.postMm !== undefined, on => this.store.mutate(d => {
         const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
         if (!wall) return;
-        if (on) wall.postMm = POST_DEFAULT_MM;
+        if (on) Object.assign(wall, postDefaultsFor(wall.material));
         // The profile is a fact about a member; with no members it states nothing.
-        else { delete wall.postMm; delete wall.postWidthMm; }
+        else { delete wall.postMm; delete wall.postWidthMm; delete wall.postLayout; delete wall.postFrom; delete wall.postOffsetMm; }
       }));
       if (w.postMm !== undefined) {
+        renderPostLayout(rows, w.material, w.postLayout, w.postMm, (layout, postMm) => this.store.mutate(d => {
+          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+          if (!wall) return;
+          wall.postLayout = layout;
+          if (postMm !== undefined) wall.postMm = Math.max(100, Math.round(postMm));
+        }));
         numRow(t("panel.posts"), w.postMm, n => this.store.mutate(d => {
           const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
           if (wall) wall.postMm = Math.max(100, Math.round(n));
         }), 100);
+        // "Grid from" only means anything for a grid layout -- an "even"
+        // wall has no single end its posts are set out from.
+        if (postLayoutOf(w) === "grid") {
+          selRow(t("panel.postFrom"), w.postFrom ?? "a",
+            [["a", t("panel.postFromA")], ["b", t("panel.postFromB")]],
+            v => this.store.mutate(d => {
+              const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+              if (wall) wall.postFrom = v === "b" ? "b" : "a";
+            }));
+        }
         // Absent is a real answer here — centres known, section not yet chosen —
         // so the width is its own set/unset rather than a number defaulted to 0.
         checkRow(t("panel.postWidthOn"), w.postWidthMm !== undefined, on => this.store.mutate(d => {
@@ -2677,6 +2706,7 @@ export class Panel {
           }), 10);
         }
         noteRow(t("panel.postsHelp"));
+        noteRow(t("panel.postLayoutHelp"));
       }
       // Cladding. Set/unset, because a wall with no facade is an internal or
       // party wall rather than one clad to zero.

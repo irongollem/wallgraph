@@ -74,10 +74,13 @@ function comboWall(): { doc: PlanDoc; f: Floor; w: Wall } {
   check("stud count matches rw.posts.length + 2 end studs",
     studs.length === rw.posts.length + 2, `${studs.length} vs ${rw.posts.length} + 2`);
 
-  const widthMm = LEN / 7;
+  // A timber wall defaults to a "grid" postLayout (see postLayoutOf()): fixed
+  // 600mm centres from the a end, not an equal division of the run -- so the
+  // interior studs stand at 600, 1200, ..., 3600, with the last 400mm gap to
+  // the wall's own end left short, rather than at LEN/7 apart.
   for (let i = 1; i <= 6; i++) {
-    const center = widthMm * i;
-    check(`an interior stud stands at centre ${center.toFixed(1)}`,
+    const center = POST_MM * i;
+    check(`an interior stud stands at centre ${center}`,
       studs.some(s => near(s.x + s.w / 2, center, 1)));
   }
   check("an end stud stands at [0, 38]", studs.some(s => near(s.x, 0, 1) && near(s.x + s.w, POST_WIDTH, 1)));
@@ -114,10 +117,14 @@ function comboWall(): { doc: PlanDoc; f: Floor; w: Wall } {
 
   check("a sill-less door gets no sill piece", layout.members.every(m => m.name !== "sill"));
 
+  // On a "grid" wall a cripple stands at every wall-wide grid position that
+  // falls inside the opening's own span (1550..2450), not at an equal
+  // division of the opening's width: 1800 and 2400 both qualify.
   const cripples = layout.members.filter(m => m.name === "cripple");
-  check("one cripple above a sill-less door (900 at 600 spacing is 2 bays)",
-    cripples.length === 1, String(cripples.length));
-  check("the door's cripple stands at its own midpoint", near(cripples[0]!.x + cripples[0]!.w / 2, door.t, 1));
+  check("a cripple at each grid position inside the door's span (1800 and 2400)",
+    cripples.length === 2, String(cripples.length));
+  check("a cripple stands at 1800", cripples.some(c => near(c.x + c.w / 2, 1800, 1)));
+  check("a cripple stands at 2400", cripples.some(c => near(c.x + c.w / 2, 2400, 1)));
 }
 
 // ---- a door's king and jack studs ---------------------------------------------
@@ -154,8 +161,11 @@ function comboWall(): { doc: PlanDoc; f: Floor; w: Wall } {
   check("a window gets a sill piece", sills.length === 1, String(sills.length));
   check("sill sits at sillHeight - postWidth", near(sills[0]!.y, 900 - POST_WIDTH, 1), String(sills[0]!.y));
 
+  // The window's span is 900..2100; two grid positions (1200, 1800) fall
+  // inside it, each getting an above- and a below-cripple: four in all.
   const cripples = layout.members.filter(m => m.name === "cripple");
-  check("both above and below cripples exist for a window", cripples.length === 2, String(cripples.length));
+  check("both above and below cripples exist for a window, one pair per grid position inside it",
+    cripples.length === 4, String(cripples.length));
 }
 
 // ---- noggings sit in their bay cell, clear of the interior division studs ---
@@ -166,21 +176,19 @@ function comboWall(): { doc: PlanDoc; f: Floor; w: Wall } {
   const noggings = layout.members.filter(m => m.name === "nogging");
   check("noggings exist with noggingRows 1", noggings.length > 0, String(noggings.length));
 
-  // An interior cell, away from the run's own ends -- there a nogging is
-  // documented to overlap the end/king stud by half a post (see frame.ts).
-  const widthMm = LEN / 7;
-  const cellIndex = 3;
-  const cellStart = widthMm * cellIndex;
-  const nogging = noggings.find(n => near(n.x, cellStart + POST_WIDTH / 2, 2));
-  check("the interior cell's nogging exists", nogging !== undefined);
+  // An interior gap between two grid studs, away from the run's own ends:
+  // 1800 and 2400.
+  const leftCenter = 1800, rightCenter = 2400;
+  const nogging = noggings.find(n => near(n.x, leftCenter + POST_WIDTH / 2, 2));
+  check("the interior gap's nogging exists", nogging !== undefined);
 
-  check("the nogging lies within its bay cell",
-    nogging!.x >= cellStart - 1 && nogging!.x + nogging!.w <= cellStart + widthMm + 1);
+  check("the nogging lies within its gap",
+    nogging!.x >= leftCenter - 1 && nogging!.x + nogging!.w <= rightCenter + 1);
 
   const studs = layout.members.filter(m => m.name === "stud");
-  const leftStud = studs.find(s => near(s.x + s.w / 2, cellStart, 1));
-  const rightStud = studs.find(s => near(s.x + s.w / 2, cellStart + widthMm, 1));
-  check("both bounding studs of the cell are found", leftStud !== undefined && rightStud !== undefined);
+  const leftStud = studs.find(s => near(s.x + s.w / 2, leftCenter, 1));
+  const rightStud = studs.find(s => near(s.x + s.w / 2, rightCenter, 1));
+  check("both bounding studs of the gap are found", leftStud !== undefined && rightStud !== undefined);
   check("the nogging does not overlap its left bounding stud",
     nogging!.x + 1 >= leftStud!.x + leftStud!.w);
   check("the nogging does not overlap its right bounding stud",
@@ -453,7 +461,7 @@ function higherEdge(x: number, w: number): number {
   const { f, w } = straightWall({ height: 2600 });
   w.profile = [{ t: LEN / 2, height: 4600 }];
   w.frameBreaksMm = [2600];
-  const { layout } = layoutOf(f, w);
+  const { layout, rw } = layoutOf(f, w);
 
   const lowerStuds = layout.members.filter(m => m.name === "stud" && near(m.y, POST_WIDTH, 1));
   check("every lower-band stud is exactly the flat-frame length (2600 less two plates)",
@@ -470,6 +478,25 @@ function higherEdge(x: number, w: number): number {
     plates.some(p => near(p.y, 2600 - POST_WIDTH, 1)));
   check("and the upper band's own bottom plate at 2600",
     plates.some(p => near(p.y, 2600, 1) && p.h === POST_WIDTH));
+
+  // Every band reads the SAME wall-wide grid (see postPositions()): with no
+  // opening on this wall to cut either band's own runs, the lower and upper
+  // GRID studs (excluding each band's own end studs, at x 0 and Lf -- the
+  // upper band's do not exist at all here, since the gable has not yet
+  // risen above the break right at the wall's own ends) stand at exactly
+  // the same x.
+  const interior = (s: PlacedMember): boolean => s.x > 0.5 && s.x + s.w < layout.lengthMm - 0.5;
+  const lowerGridXs = lowerStuds.filter(interior).map(s => Math.round(s.x + s.w / 2)).sort((a, b) => a - b);
+  const upperGridXs = upperStuds.filter(interior).map(s => Math.round(s.x + s.w / 2)).sort((a, b) => a - b);
+  check("the upper band's grid studs stand at the same x as the lower band's, wherever both have height",
+    lowerGridXs.join(",") === upperGridXs.join(","), `${lowerGridXs} vs ${upperGridXs}`);
+
+  // rw.posts is the plan's own drawn posts (interior grid points only, no
+  // end studs -- see resolve.ts's postPositions()), a section through the
+  // lowest band, so it has to equal that band's own grid studs exactly.
+  const rwXs = rw.posts.map(m => Math.round((m.a.x + m.b.x) / 2)).sort((a, b) => a - b);
+  check("rw.posts equals the lowest band's own grid studs",
+    rwXs.join(",") === lowerGridXs.join(","), `${rwXs} vs ${lowerGridXs}`);
 }
 
 // ---- an opening crossing a break is listed, and framed in the head's band -
@@ -530,16 +557,46 @@ function higherEdge(x: number, w: number): number {
   check("a stud stands under the peak (within 300mm of x=2000)",
     studXs.some(x => Math.abs(x - 2000) <= 300));
 
-  // 4000mm at 600mm centres is 7 equal bays (widthMm = 4000/7).
-  const bayWidth = LEN / 7;
-  const noggingXs = upper.filter(m => m.name === "nogging").map(m => m.x + m.w / 2);
-  check("the upper band's noggings cover every one of the 7 bays",
-    noggingXs.length === 7, String(noggingXs.length));
-  for (let i = 0; i < 7; i++) {
-    const cellCenter = bayWidth * i + bayWidth / 2;
-    check(`a nogging covers bay ${i} (centre ${cellCenter.toFixed(0)})`,
-      noggingXs.some(x => near(x, cellCenter, 5)));
+  // Level rows: noggingRows is 1, so the band has exactly one row height,
+  // spread over the band's own bandHeight -- here the top band follows the
+  // profile, so bandHeight is its own highest top, the gable's peak (4600).
+  // This wall's eaves (its base wallHeight()) are f.height = 2800, not the
+  // straightWall() default of 2600 used elsewhere in this file.
+  const EAVES = 2800;
+  function localTop(x: number): number { return EAVES + (4600 - EAVES) * Math.min(x, LEN - x) / (LEN / 2); }
+  const bandBottom = 2600, bandHeight = 4600;
+  const clear = bandHeight - bandBottom - 2 * POST_WIDTH;
+  const rowCenter = bandBottom + POST_WIDTH + clear / 2; // r=1, rows=1
+  const rowTop = rowCenter + POST_WIDTH / 2;
+  const upperNoggings = upper.filter(m => m.name === "nogging");
+  check("the upper band has noggings", upperNoggings.length > 0, String(upperNoggings.length));
+  check("every kept nogging in the band shares the band's one row height",
+    upperNoggings.every(n => near(n.y + n.h, rowTop, 1)));
+
+  // The upper band's grid runs clear across (no opening of its own), so its
+  // gaps are between consecutive studXs, already computed above: 19-600,
+  // 600-1200, ..., 3600-3981. Each gap keeps its nogging only where the row
+  // clears the lower of its two edges' local top -- checked directly against
+  // the actual gaps, not an equal-bay approximation of them.
+  let peakGapKept = false;
+  for (let i = 1; i < studXs.length; i++) {
+    const c1 = studXs[i - 1]!, c2 = studXs[i]!;
+    const bound = Math.min(localTop(c1), localTop(c2)) - POST_WIDTH;
+    const kept = upperNoggings.find(n => n.x + n.w / 2 > c1 - 1 && n.x + n.w / 2 < c2 + 1);
+    if (rowTop <= bound + 0.5) {
+      check(`gap [${c1.toFixed(0)}, ${c2.toFixed(0)}] keeps its nogging (the row clears both edges)`,
+        kept !== undefined);
+      if (kept) {
+        check(`the nogging in gap [${c1.toFixed(0)}, ${c2.toFixed(0)}] does not rise above its gap's lower top minus a plate`,
+          kept.y + kept.h <= bound + 1, `${kept.y + kept.h} vs ${bound}`);
+      }
+    } else {
+      check(`gap [${c1.toFixed(0)}, ${c2.toFixed(0)}] drops its nogging (the row does not clear both edges)`,
+        kept === undefined);
+    }
+    if (c1 <= 2000 && 2000 <= c2 && kept) peakGapKept = true;
   }
+  check("the gap under the peak has its nogging", peakGapKept);
 }
 
 {
@@ -553,6 +610,24 @@ function higherEdge(x: number, w: number): number {
   const line = layoutOf(gable.f, gable.w).layout.topLine;
   check("a gable's top line runs through its peak",
     line.length === 3 && line[1]!.x === LEN / 2 && line[1]!.y === H + 1000, JSON.stringify(line));
+}
+
+{
+  // A break at the eave height: the gable frame's bottom plate and its raked
+  // plates meet where the top clears both plates, and neither runs past the other.
+  const { f, w } = straightWall({ profile: [{ t: LEN / 2, height: H + 2000 }], frameBreaksMm: [H] });
+  const { layout } = layoutOf(f, w);
+  const upper = layout.members.filter(m => (m.name === "plate") && m.y >= H - 1);
+  const bottom = upper.filter(m => m.slope === undefined && Math.abs(m.y - H) < 1);
+  const raked = upper.filter(m => m.slope !== undefined);
+  const rise = 2 * POST_WIDTH / ((H + 2000 - H) / (LEN / 2)); // run needed to clear two plates
+  check("the gable frame's bottom plate stops where the top clears both plates",
+    bottom.length === 1 && near(bottom[0]!.x, rise, 1) && near(bottom[0]!.x + bottom[0]!.w, LEN - rise, 1),
+    JSON.stringify(bottom.map(m => [m.x, m.w])));
+  check("the raked plates start on top of it",
+    raked.length === 2 && raked.every(m => m.x >= rise - 1 && m.x + m.w <= LEN - rise + 1)
+      && near(raked[0]!.y, H + POST_WIDTH, 1),
+    JSON.stringify(raked.map(m => [m.x, m.y, m.w])));
 }
 
 console.log(failures === 0 ? "ok" : `FAIL (${failures} failures)`);

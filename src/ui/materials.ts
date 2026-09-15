@@ -8,7 +8,8 @@ import { Store } from "../model/store";
 import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
 import { sqm } from "./walls";
-import { stockLengths, kerfMm, wastePct, sheetMm } from "../model/materials";
+import { stockLengths, stockPresetOf, STOCK_PRESETS, kerfMm, wastePct, sheetMm } from "../model/materials";
+import type { StockPreset } from "../model/materials";
 import type { Member, MemberName, WallSystem, WallTakeoff, DeckTakeoff, FloorMaterials } from "../core/materials";
 import { decksOf } from "../model/doc";
 import type { NestResult } from "../core/stock";
@@ -82,7 +83,7 @@ function parseStockList(text: string): number[] | null {
  * list's empty-input gesture clears anything back to absent.
  */
 export function renderMaterialAssumptions(
-  rows: Pick<PaneRows, "numRow" | "textRow" | "noteRow">,
+  rows: Pick<PaneRows, "numRow" | "textRow" | "noteRow" | "btnRow">,
   store: Store,
 ): void {
   const d = store.doc;
@@ -102,6 +103,27 @@ export function renderMaterialAssumptions(
     });
   }, { allowEmpty: true });
   rows.noteRow(t("materials.stockHelp"));
+
+  const presetId = stockPresetOf(d);
+  rows.noteRow(t("materials.stockPreset",
+    { preset: presetId ? t("materials.stockPreset_" + presetId) : t("materials.custom") }));
+  const applyPreset = (preset: StockPreset): void => store.mutate(dd => {
+    // "merchant" equals STOCK_MM_DEFAULT, so applying it clears the field
+    // back to default rather than writing the same values out explicitly --
+    // the way energy's presets clear to absent (ui/energy.ts).
+    if (preset.id === "merchant") {
+      if (!dd.materials) return;
+      delete dd.materials.stockMm;
+      if (Object.keys(dd.materials).length === 0) delete dd.materials;
+      return;
+    }
+    dd.materials ??= {};
+    dd.materials.stockMm = [...preset.stockMm];
+  });
+  for (const preset of STOCK_PRESETS) {
+    rows.btnRow(t("materials.stockPreset_" + preset.id), () => applyPreset(preset), preset.stockMm.join(", ") + " mm");
+  }
+  rows.noteRow(t("materials.sheetNote"));
 
   rows.numRow(t("materials.kerf"), kerfMm(d), n => store.mutate(dd => {
     dd.materials ??= {};

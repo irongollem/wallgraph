@@ -10,7 +10,7 @@
 // is exact in the limit and visually correct at wall scale.
 import {
   Floor, Wall, Opening, Id, wallPostMm, wallPostWidthMm, wallFacadeMm, facadeSideOf,
-  wallLiningMm, liningSideOf,
+  wallLiningMm, liningSideOf, postLayoutOf, postFromOf, canonPostOffset,
 } from "../model/doc";
 import {
   Vec, add, sub, scale, norm, perp, dist, v, angleOf, lineIntersect,
@@ -83,9 +83,9 @@ export interface ResolvedWall {
   posts: PostMark[];
   /**
    * The same solid runs `posts` and `pieces` are divided from -- see
-   * postBays(). Exposed so a caller dividing something else into bays over
-   * this wall's body (core/materials.ts's noggings) uses the identical runs
-   * rather than re-deriving them from the openings.
+   * postPositions(). Exposed so a caller placing something else against this
+   * wall's body (core/frame.ts's members) uses the identical runs rather than
+   * re-deriving them from the openings.
    */
   intervals: WallRun[];
   /**
@@ -302,18 +302,16 @@ export interface PostBay { from: number; to: number; bays: number; widthMm: numb
 
 /**
  * A wall's runs of solid body, each divided into equal bays no wider than its
- * post spacing.
+ * post spacing -- what an "even" postLayout means (see Wall.postLayout), and
+ * still the whole story for a wall the takeoff has to fit noggings into by
+ * the bay (core/frame.ts's "even" path).
  *
  * The spacing is a maximum bay width, not a grid pitch: each run is divided
  * into `ceil(run / spacing)` equal bays, so a run shorter than the spacing gets
  * one bay (no interior posts) and a door pushes the posts of its own run aside
  * rather than having one land in the doorway. `intervals` are the same solid
- * runs the wall's pieces are built from (ResolvedWall.intervals), which is
- * what makes that true without the openings being consulted again here.
+ * runs the wall's pieces are built from (ResolvedWall.intervals).
  *
- * The one place this division happens: postsFor() places the posts
- * themselves from it, and core/materials.ts divides noggings the same way,
- * rather than re-deriving the bay count from the openings a second time.
  * Absent `postMm`, every run is one bay wide, matching "no interior posts".
  */
 export function postBays(w: Wall, intervals: readonly WallRun[]): PostBay[] {
@@ -329,39 +327,100 @@ export function postBays(w: Wall, intervals: readonly WallRun[]): PostBay[] {
 }
 
 /**
- * One wall's posts, at the interior division points of postBays().
+ * A wall's post CENTRE positions, ascending, strictly inside a solid run --
+ * the one division both the plan (postsFor(), below) and the frame elevation
+ * (core/frame.ts's lowest band) read, so the two cannot disagree about where
+ * a post stands. `intervals` are the solid runs a position must fall inside,
+ * clear of the run's own ends -- ResolvedWall.intervals for the plan's own
+ * posts; core/frame.ts passes a band's own runs for an upper band of a
+ * stacked frame, which is how an opening framed in a lower band leaves an
+ * upper band's grid uncut (see CLAUDE.md's frame-bands paragraph).
+ *
+ * "even" (see Wall.postLayout): postBays()'s own interior division points --
+ * unchanged from before postLayout existed.
+ *
+ * "grid": fixed centres of `postMm` from `postFrom`'s own end (`postOffsetMm`
+ * phasing them where that end is not where the grid was originally set out
+ * from -- see Wall.postOffsetMm), carried straight across the wall regardless
+ * of the runs; the last gap before the far end is simply shorter. A candidate
+ * position is kept only where it falls inside a run AND at least
+ * `postWidth/2 + postWidth` from that run's own ends, since a king or end
+ * stud already stands there -- core/frame.ts relies on this exact margin
+ * (1.5 * postWidth) to tell a stud position from a cripple position without
+ * re-deriving it.
+ */
+export function postPositions(w: Wall, L: number, intervals: readonly WallRun[]): number[] {
+  const spacing = wallPostMm(w);
+  if (spacing === undefined) return [];
+  if (postLayoutOf(w) === "even") {
+    const out: number[] = [];
+    for (const bay of postBays(w, intervals)) {
+      for (let i = 1; i < bay.bays; i++) out.push(bay.from + bay.widthMm * i);
+    }
+    return out;
+  }
+  const clearance = (wallPostWidthMm(w) ?? 0) * 1.5;
+  const from = postFromOf(w);
+  const offset = canonPostOffset(w.postOffsetMm ?? 0, spacing);
+  const candidates: number[] = [];
+  if (from === "a") {
+    for (let s = offset === 0 ? spacing : offset; s < L - 0.5; s += spacing) candidates.push(s);
+  } else {
+    for (let s = offset === 0 ? L - spacing : L - offset; s > 0.5; s -= spacing) candidates.push(s);
+  }
+  const out: number[] = [];
+  for (const s of candidates) {
+    const iv = intervals.find(r => s > r.from + 0.5 && s < r.to - 0.5);
+    if (iv && s - iv.from >= clearance - 0.5 && iv.to - s >= clearance - 0.5) out.push(s);
+  }
+  return out.sort((a, b) => a - b);
+}
+
+/** The postBays() bay a position sits in, for capping an "even" post's own
+ *  profile width to the body either side of it. */
+function bayAt(w: Wall, intervals: readonly WallRun[], s: number): PostBay | undefined {
+  return postBays(w, intervals).find(bay => s >= bay.from - 0.5 && s <= bay.to + 0.5);
+}
+
+/**
+ * One wall's posts, at postPositions().
  *
  * A stated profile width also produces the member's footprint, built the way
  * an opening's void quad is (core/solids.ts): each side of the post's own
  * centre offset by the normal AT THAT POINT, so a post in a bowed wall sits
- * square to the wall rather than to its neighbour.
+ * square to the wall rather than to its neighbour. Capped to the bay either
+ * side of it on an "even" wall (so two neighbours in a short run cannot
+ * overlap into one block); on a "grid" wall the cap is simply the spacing,
+ * since a kept position is already clear of every run end by construction.
  */
 function postsFor(
   w: Wall, A: Vec, B: Vec, L: number, half: number,
   intervals: ReadonlyArray<WallRun>,
 ): PostMark[] {
-  if (wallPostMm(w) === undefined || L <= 0) return [];
+  const spacing = wallPostMm(w);
+  if (spacing === undefined || L <= 0) return [];
   const out: PostMark[] = [];
   const at = (s: number): { p: Vec; n: Vec } => {
     const t = s / L;
     return { p: arcPointAt(A, B, w.bulge, t), n: perp(arcTangentAt(A, B, w.bulge, t)) };
   };
-  for (const bay of postBays(w, intervals)) {
-    const width = wallPostWidthMm(w, bay.widthMm);
-    for (let i = 1; i < bay.bays; i++) {
-      const s = bay.from + bay.widthMm * i;
-      const { p, n } = at(s);
-      const mark: PostMark = { a: add(p, scale(n, half)), b: add(p, scale(n, -half)) };
-      if (width !== undefined) {
-        const lo = at(Math.max(bay.from, s - width / 2));
-        const hi = at(Math.min(bay.to, s + width / 2));
-        mark.poly = [
-          add(lo.p, scale(lo.n, half)), add(hi.p, scale(hi.n, half)),
-          add(hi.p, scale(hi.n, -half)), add(lo.p, scale(lo.n, -half)),
-        ];
-      }
-      out.push(mark);
+  const grid = postLayoutOf(w) === "grid";
+  for (const s of postPositions(w, L, intervals)) {
+    const { p, n } = at(s);
+    const mark: PostMark = { a: add(p, scale(n, half)), b: add(p, scale(n, -half)) };
+    const bay = grid ? undefined : bayAt(w, intervals, s);
+    const cap = grid ? spacing : bay?.widthMm ?? spacing;
+    const width = wallPostWidthMm(w, cap);
+    if (width !== undefined) {
+      const lo0 = grid ? 0 : bay?.from ?? 0, hi0 = grid ? L : bay?.to ?? L;
+      const lo = at(Math.max(lo0, s - width / 2));
+      const hi = at(Math.min(hi0, s + width / 2));
+      mark.poly = [
+        add(lo.p, scale(lo.n, half)), add(hi.p, scale(hi.n, half)),
+        add(hi.p, scale(hi.n, -half)), add(lo.p, scale(lo.n, -half)),
+      ];
     }
+    out.push(mark);
   }
   return out;
 }
