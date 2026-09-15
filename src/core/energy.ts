@@ -24,17 +24,19 @@
 // meets BENG, only what its geometry and stated figures currently add up to.
 import type { Floor, Id, OpeningKind, PlanDoc } from "../model/doc";
 import {
-  areaModeOf, facadeSideOf, floorHeight, openingHeight, openingSill, wallHeight,
+  areaModeOf, facadeSideOf, floorHeight, openingHeight, openingSill,
 } from "../model/doc";
 import {
   HEATING_DEGREE_DAYS, isEnvelopeWall, openingIsGlazing, openingUOf, uFromRc, wallRcOf,
 } from "../model/energy";
+import { wallTopRange } from "../model/profile";
 import { resolveFloor, type Resolved } from "./resolve";
 import { detectRooms, outerBoundary, outwardSide, roomArea, type Room } from "./rooms";
+import { grossAreaUnderTop, localTop } from "./surface";
 import {
   Vec, distToSeg, norm, perp, pointInPolygon, scale, sub,
 } from "../geometry/vec";
-import { arcLength, arcTangentAt } from "../geometry/arc";
+import { arcTangentAt } from "../geometry/arc";
 import type { AreaMode } from "../model/doc";
 
 export type Orientation = "N" | "NE" | "E" | "SE" | "S" | "SW" | "W" | "NW";
@@ -67,7 +69,8 @@ export interface EnvelopeWall {
   floorIndex: number;
   /** Mitered length of the clad face -- resolveFloor()'s ResolvedWall.faces[side]. */
   lengthMm: number;
-  /** wallHeight(f, w): floor to floor. A ceiling is a finish and does not apply. */
+  /** The highest point of the wall's own top (wallTopRange().max) -- floor to
+   *  floor on a flat wall. A ceiling is a finish and does not apply. */
   heightMm: number;
   grossMm2: number;
   openingsMm2: number;
@@ -174,21 +177,32 @@ function envelopeWallsOf(
 
     const side = facadeSideOf(w);
     const lengthMm = rw.faces[side];
-    const heightMm = wallHeight(f, w);
-    const grossMm2 = lengthMm * heightMm;
+    const L = rw.length;
+    const heightMm = wallTopRange(f, w, L).max;
+    // The area under the wall's own top over the centerline, mapped onto the
+    // clad face's own mitered length proportionally -- floorSurface()'s rule
+    // (core/surface.ts's grossAreaUnderTop(), reused rather than copied).
+    // Flat where the wall states no profile, and bit-identical to
+    // lengthMm * heightMm there.
+    const grossMm2 = L > 0 ? grossAreaUnderTop(f, w, L, undefined) * (lengthMm / L) : lengthMm * heightMm;
 
     const chordDir = norm(sub(rw.b, rw.a));
     const wallNormal = side === "left" ? perp(chordDir) : scale(perp(chordDir), -1);
     const orientation = northDeg === undefined ? null : orientationOf(wallNormal, northDeg);
 
-    const totalLen = arcLength(rw.a, rw.b, w.bulge);
     const openings: EnvelopeOpening[] = [];
     let rawCut = 0;
     for (const o of w.openings) {
-      const areaMm2 = openingCut(heightMm, o, openingSill(o), openingHeight(o));
+      // Clamped to the wall's own top over the opening's own width -- the
+      // rule core/surface.ts's openingOn() applies -- rather than to the flat
+      // heightMm, which a sloped top can fall under partway across a wide
+      // opening. No ceiling cap: the envelope is the structural top, not a
+      // room's finish.
+      const top = localTop(f, w, L, o.t - o.width / 2, o.t + o.width / 2, undefined);
+      const areaMm2 = openingCut(top, o, openingSill(o), openingHeight(o));
       rawCut += areaMm2;
 
-      const frac = totalLen > 0 ? o.t / totalLen : 0.5;
+      const frac = L > 0 ? o.t / L : 0.5;
       const tangentAtT = arcTangentAt(rw.a, rw.b, w.bulge, frac);
       const openingNormal = side === "left" ? perp(tangentAtT) : scale(perp(tangentAtT), -1);
       const openingOrientation = northDeg === undefined ? null : orientationOf(openingNormal, northDeg);

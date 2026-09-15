@@ -13,22 +13,45 @@
 // level, positive up; a caller placing a storey in the building adds
 // floorElevation(doc, floorIndex).
 import {
-  PlanDoc, Floor, Id, OpeningKind, wallHeight, floorHeight, openingSill, openingHeight, videsOf,
+  PlanDoc, Floor, Id, OpeningKind, Wall, wallHeight, floorHeight, openingSill, openingHeight, videsOf,
   stairsOf, type WallMaterial,
 } from "../model/doc";
+import { wallTopAt, wallTopPolyline } from "../model/profile";
 import {
-  Vec, v, add, sub, scale, pointInPolygon, distToSeg, clipHalfPlane, polygonArea, perp, norm, cross,
+  Vec, v, add, sub, scale, dot, mid, pointInPolygon, distToSeg, clipHalfPlane, polygonArea, perp, norm, cross,
+  angleOf,
 } from "../geometry/vec";
+import { arcInfo, arcPointAt, arcTangentAt, sweepOf } from "../geometry/arc";
 import { stairwellHole } from "./stair3d";
-import { resolveFloor } from "./resolve";
+import { resolveFloor, type ResolvedWall } from "./resolve";
 import { detectRooms, outerBoundary } from "./rooms";
 import { videBox } from "./vide";
 import { worldPoint } from "./placed";
 import type { Vide } from "../model/vide";
 
-export interface Prism { poly: Vec[]; z0: number; z1: number }
+export interface Prism {
+  poly: Vec[];
+  z0: number;
+  /** The top -- the highest point when `top` is present. */
+  z1: number;
+  /**
+   * Per-vertex top height, parallel to `poly`, present only where the wall
+   * states a profile (model/profile.ts). Absent means flat at `z1`, which is
+   * what every consumer that predates the profile still reads. A wall piece
+   * carrying one is split at every profile breakpoint strictly inside its own
+   * span (see wallBodyPrisms() below), so the top is linear across each
+   * piece and a straight piece's roof is planar.
+   */
+  top?: number[];
+}
 
-export interface OpeningVoid { openingId: Id; kind: OpeningKind; poly: Vec[]; z0: number; z1: number }
+export interface OpeningVoid {
+  openingId: Id; kind: OpeningKind; poly: Vec[]; z0: number; z1: number;
+  /** The wall above the head on a sloped wall: the void's footprint split at
+   *  the profile breakpoints, from `z1` up to the top per vertex. Absent on a
+   *  flat wall, where the band above a head ends at the wall's one height. */
+  above?: Prism[];
+}
 
 export interface WallSolid {
   wallId: Id;
@@ -94,12 +117,14 @@ export function floorSolids(doc: PlanDoc, floorIndex: number): FloorSolids | nul
   const resolved = resolveFloor(f);
   const walls: WallSolid[] = [];
   for (const rw of resolved.walls.values()) {
-    const h = wallHeight(f, rw.wall);
-    const body: Prism[] = rw.pieces.map(p => ({ poly: p.poly, z0: 0, z1: h }));
+    const body: Prism[] = wallBodyPrisms(f, rw);
     const voids: OpeningVoid[] = rw.openings.map(og => {
       const o = og.opening;
       const sill = openingSill(o);
-      const z1 = Math.min(sill + openingHeight(o), h);
+      // Clipped to the lowest point of the wall's own top over the opening's
+      // span, not to the flat height -- a void above a sloped top is not there.
+      const top = minTopOver(f, rw.wall, rw.length, o.t - o.width / 2, o.t + o.width / 2);
+      const z1 = Math.min(sill + openingHeight(o), top);
       const z0 = Math.min(sill, z1);
       // Same quad the wall's own pieces are built from: left side (+half)
       // start->end, then right side (-half) end->start.
@@ -109,10 +134,21 @@ export function floorSolids(doc: PlanDoc, floorIndex: number): FloorSolids | nul
         sub(og.p1, scale(og.n1, og.half)),
         sub(og.p0, scale(og.n0, og.half)),
       ];
-      return { openingId: o.id, kind: o.kind, poly, z0, z1 };
+      if (!rw.wall.profile || rw.wall.profile.length === 0) return { openingId: o.id, kind: o.kind, poly, z0, z1 };
+      const L = rw.length;
+      const breaks = wallTopPolyline(f, rw.wall, L).map(p => p.s).filter(b => b > 0.5 && b < L - 0.5);
+      const above: Prism[] = splitAtBreaks(poly, rw.a, rw.b, rw.wall.bulge, L, breaks).map(part => {
+        const tops = part.map(p => wallTopAt(f, rw.wall, projectS(rw.a, rw.b, rw.wall.bulge, L, p)));
+        return { poly: part, z0: z1, z1: Math.max(...tops), top: tops };
+      });
+      return { openingId: o.id, kind: o.kind, poly, z0, z1, above };
     });
     const posts: Prism[] = [];
-    for (const pm of rw.posts) if (pm.poly) posts.push({ poly: pm.poly, z0: 0, z1: h });
+    for (const pm of rw.posts) {
+      if (!pm.poly) continue;
+      const s = projectS(rw.a, rw.b, rw.wall.bulge, rw.length, mid(pm.a, pm.b));
+      posts.push({ poly: pm.poly, z0: 0, z1: wallTopAt(f, rw.wall, s) });
+    }
     walls.push({ wallId: rw.wall.id, body, voids, posts });
   }
 
@@ -124,10 +160,17 @@ export function floorSolids(doc: PlanDoc, floorIndex: number): FloorSolids | nul
 
   const wallById = new Map(f.walls.map(w => [w.id, w] as const));
   const junctions: JunctionSolid[] = resolved.junctions.map(j => {
+    // As tall as the LOWEST top the meeting walls state AT THIS NODE -- the
+    // end height (wallTopAt(0) or wallTopAt(L)), not the walls' flat
+    // wallHeight(), so a gable end meeting a flat wall at its low end takes
+    // that low end, not the gable's own peak.
     let h = Infinity;
     for (const id of j.walls) {
       const w = wallById.get(id);
-      if (w) h = Math.min(h, wallHeight(f, w));
+      const rw = resolved.walls.get(id);
+      if (!w || !rw) continue;
+      const s = w.a === j.node ? 0 : w.b === j.node ? rw.length : undefined;
+      if (s !== undefined) h = Math.min(h, wallTopAt(f, w, s));
     }
     const first = wallById.get(j.walls[0] ?? "");
     const material = first && j.walls.every(id => wallById.get(id)?.material === first.material)
@@ -177,6 +220,87 @@ export function floorSolids(doc: PlanDoc, floorIndex: number): FloorSolids | nul
   }
 
   return { walls, spaces, slab, junctions, terrace };
+}
+
+/**
+ * The wall's own pieces (ResolvedWall.pieces, already split at every opening)
+ * extruded to its top profile: a wall stating none produces exactly the flat
+ * prisms floorSolids() always has, with no `top` field. A wall stating one
+ * gets each piece split again at every profile breakpoint strictly inside its
+ * own span, so within one resulting piece the top is linear along the wall —
+ * planar for a straight piece — and every vertex carries the top height at
+ * its own projection onto the centerline.
+ */
+function wallBodyPrisms(f: Floor, rw: ResolvedWall): Prism[] {
+  const w = rw.wall;
+  if (!w.profile || w.profile.length === 0) {
+    const h = wallHeight(f, w);
+    return rw.pieces.map(p => ({ poly: p.poly, z0: 0, z1: h }));
+  }
+  const L = rw.length;
+  const breaks = wallTopPolyline(f, w, L).map(p => p.s).filter(s => s > 0.5 && s < L - 0.5);
+  const out: Prism[] = [];
+  for (const piece of rw.pieces) {
+    for (const poly of splitAtBreaks(piece.poly, rw.a, rw.b, w.bulge, L, breaks)) {
+      const top = poly.map(p => wallTopAt(f, w, projectS(rw.a, rw.b, w.bulge, L, p)));
+      out.push({ poly, z0: 0, z1: Math.max(...top), top });
+    }
+  }
+  return out;
+}
+
+/** `poly` cut at every `s` in `breaks` by the line through the wall's
+ *  centerline point there, perpendicular to the wall (arc-aware: the normal
+ *  is the outgoing tangent at that point, so the cut follows the local width
+ *  direction rather than the chord). Degenerate slivers are dropped. */
+function splitAtBreaks(poly: Vec[], A: Vec, B: Vec, bulge: number, L: number, breaks: readonly number[]): Vec[][] {
+  if (breaks.length === 0 || L <= 0) return poly.length >= 3 ? [poly] : [];
+  const out: Vec[][] = [];
+  let remainder = poly;
+  for (const s of [...breaks].sort((a, b) => a - b)) {
+    const t = Math.max(0, Math.min(1, s / L));
+    const o = arcPointAt(A, B, bulge, t);
+    const n = arcTangentAt(A, B, bulge, t);
+    const before = clipHalfPlane(remainder, o, scale(n, -1));
+    const after = clipHalfPlane(remainder, o, n);
+    if (before.length >= 3) out.push(before);
+    remainder = after;
+  }
+  if (remainder.length >= 3) out.push(remainder);
+  return out;
+}
+
+/**
+ * Where a point projects onto the wall's centerline, mm from node a, clamped
+ * to [0, L]: the dot-product parameter for a straight wall, or the point's
+ * angle about the arc centre mapped to arc length for a bulged one.
+ */
+function projectS(A: Vec, B: Vec, bulge: number, L: number, p: Vec): number {
+  if (L <= 0) return 0;
+  if (bulge === 0) {
+    const ab = sub(B, A);
+    const l2 = dot(ab, ab) || 1;
+    return Math.max(0, Math.min(L, (dot(sub(p, A), ab) / l2) * L));
+  }
+  const info = arcInfo(A, B, bulge);
+  if (!info) return 0;
+  const sweep = sweepOf(info);
+  const TAU = Math.PI * 2;
+  let d = angleOf(sub(p, info.center)) - info.a0;
+  if (sweep < 0) { while (d > 0) d -= TAU; while (d < sweep) d += TAU; } else { while (d < 0) d += TAU; while (d > sweep) d -= TAU; }
+  const t = sweep === 0 ? 0 : Math.max(0, Math.min(1, d / sweep));
+  return t * L;
+}
+
+/** The lowest point of the wall's own top over [s0, s1] -- a piecewise-linear
+ *  function's minimum over an interval is always at one of its breakpoints or
+ *  the interval's own ends. Mirrors core/surface.ts's localTop() without the
+ *  ceiling cap, which is a finish concern this module has no notion of. */
+function minTopOver(f: Floor, w: Wall, L: number, s0: number, s1: number): number {
+  const lo = Math.max(0, Math.min(s0, s1)), hi = Math.min(L, Math.max(s0, s1));
+  let m = Math.min(wallTopAt(f, w, lo), wallTopAt(f, w, hi));
+  for (const p of wallTopPolyline(f, w, L)) if (p.s > lo && p.s < hi) m = Math.min(m, p.h);
+  return m;
 }
 
 interface Box2 { x0: number; y0: number; x1: number; y1: number }

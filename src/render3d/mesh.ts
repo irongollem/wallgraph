@@ -11,7 +11,7 @@ import { structureSolids } from "../core/structure";
 import { deckSolids } from "../core/deck";
 import { stairSteps, StairStep } from "../core/stair3d";
 import { furnishingSolids, type FitoutMaterial } from "../core/furnishing3d";
-import { Vec, v, dist, polygonArea, mid, norm, add, sub, scale, clipHalfPlane } from "../geometry/vec";
+import { Vec, v, dist, polygonArea, mid, norm, add, sub, scale } from "../geometry/vec";
 import { triangulatePolygon, triangulateWithHoles } from "./triangulate";
 
 export interface Bounds3 { min: [number, number, number]; max: [number, number, number] }
@@ -202,19 +202,36 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
       const mat = matById.get(w.wallId);
       const bodyColor = mat === "glass" ? GLASS_COLOR : mat === "sandwich" ? PANEL_COLOR : WALL_COLOR;
       const glass = mat === "glass";
-      for (const p of w.body) emitWallPrism(acc, p.poly, elev, p.z0, seat(p.z1), ax, spans, bodyColor, glass);
+      for (const p of w.body) {
+        // A sloped piece is seated per vertex: only the vertices that would
+        // actually meet a plate above are pulled down, so a gable that only
+        // touches the roof near its peak keeps its eaves at their own height.
+        const top = p.top?.map(seat);
+        const z1 = top ? Math.max(...top) : seat(p.z1);
+        emitWallPrism(acc, p.poly, elev, p.z0, z1, ax, spans, bodyColor, glass, top);
+      }
       for (const p of w.posts) emitWallPrism(acc, p.poly, elev, p.z0, seat(p.z1), ax, spans, WALL_COLOR, false);
       // The resolved pieces are the solid intervals BETWEEN openings, cut at
       // full wall height. The band below a sill and the band above a head put
       // that material back, so a wall with a window is exact without CSG.
-      const h = seat(w.body[0]?.z1 ?? w.voids.reduce((top, o) => Math.max(top, o.z1), 0));
+      // On a sloped wall the band above a head is `o.above`, built by
+      // core/solids.ts to follow the profile.
+      const h = seat(Math.max(
+        0, ...w.body.map(p => p.top ? Math.max(...p.top) : p.z1), ...w.voids.map(o => o.z1),
+      ));
       for (const o of w.voids) {
         // A cut over the opening lowers its bands and shortens its filler the
         // same way it lowers the wall around them.
         const lid = ax && spans ? spanTopAt(spans, midT(ax, o.poly)) : Infinity;
         const sillTop = Math.min(o.z0, lid);
         if (sillTop > H_EPS) emitPrism(acc, o.poly, [], elev, elev + sillTop, bodyColor, glass);
-        if (o.z1 < h - H_EPS && lid > o.z1) {
+        if (o.above) {
+          for (const p of o.above) {
+            const top = p.top?.map(z => seat(Math.min(z, lid)));
+            const z1 = top ? Math.max(...top) : seat(Math.min(p.z1, lid));
+            if (z1 > o.z1 + H_EPS) emitWallPrism(acc, p.poly, elev, o.z1, z1, ax, spans, bodyColor, glass, top);
+          }
+        } else if (o.z1 < h - H_EPS && lid > o.z1) {
           emitPrism(acc, o.poly, [], elev + o.z1, elev + Math.min(h, lid), bodyColor, glass);
         }
         // What fills the hole: a leaf for a door, a pane for a window,
@@ -266,18 +283,26 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
  * ring), one quad per boundary edge including hole loops, vertices duplicated
  * per face for flat shading.
  *
+ * `top`, parallel to `footprint`, gives the outer ring's roof a height per
+ * vertex instead of one flat `z1` -- a sloped wall piece (core/solids.ts's
+ * `Prism.top`). Never combined with holes: every caller that carries a `top`
+ * passes none. `z1` still gates emission and still bounds the bottom cap.
+ *
  * Orientation invariant: rings are normalized by shoelace sign (outer
  * positive, holes negative, in raw x/y terms), and faces are wound so the
  * closed prism's signed volume Σ dot(a, cross(b, c))/6 over its triangles is
- * positive and equals footprint area × height.
+ * positive and equals footprint area × height -- unaffected by a sloped roof,
+ * since the flat-topped case (`top` absent) is exactly the prior code path.
  */
 function emitPrism(
   acc: MeshAcc, footprint: Vec[], holes: Vec[][], z0: number, z1: number, color: Rgb, glass = false,
+  top?: number[],
 ): void {
   if (!(z1 - z0 > H_EPS)) return;
-  const outer = cleanRing(footprint);
+  const { ring: outer, top: outerTopIn } = cleanRingWithTop(footprint, top);
   if (outer.length < 3 || Math.abs(polygonArea(outer)) <= AREA_EPS) return;
-  if (polygonArea(outer) < 0) outer.reverse();
+  let outerTop = outerTopIn;
+  if (polygonArea(outer) < 0) { outer.reverse(); outerTop?.reverse(); }
 
   const rings: Vec[][] = [outer];
   for (const h of holes) {
@@ -287,6 +312,10 @@ function emitPrism(
     rings.push(r);
   }
   const holeRings = rings.slice(1);
+  // A ring whose vertices were cleaned or reordered no longer indexes into
+  // `top` at all; only the no-holes path (the only one a `top` caller uses)
+  // keeps cap.verts === outer, so a hole ring's cap stays flat at z1.
+  const ringsTop: (number[] | undefined)[] = [outerTop, ...holeRings.map(() => undefined)];
 
   // Caps. Triangles come back in the outer ring's (positive) winding, which
   // faces +z; the bottom cap reverses them to face -z.
@@ -294,27 +323,34 @@ function emitPrism(
     ? triangulateWithHoles(outer, holeRings)
     : { verts: outer, tris: triangulatePolygon(outer) };
   for (let i = 0; i + 2 < cap.tris.length; i += 3) {
-    const a = cap.verts[cap.tris[i]!]!, b = cap.verts[cap.tris[i + 1]!]!, c = cap.verts[cap.tris[i + 2]!]!;
-    pushTri(acc, a.x, a.y, z1, b.x, b.y, z1, c.x, c.y, z1, color, glass);
+    const ia = cap.tris[i]!, ib = cap.tris[i + 1]!, ic = cap.tris[i + 2]!;
+    const a = cap.verts[ia]!, b = cap.verts[ib]!, c = cap.verts[ic]!;
+    const za = outerTop && holeRings.length === 0 ? outerTop[ia]! : z1;
+    const zb = outerTop && holeRings.length === 0 ? outerTop[ib]! : z1;
+    const zc = outerTop && holeRings.length === 0 ? outerTop[ic]! : z1;
+    pushTri(acc, a.x, a.y, za, b.x, b.y, zb, c.x, c.y, zc, color, glass);
     pushTri(acc, a.x, a.y, z0, c.x, c.y, z0, b.x, b.y, z0, color, glass);
   }
 
   // Sides and outline edges. With the outer ring positive and hole rings
   // negative, material lies left of travel on every ring, so the quad winding
   // and the outward normal are one rule for both.
-  for (const ring of rings) {
+  for (let ri = 0; ri < rings.length; ri++) {
+    const ring = rings[ri]!;
+    const rTop = ringsTop[ri];
     const n = ring.length;
     for (let i = 0; i < n; i++) {
       const p = ring[i]!, q = ring[(i + 1) % n]!;
-      pushTri(acc, p.x, p.y, z0, q.x, q.y, z0, q.x, q.y, z1, color, glass);
-      pushTri(acc, p.x, p.y, z0, q.x, q.y, z1, p.x, p.y, z1, color, glass);
+      const zp = rTop ? rTop[i]! : z1, zq = rTop ? rTop[(i + 1) % n]! : z1;
+      pushTri(acc, p.x, p.y, z0, q.x, q.y, z0, q.x, q.y, zq, color, glass);
+      pushTri(acc, p.x, p.y, z0, q.x, q.y, zq, p.x, p.y, zp, color, glass);
       acc.edges.push(p.x, p.y, z0, q.x, q.y, z0);
-      acc.edges.push(p.x, p.y, z1, q.x, q.y, z1);
+      acc.edges.push(p.x, p.y, zp, q.x, q.y, zq);
     }
     for (let i = 0; i < n; i++) {
       const prev = ring[(i + n - 1) % n]!, cur = ring[i]!, next = ring[(i + 1) % n]!;
       if (turnCos(prev, cur, next) < EDGE_TURN_COS) {
-        acc.edges.push(cur.x, cur.y, z0, cur.x, cur.y, z1);
+        acc.edges.push(cur.x, cur.y, z0, cur.x, cur.y, rTop ? rTop[i]! : z1);
       }
     }
   }
@@ -433,13 +469,20 @@ const CUT_EPS = 0.01;
  * boundaries, each slice keeps the lowest top the spans covering it allow,
  * and a slice cut to less than WALL_STUB_MM above the floor is left out. A
  * piece no span touches is emitted whole.
+ *
+ * `top`, parallel to `poly`, carries a sloped wall piece's per-vertex roof
+ * (core/solids.ts's `Prism.top`) through the same slicing: clipHalfPlaneWithTop()
+ * lerps the height alongside x/y at every new cut vertex, and a slice's own
+ * stair-shadow cap lowers its vertices individually rather than flattening
+ * them to one figure.
  */
 function emitWallPrism(
   acc: MeshAcc, poly: Vec[], elev: number, z0: number, z1: number,
   ax: WallAxis | undefined, spans: CutSpan[] | undefined, color: Rgb, glass: boolean,
+  top?: number[],
 ): void {
   if (!ax || !spans || spans.length === 0) {
-    emitPrism(acc, poly, [], elev + z0, elev + z1, color, glass);
+    emitPrism(acc, poly, [], elev + z0, elev + z1, color, glass, top);
     return;
   }
   let p0 = Infinity, p1 = -Infinity;
@@ -453,18 +496,47 @@ function emitWallPrism(
     if (s.t1 > p0 + CUT_EPS && s.t1 < p1 - CUT_EPS) bps.push(s.t1);
   }
   bps.sort((m, n) => m - n);
+  const fullTop = top ?? poly.map(() => z1);
   for (let i = 0; i + 1 < bps.length; i++) {
     const ta = bps[i]!, tb = bps[i + 1]!;
     if (tb - ta <= CUT_EPS) continue;
-    let top = z1;
-    for (const s of spans) if (s.t0 < tb - CUT_EPS && s.t1 > ta + CUT_EPS) top = Math.min(top, s.top);
-    if (top - z0 <= H_EPS) continue;
-    if (top < z1 && top < WALL_STUB_MM && z0 <= H_EPS) continue;
-    let part = poly;
-    if (ta > p0 + CUT_EPS) part = clipHalfPlane(part, add(ax.a, scale(ax.dir, ta)), ax.dir);
-    if (tb < p1 - CUT_EPS) part = clipHalfPlane(part, add(ax.a, scale(ax.dir, tb)), scale(ax.dir, -1));
-    emitPrism(acc, part, [], elev + z0, elev + top, color, glass);
+    let cap = z1;
+    for (const s of spans) if (s.t0 < tb - CUT_EPS && s.t1 > ta + CUT_EPS) cap = Math.min(cap, s.top);
+    if (cap - z0 <= H_EPS) continue;
+    if (cap < z1 && cap < WALL_STUB_MM && z0 <= H_EPS) continue;
+    let part = poly, partTop = fullTop;
+    if (ta > p0 + CUT_EPS) {
+      const r = clipHalfPlaneWithTop(part, partTop, add(ax.a, scale(ax.dir, ta)), ax.dir);
+      part = r.poly; partTop = r.top;
+    }
+    if (tb < p1 - CUT_EPS) {
+      const r = clipHalfPlaneWithTop(part, partTop, add(ax.a, scale(ax.dir, tb)), scale(ax.dir, -1));
+      part = r.poly; partTop = r.top;
+    }
+    const cappedTop = partTop.map(h => Math.min(h, cap));
+    emitPrism(acc, part, [], elev + z0, elev + Math.max(z0, ...cappedTop), color, glass, top ? cappedTop : undefined);
   }
+}
+
+/** Like clipHalfPlane, but carries a parallel per-vertex height through the
+ *  same edge interpolation -- a stair-shadow cut through a sloped wall piece
+ *  keeps its roof instead of losing it to a flat z1. */
+function clipHalfPlaneWithTop(poly: Vec[], top: number[], o: Vec, n: Vec): { poly: Vec[]; top: number[] } {
+  const outPoly: Vec[] = [], outTop: number[] = [];
+  const len = poly.length;
+  for (let i = 0; i < len; i++) {
+    const p = poly[i]!, q = poly[(i + 1) % len]!;
+    const tp = top[i]!, tq = top[(i + 1) % len]!;
+    const dp = (p.x - o.x) * n.x + (p.y - o.y) * n.y;
+    const dq = (q.x - o.x) * n.x + (q.y - o.y) * n.y;
+    if (dp >= 0) { outPoly.push(p); outTop.push(tp); }
+    if ((dp >= 0) !== (dq >= 0)) {
+      const t = dp / (dp - dq);
+      outPoly.push(v(p.x + (q.x - p.x) * t, p.y + (q.y - p.y) * t));
+      outTop.push(tp + (tq - tp) * t);
+    }
+  }
+  return { poly: outPoly, top: outTop };
 }
 
 /** Drop consecutive (and closing) duplicate vertices. */
@@ -476,6 +548,20 @@ function cleanRing(poly: Vec[]): Vec[] {
   }
   while (out.length > 1 && dist(out[0]!, out[out.length - 1]!) <= RING_EPS) out.pop();
   return out;
+}
+
+/** cleanRing(), carrying a parallel per-vertex height through the same drops
+ *  so a sloped prism's roof stays indexed to its own footprint. */
+function cleanRingWithTop(poly: Vec[], top: number[] | undefined): { ring: Vec[]; top?: number[] } {
+  if (!top) return { ring: cleanRing(poly) };
+  const ring: Vec[] = [], t: number[] = [];
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i]!;
+    const last = ring[ring.length - 1];
+    if (!last || dist(last, p) > RING_EPS) { ring.push(p); t.push(top[i]!); }
+  }
+  while (ring.length > 1 && dist(ring[0]!, ring[ring.length - 1]!) <= RING_EPS) { ring.pop(); t.pop(); }
+  return { ring, top: t };
 }
 
 /** Cosine of the footprint's turn at `cur`: incoming vs outgoing direction. */

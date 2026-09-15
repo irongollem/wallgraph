@@ -548,5 +548,54 @@ const RING_AREA = 1400000;
   check("seed wall volume is positive", volumeOf(m, WALL_COLOR) > 0);
 }
 
+// ── sloped tops (profile, issue #55) ────────────────────────────────────────
+
+{
+  // A single isolated gable wall -- no other walls, no corners or junctions
+  // to complicate the expected figure. Its body volume, read back from the
+  // triangle soup via the divergence theorem, must equal the area under its
+  // own top (a trapezoid either side of the ridge) times its thickness --
+  // confirming the sloped roof (per-vertex top face plus side quads with
+  // per-vertex top edges) closes into a correctly wound solid rather than
+  // merely reaching the right peak height somewhere in the soup.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  const a = newId("n"), b = newId("n");
+  f.nodes.push({ id: a, x: 0, y: 0 }, { id: b, x: 4000, y: 0 });
+  const th = 100;
+  const base = FLOOR_HEIGHT_DEFAULT;
+  const w: Wall = {
+    id: newId("w"), a, b, thickness: th, bulge: 0, openings: [],
+    profile: [{ t: 2000, height: base + 1000 }],
+  };
+  f.walls = [w];
+  const m = buildSceneMesh(doc);
+  const expectedFaceArea = 4000 * base + 0.5 * 4000 * 1000; // trapezoid under the ridge
+  const expectedVolume = expectedFaceArea * th;
+  const gotVolume = volumeOf(m, WALL_COLOR);
+  check("a sloped wall's mesh volume matches the area under its profile, times its thickness",
+    near(gotVolume, expectedVolume, expectedVolume * 1e-4), `${gotVolume} vs ${expectedVolume}`);
+  check("the ridge is the highest point the mesh reaches",
+    !!m.bounds && near(m.bounds.max[2], base + 1000, 1), JSON.stringify(m.bounds));
+}
+
+{
+  // A flat wall (no profile) produces exactly the prior geometry: this is
+  // the same volume check as above, without a profile, as a control.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  const a = newId("n"), b = newId("n");
+  f.nodes.push({ id: a, x: 0, y: 0 }, { id: b, x: 4000, y: 0 });
+  const th = 100;
+  const base = FLOOR_HEIGHT_DEFAULT;
+  const w: Wall = { id: newId("w"), a, b, thickness: th, bulge: 0, openings: [] };
+  f.walls = [w];
+  const m = buildSceneMesh(doc);
+  const expectedVolume = 4000 * base * th;
+  const gotVolume = volumeOf(m, WALL_COLOR);
+  check("a flat wall's mesh volume is exactly length x height x thickness",
+    near(gotVolume, expectedVolume, expectedVolume * 1e-4), `${gotVolume} vs ${expectedVolume}`);
+}
+
 console.log(failures === 0 ? "ALL MESH3D TESTS PASSED" : `${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

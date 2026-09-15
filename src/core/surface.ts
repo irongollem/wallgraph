@@ -201,8 +201,11 @@ function openingOn(localTopMm: number, thicknessMm: number, o: Opening): {
  * one is given -- over [s0, s1]. A piecewise-linear function's minimum over
  * an interval is always at one of its breakpoints or the interval's own
  * ends, never strictly between them, so this only has to look at those.
+ * Exported for core/energy.ts, which clamps an envelope opening against it
+ * (`cap` absent there, since the envelope has no room ceiling) rather than
+ * against the wall's flat height.
  */
-function localTop(
+export function localTop(
   f: Floor, w: Wall, L: number, s0: number, s1: number, cap: number | undefined,
 ): number {
   const lo = Math.max(0, Math.min(s0, s1)), hi = Math.min(L, Math.max(s0, s1));
@@ -228,9 +231,14 @@ function cappedSegmentArea(s0: number, h0: number, s1: number, h1: number, cap: 
     : cap * (sC - s0) + (cap + h1) / 2 * (s1 - sC);
 }
 
-/** Area under the wall's own top over the full centerline [0, L], capped
- *  pointwise at `cap` (a room's ceiling) when one is given. */
-function grossAreaUnderTop(f: Floor, w: Wall, L: number, cap: number | undefined): number {
+/**
+ * Area under the wall's own top over the full centerline [0, L], capped
+ * pointwise at `cap` (a room's ceiling) when one is given. Exported for
+ * core/energy.ts, which scales this the same way `face()` below does -- onto
+ * the clad face's own mitered length -- for the envelope wall area, rather
+ * than copying the scaling rule a second time.
+ */
+export function grossAreaUnderTop(f: Floor, w: Wall, L: number, cap: number | undefined): number {
   const poly = wallTopPolyline(f, w, L);
   let area = 0;
   for (let i = 0; i + 1 < poly.length; i++) {

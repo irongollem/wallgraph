@@ -28,7 +28,7 @@ export interface SolidPiece { poly: Vec[] } // closed polygon, flattened
  * whatever its neighbours agree on, and it can only ask that of the walls
  * themselves. Order matches the angular sort the corners were built in.
  */
-export interface Junction extends SolidPiece { walls: Id[] }
+export interface Junction extends SolidPiece { walls: Id[]; node: Id }
 
 /**
  * One post (stijl) of a wall's frame, face to face across the body.
@@ -206,7 +206,7 @@ export function resolveFloor(f: Floor): Resolved {
         ring.push(corner);
       }
       // Degree 1 has a square cap and degree 2 miters cleanly; only 3+ can gap.
-      if (wedges && n >= 3) wedges.push({ poly: ring, walls: ends.map(e => e.wall.id) });
+      if (wedges && n >= 3) wedges.push({ poly: ring, walls: ends.map(e => e.wall.id), node: nid });
     }
     return out;
   };

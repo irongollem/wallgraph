@@ -236,6 +236,19 @@ to agree: `topMismatches()` in [core/profile.ts](src/core/profile.ts) reports a 
 and its neighbour differ — at a junction of three or more only the two highest are compared, a lower
 partition being ordinary — and never repairs it. `floorSurface()` measures under the profile and lists an
 opening whose head rises above it (`openingsAbove`). Verified by [tests/profile.test.ts](tests/profile.test.ts).
+3D and IFC read it too: `core/solids.ts` splits each wall piece at every breakpoint strictly inside its
+own span and carries the top as `Prism.top`, one height per vertex, so a straight piece's roof stays
+planar; a junction takes the lowest top the meeting walls state AT THAT NODE, not their flat
+`wallHeight()`; the wall above an opening's head is `OpeningVoid.above`, split and topped the same way.
+`io/ifc.ts` extrudes each piece to its own segment's high end and clips it with one
+`IfcPolygonalBoundedHalfSpace` inside an `IfcBooleanClippingResult`. The extrusion must not reach the wall's
+overall maximum: the boundary is swept along the tilted plane normal, so material above a segment's high
+end projects outside it and survives the clip. The boundary covers the mitered overshoot past the wall
+ends for the same reason. `core/energy.ts`'s envelope wall area reads
+the same profile, mapped onto the clad face the way `floorSurface()` does. Verified by
+[tests/solids.test.ts](tests/solids.test.ts), [tests/mesh3d.test.ts](tests/mesh3d.test.ts),
+[tests/ifc.test.ts](tests/ifc.test.ts), [tests/energy.test.ts](tests/energy.test.ts) and
+[tests/ifcclip.test.ts](tests/ifcclip.test.ts), which reads the clipped geometry back through web-ifc.
 
 **`resolveRoutes()`** — waypoints resolved through their anchors, then straight legs that
 share a corridor with another run fanned into parallel lanes. The fan is drawn legibility
@@ -562,8 +575,8 @@ before changing one:
 
 - Varying-thickness walls; a wall is one thickness, not a material build-up. A facade and a
   lining are skins outside that thickness, not layers within it.
-- A wall's top profile is read by the wall surface only; 3D, IFC, energy, the frame and the takeoff still
-  read `wallHeight()` (#55, #56), and there is no roof surface for it to agree with (#57).
+- A wall's top profile is read by the wall surface, 3D, IFC and energy; the frame and the materials
+  takeoff still read `wallHeight()` (#56), and there is no roof surface for it to agree with (#57).
 - Exact wall-to-arc miters (tangent-line approximation instead).
 - Stair figures are reported, never enforced; a stair does not snap to a wall the way a
   wall-mounted symbol does.

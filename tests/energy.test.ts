@@ -6,7 +6,7 @@
 // above narrower than the one below reports the difference as roof, and an
 // unstated Rc/U is skipped and counted rather than assumed.
 import {
-  emptyDoc, newId, Wall, Opening, Floor, PlanDoc,
+  emptyDoc, newId, Wall, Opening, Floor, PlanDoc, openingHeight,
 } from "../src/model/doc";
 import { resolveFloor } from "../src/core/resolve";
 import { detectRooms, outwardSide, roomArea } from "../src/core/rooms";
@@ -21,6 +21,7 @@ import {
 import {
   envelopeTakeoff, transmissionEstimate, orientationOf, ORIENTATIONS,
 } from "../src/core/energy";
+import { wallAreaUnder, wallTopAt } from "../src/model/profile";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ""): void {
@@ -496,6 +497,65 @@ function twoRoomFloor(): { f: Floor; divider: Wall } {
   for (const [expected, n] of cases) {
     check(`orientationOf ${expected}`, orientationOf(n, 0) === expected, orientationOf(n, 0));
   }
+}
+
+// ── sloped walls (issue #55): the envelope reads the profile ───────────────
+
+{
+  const f = rectFloorEnv(0, 0, W, D);
+  const doc = emptyDoc();
+  doc.floors = [f];
+  const top = f.walls[0]!;
+  const resolved = resolveFloor(f);
+  const rw = resolved.walls.get(top.id)!;
+  const peak = H + 1000;
+  // A gable at the midpoint: eaves at the flat wallHeight() (H), implied.
+  top.profile = [{ t: rw.length / 2, height: peak }];
+
+  const t = envelopeTakeoff(doc);
+  const ew = t.storeys[0]!.walls.find(x => x.wallId === top.id)!;
+  const faceLen = rw.faces[top.facadeSide ?? "left"];
+  const expectedGross = wallAreaUnder(f, top, rw.length, 0, rw.length) * (faceLen / rw.length);
+
+  check("a gable end's envelope wall area equals the area under its profile, mapped onto the clad face",
+    near(ew.grossMm2, expectedGross, 1), `${ew.grossMm2} vs ${expectedGross}`);
+  check("...and no longer the pre-profile faceLength x flat-height box",
+    !near(ew.grossMm2, faceLen * H, 1), `${ew.grossMm2} vs ${faceLen * H}`);
+  check("the envelope wall's heightMm is the ridge (wallTopRange().max), not the flat wallHeight()",
+    near(ew.heightMm, peak, 1), `${ew.heightMm} vs ${peak}`);
+}
+
+{
+  // An opening's head is clamped to the wall's own top over its OWN span
+  // (the rule core/surface.ts's openingOn() applies), not to the wall's flat
+  // heightMm -- which a lean-to's low end makes lower than the local top,
+  // and which the old (pre-profile) code used unconditionally.
+  const f = rectFloorEnv(0, 0, W, D);
+  const doc = emptyDoc();
+  doc.floors = [f];
+  const top = f.walls[0]!;
+  const resolved = resolveFloor(f);
+  const rw = resolved.walls.get(top.id)!;
+  // A lean-to: flat at H at the a end, H + 2000 at the b end.
+  top.profile = [{ t: 0, height: H }, { t: rw.length, height: H + 2000 }];
+  // Near the low end, tall enough that its head sits above the local top
+  // there but well under the wall's overall max (H + 2000).
+  const window = opening({ kind: "window", t: 200, width: 300, sillHeight: 0, height: H + 500 });
+  top.openings.push(window);
+
+  const t = envelopeTakeoff(doc);
+  const ew = t.storeys[0]!.walls.find(x => x.wallId === top.id)!;
+  const eo = ew.openings.find(o => o.openingId === window.id)!;
+
+  const s0 = window.t - window.width / 2, s1 = window.t + window.width / 2;
+  const localTop = Math.min(wallTopAt(f, top, s0), wallTopAt(f, top, s1));
+  const windowHeight = openingHeight(window);
+  const expectedArea = window.width * Math.min(windowHeight, localTop);
+  const flatClampArea = window.width * Math.min(windowHeight, H);
+  check("an opening's head is clamped to the wall's own top over its span",
+    near(eo.areaMm2, expectedArea, 1), `${eo.areaMm2} vs ${expectedArea}`);
+  check("...not to the flat wallHeight(), which the lean-to's low end makes too strict here",
+    !near(eo.areaMm2, flatClampArea, 1), `${eo.areaMm2} vs flat clamp ${flatClampArea}`);
 }
 
 console.log(failures === 0 ? "ALL ENERGY TESTS PASSED" : `${failures} FAILURES`);

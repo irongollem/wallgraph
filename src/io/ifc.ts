@@ -55,7 +55,7 @@
 // cannot collide with that element's own id.
 import {
   PlanDoc, Floor, Wall, projectOf, floorElevation, floorHeight, areaModeOf, dimModeOf, DimMode, Sash, sashSpecsOf,
-  openingHeight, videsOf, stairsOf, structureOf, furnishingsOf, routesOf, SymbolInstance, wallHeight, fireLabel, WallMaterial,
+  openingHeight, videsOf, stairsOf, structureOf, furnishingsOf, routesOf, SymbolInstance, fireLabel, WallMaterial,
   wallPostMm, wallFacadeMm, wallLiningMm, liningSideOf,
 } from "../model/doc";
 import { structureSolid, spanLength } from "../core/structure";
@@ -67,6 +67,7 @@ import { resolveRoutePoints, routePlaneHeight } from "../core/route";
 import { arcFlatten } from "../geometry/arc";
 import { ifcGuid } from "../model/guid";
 import { wallLength } from "../model/ops";
+import { wallTopAt, wallTopRange, wallAreaUnder } from "../model/profile";
 import { floorSolids, videHole } from "../core/solids";
 import { detectRooms, roomSize, sizeLabel, Room, roomArea } from "../core/rooms";
 import { resolveStair, stairBox } from "../core/stair";
@@ -77,7 +78,7 @@ import { furnishingZ0 } from "../core/furnishing3d";
 import { getSymbol, SymbolDef, SymbolCategory } from "../render/symbols";
 import { Placed, LocalBox, worldPoint, symbolFootprintCorners } from "../core/placed";
 import { wallRcOf, openingUOf, uFromRc } from "../model/energy";
-import { Vec, v, add, sub, scale, norm, perp, len, mid, pointInPolygon } from "../geometry/vec";
+import { Vec, v, add, sub, scale, norm, perp, len, mid, dot, pointInPolygon } from "../geometry/vec";
 import { saveViaHost, downloadBlob } from "./save";
 
 export type IfcResult = "saved" | "failed";
@@ -701,15 +702,98 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
     return w.entity("IFCEXTRUDEDAREASOLID", [ref(profile), ref(position), ref(zAxis), real(depth)]);
   }
 
-  /** IFCPRODUCTDEFINITIONSHAPE wrapping a 'Body'/'SweptSolid' representation
-   *  of the given solids, or $ when there is nothing to show. */
-  function bodyShape(solidIds: readonly (number | null)[]): IfcArg {
+  /** IFCPRODUCTDEFINITIONSHAPE wrapping a 'Body'/`repType` representation of
+   *  the given solids, or $ when there is nothing to show. `repType` is
+   *  'SweptSolid' unless the caller passes 'Clipping' for a wall whose body
+   *  includes an IfcBooleanClippingResult (slopedPieceSolid() below). */
+  function bodyShape(solidIds: readonly (number | null)[], repType: "SweptSolid" | "Clipping" = "SweptSolid"): IfcArg {
     const ids = solidIds.filter((id): id is number => id !== null);
     if (ids.length === 0) return UNSET;
     const rep = w.entity("IFCSHAPEREPRESENTATION",
-      [ref(context), str("Body"), str("SweptSolid"), list(...ids.map(ref))]);
+      [ref(context), str("Body"), str(repType), list(...ids.map(ref))]);
     const pds = w.entity("IFCPRODUCTDEFINITIONSHAPE", [UNSET, UNSET, list(ref(rep))]);
     return ref(pds);
+  }
+
+  /**
+   * One profiled wall piece's body: the flat extrusion to its own segment's
+   * high end, cut down to this piece's own
+   * segment of the profile by one IFCPOLYGONALBOUNDEDHALFSPACE inside an
+   * IFCBOOLEANCLIPPINGRESULT. Never an unbounded IFCHALFSPACESOLID: an
+   * unbounded plane cuts the WHOLE wall, which only reads right for a peaked,
+   * convex profile -- a valley would lose material outside the segment it
+   * belongs to. `poly` is already one piece of floorSolids()'s per-breakpoint
+   * split (core/solids.ts's wallBodyPrisms()), so it spans exactly one
+   * profile segment and needs at most one clip.
+   *
+   * The wall's local direction is taken as its chord (A to B), the same
+   * tangent-line approximation resolve.ts already accepts at an arc's own
+   * ends, since a half-space plane cannot itself follow a curve. Returns the
+   * flat extrusion unclipped when this segment is already flat at `maxH`.
+   */
+  function slopedPieceSolid(floor: Floor, wall: Wall, poly: Vec[], maxH: number, A: Vec, B: Vec, L: number): number | null {
+    if (L <= 0) return extrudedSolid(poly, 0, maxH);
+
+    // The segment's span along the wall: project every vertex onto the chord.
+    const dir = norm(sub(B, A));
+    let s0 = Infinity, s1 = -Infinity;
+    for (const p of poly) {
+      const t = dot(sub(p, A), dir);
+      if (t < s0) s0 = t;
+      if (t > s1) s1 = t;
+    }
+    // A mitered end reaches past [0, L]; the heights are read at the clamped
+    // span and the boundary below covers the whole footprint.
+    const r0 = s0, r1 = s1;
+    s0 = Math.max(0, Math.min(L, s0));
+    s1 = Math.max(0, Math.min(L, s1));
+    const h0 = wallTopAt(floor, wall, s0), h1 = wallTopAt(floor, wall, s1);
+    // Extruded to this segment's own high end, not the wall's maximum. The
+    // bounded half-space's boundary is swept along the tilted plane normal, so
+    // material standing above the high end of the segment would project past
+    // the boundary and survive the clip.
+    const top = Math.max(h0, h1);
+    const base = extrudedSolid(poly, 0, top);
+    if (base === null || s1 - s0 <= 0.5) return base;
+    if (Math.abs(h1 - h0) <= 0.5) return base; // a flat segment needs no clip
+
+    // Two 3D points on the segment's own top line, in IFC's y-up axes.
+    const p0w = add(A, scale(dir, s0)), p1w = add(A, scale(dir, s1));
+    const P0: [number, number, number] = [p0w.x, -p0w.y, h0];
+    const P1: [number, number, number] = [p1w.x, -p1w.y, h1];
+    const D: [number, number, number] = [P1[0] - P0[0], P1[1] - P0[1], P1[2] - P0[2]];
+    // A horizontal unit vector across the wall's thickness, IFC axes.
+    const ww = perp(v(dir.x, -dir.y));
+    const W: [number, number, number] = [ww.x, ww.y, 0];
+    const cross3 = (a: readonly [number, number, number], b: readonly [number, number, number]):
+      [number, number, number] => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const normal = cross3(D, W);
+    const nLen = Math.hypot(...normal) || 1;
+    const dLen = Math.hypot(...D) || 1;
+    const axis3 = normal.map(x => x / nLen) as [number, number, number];
+    const ref3 = D.map(x => x / dLen) as [number, number, number];
+
+    const locPt = w.entity("IFCCARTESIANPOINT", [list(real(P0[0]), real(P0[1]), real(P0[2]))]);
+    const axisDir = w.entity("IFCDIRECTION", [list(real(axis3[0]), real(axis3[1]), real(axis3[2]))]);
+    const refDir = w.entity("IFCDIRECTION", [list(real(ref3[0]), real(ref3[1]), real(ref3[2]))]);
+    const placement = w.entity("IFCAXIS2PLACEMENT3D", [ref(locPt), ref(axisDir), ref(refDir)]);
+    const plane = w.entity("IFCPLANE", [ref(placement)]);
+
+    // The boundary, in the plane's own local XY: exactly the segment's span
+    // along local X (0 to |D|), generously wide across local Y (thickness).
+    const wpad = Math.max(1000, wall.thickness * 4);
+    // Local X runs along the sloped top line, so a horizontal overshoot scales by dLen / (s1 - s0).
+    const k = dLen / (s1 - s0);
+    const x0 = (r0 - s0) * k, x1 = dLen + (r1 - s1) * k;
+    const corners: Array<[number, number]> = [[x0, -wpad], [x1, -wpad], [x1, wpad], [x0, wpad], [x0, -wpad]];
+    const boundaryPts = corners.map(([x, y]) => w.entity("IFCCARTESIANPOINT", [list(real(x), real(y))]));
+    const boundary = w.entity("IFCPOLYLINE", [list(...boundaryPts.map(ref))]);
+
+    // AgreementFlag false: the halfspace solid is the region the Axis (plane
+    // normal) points TOWARD -- above the sloped line, which is exactly the
+    // material DIFFERENCE removes below.
+    const halfSpace = w.entity("IFCPOLYGONALBOUNDEDHALFSPACE", [ref(plane), enumv("F"), ref(placement), ref(boundary)]);
+    return w.entity("IFCBOOLEANCLIPPINGRESULT", [enumv("DIFFERENCE"), ref(base), ref(halfSpace)]);
   }
 
   /**
@@ -878,14 +962,28 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
 
     for (const ws of wallSolids) {
       const wall = floor.walls.find(x => x.id === ws.wallId)!;
-      const bodyIds = ws.body.map(p => extrudedSolid(p.poly, p.z0, p.z1));
+      const lengthMm = wallLength(floor, wall);
+      const hasProfile = (wall.profile?.length ?? 0) > 0;
+      // A sloped wall's own top -- wallTopRange().max -- is a single flat
+      // extrusion height for the whole wall; slopedPieceSolid() clips each
+      // piece down to its own segment of the profile. A flat wall's bodyIds
+      // are byte-identical to before: plain extrusions to each piece's own z1.
+      const maxH = wallTopRange(floor, wall, lengthMm).max;
+      let bodyIds: (number | null)[];
+      if (hasProfile) {
+        const na = floor.nodes.find(n => n.id === wall.a), nb = floor.nodes.find(n => n.id === wall.b);
+        const A = na ? v(na.x, na.y) : v(0, 0), B = nb ? v(nb.x, nb.y) : v(0, 0);
+        bodyIds = ws.body.map(p => slopedPieceSolid(floor, wall, p.poly, maxH, A, B, lengthMm));
+      } else {
+        bodyIds = ws.body.map(p => extrudedSolid(p.poly, p.z0, p.z1));
+      }
       // A wall carrying posts is IFC4's ELEMENTEDWALL: a wall assembled from
       // components. That is the honest predefined type for a curtain-walled or
       // portal-framed wall, and it states the fact without inventing the
       // assembly itself — the components are not modelled (see IFC_MATERIAL_NAME).
       const wallEntity = w.entity("IFCWALL",
         [str(ifcGuid(seed, wall.id)), ref(ownerHistory), str(`Wall ${wall.thickness}`), UNSET, UNSET,
-          ref(levelPlacement), bodyShape(bodyIds), UNSET,
+          ref(levelPlacement), bodyShape(bodyIds, hasProfile ? "Clipping" : "SweptSolid"), UNSET,
           wallPostMm(wall) !== undefined ? enumv("ELEMENTEDWALL") : UNSET]);
       contained.push(wallEntity);
 
@@ -925,9 +1023,14 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
       // ── Qto_WallBaseQuantities ───────────────────────────────────────────
       // Gross: opening voids are NOT subtracted from the volume, matching the
       // "gross" name honestly rather than reporting a net figure under it.
-      const lengthMm = wallLength(floor, wall);
-      const heightMm = wallHeight(floor, wall);
-      const grossVolumeM3 = (lengthMm * wall.thickness * heightMm) / 1e9;
+      // Height is the wall's own top -- wallTopRange().max, its flat
+      // wallHeight() where it states no profile -- and GrossVolume reads the
+      // area under that top (wallAreaUnder(), model/profile.ts) rather than
+      // length x height, which would overstate a sloped wall's material.
+      // Bit-identical on a flat wall, whose area under the top is its length
+      // times its flat height exactly.
+      const heightMm = maxH;
+      const grossVolumeM3 = (wallAreaUnder(floor, wall, lengthMm, 0, lengthMm) * wall.thickness) / 1e9;
       attachQuantitySet(wallEntity, `${wall.id}:qto`, "Qto_WallBaseQuantities", [
         ref(w.entity("IFCQUANTITYLENGTH", [str("Length"), UNSET, UNSET, real(lengthMm), UNSET])),
         ref(w.entity("IFCQUANTITYLENGTH", [str("Width"), UNSET, UNSET, real(wall.thickness), UNSET])),

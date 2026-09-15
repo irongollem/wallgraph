@@ -375,5 +375,108 @@ function emptyDocWith(f: Floor): ReturnType<typeof emptyDoc> {
     !!partial[0] && pointInPolygon(v(2000, 500), partial[0]) && pointInPolygon(v(1600, 2000), partial[0]));
 }
 
+// ── sloped tops (profile, issue #55) ────────────────────────────────────────
+
+{
+  // A gable: one wall of a closed rectangle carries a ridge at its midpoint.
+  const f = rectFloor();
+  const gable = f.walls[0]!; // a->b along the 4000 mm edge, x 0..4000
+  const base = wallHeight(f, gable);
+  gable.profile = [{ t: 2000, height: base + 1000 }];
+  const fs = floorSolids(emptyDocWith(f), 0)!;
+  const ws = fs.walls.find(w => w.wallId === gable.id)!;
+  check("a profiled wall's pieces carry a top array", ws.body.every(p => p.top !== undefined),
+    JSON.stringify(ws.body.map(p => p.top)));
+  const peakVerts = ws.body.flatMap(p => p.poly.map((pt, i) => ({ x: pt.x, h: p.top![i]! })))
+    .filter(pv => near(pv.x, 2000, 1));
+  check("the piece is split at the ridge: at least two vertices sit at x=2000",
+    peakVerts.length >= 2, String(peakVerts.length));
+  check("the vertices at the ridge meet the peak height",
+    peakVerts.every(pv => near(pv.h, base + 1000, 1)), JSON.stringify(peakVerts));
+  check("no vertex of the gable wall rises above the ridge",
+    ws.body.every(p => p.top!.every(h => h <= base + 1000 + 1)),
+    JSON.stringify(ws.body.map(p => p.top)));
+
+  const flatWall = f.walls[1]!;
+  const flatWs = fs.walls.find(w => w.wallId === flatWall.id)!;
+  check("a wall stating no profile carries no top field",
+    flatWs.body.every(p => p.top === undefined));
+  check("...and stays flat at wallHeight() -- unchanged from before the profile",
+    flatWs.body.every(p => near(p.z1, wallHeight(f, flatWall), 1)) && flatWs.body.length === 1);
+}
+
+{
+  // A valley: both ends high (stated), a low point at the midpoint (the
+  // plain wallHeight()) -- so the wall's own top dips in the middle rather
+  // than peaking, the opposite of a gable.
+  const f = rectFloor();
+  const w = f.walls[0]!;
+  const L = 4000;
+  const base = wallHeight(f, w);
+  w.profile = [{ t: 0, height: base + 1000 }, { t: L / 2, height: base }, { t: L, height: base + 1000 }];
+  const fs = floorSolids(emptyDocWith(f), 0)!;
+  const ws = fs.walls.find(x => x.wallId === w.id)!;
+  const midVerts = ws.body.flatMap(p => p.poly.map((pt, i) => ({ x: pt.x, h: p.top![i]! })))
+    .filter(pv => near(pv.x, L / 2, 1));
+  check("a valley wall is split at its low point", midVerts.length >= 2, String(midVerts.length));
+  check("its middle vertices sit at the low height, not the eaves either side",
+    midVerts.every(pv => near(pv.h, base, 1)), JSON.stringify(midVerts));
+}
+
+{
+  // A gable's LOW end meets two taller flat walls at a T: the junction takes
+  // that low end height (wallHeight(), the implied end the profile does not
+  // restate), not the gable's own peak and not simply the shortest wall's
+  // flat height() -- both flat neighbours here are taller than the gable's
+  // low end, so it alone decides.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  const nodeAt = (p: { x: number; y: number }): string => {
+    const id = newId("n"); f.nodes.push({ id, x: p.x, y: p.y }); return id;
+  };
+  const nLeft = nodeAt(v(0, 0)), nCenter = nodeAt(v(4000, 0));
+  const nRight = nodeAt(v(8000, 0)), nDown = nodeAt(v(4000, 3000));
+  const gable: Wall = { id: newId("w"), a: nLeft, b: nCenter, thickness: 100, bulge: 0, openings: [] };
+  const gableLowEnd = wallHeight(f, gable); // FLOOR_HEIGHT_DEFAULT, since gable states no own height
+  gable.profile = [{ t: 0, height: gableLowEnd + 1000 }]; // peak at "left", far from "center"
+  const rightWall: Wall = {
+    id: newId("w"), a: nCenter, b: nRight, thickness: 100, bulge: 0, openings: [], height: gableLowEnd + 200,
+  };
+  const downWall: Wall = {
+    id: newId("w"), a: nCenter, b: nDown, thickness: 100, bulge: 0, openings: [], height: gableLowEnd + 400,
+  };
+  f.walls.push(gable, rightWall, downWall);
+  const fs = floorSolids(doc, 0)!;
+  check("a T-junction is derived where the three walls meet", fs.junctions.length === 1,
+    String(fs.junctions.length));
+  const j = fs.junctions[0]!;
+  check("junction height is the gable's own low end, not its peak or either flat neighbour",
+    near(j.z1, gableLowEnd, 1), `${j.z1} vs low end ${gableLowEnd}, peak ${gableLowEnd + 1000}`);
+}
+
+{
+  // A window under the ridge: the wall above its head follows the profile up
+  // to the peak rather than stopping flat at the pieces either side.
+  const f = rectFloor();
+  const gable = f.walls[0]!;
+  const base = wallHeight(f, gable);
+  gable.profile = [{ t: 2000, height: base + 1000 }];
+  gable.openings.push(opening({ kind: "window", t: 2000, width: 1000, sillHeight: 900, height: 1200 }));
+  const fs = floorSolids(emptyDocWith(f), 0)!;
+  const vd = fs.walls.find(w => w.wallId === gable.id)!.voids[0]!;
+  const above = vd.above ?? [];
+  const peak = Math.max(...above.flatMap(p => p.top ?? []));
+  const atJambs = above.flatMap(p => p.poly.map((pt, i) => ({ x: pt.x, h: p.top![i]! })))
+    .filter(pv => near(pv.x, 1500, 1) || near(pv.x, 2500, 1));
+  check("the wall above a window under the ridge reaches the peak", near(peak, base + 1000), String(peak));
+  check("and meets the profile at the jambs", atJambs.length > 0 && atJambs.every(pv => near(pv.h, base + 750)),
+    JSON.stringify(atJambs));
+  check("and starts at the head", above.length > 0 && above.every(p => p.z0 === vd.z1));
+  const flat = rectFloor();
+  flat.walls[0]!.openings.push(opening({ kind: "window", t: 2000, width: 1000, sillHeight: 900, height: 1200 }));
+  const flatVoid = floorSolids(emptyDocWith(flat), 0)!.walls.find(w => w.wallId === flat.walls[0]!.id)!.voids[0]!;
+  check("a flat wall's void carries no band of its own", flatVoid.above === undefined);
+}
+
 console.log(failures === 0 ? "ALL SOLIDS TESTS PASSED" : `${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

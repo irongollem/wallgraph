@@ -11,6 +11,7 @@ import { detectRooms } from "../src/core/rooms";
 import { SLAB_DEFAULT_MM } from "../src/core/solids";
 import { ifcGuid } from "../src/model/guid";
 import { uFromRc } from "../src/model/energy";
+import { wallTopRange, wallAreaUnder } from "../src/model/profile";
 import { v } from "../src/geometry/vec";
 import { bulgeFromSagitta } from "../src/geometry/arc";
 import type { Vide } from "../src/model/vide";
@@ -1312,6 +1313,116 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
     String((linedCladOut.match(/'Lining'/g) ?? []).length));
   check("its Facade layer is still there", linedCladOut.includes("'Facade'"));
   check("its Structure layer is still there", linedCladOut.includes("'Structure'"));
+}
+
+// ── sloped walls (issue #55): clipping representation ──────────────────────
+{
+  const doc9 = emptyDoc();
+  const floor9 = doc9.floors[0]!;
+  const n0 = newId("n"), n1 = newId("n"), n2 = newId("n"), n3 = newId("n"), n4 = newId("n"), n5 = newId("n");
+  floor9.nodes.push(
+    { id: n0, x: 0, y: 0 }, { id: n1, x: 4000, y: 0 },
+    { id: n2, x: 0, y: 1000 }, { id: n3, x: 4000, y: 1000 },
+    { id: n4, x: 0, y: 2000 }, { id: n5, x: 4000, y: 2000 },
+  );
+  const flatWall: Wall = { id: newId("w"), a: n0, b: n1, thickness: 300, bulge: 0, openings: [] };
+  const base9 = wallHeight(floor9, flatWall);
+  // A valley: both ends implied at base9, a stated low point at the middle --
+  // both flanking pieces dip below the wall's own max (at the ends), so both
+  // need a clip: exactly two bounded half-spaces.
+  const valleyWall: Wall = {
+    id: newId("w"), a: n2, b: n3, thickness: 300, bulge: 0, openings: [],
+    profile: [{ t: 0, height: base9 + 1000 }, { t: 2000, height: base9 }, { t: 4000, height: base9 + 1000 }],
+  };
+  // A plateau: a flat raised middle segment at the wall's own max, flanked by
+  // two rising/falling pieces -- the middle piece is already flat at the
+  // extrusion height and needs no clip, so this wall's three pieces carry
+  // exactly two half-spaces, not three.
+  const plateauWall: Wall = {
+    id: newId("w"), a: n4, b: n5, thickness: 300, bulge: 0, openings: [],
+    profile: [{ t: 1000, height: base9 + 1000 }, { t: 3000, height: base9 + 1000 }],
+  };
+  floor9.walls.push(flatWall, valleyWall, plateauWall);
+
+  const out9 = toIfc(doc9);
+  const ents9 = out9.split("\n").filter(l => l.startsWith("#"));
+  const seed9 = doc9.guid ?? "";
+
+  function argRefs9(line: string): number[] {
+    return [...line.slice(line.indexOf("=") + 1).matchAll(/#(\d+)/g)].map(m => Number(m[1]));
+  }
+  function refAt9(line: string, index: number): number | undefined {
+    const body = line.slice(line.indexOf("(") + 1, line.length - 2);
+    const token = body.split(",")[index];
+    const m = token ? /#(\d+)/.exec(token) : undefined;
+    return m ? Number(m[1]) : undefined;
+  }
+  /** The IFCSHAPEREPRESENTATION line behind one wall's body -- same chase as
+   *  extrusionZ07() elsewhere in this file, stopping one step earlier. */
+  function wallShapeRep9(wallId: string): string | undefined {
+    const guid = ifcGuid(seed9, wallId);
+    const wallLine = ents9.find(l => l.includes(`=IFCWALL('${guid}'`));
+    const repId = wallLine ? refAt9(wallLine, 6) : undefined;
+    const pdsLine = repId !== undefined ? ents9.find(l => l.startsWith(`#${repId}=IFCPRODUCTDEFINITIONSHAPE(`)) : undefined;
+    const shapeRepId = pdsLine ? refAt9(pdsLine, 2) : undefined;
+    return shapeRepId !== undefined ? ents9.find(l => l.startsWith(`#${shapeRepId}=IFCSHAPEREPRESENTATION(`)) : undefined;
+  }
+  /** Every IFCPOLYGONALBOUNDEDHALFSPACE reachable from a wall's body items,
+   *  following each IFCBOOLEANCLIPPINGRESULT's SecondOperand. */
+  function halfSpacesOf9(wallId: string): number {
+    const shapeRepLine = wallShapeRep9(wallId);
+    if (!shapeRepLine) return 0;
+    const itemIds = argRefs9(shapeRepLine).slice(1); // drop ContextOfItems
+    let n = 0;
+    for (const id of itemIds) {
+      const clipLine = ents9.find(l => l.startsWith(`#${id}=IFCBOOLEANCLIPPINGRESULT(`));
+      if (!clipLine) continue;
+      const hsId = refAt9(clipLine, 2);
+      if (hsId !== undefined && ents9.some(l => l.startsWith(`#${hsId}=IFCPOLYGONALBOUNDEDHALFSPACE(`))) n++;
+    }
+    return n;
+  }
+
+  check("a flat wall's body representation stays 'SweptSolid'",
+    !!wallShapeRep9(flatWall.id)?.includes("'SweptSolid'"), wallShapeRep9(flatWall.id) ?? "");
+  check("a flat wall emits no IfcBooleanClippingResult", halfSpacesOf9(flatWall.id) === 0);
+
+  check("a sloped wall's body representation becomes 'Clipping'",
+    !!wallShapeRep9(valleyWall.id)?.includes("'Clipping'"), wallShapeRep9(valleyWall.id) ?? "");
+  check("a valley profile emits exactly two bounded half-spaces",
+    halfSpacesOf9(valleyWall.id) === 2, String(halfSpacesOf9(valleyWall.id)));
+  check("a plateau at the wall's own max clips only its two sloped flanks, not its flat middle",
+    halfSpacesOf9(plateauWall.id) === 2, String(halfSpacesOf9(plateauWall.id)));
+
+  check("no IfcHalfSpaceSolid is emitted unbounded (every clip is polygon-bounded)",
+    !out9.includes("=IFCHALFSPACESOLID("));
+
+  // ── Qto_WallBaseQuantities on a sloped wall ───────────────────────────────
+  function parsedQto9(wallId: string): { Height?: number; GrossVolume?: number } {
+    const guid = ifcGuid(seed9, `${wallId}:qto`);
+    const line = ents9.find(l => l.includes(`=IFCELEMENTQUANTITY('${guid}'`));
+    if (!line) return {};
+    const out: { Height?: number; GrossVolume?: number } = {};
+    for (const id of argRefs9(line).slice(1)) {
+      const qLine = ents9.find(l =>
+        l.startsWith(`#${id}=IFCQUANTITYLENGTH(`) || l.startsWith(`#${id}=IFCQUANTITYVOLUME(`));
+      const m = qLine
+        ? /^#\d+=IFCQUANTITY(?:LENGTH|VOLUME)\('([^']*)',\$,\$,(-?\d+\.?\d*(?:E[+-]?\d+)?),\$\);$/.exec(qLine)
+        : null;
+      if (m && m[1] === "Height") out.Height = Number(m[2]!);
+      if (m && m[1] === "GrossVolume") out.GrossVolume = Number(m[2]!);
+    }
+    return out;
+  }
+  const valleyL = wallLength(floor9, valleyWall);
+  const expectedHeight9 = wallTopRange(floor9, valleyWall, valleyL).max;
+  const expectedGross9 = (wallAreaUnder(floor9, valleyWall, valleyL, 0, valleyL) * valleyWall.thickness) / 1e9;
+  const qto9 = parsedQto9(valleyWall.id);
+  check("Qto_WallBaseQuantities.Height is the wall's own top, not the flat ends",
+    qto9.Height === expectedHeight9, `${qto9.Height} vs ${expectedHeight9}`);
+  check("Qto_WallBaseQuantities.GrossVolume reads the area under the profile, not length x height",
+    qto9.GrossVolume !== undefined && Math.abs(qto9.GrossVolume - expectedGross9) < 1e-9,
+    `${qto9.GrossVolume} vs ${expectedGross9}`);
 }
 
 console.log(failures === 0 ? "ALL IFC TESTS PASSED" : `${failures} FAILURES`);
