@@ -269,6 +269,18 @@ export interface Wall {
    * every consumer outside this phase keep reading `wallHeight()`.
    */
   profile?: ProfilePoint[];
+  /**
+   * A framed wall built as more than one stacked frame: heights above this
+   * storey's floor, integer mm, ascending, where the frame breaks -- a loft
+   * wall standing on the frame below it, say. Absent or empty means one
+   * frame, floor to top. Bands are [0, b1], [b1, b2], ..., [bn, top]: every
+   * band below the last has its own flat top at its break height; only the
+   * last band follows `profile`. A break is a double plate -- the band
+   * below's own top plate and the band above's own bottom plate, not one
+   * shared piece. Read and clamped through model/profile.ts's
+   * clampFrameBreaks(), never directly. Only meaningful with `postMm`.
+   */
+  frameBreaksMm?: number[];
 }
 
 /** True when the wall's body is glazed, and so drawn as faces rather than fill. */

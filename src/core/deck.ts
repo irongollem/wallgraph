@@ -2,7 +2,7 @@
 // its joists stand, the heights it occupies and the prisms it is built from all
 // follow from the anchor, the rotation and the figures in model/deck.ts.
 import { Deck, bearingOf } from "../model/deck";
-import { Vec, v } from "../geometry/vec";
+import { Vec, v, distToSeg } from "../geometry/vec";
 import { boxCorners, boxHit, worldPoint, type LocalBox } from "./placed";
 
 /** Local bounds. The anchor is the centre, so the box is symmetric both ways. */
@@ -14,6 +14,33 @@ export function deckCorners(d: Deck): Vec[] { return boxCorners(d, deckBox(d)); 
 
 export function deckHit(d: Deck, p: Vec, margin = 0): boolean {
   return boxHit(d, deckBox(d), p, margin);
+}
+
+/** Meets-tolerance for deckMeetsWall(): a deck sits INSET from the walls it
+ *  spans between (its outline is the clear platform, not the wall faces), so
+ *  "touches" allows a small gap rather than requiring an exact crossing. */
+const DECK_WALL_TOL_MM = 60;
+
+/**
+ * Whether this deck's outline meets a wall's centerline, within
+ * DECK_WALL_TOL_MM -- offered as the default height for "at deck height" in
+ * the wall pane's frame-break row (ui/panel.ts). Checked as the closest
+ * distance between the wall's segment and each of the deck's four edges,
+ * both ways (endpoint to segment), which is enough for the near-rectangular,
+ * near-axis-aligned case this is used for without a general segment-segment
+ * distance routine.
+ */
+export function deckMeetsWall(d: Deck, a: Vec, b: Vec, tolMm = DECK_WALL_TOL_MM): boolean {
+  const poly = deckCorners(d);
+  for (let i = 0; i < poly.length; i++) {
+    const c0 = poly[i]!, c1 = poly[(i + 1) % poly.length]!;
+    const dists = [
+      distToSeg(a, c0, c1).d, distToSeg(b, c0, c1).d,
+      distToSeg(c0, a, b).d, distToSeg(c1, a, b).d,
+    ];
+    if (Math.min(...dists) <= tolMm) return true;
+  }
+  return false;
 }
 
 /** Height of the word on the drawing, mm. */

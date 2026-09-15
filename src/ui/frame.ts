@@ -88,7 +88,9 @@ function dimLabel(ctx: CanvasRenderingContext2D, vp: Viewport, at: Vec, text: st
 function drawDimensions(ctx: CanvasRenderingContext2D, vp: Viewport, layout: FrameLayout): void {
   const belowY = layout.heightMm + DIM_GAP_MM;
   const leftX = -DIM_GAP_MM;
-  const aboveY = -DIM_GAP_MM / 2;
+  // Opening widths stand above the frame's highest point; half a gap put the
+  // label on a gable's peak.
+  const aboveY = -DIM_GAP_MM;
 
   ctx.save();
   ctx.strokeStyle = COLORS.dimension;

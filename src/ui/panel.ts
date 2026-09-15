@@ -22,7 +22,7 @@ import {
   wallHeight, openingSill, openingHeight, projectOf,
   sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS,
   doorKindOf, DOOR_KINDS, widthsFor, DOOR_WIDTHS_DOUBLE, FIRE_KINDS, FIRE_MINUTES,
-  FIRE_MINUTES_DEFAULT, routesOf, furnishingsOf, WALL_MATERIALS, POST_DEFAULT_MM, POST_WIDTH_DEFAULT,
+  FIRE_MINUTES_DEFAULT, routesOf, furnishingsOf, decksOf, WALL_MATERIALS, POST_DEFAULT_MM, POST_WIDTH_DEFAULT,
   FACADE_DEFAULT_MM, facadeSideOf, wallPostMm,
   isBlockMaterial, LINING_DEFAULT, BLOCK_DEFAULT_MM, PANEL_DEFAULT_MM,
   clampLiningBoard, clampLiningLayers, clampBlockLength, clampBlockHeight, clampNoggingRows, clampPanel,
@@ -52,8 +52,10 @@ import { renderFrameButton, openFrameDialog } from "./frame";
 import { floorSurface, type WallSurface } from "../core/surface";
 import {
   gableProfile, leanToProfile, addProfilePoint, clampProfile,
+  clampFrameBreaks, defaultFrameBreak,
 } from "../model/profile";
 import { topMismatches } from "../core/profile";
+import { deckMeetsWall } from "../core/deck";
 import { envelopeTakeoff, type EnvelopeTakeoff } from "../core/energy";
 import { floorMaterials, type FloorMaterials } from "../core/materials";
 import {
@@ -2143,6 +2145,56 @@ export class Panel {
   }
 
   /**
+   * A framed wall built as more than one stacked frame: a row per break
+   * (height, delete), an "add break" row, and an "at deck height" row when a
+   * deck on this storey has a stated top and its outline meets the wall's
+   * centerline -- see core/deck.ts's deckMeetsWall(). Every edit through
+   * store.mutate() with clampFrameBreaks() after, the way the profile points
+   * above are edited. Only shown for a framed wall (the caller already
+   * guards on wallPostMm(w)).
+   */
+  private renderFrameBreaks(rows: PaneRows, w: Wall, wid: Id): void {
+    const { numRow, btnRow, noteRow } = rows;
+    const f = this.store.floor;
+    const mutWall = (fn: (fl: Floor, wall: Wall) => void): void => this.store.mutate(d => {
+      const fl = this.store.floorOf(d);
+      const wall = fl.walls.find(x => x.id === wid);
+      if (!wall) return;
+      fn(fl, wall);
+      clampFrameBreaks(fl, wall);
+    });
+
+    const breaks = w.frameBreaksMm ?? [];
+    if (breaks.length > 0) {
+      breaks.forEach((mm, index) => {
+        numRow(t("frame.breakHeight", { n: index + 1 }), mm, n => mutWall((_fl, wall) => {
+          if (wall.frameBreaksMm?.[index] !== undefined) wall.frameBreaksMm[index] = Math.round(n);
+        }), 50);
+        btnRow(t("frame.breakRemove", { n: index + 1 }), () => mutWall((_fl, wall) => {
+          if (wall.frameBreaksMm) wall.frameBreaksMm = wall.frameBreaksMm.filter((_, i) => i !== index);
+        }));
+      });
+      noteRow(t("frame.breakHelp"));
+    }
+    btnRow(t("frame.breakAdd"), () => mutWall((fl, wall) => {
+      const added = defaultFrameBreak(fl, wall, wallLength(fl, wall));
+      wall.frameBreaksMm = [...(wall.frameBreaksMm ?? []), added];
+    }));
+
+    const an = f.nodes.find(n => n.id === w.a), bn = f.nodes.find(n => n.id === w.b);
+    if (an && bn) {
+      const A = v(an.x, an.y), B = v(bn.x, bn.y);
+      const deck = decksOf(f).find(d => d.topMm !== undefined && deckMeetsWall(d, A, B));
+      if (deck?.topMm !== undefined) {
+        const topMm = deck.topMm;
+        btnRow(t("frame.breakAtDeck", { mm: Math.round(topMm) }), () => mutWall((_fl, wall) => {
+          wall.frameBreaksMm = [...(wall.frameBreaksMm ?? []), Math.round(topMm)];
+        }));
+      }
+    }
+  }
+
+  /**
    * The wall's top profile: the "Hellend" toggle, a row per point with a
    * delete button, an "add point" row, and the Gable/Lean-to presets --
    * every edit through store.mutate() with clampProfile() after, the way
@@ -2719,6 +2771,9 @@ export class Panel {
           if (!wall) return;
           if (on) wall.insulated = true; else delete wall.insulated;
         }));
+        // A wall built as more than one stacked frame -- see model/profile.ts's
+        // clampFrameBreaks() and core/frame.ts's frameLayout().
+        this.renderFrameBreaks(rows, w, sel.id);
       }
       // Panel width along the wall, only meaningful on a sandwich body.
       if (w.material === "sandwich") {

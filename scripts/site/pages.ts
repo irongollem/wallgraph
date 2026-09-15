@@ -404,6 +404,15 @@ geen bestellijst en geen controle op wat een aannemer daadwerkelijk nodig heeft.
 zijaanzicht van het regelwerk op ware schaal, met onder- en bovenregel, stijlen, kozijnstijlen,
 onderstijlen, klossen, aansluitstijlen en de sparingen zoals ze in de muur staan, elk gerekend zoals de
 materiaalstaat ze telt. Het aanzicht volgt de muur mee terwijl het openstaat en is als SVG te downloaden.</p>
+<p>Onder een hellende bovenkant volgt het regelwerk het profiel: elke stijl, kozijnstijl en aansluitstijl is
+gesneden op de hoogte van zijn hoogste kant min de platen, zodat niets te kort wordt besteld, en de
+bovenregel bestaat uit één schuine regel per recht stuk van het profiel, in lengte langs de helling. Een
+muur mag als meer dan één regelwerk boven elkaar staan: het paneel biedt een Framebreuk-rij per opgegeven
+hoogte en een knop om er een toe te voegen, desgewenst op de hoogte van een balklaag die de muur raakt.
+Elke breuk levert een dubbele regel — de bovenregel van het regelwerk eronder en de onderregel van het
+regelwerk erboven — en alleen het bovenste regelwerk volgt de helling; regelwerk daaronder blijft vlak op
+zijn eigen breukhoogte. Past een stijl op geen standaardstaflengte, dan meldt de materiaalstaat ook op welke
+hoogte een breuk elke stijl weer zou laten passen.</p>
 
 <h2 id="selecteren">Selecteren, verplaatsen, krommen</h2>
 <p><kbd>V</kbd> activeert het selectiegereedschap voor knopen, muren en symbolen. Een geselecteerde muur
@@ -841,6 +850,14 @@ order, and no check on what a contractor actually needs.</p>
 elevation of the frame at true scale, with the bottom and top plate, studs, king studs, jack studs,
 noggings, backing and the openings as drawn in the wall, each counted the way the materials takeoff
 counts them. The elevation follows the wall while it stays open and downloads as SVG.</p>
+<p>Under a sloped top the frame follows the profile: every stud, king stud and backing stud is cut to the
+height at its own higher edge, less the plates, so nothing is ever ordered short, and the top plate is one
+raked plate per straight run of the profile, its length measured along the slope. A wall may stand as more
+than one frame stacked: its panel offers a frame-break row per stated height and a button to add one,
+optionally at the height of a deck that touches the wall. Each break yields a double plate — the frame
+below's own top plate and the frame above's own bottom plate — and only the topmost frame follows the
+slope; a frame below a break stays flat at its own break height. Where a stud fits no stock length, the
+materials takeoff also states the height a break would let it fit at.</p>
 
 <h2 id="select">Selecting, moving, curving</h2>
 <p><kbd>V</kbd> activates selection and dragging for nodes, walls and symbols. A selected wall displays

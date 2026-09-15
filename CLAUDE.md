@@ -342,6 +342,27 @@ a door because it is counted whole and cut out after standing; a run-end nogging
 centre-to-centre cut and overlaps the end stud by half a post. Verified by
 [tests/frame.test.ts](tests/frame.test.ts).
 
+**A wall under a sloped top is cut to the profile, never to a flat height.** `frameLayout()` reads
+`wallTopAt()`/`wallTopPolyline()` (model/profile.ts) off a member's own `x`, the same centerline mm an
+opening's `t` is: a stud, king or backing stud is cut to its HIGHER edge across its own width, so nothing
+is ever ordered short of the roofline crossing it, and carries the resulting `slope` for the elevation to
+draw a cut line with. The top plate is one raked, spliceable member per straight run of the profile
+(`rakedTopPlateSegments()`), its length `hypot(Δx, Δh)` rounded up; a flat wall reduces to exactly the one
+flat plate it always cut, which is what keeps a flat wall's layout unchanged. `Wall.frameBreaksMm` stacks
+more than one such frame: `bandsOf()` turns the breaks into bands `[0, b1], [b1, b2], ..., [bn, top]`,
+every band but the last flat at its own break height and getting its own bottom AND top plate (a break is
+a double plate, never one shared piece), and only the last band following the profile. An opening is
+framed whole in the band holding its head (`bandForHead()`); one whose sill-to-head range crosses a break
+is listed in `openingsAcrossBreak`, not moved. **Each band divides its own runs**, cut only around the
+openings that reach into IT (`bandOverlapsOpening()`, `bandRunIntervals()`) -- a window framed in a lower
+band cuts no run out of a band above it, so that band's studs and noggings run clear across at the same
+equal-bay division `postBays()` gives anywhere else. This is also why an upper band's studs are NOT the
+plan's drawn posts: the plan is a section through the lowest band, and only that band's own runs are
+built from `rw.intervals` unchanged, which is what keeps an ordinary (unbanded) wall's studs and its
+takeoff agreeing exactly. `FrameLayout.suggestedBreaksMm` reports the smallest number
+of equal-height breaks that would let every stud fit `stockLengths()`'s longest entry, at the profile's
+worst case — reported beside the unfit members, never applied.
+
 **A deck is the vide's counterpart: floor put where the storey has none.** `Floor.decks`
 ([model/deck.ts](src/model/deck.ts)) is a rectangle placed at its centre whose box is the clear span
 between the supports. `deckJoistsLocal()` in [core/deck.ts](src/core/deck.ts) sets the joists out from
@@ -575,8 +596,8 @@ before changing one:
 
 - Varying-thickness walls; a wall is one thickness, not a material build-up. A facade and a
   lining are skins outside that thickness, not layers within it.
-- A wall's top profile is read by the wall surface, 3D, IFC and energy; the frame and the materials
-  takeoff still read `wallHeight()` (#56), and there is no roof surface for it to agree with (#57).
+- A wall's top profile is read by the wall surface, 3D, IFC, energy, the frame and the materials
+  takeoff; there is no roof surface for it to agree with yet (#57).
 - Exact wall-to-arc miters (tangent-line approximation instead).
 - Stair figures are reported, never enforced; a stair does not snap to a wall the way a
   wall-mounted symbol does.

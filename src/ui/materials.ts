@@ -165,6 +165,23 @@ function maxStock(store: Store): number {
 }
 
 /**
+ * The longest non-spliceable member in a takeoff -- a representative "this
+ * is the stud that doesn't fit" figure for FrameLayout.suggestedBreaksMm's
+ * warning. Correct whenever the suggestion is present at all: if a shorter
+ * member fits no stock length, the longest one present cannot fit it
+ * either.
+ */
+function worstStudLength(members: readonly Member[]): number {
+  let max = 0;
+  for (const m of members) if (!m.spliceable && m.lengthMm > max) max = m.lengthMm;
+  return max;
+}
+
+function breaksLabel(breaksMm: readonly number[]): string {
+  return breaksMm.map(b => `${Math.round(b)} mm`).join(", ");
+}
+
+/**
  * The read-only takeoff: per system, its members, the nested buy list and
  * the board/insulation/block/panel quantities, then a warn row for every
  * member that fits no stock length and every wall missing a fact its system
@@ -243,6 +260,15 @@ export function renderMaterialTakeoff(
       rows.warnRow(t("materials.incomplete", { wall: wallLabel(w.lengthMm), field: t(INCOMPLETE_FIELD_KEY[field]) }));
     }
   }
+  for (const w of takeoff.walls) {
+    if (w.suggestedBreaksMm && w.suggestedBreaksMm.length > 0) {
+      shown = true;
+      rows.warnRow(t("materials.suggestBreak", {
+        wall: wallLabel(w.lengthMm), length: Math.round(worstStudLength(w.members)),
+        at: breaksLabel(w.suggestedBreaksMm),
+      }));
+    }
+  }
   if (!shown) rows.noteRow(t("materials.nothing"));
 }
 
@@ -271,5 +297,10 @@ export function renderWallMaterial(
   figureRows(rows, wt);
   for (const field of wt.incomplete) {
     rows.warnRow(t("materials.incompleteField", { field: t(INCOMPLETE_FIELD_KEY[field]) }));
+  }
+  if (wt.suggestedBreaksMm && wt.suggestedBreaksMm.length > 0) {
+    rows.warnRow(t("materials.suggestBreakField", {
+      length: Math.round(worstStudLength(wt.members)), at: breaksLabel(wt.suggestedBreaksMm),
+    }));
   }
 }

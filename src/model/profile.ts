@@ -146,3 +146,49 @@ export function addProfilePoint(f: Floor, w: Wall, L: number): ProfilePoint {
   }
   return { t: bestMid, height: Math.round(wallTopAt(f, w, bestMid)) };
 }
+
+// ── stacked frames: frame breaks ────────────────────────────────────────
+//
+// A break is a HEIGHT above the floor, not a position along the wall, so it
+// carries across a split or a merge unchanged the way `height` itself does
+// -- see model/ops.ts's splitWall() and core/join.ts's mergeThrough(). Only
+// its range depends on the wall's own geometry (the top profile), which is
+// why the clamp lives here beside clampProfile() rather than as a bare
+// clampInt in doc.ts.
+
+/** Margin kept between a break and the floor, and between a break and the
+ *  wall's own highest point -- enough for a post width either side, so a
+ *  band is never asked to carry a stud of zero or negative length. */
+export const FRAME_BREAK_MARGIN_MM = 200;
+
+/**
+ * Clamp a wall's frame breaks in place: integer mm, ascending, deduplicated,
+ * each kept `FRAME_BREAK_MARGIN_MM` clear of the floor and of the wall's own
+ * highest point (`wallTopRange().max`) -- a break may stand ABOVE the
+ * profile's lowest point (a gable's eaves, say): the band above it then
+ * simply has no members over the span where the profile dips below it (see
+ * frameLayout()), which is reported rather than refused. Mirrors
+ * clampProfile(); a no-op on a wall with no breaks.
+ */
+export function clampFrameBreaks(f: Floor, w: Wall): void {
+  if (!w.frameBreaksMm || w.frameBreaksMm.length === 0) return;
+  const L = wallLength(f, w);
+  const top = wallTopRange(f, w, L).max;
+  const lo = FRAME_BREAK_MARGIN_MM;
+  const hi = Math.max(lo + 1, top - FRAME_BREAK_MARGIN_MM);
+  const set = new Set<number>();
+  for (const b of w.frameBreaksMm) set.add(clampInt(b, lo, hi));
+  const cleaned = [...set].sort((a, b) => a - b);
+  if (cleaned.length > 0) w.frameBreaksMm = cleaned; else delete w.frameBreaksMm;
+}
+
+/**
+ * Where "add break" lands: the middle of the wall's own lowest top (the
+ * eaves height on a gable, the wall height on a flat wall), rounded to 10 mm
+ * -- so the default sits comfortably under the profile everywhere rather
+ * than risking the margin clampFrameBreaks() enforces at the top.
+ */
+export function defaultFrameBreak(f: Floor, w: Wall, L: number): number {
+  const min = wallTopRange(f, w, L).min;
+  return Math.round(min / 2 / 10) * 10;
+}

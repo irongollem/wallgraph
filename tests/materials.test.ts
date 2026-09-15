@@ -482,5 +482,73 @@ function backingCountOf(walls: WallTakeoff[]): number {
   check("the new stud length reflects the new post width", afterStud === H - 2 * 60);
 }
 
+// ---- stacked frames: a break is a double plate in the takeoff too ---------
+//
+// A 4000mm wall, storey height 2600, gabled to a 4600 peak at the midpoint,
+// with a break at 2600 (the eaves height): the lower band is the old
+// single-frame layout, the upper band a triangular one following the
+// profile. WallTakeoff.members carries no position, only shape, so the
+// THREE flat plates (the lower band's own bottom and top, and the upper
+// band's own bottom -- all the same length) merge into one entry, and the
+// upper band's two raked segments (same length as each other, by symmetry)
+// merge into a second.
+
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.height = H;
+  const n1 = newId("n"), n2 = newId("n");
+  f.nodes = [{ id: n1, x: 0, y: 0 }, { id: n2, x: W, y: 0 }];
+  const w: Wall = {
+    id: newId("w"), a: n1, b: n2, thickness: FRAME_TH, bulge: 0, openings: [],
+    material: "timber", postMm: POST_MM, postWidthMm: POST_WIDTH,
+    profile: [{ t: W / 2, height: 4600 }], frameBreaksMm: [H],
+  };
+  f.walls = [w];
+  const { m } = materialsOf(doc, f);
+  const wt = m.walls.find(x => x.wallId === w.id)!;
+
+  const studs = wt.members.filter(x => x.name === "stud");
+  check("a stacked frame yields many distinct stud lengths -- the sloped upper band",
+    new Set(studs.map(s => s.lengthMm)).size > 2, String([...new Set(studs.map(s => s.lengthMm))]));
+  check("the flat lower band's stud length (storey height less two plates) is among them",
+    studs.some(s => s.lengthMm === H - 2 * POST_WIDTH));
+
+  const plates = wt.members.filter(x => x.name === "plate");
+  const flatPlate = plates.find(p => p.lengthMm === W);
+  check("the three flat plates (lower bottom, lower top, upper bottom) merge into one entry",
+    flatPlate !== undefined && flatPlate.count === 3, JSON.stringify(flatPlate));
+  const rakedPlate = plates.find(p => near(p.lengthMm, Math.hypot(2000, 2000), 1));
+  check("the upper band's two raked top-plate segments merge into a second entry",
+    rakedPlate !== undefined && rakedPlate.count === 2, JSON.stringify(rakedPlate));
+
+  const framed = m.bySystem.find(x => x.system === "framed-timber")!;
+  check("nest() handles the raked plate length without error", framed.nested.totalMm > 0);
+  check("a spliceable raked plate never lands in unfit",
+    framed.nested.unfit.every(u => u.name !== "plate"));
+}
+
+// ---- suggested frame breaks: reported when a stud fits no stock length ----
+
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.height = 7000; // taller than every default stock length
+  const n1 = newId("n"), n2 = newId("n");
+  f.nodes = [{ id: n1, x: 0, y: 0 }, { id: n2, x: W, y: 0 }];
+  const w: Wall = {
+    id: newId("w"), a: n1, b: n2, thickness: FRAME_TH, bulge: 0, openings: [],
+    material: "timber", postMm: POST_MM, postWidthMm: POST_WIDTH,
+  };
+  f.walls = [w];
+  const { m } = materialsOf(doc, f);
+  const wt = m.walls.find(x => x.wallId === w.id)!;
+  const stud = wt.members.find(x => x.name === "stud")!;
+  check("a 7000mm wall's studs fit no default stock length (longest is 6000)",
+    stud.lengthMm > 6000, String(stud.lengthMm));
+  check("suggestedBreaksMm proposes the smallest break that would make every stud fit: 3500",
+    JSON.stringify(wt.suggestedBreaksMm) === JSON.stringify([3500]), JSON.stringify(wt.suggestedBreaksMm));
+}
+
 console.log(failures === 0 ? "ok" : `FAIL (${failures} failures)`);
 process.exit(failures === 0 ? 0 : 1);

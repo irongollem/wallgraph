@@ -54,6 +54,12 @@ export function splitWall(f: Floor, w: Wall, tMm: number): PlanNode | null {
     ...w,
     id: newId("w"), a: mid.id, b: w.b, bulge: bulge2, openings: [],
     ...(w.fireRating ? { fireRating: { ...w.fireRating } } : {}),
+    // Frame breaks are HEIGHTS, not positions -- both halves stand at the
+    // same heights the whole wall did, so they carry over unchanged. Cloned
+    // rather than shared: the panel edits a break by index in place (the
+    // way it edits a profile point), and the spread above would otherwise
+    // leave both halves pointing at the one array.
+    ...(w.frameBreaksMm ? { frameBreaksMm: [...w.frameBreaksMm] } : {}),
   };
   w.b = mid.id;
   w.bulge = bulge1;

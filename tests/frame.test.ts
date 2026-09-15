@@ -320,5 +320,240 @@ function comboWall(): { doc: PlanDoc; f: Floor; w: Wall } {
   check("the replay draws nothing outside the frame's bounds", outside.length === 0, JSON.stringify(outside.slice(0, 3)));
 }
 
+// ---- a sloped top: every stud cut to its own higher edge, raked plates ------
+//
+// A 4000mm gable at 600mm centres, eaves at the storey height (2600) and a
+// peak of 4600 at the midpoint -- the isolated wall's own faces equal its
+// centerline length exactly (no neighbours to miter against), so Lf === LEN
+// and a member's x reads directly off the same profile this hand formula
+// reproduces.
+
+/** The gable's own top, independent of wallTopAt() -- linear from 2600 at
+ *  each end to 4600 at the midpoint. */
+function gableTop(x: number): number {
+  return 2600 + Math.min(x, LEN - x);
+}
+function higherEdge(x: number, w: number): number {
+  return Math.max(gableTop(x), gableTop(x + w));
+}
+
+{
+  const { f, w } = straightWall();
+  w.profile = [{ t: LEN / 2, height: 4600 }];
+  const { layout } = layoutOf(f, w);
+  check("Lf equals the centerline length for an isolated wall", layout.lengthMm === LEN, String(layout.lengthMm));
+
+  const studs = layout.members.filter(m => m.name === "stud");
+  check("still 8 studs under a sloped top", studs.length === 8, String(studs.length));
+  let expectedTotal = 0, actualTotal = 0;
+  for (const s of studs) {
+    const expected = Math.floor(higherEdge(s.x, s.w) - 2 * POST_WIDTH);
+    check(`stud at x=${s.x.toFixed(1)} is cut to its higher edge, rounded down`,
+      s.lengthMm === expected, `${s.lengthMm} vs ${expected}`);
+    check(`stud at x=${s.x.toFixed(1)} carries lengthMm === h`, s.h === s.lengthMm);
+    expectedTotal += expected;
+    actualTotal += s.lengthMm;
+  }
+  check("total stud length matches a hand sum", actualTotal === expectedTotal, `${actualTotal} vs ${expectedTotal}`);
+  check("no stud stands above the wall's overall top",
+    studs.every(s => s.y + s.h <= layout.heightMm + 1));
+
+  const plates = layout.members.filter(m => m.name === "plate" && m.slope !== undefined);
+  check("the raked top plate is one member per straight profile segment (two, either side of the peak)",
+    plates.length === 2, String(plates.length));
+  for (const p of plates) {
+    check(`raked plate at x=${p.x.toFixed(1)} runs the slope length hypot(2000, 2000)`,
+      near(p.lengthMm, Math.hypot(2000, 2000), 1), String(p.lengthMm));
+    check("a raked plate is spliceable", p.spliceable === true);
+  }
+  check("the bottom plate is unchanged (flat, no slope)",
+    layout.members.some(m => m.name === "plate" && m.slope === undefined && near(m.y, 0, 1)));
+
+  check("no member of a sloped frame is shorter than the space it fills",
+    studs.every(s => s.lengthMm >= higherEdge(s.x, s.w) - 2 * POST_WIDTH - 1));
+}
+
+// ---- a flat wall's layout is unchanged by the sloped-top machinery --------
+
+{
+  const { f, w } = straightWall();
+  const flat = layoutOf(f, w).layout;
+  w.profile = [{ t: 0, height: 2600 }, { t: LEN, height: 2600 }]; // stated but flat
+  const stillFlat = layoutOf(f, w).layout;
+  check("a stated-but-flat profile gives the same member count as no profile at all",
+    flat.members.length === stillFlat.members.length);
+  check("every member is unaffected: no slope anywhere on a flat top",
+    stillFlat.members.every(m => m.slope === undefined));
+  const flatPlates = flat.members.filter(m => m.name === "plate");
+  const stillFlatPlates = stillFlat.members.filter(m => m.name === "plate");
+  check("still exactly two plates", stillFlatPlates.length === 2 && flatPlates.length === 2);
+  check("the top plate's length is unchanged", near(
+    stillFlatPlates.find(p => p.y > 0)!.lengthMm, flatPlates.find(p => p.y > 0)!.lengthMm, 0.01));
+}
+
+// ---- a valley profile: the top dips, plates rake down then up -------------
+
+{
+  const { f, w } = straightWall();
+  w.profile = [{ t: LEN / 2, height: 1400 }]; // eaves 2600, valley 1400 at the midpoint
+  const { layout } = layoutOf(f, w);
+  const studs = layout.members.filter(m => m.name === "stud");
+  const nearEnd = studs.find(s => near(s.x, 0, 1))!;
+  const nearValley = studs.reduce((a, b) => (Math.abs(a.x + a.w / 2 - LEN / 2) < Math.abs(b.x + b.w / 2 - LEN / 2) ? a : b));
+  check("a stud near the valley is shorter than one near the eaves",
+    nearValley.lengthMm < nearEnd.lengthMm, `${nearValley.lengthMm} vs ${nearEnd.lengthMm}`);
+
+  const plates = layout.members.filter(m => m.name === "plate" && m.slope !== undefined);
+  check("a valley also breaks the top plate into two raked segments", plates.length === 2, String(plates.length));
+  check("one segment slopes down toward the valley, the other up out of it",
+    plates.some(p => p.slope! < 0) && plates.some(p => p.slope! > 0));
+}
+
+// ---- a break above the lowest top: no upper-band members over the eaves ---
+//
+// A gable end (eaves 2600, peak 4600 at the midpoint) with a break at 3000 --
+// above the eaves. The lower band is unaffected (flat, full length); the top
+// band does not exist wherever the profile dips below 3000, which happens
+// within 400mm of each end (2600 + 400 = 3000).
+
+{
+  const { f, w } = straightWall();
+  w.profile = [{ t: LEN / 2, height: 4600 }];
+  w.frameBreaksMm = [3000];
+  const { layout } = layoutOf(f, w);
+
+  const lowerStuds = layout.members.filter(m => m.name === "stud" && near(m.y, POST_WIDTH, 1));
+  check("the lower band still has its own end stud at the wall's own start",
+    lowerStuds.some(s => near(s.x, 0, 1)));
+  check("the lower band still has its own end stud at the wall's own end",
+    lowerStuds.some(s => near(s.x + s.w, LEN, 1)));
+
+  const upperFull = layout.members.filter(m =>
+    (m.name === "stud" || m.name === "king" || m.name === "backing") && m.y >= 3000 - 0.5);
+  check("no upper-band member stands over the left eave span (x + w <= 400)",
+    upperFull.every(m => m.x + m.w > 400));
+  check("no upper-band member stands over the right eave span (x >= 3600)",
+    upperFull.every(m => m.x < 3600));
+  check("the upper band does have members nearer the peak", upperFull.length > 0);
+
+  const plates = layout.members.filter(m => m.name === "plate");
+  check("a break is a double plate: the lower band's own top plate at 2962",
+    plates.some(p => near(p.y, 3000 - POST_WIDTH, 1) && p.slope === undefined));
+  check("and the upper band's own bottom plate at 3000",
+    plates.some(p => near(p.y, 3000, 1)));
+}
+
+// ---- stacked frames: a flat lower frame and a triangular upper one --------
+//
+// The eaves height (2600) itself as the break: the lower band is exactly the
+// old single-frame layout at 2600, and the upper band -- following the
+// profile from 2600 up to the 4600 peak -- spans almost the whole wall.
+
+{
+  const { f, w } = straightWall({ height: 2600 });
+  w.profile = [{ t: LEN / 2, height: 4600 }];
+  w.frameBreaksMm = [2600];
+  const { layout } = layoutOf(f, w);
+
+  const lowerStuds = layout.members.filter(m => m.name === "stud" && near(m.y, POST_WIDTH, 1));
+  check("every lower-band stud is exactly the flat-frame length (2600 less two plates)",
+    lowerStuds.length > 0 && lowerStuds.every(s => s.lengthMm === 2600 - 2 * POST_WIDTH));
+
+  const upperStuds = layout.members.filter(m => m.name === "stud" && near(m.y, 2600 + POST_WIDTH, 1));
+  check("the upper band has studs of its own", upperStuds.length > 0);
+  check("the upper band's studs vary in length -- they follow the profile",
+    new Set(upperStuds.map(s => s.lengthMm)).size > 1);
+  check("every upper-band stud carries a slope", upperStuds.every(s => s.slope !== undefined));
+
+  const plates = layout.members.filter(m => m.name === "plate");
+  check("two plates at the break: the lower band's own top plate at 2562",
+    plates.some(p => near(p.y, 2600 - POST_WIDTH, 1)));
+  check("and the upper band's own bottom plate at 2600",
+    plates.some(p => near(p.y, 2600, 1) && p.h === POST_WIDTH));
+}
+
+// ---- an opening crossing a break is listed, and framed in the head's band -
+
+{
+  const { f, w } = straightWall();
+  w.frameBreaksMm = [1500];
+  const door = opening({ kind: "door", t: 2000, width: 900, sillHeight: 0, height: 2000 }); // 0..2000 crosses 1500
+  w.openings = [door];
+  const { layout } = layoutOf(f, w);
+  check("an opening whose sill-to-head range crosses a break is listed",
+    layout.openingsAcrossBreak.includes(door.id));
+
+  const head = 2000;
+  check("its header is framed in the band holding its head (above the break)",
+    layout.members.some(m => m.name === "header" && near(m.y, head, 1)));
+  check("its jack studs stand on the break's own band, not the floor",
+    layout.members.some(m => m.name === "jack" && near(m.y, 1500 + POST_WIDTH, 1)));
+}
+
+// ---- a band divides its OWN runs -- a window in a lower band leaves no gap
+// ---- in the band above it -------------------------------------------------
+//
+// Regression for a bug where every band reused rw.intervals (cut around
+// EVERY wall opening) instead of cutting only around the openings that
+// overlap that band: the upper band here has no opening of its own -- the
+// window's head (2100) sits below the break (2600) -- so it must run clear
+// across, with a stud within one bay width of everywhere and a nogging in
+// every bay, the same as an ordinary unbanded wall would.
+
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.height = 2800;
+  const n1 = newId("n"), n2 = newId("n");
+  f.nodes = [{ id: n1, x: 0, y: 0 }, { id: n2, x: 4000, y: 0 }];
+  const win = opening({ kind: "window", t: 2000, width: 1200, sillHeight: 900, height: 1200 });
+  const w: Wall = {
+    id: newId("w"), a: n1, b: n2, thickness: FRAME_TH, bulge: 0, openings: [win],
+    material: "timber", postMm: POST_MM, postWidthMm: POST_WIDTH, noggingRows: 1,
+    profile: [{ t: 2000, height: 4600 }], frameBreaksMm: [2600],
+  };
+  f.walls = [w];
+  const { layout } = layoutOf(f, w);
+
+  const upper = layout.members.filter(m => m.y >= 2600 - 0.5);
+  const studXs = upper.filter(m => m.name === "stud").map(m => m.x + m.w / 2).sort((a, b) => a - b);
+  check("the window (head 2100, below the break at 2600) is not framed in the upper band",
+    upper.every(m => m.name !== "king" && m.name !== "jack" && m.name !== "header" && m.name !== "sill"));
+  check("the upper band has a stud within one bay width (600mm) of the wall's own start",
+    studXs.length > 0 && studXs[0]! <= 600);
+  check("the upper band has a stud within one bay width of the wall's own end",
+    studXs.length > 0 && LEN - studXs[studXs.length - 1]! <= 600);
+  for (let i = 1; i < studXs.length; i++) {
+    check(`no gap wider than one bay width between studs at ${studXs[i - 1]!.toFixed(0)} and ${studXs[i]!.toFixed(0)}`,
+      studXs[i]! - studXs[i - 1]! <= 600 + 1);
+  }
+  check("a stud stands under the peak (within 300mm of x=2000)",
+    studXs.some(x => Math.abs(x - 2000) <= 300));
+
+  // 4000mm at 600mm centres is 7 equal bays (widthMm = 4000/7).
+  const bayWidth = LEN / 7;
+  const noggingXs = upper.filter(m => m.name === "nogging").map(m => m.x + m.w / 2);
+  check("the upper band's noggings cover every one of the 7 bays",
+    noggingXs.length === 7, String(noggingXs.length));
+  for (let i = 0; i < 7; i++) {
+    const cellCenter = bayWidth * i + bayWidth / 2;
+    check(`a nogging covers bay ${i} (centre ${cellCenter.toFixed(0)})`,
+      noggingXs.some(x => near(x, cellCenter, 5)));
+  }
+}
+
+{
+  // The elevation's outline reads the top line: two points on a flat wall,
+  // the breakpoints on a gable.
+  const flat = straightWall();
+  check("a flat wall's top line is its two ends at the wall height",
+    JSON.stringify(layoutOf(flat.f, flat.w).layout.topLine) === JSON.stringify([{ x: 0, y: H }, { x: LEN, y: H }]),
+    JSON.stringify(layoutOf(flat.f, flat.w).layout.topLine));
+  const gable = straightWall({ profile: [{ t: LEN / 2, height: H + 1000 }] });
+  const line = layoutOf(gable.f, gable.w).layout.topLine;
+  check("a gable's top line runs through its peak",
+    line.length === 3 && line[1]!.x === LEN / 2 && line[1]!.y === H + 1000, JSON.stringify(line));
+}
+
 console.log(failures === 0 ? "ok" : `FAIL (${failures} failures)`);
 process.exit(failures === 0 ? 0 : 1);

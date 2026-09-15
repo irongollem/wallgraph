@@ -8,8 +8,9 @@
 // gets built, only what the drawn construction implies.
 import type { Floor, Id, PlanDoc, Wall } from "../model/doc";
 import {
-  isBlockMaterial, isFramedMaterial, liningSideOf, wallHeight, wallPostMm, decksOf,
+  isBlockMaterial, isFramedMaterial, liningSideOf, wallPostMm, decksOf,
 } from "../model/doc";
+import { wallTopRange } from "../model/profile";
 import { type Deck, bearingOf } from "../model/deck";
 import { deckAcrossMm, deckJoistsLocal, deckSpanMm } from "./deck";
 import { kerfMm, sheetMm, stockLengths, wastePct } from "../model/materials";
@@ -60,6 +61,10 @@ export interface WallTakeoff {
   /** Studs, plates/rails, noggings, headers, sills, cripples, king studs,
    *  jack studs and backing -- empty for "block", "sandwich" and "other". */
   members: Member[];
+  /** core/frame.ts's FrameLayout.suggestedBreaksMm for this wall -- present
+   *  only where the current frame already orders a stud, king or backing
+   *  stud too long for the document's longest stock length. */
+  suggestedBreaksMm?: number[];
   /** Lining board area over both lined faces (see liningSideOf), waste
    *  included only in `sheets`. */
   boardMm2: number;
@@ -136,31 +141,32 @@ function asMember(p: PlacedMember): Member {
  */
 function framedMembers(
   f: Floor, w: Wall, rw: ResolvedWall, backing: ReadonlyMap<Id, WallBacking>,
-  incomplete: WallTakeoff["incomplete"],
-): Member[] {
-  const layout = frameLayoutOf(f, w, rw, backing);
+  incomplete: WallTakeoff["incomplete"], maxStockMm: number,
+): { members: Member[]; suggestedBreaksMm?: number[] } {
+  const layout = frameLayoutOf(f, w, rw, backing, maxStockMm);
   if (!layout) {
     incomplete.push("postWidth");
-    return [];
+    return { members: [] };
   }
   const members: Member[] = [];
   mergeMembers(members, layout.members.map(asMember));
-  return members;
+  return { members, suggestedBreaksMm: layout.suggestedBreaksMm };
 }
 
 function wallTakeoffOf(
   f: Floor, w: Wall, rw: ResolvedWall, surface: FloorSurface, waste: number, sheetArea: number,
-  backing: ReadonlyMap<Id, WallBacking>,
+  backing: ReadonlyMap<Id, WallBacking>, maxStockMm: number,
 ): WallTakeoff {
   const system = systemOf(w);
   // Whole mm: a cut length, and what nest() and the member merge compare exactly.
   const lengthMm = Math.round((rw.faces.left + rw.faces.right) / 2);
-  const heightMm = wallHeight(f, w);
+  const heightMm = wallTopRange(f, w, rw.length).max;
   const incomplete: WallTakeoff["incomplete"] = [];
 
-  const members = system === "framed-timber" || system === "framed-steel"
-    ? framedMembers(f, w, rw, backing, incomplete)
-    : [];
+  const framed = system === "framed-timber" || system === "framed-steel"
+    ? framedMembers(f, w, rw, backing, incomplete, maxStockMm)
+    : { members: [] as Member[] };
+  const members = framed.members;
 
   const wsurf = surface.walls.find(s => s.wallId === w.id);
 
@@ -202,7 +208,7 @@ function wallTakeoffOf(
   const insulationMm2 = w.insulated && wsurf ? Math.min(wsurf.faces[0].netMm2, wsurf.faces[1].netMm2) : 0;
 
   return {
-    wallId: w.id, system, lengthMm, heightMm, members,
+    wallId: w.id, system, lengthMm, heightMm, members, suggestedBreaksMm: framed.suggestedBreaksMm,
     boardMm2, sheets, insulationMm2, blocks, blockMm2, panels, incomplete,
   };
 }
@@ -237,13 +243,15 @@ export function floorMaterials(doc: PlanDoc, f: Floor, resolved: Resolved, surfa
   const waste = wastePct(doc) / 100;
   const sheet = sheetMm(doc);
   const sheetArea = sheet.width * sheet.height;
+  const stockList = stockLengths(doc);
+  const maxStockMm = stockList.length > 0 ? stockList[stockList.length - 1]! : Infinity;
 
   const backing = computeBacking(f);
   const walls: WallTakeoff[] = [];
   for (const w of f.walls) {
     const rw = resolved.walls.get(w.id);
     if (!rw) continue;
-    walls.push(wallTakeoffOf(f, w, rw, surface, waste, sheetArea, backing));
+    walls.push(wallTakeoffOf(f, w, rw, surface, waste, sheetArea, backing, maxStockMm));
   }
 
   interface SystemEntry {
@@ -267,7 +275,6 @@ export function floorMaterials(doc: PlanDoc, f: Floor, resolved: Resolved, surfa
     mergeMembers(entry.members, wt.members);
   }
 
-  const stock = stockLengths(doc);
   const kerf = kerfMm(doc);
   const bySystem = order.map(system => {
     const entry = bySystemMap.get(system)!;
@@ -275,7 +282,7 @@ export function floorMaterials(doc: PlanDoc, f: Floor, resolved: Resolved, surfa
       { name: m.name, lengthMm: m.lengthMm, count: m.count, spliceable: m.spliceable }
     ));
     return {
-      system, walls: entry.walls, members: entry.members, nested: nest(pieces, stock, kerf),
+      system, walls: entry.walls, members: entry.members, nested: nest(pieces, stockList, kerf),
       // From the summed board, not the per-wall sheet counts: offcuts carry between walls.
       boardMm2: entry.boardMm2, sheets: entry.boardMm2 > 0 ? Math.ceil((entry.boardMm2 * (1 + waste)) / sheetArea) : 0,
       insulationMm2: entry.insulationMm2,
@@ -289,7 +296,7 @@ export function floorMaterials(doc: PlanDoc, f: Floor, resolved: Resolved, surfa
   for (const dt of perDeck) { mergeMembers(deckMembers, dt.members); deckingMm2 += dt.deckingMm2; }
   const decks = {
     perDeck, members: deckMembers,
-    nested: nest(deckMembers.map(m => ({ name: m.name, lengthMm: m.lengthMm, count: m.count, spliceable: m.spliceable })), stock, kerf),
+    nested: nest(deckMembers.map(m => ({ name: m.name, lengthMm: m.lengthMm, count: m.count, spliceable: m.spliceable })), stockList, kerf),
     deckingMm2,
     sheets: deckingMm2 > 0 ? Math.ceil((deckingMm2 * (1 + waste)) / sheetArea) : 0,
   };

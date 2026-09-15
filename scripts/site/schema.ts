@@ -396,6 +396,16 @@ export function planSchema(siteUrl: string): JsonSchema {
               "Absent or empty means flat at the wall's own height. The plan is a section at " +
               "a fixed height, so this never changes it.",
           },
+          frameBreaksMm: {
+            type: "array", items: { type: "integer" },
+            description:
+              "A framed wall built as more than one stacked frame: heights above this " +
+              "storey's floor, mm, ascending, where the frame breaks -- a loft wall standing " +
+              "on the frame below it, say. Absent or empty means one frame, floor to top. " +
+              "Every band below the last has its own flat top at its break height; only the " +
+              "last band follows `profile`. A break is a double plate. Only meaningful with " +
+              "postMm.",
+          },
         },
       },
       opening: {

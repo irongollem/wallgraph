@@ -15,7 +15,7 @@ import { arcTangentAt } from "../geometry/arc";
 import {
   nodeAt, mergeNodes, wallLength, flipWall, cleanOrphanNodes, clampOpening, deleteWall,
 } from "../model/ops";
-import { clampProfile, wallTopPolyline } from "../model/profile";
+import { clampProfile, clampFrameBreaks, wallTopPolyline } from "../model/profile";
 
 /** Which end of a wall a join moves. */
 export interface JoinEnd { wallId: Id; end: "a" | "b" }
@@ -319,6 +319,11 @@ function mergeThrough(f: Floor, keep: Wall, drop: Wall, nodeId: Id): void {
   cleanOrphanNodes(f);
   for (const o of keep.openings) clampOpening(f, keep, o);
   clampProfile(f, keep);
+  // Frame breaks are heights, not positions, so `keep` already carries the
+  // right numbers (its own, unmoved) -- only the top-of-range clamp can
+  // change, since the merged wall's own profile (and so its highest point)
+  // may differ from either half's.
+  clampFrameBreaks(f, keep);
 }
 
 /**
