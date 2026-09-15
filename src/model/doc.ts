@@ -120,14 +120,23 @@ export interface Opening {
  * in CLAUDE.md, and `postMm` below for the frame that carries an infill.
  */
 export type WallMaterial =
-  | "masonry" | "concrete" | "timber" | "steel" | "glass" | "sandwich";
+  | "masonry" | "concrete" | "timber" | "steel" | "glass" | "sandwich"
+  | "aerated" | "calciumsilicate";
 
 export const WALL_MATERIALS: readonly WallMaterial[] =
-  ["masonry", "concrete", "timber", "steel", "glass", "sandwich"];
+  ["masonry", "concrete", "timber", "steel", "glass", "sandwich", "aerated", "calciumsilicate"];
 
 /** The materials drawn as a light infill body rather than as poché. */
 export const wallInfill = (w: Pick<Wall, "material">): boolean =>
   w.material === "glass" || w.material === "sandwich";
+
+/** Block-built body materials (cellenbeton, kalkzandsteen) — draw as poché like masonry. */
+export const isBlockMaterial = (m: WallMaterial | undefined): boolean =>
+  m === "masonry" || m === "aerated" || m === "calciumsilicate";
+
+/** Materials carried on a post frame rather than laid as blocks. */
+export const isFramedMaterial = (m: WallMaterial | undefined): boolean =>
+  m === "timber" || m === "steel";
 
 export interface Wall {
   id: Id;
@@ -217,6 +226,29 @@ export interface Wall {
    * document would silently paint the wall in the previous one's colour.
    */
   color?: string;
+  /**
+   * Board lining on the wall's interior faces: one board thickness and how many
+   * layers of it, per face. Absent means unlined. A face carrying the facade is
+   * never lined. Lies OUTSIDE the structural faces like `facadeMm`: `thickness`
+   * stays the frame or block depth. Read via wallLiningMm() for the skin depth
+   * per face.
+   */
+  lining?: { boardMm: number; layers: number };
+  /**
+   * Block format of a block-built body (cellenbeton, kalkzandsteen): the
+   * block's length and height, mm; its depth is the wall's `thickness`. Only
+   * meaningful on a block material; ignored elsewhere.
+   */
+  blockMm?: { length: number; height: number };
+  /**
+   * Rows of noggings (klossen) between the posts of a framed wall. Absent means
+   * none. Only meaningful with `postMm`.
+   */
+  noggingRows?: number;
+  /** The cavity of a framed wall is filled with insulation. Takeoff only. */
+  insulated?: boolean;
+  /** Panel width along the wall for a `sandwich` body, mm. Absent means not stated. */
+  panelMm?: number;
 }
 
 /** True when the wall's body is glazed, and so drawn as faces rather than fill. */
@@ -267,6 +299,39 @@ export const FACADE_DEFAULT_MM = 100;
 export const POST_DEFAULT_MM = 1200;
 /** An ordinary mullion or column face width, mm. */
 export const POST_WIDTH_DEFAULT = 60;
+
+/** The lining's skin depth on one face, mm. 0 when the wall states no lining. */
+export function wallLiningMm(w: Wall): number {
+  return w.lining ? w.lining.boardMm * w.lining.layers : 0;
+}
+
+/**
+ * A face is lined when the wall states a lining AND that face is not the one
+ * carrying the facade — cladding and interior lining cannot both sit on the
+ * same face.
+ */
+export function liningSideOf(w: Wall, side: "left" | "right"): boolean {
+  if (!w.lining) return false;
+  return !(wallFacadeMm(w) !== undefined && facadeSideOf(w) === side);
+}
+
+/** 12.5 mm board rounds to the document's whole mm; a single layer. */
+export const LINING_DEFAULT = { boardMm: 12, layers: 1 };
+/** An ordinary cellenbeton/kalkzandsteen block, mm. */
+export const BLOCK_DEFAULT_MM = { length: 600, height: 250 };
+/** An ordinary sandwich panel width along the wall, mm. */
+export const PANEL_DEFAULT_MM = 1000;
+
+function clampInt(n: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, Math.round(isFinite(n) ? n : lo)));
+}
+
+export const clampLiningBoard = (n: number): number => clampInt(n, 6, 30);
+export const clampLiningLayers = (n: number): number => clampInt(n, 1, 3);
+export const clampBlockLength = (n: number): number => clampInt(n, 100, 1000);
+export const clampBlockHeight = (n: number): number => clampInt(n, 50, 600);
+export const clampNoggingRows = (n: number): number => clampInt(n, 0, 5);
+export const clampPanel = (n: number): number => clampInt(n, 300, 3000);
 
 export interface SymbolInstance {
   id: Id;

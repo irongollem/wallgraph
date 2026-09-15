@@ -62,6 +62,12 @@ const LAYER = {
    * WALLS, a gevelbouwer to this, and the gross area is measured over it.
    */
   facade: "FACADE",
+  /**
+   * Board lining on a wall's interior face. Its own layer for the same reason
+   * FACADE is: a different trade (a timmerman, not a metselaar) works to it,
+   * and the net area is measured to it.
+   */
+  lining: "LINING",
   openings: "OPENINGS",
   symbols: "SYMBOLS",
   stairs: "STAIRS",
@@ -151,7 +157,7 @@ const ROUTE_HEAT_RETOUR_LAYER = "ROUTES-HEATING-RETOUR";
 
 /** ACI colour indices — 7 is "by background", i.e. black on white paper. */
 const LAYER_COLOR: Record<string, number> = {
-  WALLS: 7, GLAZING: 4, PANELS: 8, POSTS: 7, FACADE: 8, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, ROOMS: 8,
+  WALLS: 7, GLAZING: 4, PANELS: 8, POSTS: 7, FACADE: 8, LINING: 8, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, ROOMS: 8,
   COLUMNS: 7, BEAMS: 7, RAILINGS: 8,
   CABINETS: 6, "CABINETS-OVERHEAD": 6,
   "ROUTES-ELECTRICAL": 1, "ROUTES-WATER": 5, "ROUTES-VENT": 2, "ROUTES-GAS": 2,
@@ -347,6 +353,7 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
       for (const piece of rw.pieces) w.polyline(bodyLayer(rw.wall), piece.poly, true);
       emitPrims(w, LAYER.posts, postMarks(rw));
       for (const band of rw.facade) w.polyline(LAYER.facade, band.poly, true);
+      for (const band of [...rw.lining[0], ...rw.lining[1]]) w.polyline(LAYER.lining, band.poly, true);
     }
     // A wedge belongs to no one wall, so it follows what its neighbours agree
     // on -- the same rule the canvas and the SVG use (junctionPen in draw.ts).

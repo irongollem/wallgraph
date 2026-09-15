@@ -9,7 +9,12 @@ import { Store } from "../model/store";
 import {
   WALL_SHAPES, POLYGON_MIN_SIDES, POLYGON_MAX_SIDES, type WallShape,
 } from "../model/shape";
-import { WALL_MATERIALS, POST_DEFAULT_MM, POST_WIDTH_DEFAULT, type WallMaterial } from "../model/doc";
+import {
+  WALL_MATERIALS, POST_DEFAULT_MM, POST_WIDTH_DEFAULT, isBlockMaterial,
+  LINING_DEFAULT, BLOCK_DEFAULT_MM, PANEL_DEFAULT_MM,
+  clampLiningBoard, clampLiningLayers, clampBlockLength, clampBlockHeight, clampNoggingRows, clampPanel,
+  type WallMaterial,
+} from "../model/doc";
 import type { Wall } from "../model/doc";
 import { wallLength, MIN_WALL_MM } from "../model/ops";
 import { floorSurface, type FloorSurface, type WallSurface } from "../core/surface";
@@ -68,6 +73,39 @@ export function renderWallTool(
     }
     rows.noteRow(t("panel.postsHelp"));
   }
+  rows.checkRow(t("panel.liningOn"), tools.wallLining !== null,
+    on => tools.setWallPen({ wallLining: on ? { ...LINING_DEFAULT } : null }));
+  if (tools.wallLining !== null) {
+    rows.numRow(t("panel.liningBoard"), tools.wallLining.boardMm,
+      n => tools.setWallPen({ wallLining: { ...tools.wallLining!, boardMm: clampLiningBoard(n) } }));
+    rows.numRow(t("panel.liningLayers"), tools.wallLining.layers,
+      n => tools.setWallPen({ wallLining: { ...tools.wallLining!, layers: clampLiningLayers(n) } }), 1);
+    rows.noteRow(t("panel.liningHelp"));
+  }
+  if (isBlockMaterial(tools.wallMaterial ?? undefined)) {
+    rows.checkRow(t("panel.blockOn"), tools.wallBlockMm !== null,
+      on => tools.setWallPen({ wallBlockMm: on ? { ...BLOCK_DEFAULT_MM } : null }));
+    if (tools.wallBlockMm !== null) {
+      rows.numRow(t("panel.blockLength"), tools.wallBlockMm.length,
+        n => tools.setWallPen({ wallBlockMm: { ...tools.wallBlockMm!, length: clampBlockLength(n) } }), 50);
+      rows.numRow(t("panel.blockHeight"), tools.wallBlockMm.height,
+        n => tools.setWallPen({ wallBlockMm: { ...tools.wallBlockMm!, height: clampBlockHeight(n) } }), 50);
+    }
+  }
+  if (tools.wallPostMm !== null) {
+    rows.numRow(t("panel.noggingRows"), tools.wallNoggingRows ?? 0,
+      n => tools.setWallPen({ wallNoggingRows: clampNoggingRows(n) || null }), 1);
+    rows.checkRow(t("panel.insulated"), tools.wallInsulated,
+      on => tools.setWallPen({ wallInsulated: on }));
+  }
+  if (tools.wallMaterial === "sandwich") {
+    rows.checkRow(t("panel.panelWidthOn"), tools.wallPanelMm !== null,
+      on => tools.setWallPen({ wallPanelMm: on ? PANEL_DEFAULT_MM : null }));
+    if (tools.wallPanelMm !== null) {
+      rows.numRow(t("panel.panelWidth"), tools.wallPanelMm,
+        n => tools.setWallPen({ wallPanelMm: clampPanel(n) }), 50);
+    }
+  }
   rows.colorRow(t("panel.newWallColor"), tools.wallColor,
     hex => tools.setWallPen({ wallColor: hex }));
 
@@ -94,7 +132,8 @@ export function renderWallTool(
   // One takeoff for both readers below: the storey total, and the per-wall
   // figure each row of the wall list carries.
   const surface = floorSurface(store.floor, tools.resolvedFloor(), tools.rooms());
-  renderStoreySurface(rows, surface);
+  const lined = store.floor.walls.some(w => w.lining !== undefined);
+  renderStoreySurface(rows, surface, lined);
   renderWallList(host, store, tools, surface);
 }
 
@@ -144,7 +183,7 @@ function surfaceRows(
  * sides of a wall between a badkamer and a slaapkamer are then not the same
  * area, and the row naming the room says which is which.
  */
-export function renderWallSurface(rows: PaneRows, s: WallSurface): void {
+export function renderWallSurface(rows: PaneRows, s: WallSurface, lined = false): void {
   const clad = s.faces.some(x => x.clad);
   surfaceRows(rows, s, clad);
   const lowered = s.faces.some(x => x.heightMm < s.heightMm);
@@ -157,6 +196,7 @@ export function renderWallSurface(rows: PaneRows, s: WallSurface): void {
   rows.noteRow(lowered ? t("panel.wallSurfaceCeilingNote") : t("panel.wallSurfaceNote"));
   if (s.revealsMm2 > 0) rows.noteRow(t("panel.wallSurfaceRevealNote"));
   if (clad) rows.noteRow(t("panel.wallSurfaceCladNote"));
+  if (lined) rows.noteRow(t("panel.wallSurfaceLiningNote"));
 }
 
 /** What to call one face: the room it looks into, named or not, or the outside
@@ -169,8 +209,10 @@ function faceLabel(face: WallSurface["faces"][number]): string {
 }
 
 /** The storey's total wall face area: what an order for stucwerk, verf or
- *  behang is placed against. Reported, never checked against anything. */
-function renderStoreySurface(rows: PaneRows, total: FloorSurface): void {
+ *  behang is placed against. Reported, never checked against anything.
+ *  `lined` marks that some wall on the storey carries a board lining, which
+ *  this figure does not include -- see wallLiningMm() in model/doc.ts. */
+function renderStoreySurface(rows: PaneRows, total: FloorSurface, lined: boolean): void {
   if (total.walls.length === 0) return;
   rows.secHead(t("panel.wallSurface"), { later: true });
   surfaceRows(rows, total, total.cladFaces > 0);
@@ -186,6 +228,7 @@ function renderStoreySurface(rows: PaneRows, total: FloorSurface): void {
   rows.noteRow(lowered ? t("panel.wallSurfaceCeilingNote") : t("panel.wallSurfaceNote"));
   if (total.revealsMm2 > 0) rows.noteRow(t("panel.wallSurfaceRevealNote"));
   if (total.cladFaces > 0) rows.noteRow(t("panel.wallSurfaceCladNote"));
+  if (lined) rows.noteRow(t("panel.wallSurfaceLiningNote"));
 }
 
 /**

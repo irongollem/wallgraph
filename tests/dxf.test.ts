@@ -89,6 +89,22 @@ check("an empty document produces nothing", toDxf(emptyDoc(), 0) === null);
   const solidOut = toDxf(solid, 0) ?? "";
   check("a plain wall puts nothing on GLAZING, PANELS, POSTS or FACADE",
     ["GLAZING", "PANELS", "POSTS", "FACADE"].every(l => onLayer(solidOut, l) === 1));  // table only
+
+  // Board lining is a different trade from the cladding it stands beside, so
+  // it gets its own layer for the same reason FACADE does.
+  const linedDoc = emptyDoc();
+  const lf = linedDoc.floors[0]!;
+  lf.nodes.push({ id: "ln0", x: 0, y: 0 }, { id: "ln1", x: 6000, y: 0 });
+  lf.walls.push({
+    id: "lw", a: "ln0", b: "ln1", thickness: 100, bulge: 0, openings: [],
+    material: "timber", lining: { boardMm: 12, layers: 1 },
+  });
+  const linedOut = toDxf(linedDoc, 0) ?? "";
+  check("LINING is declared as a layer", linedOut.includes("\r\nLINING\r\n"));
+  // Unclad, so both faces are lined: table + one band per face.
+  check("the lining bands land on LINING", onLayer(linedOut, "LINING") === 3,
+    String(onLayer(linedOut, "LINING")));
+  check("a wall stating no lining puts nothing on LINING", onLayer(solidOut, "LINING") === 1);
 }
 
 const lines = (dxf ?? "").split("\r\n").filter(l => l !== "");

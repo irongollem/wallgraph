@@ -496,6 +496,24 @@ export function drawScene(
     }
   }
 
+  // Lining, drawn the same way as the cladding band and for the same reason:
+  // the board sits outside the structural body, so the finished face has to
+  // read as the room's edge rather than as a second layer of poché.
+  for (const rw of resolved.walls.values()) {
+    if (rw.lining[0].length === 0 && rw.lining[1].length === 0) continue;
+    const pen = wallPen(rw.wall);
+    const line = isSel("wall", rw.wall.id) ? COLORS.select : pen.stroke;
+    for (const band of [...rw.lining[0], ...rw.lining[1]]) {
+      ctx.beginPath();
+      tracePoly(ctx, band.poly);
+      ctx.fillStyle = COLORS.bg;
+      ctx.fill();
+      ctx.strokeStyle = line;
+      ctx.lineWidth = px;
+      ctx.stroke();
+    }
+  }
+
   // Walls.
   for (const rw of resolved.walls.values()) {
     const wallSel = isSel("wall", rw.wall.id);

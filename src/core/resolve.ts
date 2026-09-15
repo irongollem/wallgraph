@@ -10,6 +10,7 @@
 // is exact in the limit and visually correct at wall scale.
 import {
   Floor, Wall, Opening, Id, wallPostMm, wallPostWidthMm, wallFacadeMm, facadeSideOf,
+  wallLiningMm, liningSideOf,
 } from "../model/doc";
 import {
   Vec, add, sub, scale, norm, perp, dist, v, angleOf, lineIntersect,
@@ -82,6 +83,14 @@ export interface ResolvedWall {
    * through the cladding as well as the structure.
    */
   facade: SolidPiece[];
+  /**
+   * The lining band on each lined face, left then right, empty where that face
+   * states no lining (see Wall.lining, wallLiningMm(), liningSideOf()). Built by
+   * the same corner-miter pass as `facade` — see skinFor() — so two lined walls
+   * meeting at a corner miter their linings, and a lined wall teeing into
+   * another stops at that wall's lining face rather than overlapping it.
+   */
+  lining: [SolidPiece[], SolidPiece[]];
 }
 
 export interface Resolved {
@@ -127,34 +136,31 @@ export function resolveFloor(f: Floor): Resolved {
     const outA = arcTangentAt(A, B, w.bulge, 0);
     const outB = scale(arcTangentAt(A, B, w.bulge, 1), -1);
     const half = w.thickness / 2;
-    // Structural pass: symmetric. The facade pass re-runs the same solver with
-    // the clad side pushed out, which is what keeps the two sets of corners
-    // mitered by identical rules instead of by a second approximation.
+    // Structural pass: symmetric. The skin pass below re-runs the same solver
+    // with each skinned face pushed out, which is what keeps the two sets of
+    // corners mitered by identical rules instead of by a second approximation.
     pushMap(byNode, w.a, { wall: w, end: "a", out: outA, half, halfL: half, halfR: half });
     pushMap(byNode, w.b, { wall: w, end: "b", out: outB, half, halfL: half, halfR: half });
   }
 
-  /** The same ends with the clad side pushed out by the facade thickness. */
+  /** The same ends with each face pushed out by whatever skin it carries
+   *  (facade or lining — see skinMmOf). */
   const outerEnds = new Map<Id, End[]>();
   for (const [nid, ends] of byNode) {
     outerEnds.set(nid, ends.map(e => {
-      const fm = wallFacadeMm(e.wall);
-      if (fm === undefined) return e;
-      // At end "b" the frame is reversed, so a facade on the wall's left is on
-      // that end's right.
-      const onEndLeft = (facadeSideOf(e.wall) === "left") === (e.end === "a");
-      return {
-        ...e,
-        halfL: e.half + (onEndLeft ? fm : 0),
-        halfR: e.half + (onEndLeft ? 0 : fm),
-      };
+      const leftMm = skinMmOf(e.wall, "left"), rightMm = skinMmOf(e.wall, "right");
+      if (leftMm === 0 && rightMm === 0) return e;
+      // At end "b" the frame is reversed, so the wall's left face is that
+      // end's right.
+      const [lMm, rMm] = e.end === "a" ? [leftMm, rightMm] : [rightMm, leftMm];
+      return { ...e, halfL: e.half + lMm, halfR: e.half + rMm };
     }));
   }
 
   // Resolve corners per node, twice: once for the structural body and once for
-  // the outer face of the cladding. `wedges` is filled only by the structural
-  // pass -- a junction is masonry geometry, and a facade wraps the outside of a
-  // building rather than filling the middle of a T.
+  // the outer face of whatever skin (facade or lining) each wall-end carries.
+  // `wedges` is filled only by the structural pass -- a junction is masonry
+  // geometry, and a skin wraps a face rather than filling the middle of a T.
   const solveCorners = (
     byNodeEnds: Map<Id, End[]>, wedges: Junction[] | null,
   ): Map<string, WallEndCorners> => {
@@ -257,13 +263,22 @@ export function resolveFloor(f: Floor): Resolved {
       pieces.push({ poly: [...sL, ...sR.slice().reverse()] });
     }
 
+    const oa = outerCorners.get(w.id + ":a"), ob = outerCorners.get(w.id + ":b");
+    const fm = wallFacadeMm(w);
     walls.set(w.id, {
       wall: w, a: A, b: B, length: L,
       faces, clearLength: Math.min(faces.left, faces.right),
       pieces, outline, openings: ogs,
       posts: postsFor(w, A, B, L, half, intervals),
-      facade: facadeFor(w, A, B, L, half, flat, params, intervals, ca, cb,
-        outerCorners.get(w.id + ":a"), outerCorners.get(w.id + ":b")),
+      facade: fm === undefined ? [] : skinFor(
+        facadeSideOf(w), fm, w, A, B, L, half, flat, params, intervals, ca, cb, oa, ob,
+      ),
+      lining: [
+        skinFor("left", liningSideOf(w, "left") ? wallLiningMm(w) : 0,
+          w, A, B, L, half, flat, params, intervals, ca, cb, oa, ob),
+        skinFor("right", liningSideOf(w, "right") ? wallLiningMm(w) : 0,
+          w, A, B, L, half, flat, params, intervals, ca, cb, oa, ob),
+      ],
     });
   }
 
@@ -321,26 +336,43 @@ function postsFor(
 }
 
 /**
- * The cladding band on one wall: between its structural face on the clad side
- * and the same centerline offset by half + facadeMm.
+ * The skin depth a wall states on one of its own faces, mm: the facade where
+ * that face carries it, the lining where it carries that instead (the two
+ * cannot both sit on one face — see liningSideOf()), 0 otherwise. Shared by
+ * the outer corner pass and by skinFor() so a facade and a neighbouring wall's
+ * lining miter against each other by the same rule a facade meeting a facade
+ * does.
+ */
+function skinMmOf(w: Wall, side: "left" | "right"): number {
+  const fm = wallFacadeMm(w);
+  if (fm !== undefined && facadeSideOf(w) === side) return fm;
+  return liningSideOf(w, side) ? wallLiningMm(w) : 0;
+}
+
+/**
+ * The band on one face of one wall, outside the structural body: between the
+ * structural face and the same centerline offset by half + mm. Used for both
+ * the facade (mm = facadeMm, side = facadeSideOf(w)) and a lining band
+ * (mm = wallLiningMm(w), one call per lined side) — the two differ only in
+ * which face and how deep, not in how the band is built.
  *
  * The inner edge reuses the structural corners the body is already built from,
- * so the band cannot part company with the wall it clads; the outer edge uses
- * the second corner pass, so two clad walls miter their skins at a corner while
- * an unclad wall teeing into one leaves the skin to run straight past.
- * Split by the same `intervals` the pieces are: an opening goes through the
- * cladding as well as the structure.
+ * so the band cannot part company with the wall it skins; the outer edge uses
+ * the second corner pass (built from skinMmOf() over both facade and lining),
+ * so two skinned walls miter at a corner while an unskinned wall teeing into
+ * one leaves the skin to run straight past. Split by the same `intervals` the
+ * pieces are: an opening goes through a skin as well as the structure.
  */
-function facadeFor(
+function skinFor(
+  side: "left" | "right", mm: number,
   w: Wall, A: Vec, B: Vec, L: number, half: number,
   flat: Vec[], params: number[],
   intervals: ReadonlyArray<{ from: number; to: number }>,
   ca: WallEndCorners, cb: WallEndCorners,
   oa: WallEndCorners | undefined, ob: WallEndCorners | undefined,
 ): SolidPiece[] {
-  const fm = wallFacadeMm(w);
-  if (fm === undefined || !oa || !ob) return [];
-  const left = facadeSideOf(w) === "left";
+  if (mm <= 0 || !oa || !ob) return [];
+  const left = side === "left";
   const sgn = left ? 1 : -1;
   // Traversal-left runs A->B, and end-b corners are relative to the reversed
   // tangent there, so the wall's left face is ca.left -> cb.right.
@@ -355,7 +387,7 @@ function facadeFor(
     const sub = subFlat(flat, params, iv.from, iv.to, A, B, w);
     const subParams = cumulative(sub, iv.to - iv.from);
     const inner = offsetPolyline(sub, subParams, sgn * half);
-    const outer = offsetPolyline(sub, subParams, sgn * (half + fm));
+    const outer = offsetPolyline(sub, subParams, sgn * (half + mm));
     if (isStart) { inner[0] = innerStart; outer[0] = outerStart; }
     if (isEnd) { inner[inner.length - 1] = innerEnd; outer[outer.length - 1] = outerEnd; }
     out.push({ poly: [...inner, ...outer.slice().reverse()] });

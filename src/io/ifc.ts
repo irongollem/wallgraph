@@ -56,7 +56,7 @@
 import {
   PlanDoc, Floor, Wall, projectOf, floorElevation, floorHeight, areaModeOf, dimModeOf, DimMode, Sash, sashSpecsOf,
   openingHeight, videsOf, stairsOf, structureOf, furnishingsOf, routesOf, SymbolInstance, wallHeight, fireLabel, WallMaterial,
-  wallPostMm, wallFacadeMm,
+  wallPostMm, wallFacadeMm, wallLiningMm, liningSideOf,
 } from "../model/doc";
 import { structureSolid, spanLength } from "../core/structure";
 import {
@@ -448,8 +448,12 @@ function wallIsExternal(floor: Floor, wall: Wall, roomPolys: readonly Vec[][]): 
  */
 const IFC_MATERIAL_NAME: Record<WallMaterial, string> = {
   masonry: "Masonry", concrete: "Concrete", timber: "Wood", steel: "Steel", glass: "Glass",
-  sandwich: "SandwichPanel",
+  sandwich: "SandwichPanel", aerated: "AeratedConcrete", calciumsilicate: "CalciumSilicate",
 };
+
+/** Board lining material name. The document does not distinguish board products
+ *  (gypsum, cement board, ...), so every lining layer is named this one thing. */
+const LINING_MATERIAL_NAME = "Gypsum board";
 
 /* ── services ───────────────────────────────────────────────────────────────
  * A route's IFC4 occurrence class, nominal cross-section and system identity.
@@ -865,7 +869,12 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
     // statements in IFC: a bare material is an IFCMATERIAL, a clad wall is an
     // IFCMATERIALLAYERSET. Walls agreeing on both share one relation.
     const byBuild = new Map<string,
-      { material?: WallMaterial; thickness: number; facadeMm?: number; elements: number[] }>();
+      {
+        material?: WallMaterial; thickness: number; facadeMm?: number;
+        /** Lining on the left/right face, mm -- 0 where that face states none. */
+        liningLeftMm: number; liningRightMm: number;
+        elements: number[];
+      }>();
 
     for (const ws of wallSolids) {
       const wall = floor.walls.find(x => x.id === ws.wallId)!;
@@ -896,15 +905,19 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
       // Absent means not stated, so nothing is associated rather than a guess
       // at masonry -- the same reading Pset_WallCommon gives loadBearing above.
       const facadeMm = wallFacadeMm(wall);
-      if (wall.material !== undefined || facadeMm !== undefined) {
-        // Thickness is part of the key only for a clad wall: it is a layer of
-        // the build-up there, and irrelevant to a bare material association,
-        // which would otherwise split into one relation per thickness.
-        const key = facadeMm === undefined
+      const liningMm = wallLiningMm(wall);
+      const liningLeftMm = liningMm > 0 && liningSideOf(wall, "left") ? liningMm : 0;
+      const liningRightMm = liningMm > 0 && liningSideOf(wall, "right") ? liningMm : 0;
+      if (wall.material !== undefined || facadeMm !== undefined || liningLeftMm > 0 || liningRightMm > 0) {
+        // Thickness is part of the key whenever the wall carries a layer set
+        // (cladding or lining): it is a layer of the build-up there, and
+        // irrelevant to a bare material association, which would otherwise
+        // split into one relation per thickness.
+        const key = facadeMm === undefined && liningLeftMm === 0 && liningRightMm === 0
           ? `${wall.material}|`
-          : `${wall.material ?? ""}|${wall.thickness}|${facadeMm}`;
+          : `${wall.material ?? ""}|${wall.thickness}|${facadeMm ?? ""}|${liningLeftMm}|${liningRightMm}`;
         const bucket = byBuild.get(key)
-          ?? { material: wall.material, thickness: wall.thickness, facadeMm, elements: [] };
+          ?? { material: wall.material, thickness: wall.thickness, facadeMm, liningLeftMm, liningRightMm, elements: [] };
         bucket.elements.push(wallEntity);
         byBuild.set(key, bucket);
       }
@@ -1011,7 +1024,8 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
       contained.push(entity);
       if (el.material !== undefined) {
         const key = `${el.material}|`;
-        const bucket = byBuild.get(key) ?? { material: el.material, thickness: 0, elements: [] };
+        const bucket = byBuild.get(key)
+          ?? { material: el.material, thickness: 0, liningLeftMm: 0, liningRightMm: 0, elements: [] };
         bucket.elements.push(entity);
         byBuild.set(key, bucket);
       }
@@ -1024,23 +1038,44 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
     // the same statement once for every wall. The GlobalId is keyed on the
     // storey and the material name, both stable, so a re-export keeps it.
     for (const [key, build] of byBuild) {
-      // A clad wall is a build-up, and IFC says so with a layer set: the
-      // structure and the cladding as ordered layers, inside out. The facade
-      // layer names no material because the document stores only its thickness
-      // -- IfcMaterialLayer.Material is optional in IFC4 precisely for this.
-      // An unclad wall keeps the plain IFCMATERIAL association it had.
-      const relating = build.facadeMm === undefined
+      // A clad or lined wall is a build-up, and IFC says so with a layer set:
+      // the structure and its skins as ordered layers, physically across the
+      // wall. The facade layer names no material because the document stores
+      // only its thickness -- IfcMaterialLayer.Material is optional in IFC4
+      // precisely for this; a lining layer names LINING_MATERIAL_NAME because
+      // the document states what it is, just not which product. A bare wall
+      // keeps the plain IFCMATERIAL association it had.
+      const hasLining = build.liningLeftMm > 0 || build.liningRightMm > 0;
+      const structureLayer = (): number => w.entity("IFCMATERIALLAYER", [
+        build.material !== undefined ? ref(materialEntity(IFC_MATERIAL_NAME[build.material])) : UNSET,
+        real(build.thickness), UNSET, str("Structure"), UNSET, UNSET, UNSET]);
+      const facadeLayer = (): number => w.entity("IFCMATERIALLAYER", [
+        UNSET, real(build.facadeMm!), UNSET, str("Facade"), UNSET, UNSET, UNSET]);
+      const liningLayer = (mm: number): number => w.entity("IFCMATERIALLAYER", [
+        ref(materialEntity(LINING_MATERIAL_NAME)), real(mm), UNSET, str("Lining"), UNSET, UNSET, UNSET]);
+      const relating = build.facadeMm === undefined && !hasLining
         ? materialEntity(IFC_MATERIAL_NAME[build.material!])
-        : w.entity("IFCMATERIALLAYERSET", [
-            list(
-              ref(w.entity("IFCMATERIALLAYER", [
-                build.material !== undefined ? ref(materialEntity(IFC_MATERIAL_NAME[build.material])) : UNSET,
-                real(build.thickness), UNSET, str("Structure"), UNSET, UNSET, UNSET])),
-              ref(w.entity("IFCMATERIALLAYER", [
-                UNSET, real(build.facadeMm), UNSET, str("Facade"), UNSET, UNSET, UNSET])),
-            ),
-            str("Wall"), UNSET,
-          ]);
+        : (() => {
+            // Facade and lining never share a face (liningSideOf excludes the
+            // facade side), so which of `liningLeftMm`/`liningRightMm` is lined
+            // says which face the facade is on. Where lining says nothing
+            // (none stated at all) the facade keeps the order this export has
+            // always given it: after the structure.
+            let left: number | undefined, right: number | undefined;
+            if (build.facadeMm !== undefined && build.liningRightMm > 0) {
+              left = facadeLayer(); right = liningLayer(build.liningRightMm);
+            } else if (build.facadeMm !== undefined && build.liningLeftMm > 0) {
+              left = liningLayer(build.liningLeftMm); right = facadeLayer();
+            } else if (build.facadeMm !== undefined) {
+              right = facadeLayer();
+            } else {
+              if (build.liningLeftMm > 0) left = liningLayer(build.liningLeftMm);
+              if (build.liningRightMm > 0) right = liningLayer(build.liningRightMm);
+            }
+            const layers = [left, structureLayer(), right]
+              .filter((id): id is number => id !== undefined).map(ref);
+            return w.entity("IFCMATERIALLAYERSET", [list(...layers), str("Wall"), UNSET]);
+          })();
       w.entity("IFCRELASSOCIATESMATERIAL",
         [str(ifcGuid(seed, `${floor.id}:material:${key}`)), ref(ownerHistory), UNSET, UNSET,
           list(...build.elements.map(e => ref(e))), ref(relating)]);

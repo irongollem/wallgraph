@@ -1322,6 +1322,94 @@ function rectFloor(wallTh = 100) {
   check("an unclad party wall carries no band", tee.facade.length === 0);
 }
 
+// --- lining: a board skin inside the structure ---
+{
+  // A 5000 mm wall, thickness 100, boarded with one 12 mm layer. No facade is
+  // stated, so liningSideOf() allows both faces.
+  const wall = (opts: { boardMm?: number; layers?: number; facade?: boolean } = {}) => {
+    const f = emptyDoc().floors[0]!;
+    f.walls.push({
+      id: newId("w"), a: nodeAt(f, v(0, 0)).id, b: nodeAt(f, v(5000, 0)).id,
+      thickness: 100, bulge: 0, openings: [], material: "timber",
+      ...(opts.boardMm !== undefined
+        ? { lining: { boardMm: opts.boardMm, layers: opts.layers ?? 1 } } : {}),
+      ...(opts.facade ? { facadeMm: 100, facadeSide: "right" as const } : {}),
+    });
+    return f;
+  };
+
+  const rw = [...resolveFloor(wall({ boardMm: 12 })).walls.values()][0]!;
+  check("a lined wall carries a band on both faces",
+    rw.lining[0].length === 1 && rw.lining[1].length === 1);
+  check("an unlined wall carries none",
+    [...resolveFloor(wall()).walls.values()][0]!.lining.every(bands => bands.length === 0));
+
+  // Structural faces sit at y = +-50 for a 100 mm wall; the board lies 12 mm
+  // outside each: left (+perp side) runs 50..62, right runs -62..-50.
+  const leftYs = rw.lining[0][0]!.poly.map(pt => pt.y);
+  const rightYs = rw.lining[1][0]!.poly.map(pt => pt.y);
+  check("the left band spans the structural face to the board face",
+    near(Math.min(...leftYs), 50, 0.6) && near(Math.max(...leftYs), 62, 0.6), JSON.stringify(leftYs));
+  check("the right band spans the structural face to the board face",
+    near(Math.min(...rightYs), -62, 0.6) && near(Math.max(...rightYs), -50, 0.6), JSON.stringify(rightYs));
+
+  // A facade on the right leaves that face unlined (cladding and lining cannot
+  // share a face) but the other face lines as normal.
+  const faced = [...resolveFloor(wall({ boardMm: 12, facade: true })).walls.values()][0]!;
+  check("a facade wall has no lining on the clad side", faced.lining[1].length === 0);
+  check("but still lines the other side", faced.lining[0].length === 1);
+
+  // Two lined walls at an L corner miter their boards, the way two facades do.
+  // Reuses the closed-quad shape: no facade stated, so every face lines, and
+  // the "right" face of a clockwise ring is its outside.
+  const quad = () => {
+    const f = emptyDoc().floors[0]!;
+    const ids = [v(0, 0), v(7975, 0), v(7975, 6225), v(0, 6225)].map(p => nodeAt(f, p).id);
+    for (let i = 0; i < 4; i++) {
+      f.walls.push({
+        id: newId("w"), a: ids[i]!, b: ids[(i + 1) % 4]!, thickness: 100, bulge: 0, openings: [],
+        material: "timber", lining: { boardMm: 12, layers: 1 },
+      });
+    }
+    return f;
+  };
+  const top = [...resolveFloor(quad()).walls.values()][0]!;
+  const cornerL = top.lining[1][0]!.poly.reduce((best, pt) =>
+    (pt.x < best.x || pt.y < best.y) && pt.x <= 0.5 ? pt : best, { x: 1e9, y: 1e9 });
+  check("two lined walls miter their boards at a corner",
+    near(cornerL.x, -62, 1) && near(cornerL.y, -62, 1), JSON.stringify(cornerL));
+
+  // An opening goes through the lining as well as the structure.
+  const holed = wall({ boardMm: 12 });
+  holed.walls[0]!.openings.push({ id: newId("o"), kind: "door", t: 2500, width: 900, sashes: [] });
+  const hrw = [...resolveFloor(holed).walls.values()][0]!;
+  check("an opening splits the lining band the way it splits the wall",
+    hrw.lining[0].length === 2 && hrw.lining[1].length === 2);
+
+  // A closed 4000x3000 room (centerline) with 100 mm walls lined all round by
+  // one 12 mm layer: net area is measured to the board face, but centerline
+  // and gross are structural facts the lining does not touch.
+  const room = (linedAllRound: boolean) => {
+    const f = emptyDoc().floors[0]!;
+    const ids = [v(0, 0), v(4000, 0), v(4000, 3000), v(0, 3000)].map(p => nodeAt(f, p).id);
+    for (let i = 0; i < 4; i++) {
+      f.walls.push({
+        id: newId("w"), a: ids[i]!, b: ids[(i + 1) % 4]!, thickness: 100, bulge: 0, openings: [],
+        ...(linedAllRound ? { lining: { boardMm: 12, layers: 1 } } : {}),
+      });
+    }
+    return f;
+  };
+  const bare = detectRooms(room(false))[0]!, dressed = detectRooms(room(true))[0]!;
+  check("lining measures net area to the board face",
+    near(dressed.netAreaMm2, (4000 - 100 - 24) * (3000 - 100 - 24), 4),
+    String(dressed.netAreaMm2));
+  check("centerline area is unchanged by lining",
+    near(dressed.areaMm2, bare.areaMm2, 1), `${dressed.areaMm2} vs ${bare.areaMm2}`);
+  check("gross area is unchanged by lining",
+    near(dressed.bvoAreaMm2, bare.bvoAreaMm2, 1), `${dressed.bvoAreaMm2} vs ${bare.bvoAreaMm2}`);
+}
+
 // --- joining two walls that nearly meet ---
 {
   // Two walls stopping short of a corner: horizontal ends at x=3800, vertical
@@ -1413,7 +1501,7 @@ function rectFloor(wallTh = 100) {
     f.walls.push({
       id: "w", a: nodeAt(f, v(0, 0)).id, b: nodeAt(f, v(4000, 0)).id,
       thickness: 100, bulge: 0, material: "glass", postMm: 1200,
-      facadeMm: 100, facadeSide: "left",
+      facadeMm: 100, facadeSide: "left", lining: { boardMm: 12, layers: 1 },
       openings: [{
         id: "o", kind: "door", t: 1200, width: 1800,
         sashes: [{ action: "turn", hinge: "a", outward: true },
@@ -1433,8 +1521,21 @@ function rectFloor(wallTh = 100) {
         return `line ${p} ${q}`;
       }).sort());
 
+  // Lining carries no side field of its own -- flipWall() only turns
+  // facadeSide -- so the world-space bands must land in the same place either
+  // way, the same invariant openingMarks() checks for the door. Reversing the
+  // wall also reverses which of its own "left"/"right" the band is filed
+  // under and the order its polygon is wound in, so the comparison is of the
+  // rounded point SET, not the raw polygon array.
+  const liningOf = (f: ReturnType<typeof withDoor>): string =>
+    JSON.stringify([...resolveFloor(f).walls.values()][0]!.lining
+      .flatMap(bands => bands.flatMap(b => b.poly))
+      .map(p => `${Math.round(p.x)},${Math.round(p.y)}`)
+      .sort());
+
   const flipped = withDoor();
   const before = marksOf(flipped);
+  const beforeLining = liningOf(flipped);
   // An absent `outward` is written out as false on the way round, which states
   // the same thing, so the comparison reads it rather than the raw bytes. Taken
   // off THIS document: a freshly built one has different node ids.
@@ -1452,10 +1553,15 @@ function rectFloor(wallTh = 100) {
     String(flipped.walls[0]!.openings[0]!.t));
   check("and turned the facade to the same world side",
     flipped.walls[0]!.facadeSide === "right");
+  check("lining is stored unchanged (it carries no side of its own)",
+    JSON.stringify(flipped.walls[0]!.lining) === JSON.stringify({ boardMm: 12, layers: 1 }));
+  check("and its resolved band stays on the same world side",
+    liningOf(flipped) === beforeLining);
 
   flipWall(flipped, flipped.walls[0]!);
   check("flipping twice restores the wall", canon(flipped.walls[0]!) === original);
   check("and the drawing is unchanged throughout", marksOf(flipped) === before);
+  check("and the lining band is unchanged throughout", liningOf(flipped) === beforeLining);
 }
 
 // --- a door's swing side is stated by `outward`, not by which jamb hinges ---

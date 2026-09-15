@@ -23,7 +23,9 @@ import {
   sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS,
   doorKindOf, DOOR_KINDS, widthsFor, DOOR_WIDTHS_DOUBLE, FIRE_KINDS, FIRE_MINUTES,
   FIRE_MINUTES_DEFAULT, routesOf, furnishingsOf, WALL_MATERIALS, POST_DEFAULT_MM, POST_WIDTH_DEFAULT,
-  FACADE_DEFAULT_MM, facadeSideOf,
+  FACADE_DEFAULT_MM, facadeSideOf, wallPostMm,
+  isBlockMaterial, LINING_DEFAULT, BLOCK_DEFAULT_MM, PANEL_DEFAULT_MM,
+  clampLiningBoard, clampLiningLayers, clampBlockLength, clampBlockHeight, clampNoggingRows, clampPanel,
   type AreaMode, type DimMode, type Sash, type HingeEdge, type Opening, type Wall, type Floor, type FireKind,
   type ProjectMeta, type Id, type WallMaterial, type PlanDoc,
 } from "../model/doc";
@@ -1922,6 +1924,52 @@ export class Panel {
         { mixed: isMixed(walls, w => facadeSideOf(w)) });
       rows.noteRow(t("panel.facadeHelp"));
     }
+    const liningMixed = isMixed(walls, w => w.lining !== undefined);
+    rows.checkRow(t("panel.liningOn"), first.lining !== undefined, on => mutAll(w => {
+      if (on) w.lining = { ...LINING_DEFAULT }; else delete w.lining;
+    }), { mixed: liningMixed });
+    if (!liningMixed && first.lining !== undefined) {
+      rows.numRow(t("panel.liningBoard"), first.lining.boardMm, n => mutAll(w => {
+        if (w.lining) w.lining.boardMm = clampLiningBoard(n);
+      }), 1, { mixed: isMixed(walls, w => w.lining?.boardMm) });
+      rows.numRow(t("panel.liningLayers"), first.lining.layers, n => mutAll(w => {
+        if (w.lining) w.lining.layers = clampLiningLayers(n);
+      }), 1, { mixed: isMixed(walls, w => w.lining?.layers) });
+      rows.noteRow(t("panel.liningHelp"));
+    }
+    if (walls.every(w => isBlockMaterial(w.material))) {
+      const blockMixed = isMixed(walls, w => w.blockMm !== undefined);
+      rows.checkRow(t("panel.blockOn"), first.blockMm !== undefined, on => mutAll(w => {
+        if (on) w.blockMm = { ...BLOCK_DEFAULT_MM }; else delete w.blockMm;
+      }), { mixed: blockMixed });
+      if (!blockMixed && first.blockMm !== undefined) {
+        rows.numRow(t("panel.blockLength"), first.blockMm.length, n => mutAll(w => {
+          if (w.blockMm) w.blockMm.length = clampBlockLength(n);
+        }), 50, { mixed: isMixed(walls, w => w.blockMm?.length) });
+        rows.numRow(t("panel.blockHeight"), first.blockMm.height, n => mutAll(w => {
+          if (w.blockMm) w.blockMm.height = clampBlockHeight(n);
+        }), 50, { mixed: isMixed(walls, w => w.blockMm?.height) });
+      }
+    }
+    if (walls.every(w => wallPostMm(w) !== undefined)) {
+      rows.numRow(t("panel.noggingRows"), first.noggingRows ?? 0, n => mutAll(w => {
+        w.noggingRows = clampNoggingRows(n) || undefined;
+      }), 1, { mixed: isMixed(walls, w => w.noggingRows ?? 0) });
+      rows.checkRow(t("panel.insulated"), first.insulated === true, on => mutAll(w => {
+        if (on) w.insulated = true; else delete w.insulated;
+      }), { mixed: isMixed(walls, w => w.insulated === true) });
+    }
+    if (walls.every(w => w.material === "sandwich")) {
+      const panelMixed = isMixed(walls, w => w.panelMm !== undefined);
+      rows.checkRow(t("panel.panelWidthOn"), first.panelMm !== undefined, on => mutAll(w => {
+        if (on) w.panelMm = PANEL_DEFAULT_MM; else delete w.panelMm;
+      }), { mixed: panelMixed });
+      if (!panelMixed && first.panelMm !== undefined) {
+        rows.numRow(t("panel.panelWidth"), first.panelMm, n => mutAll(w => {
+          w.panelMm = clampPanel(n);
+        }), 50, { mixed: isMixed(walls, w => w.panelMm) });
+      }
+    }
     const colorMixed = isMixed(walls, w => w.color ?? "");
     rows.colorRow(t("panel.color"), first.color ?? null, hex => {
       this.tools.wallColor = hex;
@@ -2292,7 +2340,7 @@ export class Panel {
       // the storey's rooms say which room that is.
       const surface = floorSurface(f, this.tools.resolvedFloor(), this.tools.rooms())
         .walls.find(x => x.wallId === sel.id);
-      if (surface) renderWallSurface(rows, surface);
+      if (surface) renderWallSurface(rows, surface, w.lining !== undefined);
       // Tri-state: "" is not stated, not the same fact as "no" for IFC.
       selRow(t("panel.loadBearing"), w.loadBearing === undefined ? "" : w.loadBearing ? "yes" : "no",
         [["", t("panel.loadBearingUnknown")], ["yes", t("panel.loadBearingYes")], ["no", t("panel.loadBearingNo")]],
@@ -2406,6 +2454,69 @@ export class Panel {
           }), 0.1);
         } else if (this.store.doc.energy?.wallRc !== undefined) {
           noteRow(t("panel.rcPlan", { rc: this.store.doc.energy.wallRc.toFixed(2) }));
+        }
+      }
+      // Board lining on the interior faces, outside the structural thickness
+      // like the facade. Set/unset, because an unlined wall states nothing
+      // rather than a lining of zero.
+      checkRow(t("panel.liningOn"), w.lining !== undefined, on => this.store.mutate(d => {
+        const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+        if (!wall) return;
+        if (on) wall.lining = { ...LINING_DEFAULT }; else delete wall.lining;
+      }));
+      if (w.lining !== undefined) {
+        numRow(t("panel.liningBoard"), w.lining.boardMm, n => this.store.mutate(d => {
+          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+          if (wall?.lining) wall.lining.boardMm = clampLiningBoard(n);
+        }));
+        numRow(t("panel.liningLayers"), w.lining.layers, n => this.store.mutate(d => {
+          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+          if (wall?.lining) wall.lining.layers = clampLiningLayers(n);
+        }), 1);
+        noteRow(t("panel.liningHelp"));
+      }
+      // Block format, only meaningful on a block-built material.
+      if (isBlockMaterial(w.material)) {
+        checkRow(t("panel.blockOn"), w.blockMm !== undefined, on => this.store.mutate(d => {
+          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+          if (!wall) return;
+          if (on) wall.blockMm = { ...BLOCK_DEFAULT_MM }; else delete wall.blockMm;
+        }));
+        if (w.blockMm !== undefined) {
+          numRow(t("panel.blockLength"), w.blockMm.length, n => this.store.mutate(d => {
+            const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+            if (wall?.blockMm) wall.blockMm.length = clampBlockLength(n);
+          }), 50);
+          numRow(t("panel.blockHeight"), w.blockMm.height, n => this.store.mutate(d => {
+            const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+            if (wall?.blockMm) wall.blockMm.height = clampBlockHeight(n);
+          }), 50);
+        }
+      }
+      // Noggings and cavity insulation, only meaningful on a framed wall.
+      if (wallPostMm(w) !== undefined) {
+        numRow(t("panel.noggingRows"), w.noggingRows ?? 0, n => this.store.mutate(d => {
+          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+          if (wall) wall.noggingRows = clampNoggingRows(n) || undefined;
+        }), 1);
+        checkRow(t("panel.insulated"), w.insulated === true, on => this.store.mutate(d => {
+          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+          if (!wall) return;
+          if (on) wall.insulated = true; else delete wall.insulated;
+        }));
+      }
+      // Panel width along the wall, only meaningful on a sandwich body.
+      if (w.material === "sandwich") {
+        checkRow(t("panel.panelWidthOn"), w.panelMm !== undefined, on => this.store.mutate(d => {
+          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+          if (!wall) return;
+          if (on) wall.panelMm = PANEL_DEFAULT_MM; else delete wall.panelMm;
+        }));
+        if (w.panelMm !== undefined) {
+          numRow(t("panel.panelWidth"), w.panelMm, n => this.store.mutate(d => {
+            const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+            if (wall) wall.panelMm = clampPanel(n);
+          }), 50);
         }
       }
       // Recolouring one wall arms the pen, the way editing its thickness sets

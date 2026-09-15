@@ -1270,6 +1270,48 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
   const plain = toIfc(plainDoc);
   check("a wall stating no material is associated with none",
     !plain.includes("=IFCMATERIAL(") && !plain.includes("=IFCRELASSOCIATESMATERIAL("));
+
+  // A lined wall's board skin gets its own layer in the set, beside Structure
+  // and Facade -- see Wall.lining and wallLiningMm() in model/doc.ts.
+  const unlinedOut = plain;
+  check("a wall stating no lining carries no Lining layer", !unlinedOut.includes("'Lining'"));
+
+  // Unclad: no face carries the facade, so both are lined and the layer set
+  // carries two Lining layers.
+  const linedDoc = emptyDoc();
+  const lf = linedDoc.floors[0]!;
+  const l0 = nodeAt(lf, v(0, 0)).id, l1 = nodeAt(lf, v(4000, 0)).id;
+  lf.walls.push({
+    id: newId("w"), a: l0, b: l1, thickness: 100, bulge: 0, openings: [],
+    material: "timber", lining: { boardMm: 12, layers: 1 },
+  });
+  const linedOut = toIfc(linedDoc);
+  check("an unclad lined wall gets a material layer set", linedOut.includes("=IFCMATERIALLAYERSET("));
+  check("naming its lining material", linedOut.includes("IFCMATERIAL('Gypsum board'"));
+  check("two Lining layers for an unclad wall",
+    (linedOut.match(/'Lining'/g) ?? []).length === 2,
+    String((linedOut.match(/'Lining'/g) ?? []).length));
+  check("each Lining layer carries the board*layers thickness", linedOut.includes("12.,$,'Lining'"));
+  check("the Structure layer is still there", linedOut.includes("'Structure'"));
+  check("no Facade layer on a wall stating no facade", !linedOut.includes("'Facade'"));
+
+  // Clad: the facade side is never lined (liningSideOf), so exactly one
+  // Lining layer remains beside Structure and Facade.
+  const linedCladDoc = emptyDoc();
+  const lcf = linedCladDoc.floors[0]!;
+  const lc0 = nodeAt(lcf, v(0, 0)).id, lc1 = nodeAt(lcf, v(4000, 0)).id;
+  lcf.walls.push({
+    id: newId("w"), a: lc0, b: lc1, thickness: 100, bulge: 0, openings: [],
+    material: "masonry", facadeMm: 100, facadeSide: "right",
+    lining: { boardMm: 12, layers: 1 },
+  });
+  const linedCladOut = toIfc(linedCladDoc);
+  check("a clad, lined wall still gets a layer set", linedCladOut.includes("=IFCMATERIALLAYERSET("));
+  check("one Lining layer for a clad wall (the facade face is never lined)",
+    (linedCladOut.match(/'Lining'/g) ?? []).length === 1,
+    String((linedCladOut.match(/'Lining'/g) ?? []).length));
+  check("its Facade layer is still there", linedCladOut.includes("'Facade'"));
+  check("its Structure layer is still there", linedCladOut.includes("'Structure'"));
 }
 
 console.log(failures === 0 ? "ALL IFC TESTS PASSED" : `${failures} FAILURES`);

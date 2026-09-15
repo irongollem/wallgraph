@@ -6,14 +6,20 @@
 // ways and the difference is not small — a 4x3 m room with 300 mm walls is 12 m²
 // centerline but 9.99 m² net, a 20% gap:
 //   poly    / areaMm2    centerline-bounded (hart-op-hart), what the graph stores
-//   netPoly / netAreaMm2 inner wall faces (dagmaat), the usable floor NEN 2580 asks for
+//   netPoly / netAreaMm2 inner FINISHED faces (dagmaat), the usable floor NEN 2580
+//                        asks for -- the lining's board face where a wall carries
+//                        one, the structural face otherwise
 //   bvoPoly / bvoAreaMm2 gross: to the outer face of a clad wall, to the centreline
 //                        of an unclad one -- NEN 2580's BVO, which is what a
 //                        bedrijfsunit is advertised and taxed at
 // The net boundary is derived by offsetting each face edge inward by half the
-// thickness of the wall it lies on, then intersecting adjacent offset lines —
-// the same miter construction resolve.ts uses at junctions.
-import { Floor, DimMode, AreaMode, roomNamesOf, wallFacadeMm, floorHeight, storeyCeiling } from "../model/doc";
+// thickness of the wall it lies on (plus the lining's depth where that face is
+// lined), then intersecting adjacent offset lines — the same miter construction
+// resolve.ts uses at junctions.
+import {
+  Floor, DimMode, AreaMode, roomNamesOf, wallFacadeMm, wallLiningMm, liningSideOf,
+  floorHeight, storeyCeiling,
+} from "../model/doc";
 import type { Id } from "../model/doc";
 import type { RoomName } from "../model/room";
 import {
@@ -27,7 +33,11 @@ export interface Room {
   poly: Vec[];
   /** Centerline-bounded area, mm². Always >= netAreaMm2. */
   areaMm2: number;
-  /** Inner wall faces (dagmaat) — the usable floor outline. */
+  /**
+   * Inner FINISHED faces (dagmaat) — the usable floor outline. To the lining's
+   * board face where a bounding wall carries one on the side this room sees,
+   * to the structural face otherwise.
+   */
   netPoly: Vec[];
   /**
    * Gross boundary, per NEN 2580: the outer face of the facade where a bounding
@@ -188,7 +198,13 @@ export function detectRooms(f: Floor): Room[] {
     // With this turn rule (y-down), bounded faces trace with positive shoelace
     // area; the unbounded outer face is negative. Verified by tests/core.test.ts.
     if (face.area <= 1e4) continue; // rejects outer face and <0.01 m² slivers
-    const netPoly = insetPolygon(face.poly, face.halves);
+    // Net: inset to the finished face — the lining's board face where the wall
+    // carries one on the side this room sees, the structural face otherwise.
+    const netPoly = insetPolygon(face.poly, face.faces.map(({ wallId, side }, i) => {
+      const w = f.walls.find(x => x.id === wallId);
+      const lined = w !== undefined && liningSideOf(w, side);
+      return (face.halves[i] ?? 0) + (lined ? wallLiningMm(w!) : 0);
+    }));
     const netArea = Math.max(0, polygonArea(netPoly));
     // Gross: the same edge offsets run the other way, and only where the wall
     // carrying that edge is clad. An exterior wall bounds one room and its

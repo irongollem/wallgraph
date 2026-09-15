@@ -206,6 +206,8 @@ export const FEATURES: Record<Lang, string[]> = {
     "Meerdere verdiepingen met de laag eronder als onderlegger",
     "BENG-invoer: verliesoppervlak, gebruiksoppervlak, compactheid en glas per oriëntatie uit de " +
       "tekening, met een indicatief transmissieverlies",
+    "Muuropbouw per muur vastgelegd voor de materiaalstaat: beplating, blokformaat, klossen, " +
+      "spouwisolatie en paneelbreedte",
     "Exporteren naar PNG, SVG en DXF op ware schaal",
     "Werkt offline, slaat lokaal op, geen account nodig",
   ],
@@ -220,6 +222,8 @@ export const FEATURES: Record<Lang, string[]> = {
     "Multiple storeys with the one below as a tracing underlay",
     "BENG input: envelope area, usable area, compactness and glazing per orientation from the " +
       "drawing, with an indicative transmission loss",
+    "Wall build-up recorded per wall for the materials takeoff: board lining, block format, " +
+      "nogging rows, cavity insulation and panel width",
     "Export to PNG, SVG and DXF at true scale",
     "Works offline, saves locally, no account required",
   ],

@@ -296,6 +296,16 @@ begrenzende muur er een heeft, en tot de hartlijn waar dat niet zo is — precie
 gedeelde bouwmuur zegt. Naar IFC gaat een beklede muur als <code>IfcMaterialLayerSet</code>: constructie
 en bekleding als geordende lagen.</p>
 
+<p>Los daarvan is <b>beplating</b> op te geven: een plaatdikte en een aantal lagen, op
+de kant van de muur die geen gevel draagt. Net als de gevelbekleding tekent die als een witte band buiten
+het constructieve muurlichaam, en bij oppervlaktemaat <b>netto</b> wordt de ruimtegrens gemeten tot deze
+afgewerkte kant, niet tot de constructie. Het wandoppervlak (stucwerk, verf, behang) blijft hoe dan ook
+gemeten over het constructieve vlak; het paneel meldt dat apart waar een muur beplating draagt. Voor
+een blokopbouw (cellenbeton, kalkzandsteen) is het blokformaat vast te leggen; op een spant het aantal
+rijen klossen en of de spouw is geïsoleerd; op een sandwichwand de paneelbreedte. Blokformaat, klossen,
+isolatie en paneelbreedte veranderen niets aan de tekening — ze worden vastgelegd voor de
+materiaalstaat.</p>
+
 <p>Onder <b>Wandoppervlak</b> staat wat de muren van de verdieping aan vlak bieden — de maat waarop
 stucwerk, verf en behang worden besteld. Per muur staat het netto oppervlak in de muurlijst en in het
 paneel van de geselecteerde muur; per ruimte staat het onder haar regel in de ruimtelijst; de verdieping
@@ -672,6 +682,15 @@ re-derived. What the facade does set is the gross area: under the <b>gross (BVO)
 the facade where a bounding wall has one and to the centreline where it does not — which is what NEN 2580
 says about a shared party wall. A clad wall exports to IFC as an <code>IfcMaterialLayerSet</code>:
 structure and cladding as ordered layers.</p>
+
+<p>Separate from that again, a wall can carry a <b>board lining</b>: a board thickness and a number of
+layers, on the face that carries no facade. Like the cladding it draws as a white band outside the
+structural body, and under the <b>net</b> area mode the room boundary is measured to this finished face
+rather than to the structure. Wall surface (stucco, paint, wallpaper) stays measured over the structural
+face regardless; the pane notes this separately wherever a wall carries a lining. On a block-built body
+(aerated concrete, calcium silicate) the block format can be stated; on a frame the number of nogging rows
+and whether the cavity is insulated; on a sandwich wall the panel width. None of the block format, nogging
+rows, insulation or panel width change the drawing — they are recorded for the materials takeoff.</p>
 
 <p><b>Wall surface</b> states the face area the storey's walls present — the quantity stucco, paint and
 wallpaper are ordered against. Each wall's net area appears in the wall list and in the pane of the

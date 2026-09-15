@@ -33,9 +33,11 @@ const full: PlanDoc = {
   version: 1, unit: "mm", gridMm: 50, areaMode: "centerline", dimMode: "both",
   floors: [{
     id: "f1", name: "Begane grond",
-    nodes: [{ id: "n1", x: 0, y: 0 }, { id: "n2", x: 4000, y: 0 }],
+    nodes: [{ id: "n1", x: 0, y: 0 }, { id: "n2", x: 4000, y: 0 }, { id: "n3", x: 4000, y: 3000 }],
     walls: [{
       id: "w1", a: "n1", b: "n2", thickness: 300, bulge: 0.25,
+      material: "aerated", blockMm: { length: 600, height: 250 },
+      lining: { boardMm: 12, layers: 1 }, panelMm: 1000,
       openings: [{
         id: "o1", kind: "door", t: 2000, width: 1800,
         glazed: true, powered: true, selfClosing: true,
@@ -46,6 +48,10 @@ const full: PlanDoc = {
           { action: "revolve", spin: "cw", slideTo: "a", hinge: "sill" },
         ],
       }],
+    }, {
+      id: "w2", a: "n2", b: "n3", thickness: 200, bulge: 0,
+      material: "calciumsilicate", postMm: 900, noggingRows: 2, insulated: true,
+      openings: [],
     }],
     symbols: [{
       id: "s1", type: SYMBOL_TYPES[0]!, x: 100, y: -200,

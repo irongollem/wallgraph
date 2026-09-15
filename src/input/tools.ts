@@ -242,6 +242,14 @@ export class Tools {
   wallMaterial: WallMaterial | null = null;
   wallPostMm: number | null = null;
   wallPostWidthMm: number | null = null;
+  /** Board lining, block format, nogging rows, cavity insulation and sandwich
+   *  panel width for the next wall struck out -- armed the same way, so a run
+   *  drawn to one construction does not need each wall corrected afterwards. */
+  wallLining: NonNullable<Wall["lining"]> | null = null;
+  wallBlockMm: NonNullable<Wall["blockMm"]> | null = null;
+  wallNoggingRows: number | null = null;
+  wallInsulated = false;
+  wallPanelMm: number | null = null;
 
   /**
    * The stair the tool will place next. Unlike a symbol, a stair carries its
@@ -820,17 +828,26 @@ export class Tools {
       if (this.wallMaterial) w.material = this.wallMaterial;
       if (this.wallPostMm) w.postMm = this.wallPostMm;
       if (this.wallPostMm && this.wallPostWidthMm) w.postWidthMm = this.wallPostWidthMm;
+      if (this.wallLining) w.lining = { ...this.wallLining };
+      if (this.wallBlockMm) w.blockMm = { ...this.wallBlockMm };
+      if (this.wallPostMm && this.wallNoggingRows) w.noggingRows = this.wallNoggingRows;
+      if (this.wallInsulated) w.insulated = true;
+      if (this.wallPanelMm) w.panelMm = this.wallPanelMm;
     }
   }
 
   /** Arm the wall pen. Redraws so the draft wall shows what it will land as. */
   setWallPen(
-    patch: Partial<Pick<Tools, "wallColor" | "wallMaterial" | "wallPostMm" | "wallPostWidthMm">>,
+    patch: Partial<Pick<Tools,
+      | "wallColor" | "wallMaterial" | "wallPostMm" | "wallPostWidthMm"
+      | "wallLining" | "wallBlockMm" | "wallNoggingRows" | "wallInsulated" | "wallPanelMm"
+    >>,
   ): void {
     Object.assign(this, patch);
     // A profile with nothing to be a profile OF is not a state to arm: the
     // width goes with the centres rather than waiting for them to come back.
     if (this.wallPostMm === null) this.wallPostWidthMm = null;
+    if (this.wallPostMm === null) this.wallNoggingRows = null;
     this.onToolChange();
     this.requestRender();
   }

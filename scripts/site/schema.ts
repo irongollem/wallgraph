@@ -315,6 +315,39 @@ export function planSchema(siteUrl: string): JsonSchema {
               "stated; the document's energy.wallRc default then applies, but only to a wall " +
               "that states a facade.",
           },
+          lining: {
+            type: "object",
+            description:
+              "Board lining on the wall's interior faces, outside the structural faces like " +
+              "facadeMm. Absent means unlined; a face carrying the facade is never lined.",
+            required: ["boardMm", "layers"],
+            additionalProperties: false,
+            properties: {
+              boardMm: { type: "integer", minimum: 6, maximum: 30, description: "One board's thickness, mm." },
+              layers: { type: "integer", minimum: 1, maximum: 3, description: "Layers of board." },
+            },
+          },
+          blockMm: {
+            type: "object",
+            description:
+              "Block format of a block-built body (cellenbeton, kalkzandsteen); its depth is " +
+              "the wall's thickness. Only meaningful on a block material.",
+            required: ["length", "height"],
+            additionalProperties: false,
+            properties: {
+              length: { type: "integer", minimum: 100, maximum: 1000, description: "mm." },
+              height: { type: "integer", minimum: 50, maximum: 600, description: "mm." },
+            },
+          },
+          noggingRows: {
+            type: "integer", minimum: 0, maximum: 5,
+            description: "Rows of noggings (klossen) between the posts of a framed wall. Only meaningful with postMm.",
+          },
+          insulated: { type: "boolean", description: "The cavity of a framed wall is filled with insulation. Takeoff only." },
+          panelMm: {
+            type: "integer", minimum: 300, maximum: 3000,
+            description: "Panel width along the wall for a sandwich body, mm. Absent means not stated.",
+          },
         },
       },
       opening: {

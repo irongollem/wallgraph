@@ -238,6 +238,17 @@ export function planScene(doc: PlanDoc, floor: Floor, resolved: ReturnType<typeo
     out.push(group(facades,
       { fill: COLORS.bg, ink: COLORS.wallStroke, width: W_WALL }, "facade"));
 
+  // Lining, same drawing approach as the cladding band above.
+  const linings: Item[] = [];
+  for (const rw of resolved.walls.values()) {
+    if (rw.lining[0].length === 0 && rw.lining[1].length === 0) continue;
+    linings.push(group([...rw.lining[0], ...rw.lining[1]].map(band => poly(band.poly, true)),
+      { ink: wallPen(rw.wall).stroke }));
+  }
+  if (linings.length > 0)
+    out.push(group(linings,
+      { fill: COLORS.bg, ink: COLORS.wallStroke, width: W_WALL }, "lining"));
+
   const posts: Item[] = [];
   for (const rw of resolved.walls.values()) {
     const pen = wallPen(rw.wall);
