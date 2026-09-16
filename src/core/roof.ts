@@ -9,15 +9,16 @@
 // `roofUndersideAt` takes the LOWEST of every plane whose outline contains a
 // point, which is what makes a ridge or a hip come out right without the
 // planes having to meet exactly (see model/roof.ts).
-import { Floor, Id, Wall, findNode } from "../model/doc";
-import { RoofPlane, roofPlanesOf } from "../model/roof";
+import { Floor, Id, PlanDoc, Wall, findNode, floorHeight } from "../model/doc";
+import { RoofPlane, roofPlanesOf, roofThicknessOf } from "../model/roof";
 import { wallLength } from "../model/ops";
 import { wallTopAt, wallTopPolyline } from "../model/profile";
 import type { ProfilePoint } from "../model/doc";
 import {
-  Vec, v, add, sub, scale, dot, norm, perp, polygonArea, polygonCentroid, pointInPolygon,
+  Vec, v, add, sub, scale, dot, norm, perp, polygonArea, polygonCentroid, pointInPolygon, clipHalfPlane,
 } from "../geometry/vec";
 import { arcPointAt } from "../geometry/arc";
+import { outerBoundary } from "./rooms";
 
 const DEG = Math.PI / 180;
 
@@ -335,6 +336,105 @@ export function roofRidges(f: Floor): RoofRidge[] {
       const t0 = Math.max(ri.t0, rj.t0), t1 = Math.min(ri.t1, rj.t1);
       if (t1 - t0 < 1) continue;
       out.push({ a: add(p0, scale(dir, t0)), b: add(p0, scale(dir, t1)), planeIds: [pi.id, pj.id] });
+    }
+  }
+  return out;
+}
+
+// ── roof vs. the storey above ───────────────────────────────────────────────
+
+export interface RoofStoreyClash {
+  planeId: Id;
+  /** How far the plane's top rises above this storey's own height, mm. */
+  overMm: number;
+  /** Where, in world mm: the highest covered point of the plane. */
+  at: { x: number; y: number };
+}
+
+/** Beyond this the plane's top is read as genuinely rising into the floor
+ *  above rather than finishing at it -- the ordinary case for a flat roof
+ *  under a set-back, whose top lands within rounding of the floor height. */
+const ROOF_CLASH_TOL_MM = 10;
+
+/** `outline` re-wound counter-clockwise under y-down like a roof plane's own
+ *  outline -- outerBoundary() returns the unbounded face's own (opposite)
+ *  winding (see core/rooms.ts). The same local helper core/energy.ts's
+ *  ccwOuter and core/roofsuggest.ts's ccwOutline already are, kept private
+ *  to each file rather than shared. */
+function ccwOuter(outline: Vec[] | null): Vec[] | null {
+  if (!outline || outline.length < 3) return null;
+  return polygonArea(outline) < 0 ? [...outline].reverse() : outline;
+}
+
+/** `subject` clipped to `clip`, one half-plane per edge of `clip` (inward =
+ *  +perp(edge direction), the CCW-under-y-down winding a roof outline and a
+ *  re-wound storey outline share). Exact for a convex `clip`; the same
+ *  convex-clip approximation core/headroom.ts's clipToOutline and
+ *  core/energy.ts's clipToPolygon already accept for a storey outline. */
+function clipToOuter(subject: Vec[], clip: readonly Vec[]): Vec[] {
+  let out = subject;
+  const n = clip.length;
+  for (let i = 0; i < n && out.length >= 3; i++) {
+    const a = clip[i]!, b = clip[(i + 1) % n]!;
+    const edge = sub(b, a);
+    if (Math.hypot(edge.x, edge.y) < 1e-9) continue;
+    out = clipHalfPlane(out, a, perp(norm(edge)));
+  }
+  return out;
+}
+
+/**
+ * Every roof plane on floor `floorIndex` whose top -- underside plus its own
+ * roof build-up, measured vertically (thickness / cos(pitch), the same
+ * figure core/solids.ts's roofSlabSolids() builds) -- rises more than
+ * ROOF_CLASH_TOL_MM past THIS storey's own height (floorHeight(f), not the
+ * storey above's), within the part of the plan the storey above actually
+ * covers (outerBoundary() in core/rooms.ts). A set-back roof beside the
+ * storey above is not a clash: the plane's outline there clips to nothing.
+ *
+ * Empty on the top storey (nothing stands on it) and wherever the storey
+ * above has no closed wall loop of its own -- outerBoundary() returns null
+ * there, and reporting a clash against an undefined covered area would be a
+ * guess, not a fact read off the document.
+ *
+ * The plane's top is affine in plan position (planeUndersideAt() plus a
+ * pitch-only constant added by the roof build-up), so its maximum over the
+ * covered region is always a vertex of the clipped outline; no sampling. The
+ * clip itself is the same convex-clip approximation the rest of this module
+ * and core/headroom.ts already accept for a plane or a storey outline --
+ * exact for a convex storey outline, an under-cut for a concave one, which
+ * can only miss a clash outside the approximated region, never invent one.
+ * Reported, never repaired: the fix is the storey's height, the pitch or the
+ * eave, and the document does not say which.
+ */
+export function roofStoreyClashes(doc: PlanDoc, floorIndex: number): RoofStoreyClash[] {
+  const f = doc.floors[floorIndex];
+  const above = doc.floors[floorIndex + 1];
+  if (!f || !above) return [];
+  const aboveOuter = ccwOuter(outerBoundary(above));
+  if (!aboveOuter) return [];
+  const storeyH = floorHeight(f);
+  const out: RoofStoreyClash[] = [];
+  for (const plane of roofPlanesOf(f)) {
+    if (plane.outline.length < 3) continue;
+    const outline = plane.outline.map(p => v(p.x, p.y));
+    const clipped = clipToOuter(outline, aboveOuter);
+    if (clipped.length < 3) continue;
+    const cosPitch = Math.cos(plane.pitchDeg * DEG);
+    const vertical = cosPitch > 1e-6 ? roofThicknessOf(plane) / cosPitch : roofThicknessOf(plane);
+    let best: { top: number; at: Vec } | null = null;
+    for (const p of clipped) {
+      const top = planeUndersideAt(plane, p) + vertical;
+      if (!best || top > best.top) best = { top, at: p };
+    }
+    if (!best) continue;
+    const overMm = best.top - storeyH;
+    if (overMm > ROOF_CLASH_TOL_MM) {
+      out.push({
+        planeId: plane.id,
+        overMm: Math.round(overMm),
+        at: { x: Math.round(best.at.x), y: Math.round(best.at.y) },
+      });
     }
   }
   return out;

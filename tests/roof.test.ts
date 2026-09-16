@@ -1,9 +1,10 @@
 // Roof planes: underside, sloped area, suggestion, wall mismatches,
-// profileFromRoof, headroom and the energy roof area. Run with tsx.
-import { emptyDoc, type Wall, type PlanDoc, floorHeight } from "../src/model/doc";
+// profileFromRoof, headroom, the energy roof area and storey clashes. Run with tsx.
+import { emptyDoc, newId, type Wall, type Floor, type PlanDoc, floorHeight } from "../src/model/doc";
 import type { RoofPlane } from "../src/model/roof";
+import { ROOF_THICKNESS_DEFAULT_MM } from "../src/model/roof";
 import {
-  roofUndersideAt, planeUndersideAt, roofPlaneArea, roofWallMismatches, profileFromRoof,
+  roofUndersideAt, planeUndersideAt, roofPlaneArea, roofWallMismatches, profileFromRoof, roofStoreyClashes,
 } from "../src/core/roof";
 import { suggestRoof, flatRoof, gableRoof } from "../src/core/roofsuggest";
 import { roomLowHeadroom, HEADROOM_MIN_MM } from "../src/core/headroom";
@@ -18,6 +19,17 @@ function check(name: string, cond: boolean, detail = ""): void {
 function near(a: number, b: number, tol = 1): boolean { return Math.abs(a - b) <= tol; }
 
 const rectOutline = (w: number, d: number) => [v(0, 0), v(w, 0), v(w, d), v(0, d)];
+
+/** A closed rectangular wall loop on `f`, `w` x `d` mm, offset by (ox, oy) --
+ *  for outerBoundary() to have a covered area to clip a plane against. */
+function rectWalls(f: Floor, w: number, d: number, ox = 0, oy = 0): void {
+  const ids = [0, 1, 2, 3].map(() => newId("n"));
+  const pts = [v(ox, oy), v(ox + w, oy), v(ox + w, oy + d), v(ox, oy + d)];
+  for (let i = 0; i < 4; i++) f.nodes.push({ id: ids[i]!, x: pts[i]!.x, y: pts[i]!.y });
+  for (let i = 0; i < 4; i++) {
+    f.walls.push({ id: newId("w"), a: ids[i]!, b: ids[(i + 1) % 4]!, thickness: 150, bulge: 0, openings: [] });
+  }
+}
 
 // --- underside on a 45° plane ---
 {
@@ -179,6 +191,95 @@ function gableHouse(peakOffsetMm: number): { doc: PlanDoc; w1: Wall; w3: Wall } 
   const expected = planMm2 * Math.sqrt(2);
   check("energy roof area = plan area x sqrt(2)", near(takeoff.storeys[0]!.roofMm2, expected, 10),
     `${takeoff.storeys[0]!.roofMm2} vs ${expected}`);
+}
+
+// --- roofStoreyClashes: a 45° plane rising into the storey above ---
+{
+  const doc = emptyDoc();
+  const ground = doc.floors[0]!;
+  ground.height = 2600;
+  rectWalls(ground, 4000, 3000);
+  const plane: RoofPlane = { id: "clashPlane", outline: rectOutline(4000, 3000), eaveEdge: 0, eaveMm: 2600, pitchDeg: 45 };
+  ground.roofPlanes = [plane];
+
+  const above: Floor = { id: newId("f"), name: "Verdieping 2", nodes: [], walls: [], symbols: [] };
+  rectWalls(above, 4000, 3000);
+  doc.floors.push(above);
+
+  const clashes = roofStoreyClashes(doc, 0);
+  check("45° plane under a full storey above reports a clash", clashes.length === 1, JSON.stringify(clashes));
+  if (clashes.length === 1) {
+    const c = clashes[0]!;
+    check("the clash names the plane", c.planeId === "clashPlane", c.planeId);
+    const cosPitch = Math.cos((45 * Math.PI) / 180);
+    const vertical = ROOF_THICKNESS_DEFAULT_MM / cosPitch;
+    const expectedTop = 2600 + 3000 * Math.tan((45 * Math.PI) / 180) + vertical; // far edge, y=3000
+    const expectedOver = Math.round(expectedTop - 2600);
+    check("overMm is the top at the highest covered vertex, above the storey's own height",
+      near(c.overMm, expectedOver, 1), `${c.overMm} vs ${expectedOver}`);
+    check("the highest point sits at the far (high) edge of the plane, y=3000",
+      near(c.at.y, 3000, 1), JSON.stringify(c.at));
+  }
+}
+
+// --- roofStoreyClashes: a flat roof finishing exactly at the floor above reports nothing ---
+{
+  const doc = emptyDoc();
+  const ground = doc.floors[0]!;
+  ground.height = 2600;
+  rectWalls(ground, 4000, 3000);
+  // eave chosen so eaveMm + roof build-up (vertical, pitch 0) lands exactly on the floor height.
+  const eaveMm = 2600 - ROOF_THICKNESS_DEFAULT_MM;
+  ground.roofPlanes = [{ id: "flatPlane", outline: rectOutline(4000, 3000), eaveEdge: 0, eaveMm, pitchDeg: 0 }];
+
+  const above: Floor = { id: newId("f"), name: "Verdieping 2", nodes: [], walls: [], symbols: [] };
+  rectWalls(above, 4000, 3000);
+  doc.floors.push(above);
+
+  check("a flat roof finishing at storey height reports no clash", roofStoreyClashes(doc, 0).length === 0);
+}
+
+// --- roofStoreyClashes: set-back -- the storey above covers only part of the plan ---
+{
+  const doc = emptyDoc();
+  const ground = doc.floors[0]!;
+  ground.height = 2600;
+  rectWalls(ground, 4000, 3000);
+  ground.roofPlanes = [{ id: "setback", outline: rectOutline(4000, 3000), eaveEdge: 0, eaveMm: 2600, pitchDeg: 45 }];
+
+  // The storey above stands well clear of the plane's own footprint.
+  const above: Floor = { id: newId("f"), name: "Verdieping 2", nodes: [], walls: [], symbols: [] };
+  rectWalls(above, 4000, 3000, 10000, 0);
+  doc.floors.push(above);
+
+  check("a plane entirely outside the storey above's covered area reports no clash",
+    roofStoreyClashes(doc, 0).length === 0);
+}
+
+// --- roofStoreyClashes: the top storey reports nothing (nothing stands on it) ---
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.height = 2600;
+  rectWalls(f, 4000, 3000);
+  f.roofPlanes = [{ id: "top", outline: rectOutline(4000, 3000), eaveEdge: 0, eaveMm: 2600, pitchDeg: 45 }];
+
+  check("the top storey reports no clash", roofStoreyClashes(doc, 0).length === 0);
+}
+
+// --- roofStoreyClashes: a storey above with no closed boundary reports nothing, not a guess ---
+{
+  const doc = emptyDoc();
+  const ground = doc.floors[0]!;
+  ground.height = 2600;
+  rectWalls(ground, 4000, 3000);
+  ground.roofPlanes = [{ id: "openAbove", outline: rectOutline(4000, 3000), eaveEdge: 0, eaveMm: 2600, pitchDeg: 45 }];
+
+  const above: Floor = { id: newId("f"), name: "Verdieping 2", nodes: [], walls: [], symbols: [] }; // no walls at all
+  doc.floors.push(above);
+
+  check("a storey above with no closed wall loop reports no clash",
+    roofStoreyClashes(doc, 0).length === 0);
 }
 
 console.log(failures === 0 ? "ALL ROOF TESTS PASSED" : `${failures} FAILURES`);

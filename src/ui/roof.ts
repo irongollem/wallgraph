@@ -15,7 +15,7 @@ import type { Floor } from "../model/doc";
 import {
   roofPlanesOf, clampRoofPlane, roofThicknessOf, ROOF_THICKNESS_DEFAULT_MM, type RoofPlane,
 } from "../model/roof";
-import { roofPlaneArea, profileFromRoof, type RoofWallMismatch } from "../core/roof";
+import { roofPlaneArea, profileFromRoof, type RoofWallMismatch, type RoofStoreyClash } from "../core/roof";
 import { suggestRoof, flatRoof, gableRoof, type RoofSuggestion } from "../core/roofsuggest";
 import { roomLowHeadroom } from "../core/headroom";
 import { clampProfile } from "../model/profile";
@@ -120,6 +120,15 @@ export interface RoofTakeoffData {
   /** Named rooms that actually have low headroom -- an unnamed room, and one
    *  with none, are left out (see ui/roof.ts's caller). */
   headroomRooms: ReadonlyArray<{ room: Room; lowMm2: number }>;
+  /** roofStoreyClashes() against the storey above, empty on the top storey
+   *  or where that storey has no closed boundary of its own -- see
+   *  core/roof.ts. */
+  clashes: readonly RoofStoreyClash[];
+  /** The storey above's own name, for the clash row -- core reports the
+   *  clash by planeId and mm, the caller names the floor the same way
+   *  syncRoofTakeoff already supplies room names for the headroom rows.
+   *  Absent exactly when `clashes` is empty. */
+  aboveName?: string;
 }
 
 /**
@@ -149,6 +158,16 @@ export function renderRoofTakeoff(
         w.profile = profile;
         clampProfile(f, w);
       }));
+    }
+  }
+
+  if (data.clashes.length > 0 && data.aboveName !== undefined) {
+    rows.secHead(t("roof.clashHead"), { later: true });
+    const planes = roofPlanesOf(floor);
+    for (const c of data.clashes) {
+      const n = planes.findIndex(p => p.id === c.planeId) + 1;
+      if (n <= 0) continue;
+      rows.warnRow(t("roof.clash", { n, over: c.overMm, floor: data.aboveName }));
     }
   }
 

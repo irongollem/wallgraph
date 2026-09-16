@@ -51,7 +51,7 @@ import {
   renderRoof, renderRoofTakeoff, roofHeadroomRooms, type RoofProposal, type RoofTakeoffData,
 } from "./roof";
 import { roofPlanesOf } from "../model/roof";
-import { roofWallMismatches } from "../core/roof";
+import { roofWallMismatches, roofStoreyClashes } from "../core/roof";
 import type { RoofSuggestion } from "../core/roofsuggest";
 import { renderMaterialAssumptions, renderMaterialTakeoff, renderWallMaterial } from "./materials";
 import { renderFrameButton, openFrameDialog } from "./frame";
@@ -1971,9 +1971,12 @@ export class Panel {
     if (this.store.revision !== this.roofCacheRev) {
       this.roofCacheRev = this.store.revision;
       const f = this.store.floor;
+      const above = this.store.doc.floors[this.store.activeFloor + 1];
       this.roofCacheData = {
         mismatches: roofWallMismatches(f),
         headroomRooms: roofHeadroomRooms(f, this.tools.rooms()),
+        clashes: roofStoreyClashes(this.store.doc, this.store.activeFloor),
+        ...(above ? { aboveName: above.name } : {}),
       };
     }
     const data = this.roofCacheData;

@@ -267,7 +267,11 @@ neither is found, or when a gable pair disagrees. Both directions are proposals 
 writes what they return in one explicit mutation, and nothing here re-derives a plane or a
 profile afterwards. `core/headroom.ts`'s `roomLowHeadroom()` and `stairRoofClearanceMm()`, and
 `core/energy.ts`'s roof area, all read the same planes; `core/solids.ts`'s `roofSlabSolids()` and
-`io/ifc.ts`'s `IfcRoof` build each plane as a slab on its underside. Verified by
+`io/ifc.ts`'s `IfcRoof` build each plane as a slab on its underside. `roofStoreyClashes()` checks a
+plane's own top against ITS OWN storey height, within whatever part of the plan the storey above
+actually covers (`outerBoundary()` in [core/rooms.ts](src/core/rooms.ts)); like
+`roofWallMismatches()`, it reports and never repairs, since the fix is the storey's height, the
+pitch or the eave, and the document does not say which. Verified by
 [tests/roof.test.ts](tests/roof.test.ts).
 
 **`resolveRoutes()`** — waypoints resolved through their anchors, then straight legs that
