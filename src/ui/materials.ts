@@ -8,7 +8,12 @@ import { Store } from "../model/store";
 import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
 import { sqm } from "./walls";
-import { stockLengths, stockPresetOf, STOCK_PRESETS, kerfMm, wastePct, sheetMm } from "../model/materials";
+import {
+  stockLengths, stockPresetOf, STOCK_PRESETS, kerfMm, wastePct, sheetMm,
+  timberOf, timberClassOf, applyTimberClass, TIMBER_CLASSES, TIMBER_DEFAULT,
+  gammaGOf, gammaQOf, deflectionDivOf, sectionsMmOf,
+  type TimberClassId,
+} from "../model/materials";
 import type { StockPreset } from "../model/materials";
 import type { Member, MemberName, WallSystem, WallTakeoff, DeckTakeoff, FloorMaterials } from "../core/materials";
 import { decksOf } from "../model/doc";
@@ -73,6 +78,23 @@ function parseStockList(text: string): number[] | null {
     nums.push(Math.round(n));
   }
   return [...new Set(nums)].sort((a, b) => a - b);
+}
+
+/** Comma-separated "w x d" pairs, mm ("38x89, 44x195"). Empty means "clear to
+ *  default"; any entry that does not parse as two positive integers rejects
+ *  the whole edit rather than keeping a partial list -- mirrors
+ *  parseStockList() above for what a visitor is allowed to commit. */
+function parseSectionsList(text: string): Array<{ w: number; d: number }> | null {
+  const parts = text.split(",").map(s => s.trim()).filter(s => s.length > 0);
+  const out: Array<{ w: number; d: number }> = [];
+  for (const p of parts) {
+    const m = /^(\d+)\s*[x×]\s*(\d+)$/i.exec(p);
+    if (!m) return null;
+    const w = Number(m[1]), d = Number(m[2]);
+    if (!Number.isFinite(w) || w <= 0 || !Number.isFinite(d) || d <= 0) return null;
+    out.push({ w: Math.round(w), d: Math.round(d) });
+  }
+  return out;
 }
 
 /**
@@ -142,6 +164,78 @@ export function renderMaterialAssumptions(
     dd.materials ??= {};
     dd.materials.sheetMm = { ...sheetMm(dd), height: Math.max(1, Math.round(n)) };
   }), 50);
+}
+
+/**
+ * The assumptions the preliminary span checks (core/checks.ts, core/timber.ts)
+ * read: the timber strength class -- a preset that only fills fmk/fvk/e0mean,
+ * mirroring ui/energy.ts's insulation-class select -- the load partial
+ * factors, the deflection limit, and the sections a proposal is offered from.
+ * Plain fields throughout, the same reasoning renderMaterialAssumptions
+ * gives above: there is no "not stated" reading distinct from the trade
+ * default these accessors already fall back to.
+ */
+export function renderStructureAssumptions(
+  rows: Pick<PaneRows, "secHead" | "numRow" | "selRow" | "textRow" | "noteRow">,
+  store: Store,
+): void {
+  const d = store.doc;
+  rows.secHead(t("checks.title"), { later: true });
+
+  const timber = timberOf(d);
+  const classId = timberClassOf(timber);
+  const classOptions: Array<[string, string]> = TIMBER_CLASSES.map(c => [c.id, t("materials.timberClass_" + c.id)]);
+  if (!classId) classOptions.push(["custom", t("materials.custom")]);
+  rows.selRow(t("materials.timberClass"), classId ?? "custom", classOptions, id => {
+    if (id === "custom") return;
+    store.mutate(dd => {
+      dd.materials ??= {};
+      dd.materials.timber ??= { ...TIMBER_DEFAULT };
+      applyTimberClass(dd.materials.timber, id as TimberClassId);
+    });
+  });
+
+  // kmod, gammaM and kdef decide every utilisation as much as the class does,
+  // so they are edited here rather than only through a pasted document.
+  const timberRow = (key: "kmod" | "gammaM" | "kdef", step: number, min: number): void => {
+    rows.numRow(t("materials." + key), timberOf(d)[key], n => store.mutate(dd => {
+      dd.materials ??= {};
+      dd.materials.timber ??= { ...TIMBER_DEFAULT };
+      dd.materials.timber[key] = Math.max(min, n);
+    }), step);
+  };
+  timberRow("kmod", 0.05, 0.1);
+  timberRow("gammaM", 0.05, 1);
+  timberRow("kdef", 0.1, 0);
+
+  rows.numRow(t("materials.gammaG"), gammaGOf(d), n => store.mutate(dd => {
+    dd.materials ??= {};
+    dd.materials.gammaG = Math.max(0.1, n);
+  }), 0.1);
+  rows.numRow(t("materials.gammaQ"), gammaQOf(d), n => store.mutate(dd => {
+    dd.materials ??= {};
+    dd.materials.gammaQ = Math.max(0.1, n);
+  }), 0.1);
+  rows.numRow(t("materials.deflectionDiv"), deflectionDivOf(d), n => store.mutate(dd => {
+    dd.materials ??= {};
+    dd.materials.deflectionDiv = Math.max(1, Math.round(n));
+  }), 50, { title: t("materials.deflectionDivHelp") });
+
+  rows.textRow(t("materials.sections"), sectionsMmOf(d).map(s => `${s.w}x${s.d}`).join(", "), text => {
+    store.mutate(dd => {
+      if (text.trim() === "") {
+        if (!dd.materials) return;
+        delete dd.materials.sectionsMm;
+        if (Object.keys(dd.materials).length === 0) delete dd.materials;
+        return;
+      }
+      const parsed = parseSectionsList(text);
+      if (!parsed || parsed.length === 0) return; // invalid: leave the field as typed, commit nothing
+      dd.materials ??= {};
+      dd.materials.sectionsMm = parsed;
+    });
+  }, { allowEmpty: true });
+  rows.noteRow(t("materials.sectionsHelp"));
 }
 
 /** One member line: count and length on the left, section on the right --

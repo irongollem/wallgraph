@@ -953,6 +953,11 @@ export const OPENING_BEARING_DEFAULT_MM = 150;
 export function openingBearing(o: Opening): number {
   return o.bearingMm ?? OPENING_BEARING_DEFAULT_MM;
 }
+export const clampOpeningBearing = (n: number): number => clampInt(n, 50, 500);
+/** A lintel's own section, mm -- the same range as a deck's joist section. */
+export const clampLintelSection = (n: number): number => clampInt(n, 30, 400);
+/** An additional line load authored on a lintel, kN/m: non-negative, two decimals. */
+export const clampLintelLoad = (n: number): number => Math.max(0, Math.round((isFinite(n) ? n : 0) * 100) / 100);
 
 /**
  * The sashes of an opening, left to right along a->b, each with a resolved

@@ -9,6 +9,8 @@ import {
   clampBearing, clampDecking, clampDeckTop, deckUseOf,
 } from "../model/deck";
 import { deckSpanMm, deckJoistsLocal } from "../core/deck";
+import { joistCheck } from "../core/checks";
+import { renderCheckResult } from "./checks";
 import { stairAngle } from "../model/stair";
 import { isMixed } from "../core/mixed";
 import { t } from "../i18n";
@@ -82,7 +84,23 @@ export function renderDeckProps(store: Store, tools: Tools, rows: PaneRows, id: 
   rows.infoRow(t("panel.deckSpan"), `${deckSpanMm(deck)} mm`);
   rows.infoRow(t("panel.deckJoists"), String(deckJoistsLocal(deck).length));
   rows.noteRow(t("panel.deckNote"));
+
+  const result = joistCheck(store.doc, deck);
+  renderCheckResult(rows, result, joistMissingLabel, deck.joist ? `${deck.joist.w} × ${deck.joist.d} mm` : undefined,
+    (w, d) => mut(d2 => { d2.joist = { w, d }; }));
+
   rows.dangerRow(t("panel.deleteOpening"), () => tools.deleteSelected());
+}
+
+/** Wording for joistCheck()'s `missing` keys -- each points at the row it is
+ *  entered in, all of them on this same pane. */
+function joistMissingLabel(key: string): string {
+  switch (key) {
+    case "span": return t("checks.missingSpanDeck");
+    case "load": return t("checks.missingLoadDeck");
+    case "joistSection": return t("panel.deckSectionOn");
+    default: return key;
+  }
 }
 
 /** Properties of every selected deck at once: colour and loads, which read the

@@ -26,6 +26,7 @@ import {
   FACADE_DEFAULT_MM, facadeSideOf, wallPostMm, postDefaultsFor, postLayoutOf,
   isBlockMaterial, LINING_DEFAULT, BLOCK_DEFAULT_MM, PANEL_DEFAULT_MM,
   clampLiningBoard, clampLiningLayers, clampBlockLength, clampBlockHeight, clampNoggingRows, clampPanel,
+  openingBearing, OPENING_BEARING_DEFAULT_MM, clampOpeningBearing, clampLintelSection, clampLintelLoad,
   type AreaMode, type DimMode, type Sash, type HingeEdge, type Opening, type Wall, type Floor, type FireKind,
   type ProjectMeta, type Id, type WallMaterial, type PlanDoc,
 } from "../model/doc";
@@ -53,7 +54,9 @@ import {
 import { roofPlanesOf } from "../model/roof";
 import { roofWallMismatches, roofStoreyClashes } from "../core/roof";
 import type { RoofSuggestion } from "../core/roofsuggest";
-import { renderMaterialAssumptions, renderMaterialTakeoff, renderWallMaterial } from "./materials";
+import { renderMaterialAssumptions, renderMaterialTakeoff, renderWallMaterial, renderStructureAssumptions } from "./materials";
+import { lintelCheck } from "../core/checks";
+import { renderCheckResult } from "./checks";
 import { renderFrameButton, openFrameDialog } from "./frame";
 import { floorSurface, type WallSurface } from "../core/surface";
 import {
@@ -88,6 +91,18 @@ import { buildKeypad } from "./keypad";
  * rating's none) the way a plain "" sentinel would.
  */
 const MIXED_SENTINEL = "__mixed__";
+
+/** Wording for lintelCheck()'s `missing` keys. "material" is the one case
+ *  none of these three checks has on its own pane: a lintel's load comes from
+ *  the WALL it sits in, not the opening, so the missing fact points there
+ *  rather than at a row below. */
+function lintelMissingLabel(key: string): string {
+  switch (key) {
+    case "material": return t("checks.missingWallMaterial");
+    case "lintelSection": return t("panel.lintelSectionOn");
+    default: return key;
+  }
+}
 
 /**
  * The layers this storey has something on, in LAYER_KEYS order. A toggle for
@@ -1255,6 +1270,36 @@ export class Panel {
         if (fallback !== undefined) rows.noteRow(t("panel.uValuePlan", { u: fallback.toFixed(2) }));
       }
     }
+    // The lintel's own bearing, section and any additional (floor) load --
+    // the authored facts core/checks.ts's lintelCheck() reads, on the same
+    // pane the check itself reports in below.
+    rows.numRow(t("panel.lintelBearing"), openingBearing(o),
+      n => mutOpening(o2 => { o2.bearingMm = clampOpeningBearing(n); }));
+    rows.noteRow(t("panel.lintelBearingHelp", { mm: OPENING_BEARING_DEFAULT_MM }));
+    // Set/unset, as a deck's joist section is: absent is "not stated", which
+    // the check below reports rather than assuming a section.
+    rows.checkRow(t("panel.lintelSectionOn"), o.lintel !== undefined, on => mutOpening(o2 => {
+      if (on) o2.lintel = { w: 44, d: 145 }; else delete o2.lintel;
+    }));
+    if (o.lintel) {
+      const lintel = o.lintel;
+      rows.numRow(t("panel.lintelWidth"), lintel.w,
+        n => mutOpening(o2 => { if (o2.lintel) o2.lintel.w = clampLintelSection(n); }), 1);
+      rows.numRow(t("panel.lintelDepth"), lintel.d,
+        n => mutOpening(o2 => { if (o2.lintel) o2.lintel.d = clampLintelSection(n); }), 1);
+    }
+    rows.checkRow(t("panel.lintelLoadOn"), o.lintelLoadKNm !== undefined, on => mutOpening(o2 => {
+      if (on) o2.lintelLoadKNm = 1; else delete o2.lintelLoadKNm;
+    }));
+    if (o.lintelLoadKNm !== undefined) {
+      rows.numRow(t("panel.lintelLoad"), o.lintelLoadKNm,
+        n => mutOpening(o2 => { o2.lintelLoadKNm = clampLintelLoad(n); }), 0.1, { title: t("panel.lintelLoadHelp") });
+    }
+
+    const lintelResult = lintelCheck(this.store.doc, f, wall, o);
+    renderCheckResult(rows, lintelResult, lintelMissingLabel, o.lintel ? `${o.lintel.w} × ${o.lintel.d} mm` : undefined,
+      (w, d) => mutOpening(o2 => { o2.lintel = { w, d }; }));
+
     rows.dangerRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());
   }
 
@@ -2018,8 +2063,9 @@ export class Panel {
       this.syncMaterialsTakeoff();
     };
 
-    const { numRow, textRow, noteRow, btnRow } = this.rowKit(inner);
+    const { numRow, selRow, textRow, noteRow, btnRow } = this.rowKit(inner);
     renderMaterialAssumptions({ numRow, textRow, noteRow, btnRow }, this.store);
+    renderStructureAssumptions({ secHead: this.secHeadLater(inner), numRow, selRow, textRow, noteRow }, this.store);
 
     this.materialsTakeoffEl = el("div");
     inner.append(this.materialsTakeoffEl);

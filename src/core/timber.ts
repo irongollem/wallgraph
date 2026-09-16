@@ -101,18 +101,26 @@ export function checkSpan(i: SpanInput): SpanCheck {
 }
 
 /**
- * The smallest section in `sections` that passes, in the order given
- * (model/materials.ts's SECTIONS_DEFAULT is ascending by depth then width, so
- * this is the smallest by depth). Null when none passes.
+ * The LEAST TIMBER that passes: of every section in `sections` that passes,
+ * the one with the smallest cross-section, ties going to the shallower.
+ * Ordering the list by depth alone would propose a 71 x 196 where a 44 x 220
+ * passes on a third less timber, which is not what anyone orders; a builder
+ * who needs the shallower section states it and reads the check instead.
+ * Null when none passes.
  */
 export function proposeSection(
   i: Omit<SpanInput, "section">,
   sections: readonly { w: number; d: number }[],
 ): { w: number; d: number } | null {
+  let best: { w: number; d: number } | null = null;
   for (const section of sections) {
-    if (checkSpan({ ...i, section }).passes) return { w: section.w, d: section.d };
+    if (!checkSpan({ ...i, section }).passes) continue;
+    const area = section.w * section.d;
+    if (!best || area < best.w * best.d || (area === best.w * best.d && section.d < best.d)) {
+      best = { w: section.w, d: section.d };
+    }
   }
-  return null;
+  return best;
 }
 
 /** A steel beam's stiffness, read off a catalogue profile rather than a

@@ -45,6 +45,18 @@ export interface CheckResult {
    *  fails or a section is missing; undefined when it already passes;
    *  null when nothing in the list passes (or nothing could be tried). */
   proposal?: { w: number; d: number } | null;
+  /**
+   * The line load's own permanent/variable make-up, kN/m (numerically equal
+   * to N/mm -- see the unit-conversion note above) -- separate from
+   * `input.qdNmm`/`qkNmm`, which are already summed and factored, so the UI
+   * can show what a result is built from without re-deriving the unit
+   * conversion this module owns. Present once the load itself is known, even
+   * when the check as a whole is `incomplete` over a missing section.
+   * `wallLineKNm` is present only for a lintel: the wall self-weight
+   * component of `gLineKNm`, the rest being the opening's own
+   * `lintelLoadKNm`.
+   */
+  loadBreakdown?: { gLineKNm: number; qLineKNm: number; wallLineKNm?: number };
 }
 
 /** Standard gravity, m/s² -- for turning a wall's density into a self-weight. */
@@ -106,25 +118,29 @@ export function joistCheck(doc: PlanDoc, deck: Deck): CheckResult {
   const missing: string[] = [];
   const spanMm = deckSpanMm(deck);
   if (spanMm <= 0) missing.push("span");
-  if (deck.loadG === undefined || deck.loadQ === undefined) missing.push("load");
+  const hasLoad = deck.loadG !== undefined && deck.loadQ !== undefined;
+  if (!hasLoad) missing.push("load");
   if (!deck.joist) missing.push("joistSection");
 
   const sections = sectionsMmOf(doc);
-  const base = spanMm > 0 && deck.loadG !== undefined && deck.loadQ !== undefined
-    ? timberBase(
-        doc, spanMm,
-        // N/m² × mm width / 1e6 = N/mm.
-        (deck.loadG * deck.joistMm) / 1_000_000,
-        (deck.loadQ * deck.joistMm) / 1_000_000,
-      )
-    : null;
+  // N/m² × mm width / 1e6 = N/mm, numerically the same as kN/m.
+  const gLineNmm = hasLoad ? (deck.loadG! * deck.joistMm) / 1_000_000 : 0;
+  const qLineNmm = hasLoad ? (deck.loadQ! * deck.joistMm) / 1_000_000 : 0;
+  const base = spanMm > 0 && hasLoad ? timberBase(doc, spanMm, gLineNmm, qLineNmm) : null;
+  const loadBreakdown = hasLoad ? { gLineKNm: gLineNmm, qLineKNm: qLineNmm } : undefined;
 
   if (!deck.joist || !base) {
-    return { status: "incomplete", missing, material: "timber", proposal: base ? proposeSection(base, sections) : null };
+    return {
+      status: "incomplete", missing, material: "timber",
+      proposal: base ? proposeSection(base, sections) : null, loadBreakdown,
+    };
   }
 
   const { check, proposal } = timberResult(base, deck.joist, sections);
-  return { status: check.passes ? "ok" : "fails", missing: [], material: "timber", input: { ...base, section: deck.joist }, check, proposal };
+  return {
+    status: check.passes ? "ok" : "fails", missing: [], material: "timber",
+    input: { ...base, section: deck.joist }, check, proposal, loadBreakdown,
+  };
 }
 
 // ── beam ─────────────────────────────────────────────────────────────────
@@ -150,6 +166,7 @@ export function beamCheck(doc: PlanDoc, _f: Floor, beam: Beam): CheckResult {
 
   // kN/m and N/mm are the same number; the whole authored load is permanent.
   const gLineNmm = beam.loadKNm!;
+  const loadBreakdown = { gLineKNm: gLineNmm, qLineKNm: 0 };
   const { qdNmm, qkNmm } = loadInputs(spanMm, gLineNmm, 0, doc);
   const deflectionDiv = deflectionDivOf(doc);
 
@@ -161,13 +178,16 @@ export function beamCheck(doc: PlanDoc, _f: Floor, beam: Beam): CheckResult {
       fy: steelFyOf(doc), deflectionDiv,
     };
     const check = checkSteelSpan(input);
-    return { status: check.passes ? "ok" : "fails", missing: [], material: "steel", input, check };
+    return { status: check.passes ? "ok" : "fails", missing: [], material: "steel", input, check, loadBreakdown };
   }
 
   const timber = timberOf(doc);
   const base: Omit<SpanInput, "section"> = { spanMm, qdNmm, qkNmm, material: timber, deflectionDiv };
   const { check, proposal } = timberResult(base, { w: beam.width, d: beam.depth }, sectionsMmOf(doc));
-  return { status: check.passes ? "ok" : "fails", missing: [], material: "timber", input: { ...base, section: { w: beam.width, d: beam.depth } }, check, proposal };
+  return {
+    status: check.passes ? "ok" : "fails", missing: [], material: "timber",
+    input: { ...base, section: { w: beam.width, d: beam.depth } }, check, proposal, loadBreakdown,
+  };
 }
 
 // ── lintel ───────────────────────────────────────────────────────────────
@@ -194,15 +214,23 @@ export function lintelCheck(doc: PlanDoc, f: Floor, wall: Wall, opening: Opening
   if (!opening.lintel) missing.push("lintelSection");
 
   const sections = sectionsMmOf(doc);
-  const base = selfWeightNmm !== null
-    // kN/m and N/mm are the same number.
-    ? timberBase(doc, spanMm, selfWeightNmm + (opening.lintelLoadKNm ?? 0), 0)
-    : null;
+  const extraNmm = opening.lintelLoadKNm ?? 0;
+  // kN/m and N/mm are the same number.
+  const base = selfWeightNmm !== null ? timberBase(doc, spanMm, selfWeightNmm + extraNmm, 0) : null;
+  const loadBreakdown = selfWeightNmm !== null
+    ? { gLineKNm: selfWeightNmm + extraNmm, qLineKNm: 0, wallLineKNm: selfWeightNmm }
+    : undefined;
 
   if (!opening.lintel || !base) {
-    return { status: "incomplete", missing, material: "timber", proposal: base ? proposeSection(base, sections) : null };
+    return {
+      status: "incomplete", missing, material: "timber",
+      proposal: base ? proposeSection(base, sections) : null, loadBreakdown,
+    };
   }
 
   const { check, proposal } = timberResult(base, opening.lintel, sections);
-  return { status: check.passes ? "ok" : "fails", missing: [], material: "timber", input: { ...base, section: opening.lintel }, check, proposal };
+  return {
+    status: check.passes ? "ok" : "fails", missing: [], material: "timber",
+    input: { ...base, section: opening.lintel }, check, proposal, loadBreakdown,
+  };
 }

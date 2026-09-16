@@ -140,5 +140,23 @@ function near(a: number, b: number, tol: number): boolean { return Math.abs(a - 
   check("this beam passes", r.passes === true);
 }
 
+{
+  // Least timber, not least depth: at 3600 mm and ordinary loads a 44 x 220
+  // passes on a third less timber than the 71 x 196 a depth-ordered list
+  // reaches first.
+  const base = {
+    spanMm: 3600,
+    qdNmm: (1.2 * 0.5 + 1.5 * 1.75) * 0.6,
+    qkNmm: (0.5 + 1.75) * 0.6,
+    material: { ...TIMBER_DEFAULT },
+    deflectionDiv: 250,
+  };
+  const proposed = proposeSection(base, SECTIONS_DEFAULT)!;
+  const passing = SECTIONS_DEFAULT.filter(sec => checkSpan({ ...base, section: sec }).passes);
+  check("proposeSection returns the passing section with the least timber",
+    passing.every(sec => sec.w * sec.d >= proposed.w * proposed.d),
+    `${proposed.w}x${proposed.d} vs ${JSON.stringify(passing)}`);
+}
+
 console.log(failures === 0 ? "ok" : `FAIL (${failures} failures)`);
 process.exit(failures === 0 ? 0 : 1);

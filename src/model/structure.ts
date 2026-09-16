@@ -210,6 +210,8 @@ export const clampRailWidth = (n: number): number => clampInt(n, STRUCTURE_LIMIT
 export const clampRailHeight = (n: number): number => clampInt(n, STRUCTURE_LIMITS.railHeight);
 export const clampPostMm = (n: number): number => clampInt(n, STRUCTURE_LIMITS.post);
 export const clampStructureHeight = (n: number): number => clampInt(n, STRUCTURE_LIMITS.height);
+/** A beam's authored line load for the preliminary span check, kN/m: non-negative, two decimals. */
+export const clampBeamLoad = (n: number): number => Math.max(0, Math.round((isFinite(n) ? n : 0) * 100) / 100);
 
 /** The shortest run a beam or railing can be set out at, mm. */
 export const SPAN_MIN_MM = 100;

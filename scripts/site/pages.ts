@@ -448,6 +448,33 @@ regelwerk erboven — en alleen het bovenste regelwerk volgt de helling; regelwe
 zijn eigen breukhoogte. Past een stijl op geen standaardstaflengte, dan meldt de materiaalstaat ook op welke
 hoogte een breuk elke stijl weer zou laten passen.</p>
 
+<h2 id="constructie">Constructie</h2>
+<p>Een geselecteerde balklaag, balk of sparing toont een kopje <b>Constructie</b>: de overspanning, de
+belasting met haar opbouw — permanent en veranderlijk, en bij een latei het eigen gewicht van de muur erboven
+— de doorsnede, de belastinggraad per criterium (buiging, afschuiving, doorbuiging, met het maatgevende
+criterium gemerkt), de doorbuiging tegen haar grens, en of de doorsnede voldoet. Het is één rekenmodel op
+drie plekken toegepast: de balken van een balklaag over hun overspanning en h.o.h.-afstand, een geplaatste
+balk over zijn eigen opgegeven belasting, en de latei boven een sparing over de muur die erboven staat, gelezen
+op de hoogte van het dak of de vloer erboven zodat een latei in een puntgevel niet wordt belast met muurwerk
+dat er niet staat. Een balk waarvan het opschrift een geprofileerde staalmaat (HEA, HEB, IPE) noemt wordt
+tegen die doorsnede getoetst in plaats van als rechthoekig hout; elke andere doorsnede — de balken van een
+balklaag, een balk zonder herkend profiel, elke latei — wordt als rechthoekig hout getoetst.</p>
+<p>Ontbreekt een gegeven, dan meldt het paneel welk gegeven en in welke rij dat hierboven staat; een latei
+zonder muurmateriaal wijst naar het materiaal van de muur zelf, in haar eigen paneel. Voldoet de opgegeven
+doorsnede niet, dan biedt een knop de kleinste doorsnede uit de doorsnedelijst die wel voldoet, en schrijft
+die met één klik in de balklaag, de balk of de latei; voldoet geen van de opgegeven doorsnedes, dan meldt het
+paneel dat in plaats van een knop te tonen.</p>
+<p>De toets is een voorlopige maatvoering van één vrij opgelegde overspanning onder een gelijkmatig verdeelde
+belasting: M = qL²/8, V = qL/2, met buiging en afschuiving tegen een sterkte die kmod, de materiaalfactor en
+(bij hout) de kruipfactor verrekent, en een doorbuiging tegen L/limiet. Puntlasten, doorlopende of
+uitkragende overspanningen, kipstabiliteit, trillingen, insnijdingen, opleggingsdruk, verbindingen en
+brandwerendheid vallen erbuiten. Onder <b>Materialen</b> staan de aannames die de toets gebruikt: de
+houtsterkteklasse — een voorinstelling die alleen de sterktecijfers invult, net als de isolatieklasse onder
+Energie — de partiële factoren op permanente en veranderlijke belasting, de doorbuigingsgrens als deel van de
+overspanning, en de lijst doorsnedes waaruit een voorstel wordt gekozen. Zonder eigen opgave gelden
+indicatieve tabelwaarden. Zoals overal hier: gemeld, geen constructieberekening — die vereist een daarvoor
+gekwalificeerde constructeur.</p>
+
 <h2 id="selecteren">Selecteren, verplaatsen, krommen</h2>
 <p><kbd>V</kbd> activeert het selectiegereedschap voor knopen, muren en symbolen. Een geselecteerde muur
 krijgt een ruitvormige greep op het midden; verslepen buigt de muur tot een cirkelboog. De pijlhoogte in millimeters
@@ -923,6 +950,31 @@ optionally at the height of a deck that touches the wall. Each break yields a do
 below's own top plate and the frame above's own bottom plate — and only the topmost frame follows the
 slope; a frame below a break stays flat at its own break height. Where a stud fits no stock length, the
 materials takeoff also states the height a break would let it fit at.</p>
+
+<h2 id="structure">Structure</h2>
+<p>A selected deck, beam or opening shows a <b>Structure</b> head: the span, the load with its make-up —
+permanent and variable, and for a lintel the self-weight of the wall above it — the section, the utilisation
+per criterion (bending, shear, deflection, with the governing one marked), the deflection against its limit,
+and whether the section passes. One calculation is applied three ways: a deck's joists over their own span
+and centres, a placed beam over its own authored load, and an opening's lintel over the wall standing above
+it, read at the height of the roof or the deck above so that a lintel in a gable is not loaded with wall that
+is not there. A beam whose label names a rolled steel size (HEA, HEB, IPE) is checked against that catalogue
+section rather than as rectangular timber; every other section — a deck's joists, a beam with no recognised
+profile, every lintel — is checked as rectangular timber.</p>
+<p>Where a fact is missing, the panel states which one and, where it names a row, which row above carries it;
+a lintel with no stated wall material points at the wall's own material, in its own panel. Where the stated
+section does not pass, a button offers the smallest section from the sections list that does, and writes it
+into the deck, beam or opening in one click; where none of the stated sections passes, the panel says so
+instead of showing a button.</p>
+<p>The check is a preliminary sizing of one simply supported span under a uniformly distributed load: M =
+qL²/8, V = qL/2, bending and shear against a strength that accounts for kmod, the material factor and (for
+timber) the creep factor, and a deflection against L/limit. Point loads, continuous or cantilevered spans,
+lateral-torsional stability, vibration, notches, bearing stress, connections and fire fall outside it. Under
+<b>Materials</b> are the assumptions the check reads: the timber strength class — a preset that only fills
+the strength figures, the same way the insulation class does under Energy — the partial factors on permanent
+and variable load, the deflection limit as a span fraction, and the list of sections a proposal is chosen
+from. Without a stated figure, indicative table values apply. As everywhere here: reported, not a
+constructieberekening (structural calculation) — that requires a qualified structural engineer.</p>
 
 <h2 id="select">Selecting, moving, curving</h2>
 <p><kbd>V</kbd> activates selection and dragging for nodes, walls and symbols. A selected wall displays
@@ -1403,6 +1455,11 @@ geregistreerde berekening vereist gecertificeerde software en een erkend adviseu
 <p>De materiaalstaat onder Materialen is een schatting uit de getekende constructie en de opgegeven
 aannames, geen bestelling. Wallgraph toetst geen constructieve geschiktheid van stijlen, regels of
 lateien en rekent geen mortel, lijm, bevestigingsmiddelen of aansluitdetails.</p>
+<p>De uitkomsten onder Constructie zijn voorlopige maatvoeringscontroles onder de daar genoemde
+aannames — één vrij opgelegde overspanning onder een gelijkmatig verdeelde belasting, zonder puntlasten,
+doorlopende of uitkragende overspanningen, kipstabiliteit, trillingen, insnijdingen, opleggingsdruk,
+verbindingen of brandwerendheid — en geen constructieberekening. Een geregistreerde berekening vereist
+een daarvoor gekwalificeerde constructeur.</p>
 <p>Het lage-ruimteoppervlak onder Zoomen en het hellend dakoppervlak onder Dak zijn afgeleid van de
 getekende dakvlakken en zijn geen NEN 2580-meetrapport.</p>
 
@@ -1467,6 +1524,11 @@ attested software and a certified adviser.</p>
 <p>The takeoff under Materials is an estimate from the drawn construction and the stated assumptions,
 not an order. Wallgraph does not assess the structural adequacy of studs, noggings or headers and does
 not count mortar, adhesive, fixings or junction details.</p>
+<p>The results under Structure are preliminary design checks under the stated assumptions — one simply
+supported span under a uniformly distributed load, excluding point loads, continuous or cantilevered
+spans, lateral-torsional stability, vibration, notches, bearing stress, connections and fire — and not a
+constructieberekening (structural calculation). A registered calculation requires a qualified structural
+engineer.</p>
 <p>The low-headroom area under the room list and the sloped roof area under Roof are derived from the
 drawn roof planes and are not a NEN 2580 measurement report.</p>
 

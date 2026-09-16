@@ -217,6 +217,9 @@ export const FEATURES: Record<Lang, string[]> = {
       "genest op standaard staflengtes, met platen, isolatie en blokken",
     "Aanzicht van een regelwand op ware schaal, met stijlen, kozijnstijlen, latei, klossen en " +
       "aansluitstijlen uit de materiaalstaat, te downloaden als SVG",
+    "Voorlopige constructiecontrole voor de balken van een balklaag, een geplaatste balk en de " +
+      "latei van een sparing: belastinggraad per criterium, doorbuiging tegen haar grens en een " +
+      "voorgestelde doorsnede die voldoet",
     "Exporteren naar PNG, SVG en DXF op ware schaal",
     "Werkt offline, slaat lokaal op, geen account nodig",
   ],
@@ -243,6 +246,8 @@ export const FEATURES: Record<Lang, string[]> = {
       "materials takeoff and extruded in 3D",
     "Elevation of a framed wall at true scale, with studs, king studs, headers, noggings and " +
       "backing from the materials takeoff, downloadable as SVG",
+    "Preliminary structural checks for a deck's joists, a placed beam and an opening's lintel: " +
+      "utilisation per criterion, deflection against its limit, and a proposed section that passes",
     "Export to PNG, SVG and DXF at true scale",
     "Works offline, saves locally, no account required",
   ],

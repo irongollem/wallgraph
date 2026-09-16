@@ -12,9 +12,11 @@ import { structureOf, floorHeight, WALL_MATERIALS, type Floor, type WallMaterial
 import {
   Structural, Column, Beam, Railing, ColumnShape, ColumnSize, SpanSize, COLUMN_SHAPES,
   STEEL_PROFILES, STRUCTURE_LIMITS, clampColumnSize, clampBeamSize, clampRailWidth,
-  clampRailHeight, clampPostMm, clampStructureHeight,
+  clampRailHeight, clampPostMm, clampStructureHeight, clampBeamLoad,
 } from "../model/structure";
 import { spanLength, beamBottom } from "../core/structure";
+import { beamCheck } from "../core/checks";
+import { renderCheckResult } from "./checks";
 import { stairAngle } from "../model/stair";
 import { isMixed } from "../core/mixed";
 import { columnMark, beamMark, railingMark, BEAM_DASH } from "../render/structure";
@@ -180,7 +182,13 @@ export function renderStructureProps(store: Store, tools: Tools, rows: PaneRows,
   rows.secHead(kindLabel(elm.kind), { sel: true });
 
   if (elm.kind === "column") columnProps(rows, f, elm, fn => mut("column", fn));
-  else if (elm.kind === "beam") beamProps(rows, f, elm, fn => mut("beam", fn));
+  else if (elm.kind === "beam") {
+    beamProps(rows, f, elm, fn => mut("beam", fn));
+    const result = beamCheck(store.doc, f, elm);
+    const sectionLabel = result.material === "steel" ? (elm.label ?? "") : `${elm.width} × ${elm.depth} mm`;
+    renderCheckResult(rows, result, beamMissingLabel, sectionLabel || undefined,
+      (w, d) => mut("beam", e => { e.width = w; e.depth = d; }));
+  }
   else railingProps(rows, elm, fn => mut("railing", fn));
 
   rows.textRow(t("panel.structureLabel"), elm.label ?? "",
@@ -256,6 +264,25 @@ function beamProps(rows: PaneRows, f: Floor, b: Beam, mut: Mut<Beam>): void {
       { title: t("panel.beamBottomHelp") });
   }
   rows.noteRow(t("panel.beamBottomHelp"));
+  // Absent means incomplete for the preliminary span check below, rather than
+  // a plausible load -- the same set/unset idiom as its own bottomMm above.
+  rows.checkRow(t("panel.beamLoadOn"), b.loadKNm !== undefined, on => mut(e => {
+    if (on) e.loadKNm = 1; else delete e.loadKNm;
+  }));
+  if (b.loadKNm !== undefined) {
+    rows.numRow(t("panel.beamLoad"), b.loadKNm, n => mut(e => { e.loadKNm = clampBeamLoad(n); }), 0.1);
+  }
+}
+
+/** Wording for beamCheck()'s `missing` keys -- both point at rows on this
+ *  same pane (the run's own two endpoints for a span the drawing gives it no
+ *  numeric field for, and the load row just above). */
+function beamMissingLabel(key: string): string {
+  switch (key) {
+    case "span": return t("checks.missingSpanBeam");
+    case "loadKNm": return t("panel.beamLoad");
+    default: return key;
+  }
 }
 
 function railingProps(rows: PaneRows, r: Railing, mut: Mut<Railing>): void {
