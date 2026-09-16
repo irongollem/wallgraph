@@ -1,5 +1,7 @@
-// One framed wall's elevation ("aanzicht"): the layout core/frame.ts builds,
-// drawn as outlined member rectangles in the wall's own plane.
+// wallElevation()'s drawing ("aanzicht"): the layout core/frame.ts builds for
+// any wall, drawn in the wall's own plane -- a framed wall's members, a
+// block wall's courses, a sandwich wall's panel lines, or the plain face and
+// openings any other wall (or one missing its own kind's one fact) gets.
 //
 // Follows the symbol draw contract (see render/symbols/defs.ts): ctx arrives
 // pre-transformed to 1 unit = 1 mm, the caller owns stroke/fill colour, and
@@ -7,16 +9,17 @@
 // replay it unchanged (io/frame.ts), the same way a stair or a vide extends
 // the contract by exactly one argument (see CLAUDE.md, "Adding a symbol").
 //
-// FrameLayout.members and .openings run y UP from the floor, matching how a
-// frame is set out; canvas y runs down. Every rectangle is flipped here,
-// once, so nothing above this module has to hold both axes in mind at once.
+// WallElevation.members/courses/openings run y UP from the floor, matching
+// how a frame is set out; canvas y runs down. Every rectangle is flipped
+// here, once, so nothing above this module has to hold both axes in mind at
+// once.
 import { withCtx, code } from "./symbols/defs";
-import type { FrameLayout, PlacedMember } from "../core/frame";
+import type { WallElevation, PlacedMember } from "../core/frame";
 
 interface Rect { x: number; y: number; w: number; h: number }
 
 /** A layout rectangle (y up from the floor) as a canvas rectangle (y down
- *  from the frame's top). */
+ *  from the elevation's own top). */
 function flip(heightMm: number, r: { x: number; y: number; w: number; h: number }): Rect {
   return { x: r.x, y: heightMm - r.y - r.h, w: r.w, h: r.h };
 }
@@ -26,6 +29,23 @@ function flip(heightMm: number, r: { x: number; y: number; w: number; h: number 
 function crossOut(ctx: CanvasRenderingContext2D, r: Rect): void {
   ctx.moveTo(r.x, r.y); ctx.lineTo(r.x + r.w, r.y + r.h);
   ctx.moveTo(r.x + r.w, r.y); ctx.lineTo(r.x, r.y + r.h);
+}
+
+/** Light diagonal hatching over a cut block: several thin strokes rather
+ *  than backing's single cross, so a block that is merely not a whole unit
+ *  -- cut at a wall end, an opening jamb, or the sloped top -- reads
+ *  differently from a member that is doubled or crossed out. Drawn within
+ *  the block's own (uncut) rectangle rather than a geometrically clipped
+ *  shape: like a raked member's slope line (drawCutLine(), below), it marks
+ *  the fact rather than re-deriving the exact cut edge at render time. */
+function hatch(ctx: CanvasRenderingContext2D, r: Rect): void {
+  if (r.w <= 0 || r.h <= 0) return;
+  const n = 3;
+  for (let i = 1; i <= n; i++) {
+    const x = r.x + r.w * (i / (n + 1));
+    ctx.moveTo(Math.max(r.x, x - r.h / 2), r.y + r.h);
+    ctx.lineTo(Math.min(r.x + r.w, x + r.h / 2), r.y);
+  }
 }
 
 /** Size of the "N×" mark on a doubled member, clamped to the rectangle it sits in. */
@@ -65,26 +85,57 @@ function drawCutLine(ctx: CanvasRenderingContext2D, heightMm: number, m: PlacedM
   ctx.lineTo(m.x + m.w, heightMm - right);
 }
 
+/** `topLine`'s own height at `x`, by linear interpolation between its
+ *  breakpoints (the same ones model/profile.ts's wallTopAt() reads) --
+ *  carried on WallElevation so the renderer never needs the floor or wall
+ *  themselves, per the draw(ctx) contract. Flat before the first point and
+ *  after the last. */
+function topAt(topLine: readonly { x: number; y: number }[], x: number): number {
+  if (topLine.length === 0) return 0;
+  const first = topLine[0]!, last = topLine[topLine.length - 1]!;
+  if (x <= first.x) return first.y;
+  if (x >= last.x) return last.y;
+  for (let i = 0; i + 1 < topLine.length; i++) {
+    const p0 = topLine[i]!, p1 = topLine[i + 1]!;
+    if (x <= p1.x) {
+      if (p1.x === p0.x) return p1.y;
+      const frac = (x - p0.x) / (p1.x - p0.x);
+      return p0.y + frac * (p1.y - p0.y);
+    }
+  }
+  return last.y;
+}
+
 /**
- * The elevation: the outline along the wall's top, every member as an outlined rectangle
- * (backing crossed out), and every opening as a thin-outlined hole. A member
- * whose rectangle stands for more than one piece -- today, only a doubled
- * header, see PlacedMember.count -- carries its count as text the way a
- * standard's own mark carries a character (code() in symbols/defs.ts). A
- * raked top plate draws as a parallelogram; any other sloped member keeps
- * its ordinary rectangle (already cut to its higher edge) and gains a
- * diagonal line showing where the roofline actually crosses it.
+ * The elevation: the outline along the wall's top, then whichever of
+ * members/courses/panelEdges the wall's own kind populated (a wall missing
+ * its kind's one fact -- WallElevation.notes -- simply has none, and draws
+ * as the face and its openings alone), and every opening as a thin-outlined
+ * hole.
+ *
+ * A member whose rectangle stands for more than one piece -- today, only a
+ * doubled header, see PlacedMember.count -- carries its count as text the
+ * way a standard's own mark carries a character (code() in
+ * symbols/defs.ts). A raked top plate draws as a parallelogram; any other
+ * sloped member keeps its ordinary rectangle (already cut to its higher
+ * edge) and gains a diagonal line showing where the roofline actually
+ * crosses it. A course block is its own rectangle, hatched when cut; a
+ * panel edge is a full-height line, clipped to the wall's own top at that x
+ * -- the only place this module reads `topLine` for anything other than the
+ * outer outline, since a straight vertical line is cheap to clip exactly
+ * where a filled block rectangle is not (see hatch()'s own comment).
  */
-export function drawFrame(ctx: CanvasRenderingContext2D, layout: FrameLayout): void {
+export function drawElevation(ctx: CanvasRenderingContext2D, e: WallElevation): void {
   const marks: { r: Rect; m: PlacedMember }[] = [];
-  const H = layout.heightMm;
+  const H = e.heightMm;
   withCtx(ctx, () => {
     // The outline follows the wall's top, so a gable reads as a gable.
     ctx.moveTo(0, H);
-    for (const p of layout.topLine) ctx.lineTo(p.x, H - p.y);
-    ctx.lineTo(layout.lengthMm, H);
+    for (const p of e.topLine) ctx.lineTo(p.x, H - p.y);
+    ctx.lineTo(e.lengthMm, H);
     ctx.closePath();
-    for (const m of layout.members) {
+
+    for (const m of e.members) {
       const r = flip(H, m);
       if (m.slope !== undefined && (m.name === "plate" || m.name === "rail")) {
         drawRakedPlate(ctx, H, m);
@@ -95,12 +146,26 @@ export function drawFrame(ctx: CanvasRenderingContext2D, layout: FrameLayout): v
       }
       if (m.count > 1) marks.push({ r, m });
     }
+
+    for (const c of e.courses) {
+      for (const b of c.blocks) {
+        const r = flip(H, { x: b.x, y: c.y, w: b.w, h: b.h ?? c.h });
+        ctx.rect(r.x, r.y, r.w, r.h);
+        if (b.cut) hatch(ctx, r);
+      }
+    }
+
+    for (const x of e.panelEdges) {
+      const top = topAt(e.topLine, x);
+      ctx.moveTo(x, H); ctx.lineTo(x, H - top);
+    }
+
     ctx.stroke();
     // Openings last and separately: a thin outline rather than the member
     // weight, since a hole in the framing is not a member.
     ctx.lineWidth = Math.max(1, ctx.lineWidth / 2);
-    for (const o of layout.openings) {
-      const r = flip(layout.heightMm, o);
+    for (const o of e.openings) {
+      const r = flip(H, o);
       ctx.beginPath();
       ctx.rect(r.x, r.y, r.w, r.h);
       ctx.stroke();

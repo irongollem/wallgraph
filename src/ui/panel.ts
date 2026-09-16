@@ -2961,9 +2961,10 @@ export class Panel {
       // every build-up field above it, the way a summary follows what it
       // summarises rather than leading it.
       renderWallMaterial(rows, wallMaterials);
-      // The frame elevation, right under the takeoff it draws the same
-      // members from -- see ui/frame.ts.
-      renderFrameButton(p, wallMaterials, () => openFrameDialog(this.store, sel.id));
+      // The elevation, right under the takeoff it draws the same members
+      // from -- see ui/frame.ts. Always present: every wall has a face to
+      // draw, whatever its material.
+      renderFrameButton(p, () => openFrameDialog(this.store, sel.id));
       // Recolouring one wall arms the pen, the way editing its thickness sets
       // the thickness of the next one: a wall marked as new work is nearly
       // always the first of a run of them.

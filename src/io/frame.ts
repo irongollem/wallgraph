@@ -1,10 +1,10 @@
-// SVG export of one wall's frame elevation ("aanzicht"), replayed from the
-// same drawing the dialog's own canvas uses (render/frame.ts) through the
-// symbol recorder (io/record.ts) -- the same path a stair or a vide exports
+// SVG export of one wall's elevation ("aanzicht"), replayed from the same
+// drawing the dialog's own canvas uses (render/frame.ts) through the symbol
+// recorder (io/record.ts) -- the same path a stair or a vide exports
 // through -- so the downloaded file cannot disagree with what the dialog
 // shows.
-import type { FrameLayout } from "../core/frame";
-import { drawFrame } from "../render/frame";
+import type { WallElevation } from "../core/frame";
+import { drawElevation } from "../render/frame";
 import { recordSymbol } from "./record";
 import { primSvg } from "./svg";
 import { saveViaHost, downloadBlob } from "./save";
@@ -17,10 +17,10 @@ const MARGIN_MM = 200;
 const W_FRAME = 12;
 
 /** The elevation as a standalone SVG document string, at true scale. */
-export function frameSvg(layout: FrameLayout): string {
-  const prims = recordSymbol({ draw: ctx => drawFrame(ctx, layout) }, 0, 0, 0, false);
+export function frameSvg(e: WallElevation): string {
+  const prims = recordSymbol({ draw: ctx => drawElevation(ctx, e) }, 0, 0, 0, false);
   const minX = -MARGIN_MM, minY = -MARGIN_MM;
-  const w = layout.lengthMm + 2 * MARGIN_MM, h = layout.heightMm + 2 * MARGIN_MM;
+  const w = e.lengthMm + 2 * MARGIN_MM, h = e.heightMm + 2 * MARGIN_MM;
   return `<svg xmlns="http://www.w3.org/2000/svg" version="1.1"` +
     ` width="${w}mm" height="${h}mm" viewBox="${minX} ${minY} ${w} ${h}">` +
     `<rect x="${minX}" y="${minY}" width="${w}" height="${h}" fill="#fff"/>` +
@@ -32,8 +32,8 @@ export function frameSvg(layout: FrameLayout): string {
 export type FrameSvgResult = "saved" | "failed";
 
 /** `wallLabel` names the file, e.g. the wall's length in mm. */
-export async function exportFrameSvg(layout: FrameLayout, wallLabel: string): Promise<FrameSvgResult> {
-  const body = frameSvg(layout);
+export async function exportFrameSvg(e: WallElevation, wallLabel: string): Promise<FrameSvgResult> {
+  const body = frameSvg(e);
   const filename = `frame-${wallLabel}.svg`;
   if (await saveViaHost(filename, () => body)) return "saved";
   if (downloadBlob(filename, new Blob([body], { type: "image/svg+xml" }))) return "saved";

@@ -414,8 +414,8 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 /* :not([hidden]) rather than a bare display on the class -- otherwise this
    rule's display:flex would outrank the hidden attribute's own UA default of
    display:none, and toggling .hidden would stop working. */
-.frame-legend:not([hidden]) { display: flex; flex-wrap: wrap; gap: 4px 14px; font: 12px system-ui, sans-serif; color: #6b675c; }
-.frame-incomplete:not([hidden]) { font: 12px system-ui, sans-serif; color: #8a8577; text-align: center; padding: 30px 0; }
+.frame-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font: 12px system-ui, sans-serif; color: #6b675c; }
+.frame-legend-note { color: #8a8577; font-style: italic; }
 
 /* Full-screen below the same breakpoint ui/layout.ts's layoutFor() switches
    the sidebar to the compact shell at (COMPACT_MAX_PX / SHORT_MAX_PX) -- a

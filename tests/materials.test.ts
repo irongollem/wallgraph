@@ -12,6 +12,7 @@ import { resolveFloor } from "../src/core/resolve";
 import { detectRooms } from "../src/core/rooms";
 import { floorSurface, type FloorSurface } from "../src/core/surface";
 import { floorMaterials, type WallTakeoff } from "../src/core/materials";
+import { wallElevation } from "../src/core/frame";
 import { stockPresetOf, STOCK_PRESETS, STOCK_MM_DEFAULT } from "../src/model/materials";
 import { v } from "../src/geometry/vec";
 
@@ -226,19 +227,44 @@ const materialsOf = (doc: PlanDoc, f: Floor) => {
 }
 
 // ---- block count for a cellenbeton wall ---------------------------------------
+//
+// blocks now reads core/frame.ts's own courses (see wallElevation()) rather
+// than estimating from the face area: a whole block and a cut piece each
+// count as one, times the waste allowance. blockMm2 is unchanged (still the
+// smaller face's net area) -- the two are independent figures that happen to
+// land close together, checked below.
 
 {
   const { doc, f, left } = buildDoc();
-  const { surface, m } = materialsOf(doc, f);
+  const { resolved, surface, m } = materialsOf(doc, f);
   const wt = m.walls.find(x => x.wallId === left.id)!;
   const wsurf = surface.walls.find(x => x.wallId === left.id)!;
 
   check("aerated concrete is classified block", wt.system === "block", wt.system);
   const faceArea = Math.min(wsurf.faces[0].netMm2, wsurf.faces[1].netMm2);
-  check("blockMm2 is the smaller face's net area", near(wt.blockMm2, faceArea, 1));
-  const expectedBlocks = Math.ceil((faceArea * 1.10) / (600 * 250));
-  check("blocks is the face area with waste over one block's area",
+  check("blockMm2 is unchanged: the smaller face's net area", near(wt.blockMm2, faceArea, 1));
+
+  const rw = resolved.walls.get(left.id)!;
+  const elevation = wallElevation(f, left, rw);
+  check("the wall is classified as a block elevation with courses drawn",
+    elevation.kind === "block" && elevation.courses.length > 0);
+  const pieces = elevation.courses.reduce((n, c) => n + c.blocks.length, 0);
+  const expectedBlocks = Math.ceil(pieces * 1.10);
+  check("blocks is the course piece count (whole + cut, each counted as one) with waste",
     wt.blocks === expectedBlocks, `${wt.blocks} vs ${expectedBlocks}`);
+
+  // The course-based count and the old area-based estimate should still land
+  // close together, not a different order of magnitude. Counting every cut
+  // piece as a whole one (rather than reusing offcuts) costs at most one
+  // extra block per course -- an odd (offset) row's two half-cut ends
+  // together use one block's worth of material but count as two -- so the
+  // two figures can differ by up to one block per course, bounded here by
+  // the course count itself.
+  const oldAreaBlocks = Math.ceil((faceArea * 1.10) / (600 * 250));
+  check("the course count is within one course's worth of the old area-based figure",
+    Math.abs(wt.blocks - oldAreaBlocks) <= elevation.courses.length,
+    `${wt.blocks} vs ${oldAreaBlocks} (within ${elevation.courses.length})`);
+
   check("a block wall carries no frame members", wt.members.length === 0);
 }
 

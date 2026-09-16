@@ -3,7 +3,7 @@
 // draws it, so the drawing and the order cannot disagree.
 import type { Floor, Id, Opening, Wall } from "../model/doc";
 import {
-  isFramedMaterial, openingHeight, openingSill, wallPostMm, wallPostWidthMm, postLayoutOf,
+  isBlockMaterial, isFramedMaterial, openingHeight, openingSill, wallPostMm, wallPostWidthMm, postLayoutOf,
 } from "../model/doc";
 import { wallTopAt, wallTopPolyline, wallTopRange } from "../model/profile";
 import type { MemberName } from "./materials";
@@ -714,4 +714,183 @@ function layoutWithBacking(
   }
 
   return finish();
+}
+
+// ── every wall's elevation ──────────────────────────────────────────────
+//
+// wallElevation() generalises frameLayout() to every wall, not only a
+// framed one with a stated post width: a block wall's own courses, a
+// sandwich wall's own panel lines, or -- any other material, or one of
+// those three missing the one fact its own kind needs -- the face outline
+// and its openings alone. There is always something to return, which is
+// what lets the Aanzicht button (ui/frame.ts) stay enabled unconditionally:
+// `notes` says what could not be drawn and why, rather than the button
+// being disabled with nothing to show for it.
+
+export type ElevationKind = "frame" | "block" | "panel" | "plain";
+
+/** One block-coursed row, in stretcher bond from the a end. `h` is this
+ *  row's own height: the block format's height, except for the row nearest
+ *  the wall's own highest point, which is capped to fit under it -- see
+ *  buildCourses(). */
+export interface Course {
+  row: number;
+  y: number;
+  h: number;
+  /** `h` is the course's own height; a block cut down by the wall's top
+   *  states its own smaller `h`, so the drawing does not stand a cut block
+   *  proud of the roofline it was cut to. */
+  blocks: { x: number; w: number; cut: boolean; h?: number }[];
+}
+
+export interface WallElevation {
+  kind: ElevationKind;
+  lengthMm: number;
+  heightMm: number;
+  /** The wall's top from x = 0 to x = lengthMm -- see FrameLayout.topLine. */
+  topLine: { x: number; y: number }[];
+  openings: FrameLayout["openings"];
+  /** Frame: the placed members, as frameLayout() returns them. Empty otherwise. */
+  members: PlacedMember[];
+  /** Block: the courses in stretcher bond. Empty otherwise. */
+  courses: Course[];
+  /** Panel: edges along the wall, mm from the a end -- interior divisions
+   *  only, never at x = 0 or x = lengthMm. Empty otherwise. */
+  panelEdges: number[];
+  /** What the drawing could not show, and why: a frame without a post
+   *  width, a block wall without a format, a sandwich wall without a panel
+   *  width. The face and its openings draw regardless. */
+  notes: ("postWidth" | "block" | "panel")[];
+}
+
+/**
+ * One course's block segments: stretcher bond from the a end (alternate
+ * rows offset by half a block -- halfsteensverband), cut at the wall's own
+ * ends, cut or dropped around every opening whose [sill, head] range reaches
+ * this row, and cut or dropped wherever the wall's own sloped top crosses
+ * it. A block is "cut" for any of those three reasons; a block dropped
+ * rather than cut is simply absent from the row, which is what "a course
+ * entirely above the top is not drawn" means at a given x. A course whose
+ * y-range does not reach an opening's [sill, head] runs straight through
+ * that opening's span uncut -- the header/lintel line above a window is not
+ * modelled, so nothing marks the course that happens to stand over one.
+ *
+ * The sloped-top test reads each block's own two edges the way
+ * frameLayout()'s edgeTop() does: `lo`/`hi` are the lower/higher of the top
+ * at x0 and at x1. A block already entirely above the higher edge is
+ * dropped; one reaching only partway above the lower edge is kept and
+ * marked cut. Rows are generated up to the wall's own highest point
+ * (topMax), with the last row's `h` capped to fit under it (buildCourses());
+ * that cap only ever matters near the peak of a sloped wall. Away from the
+ * peak, a row this cap would otherwise leave full-height is cut or dropped
+ * anyway by this same per-block check, now against the LOCAL top rather
+ * than topMax -- which is what steps a gable's course line down rather than
+ * cutting it on one straight diagonal.
+ */
+function courseBlocks(
+  f: Floor, w: Wall, Lf: number, row: number, y: number, h: number, bl: number,
+): Course["blocks"] {
+  const offset = row % 2 === 1 ? bl / 2 : 0;
+  interface Seg { x0: number; x1: number; cut: boolean }
+  let segs: Seg[] = [];
+  for (let x0 = -offset; x0 < Lf; x0 += bl) {
+    const x1 = x0 + bl;
+    const cx0 = Math.max(0, x0), cx1 = Math.min(Lf, x1);
+    if (cx1 - cx0 < 1) continue;
+    segs.push({ x0: cx0, x1: cx1, cut: cx0 > x0 + 0.5 || cx1 < x1 - 0.5 });
+  }
+  for (const o of w.openings) {
+    const sill = openingSill(o), head = sill + openingHeight(o);
+    if (sill >= y + h || head <= y) continue;
+    const jambL = o.t - o.width / 2, jambR = o.t + o.width / 2;
+    const next: Seg[] = [];
+    for (const s of segs) {
+      if (jambR <= s.x0 || jambL >= s.x1) { next.push(s); continue; }
+      if (jambL <= s.x0 && jambR >= s.x1) continue; // wholly inside the hole
+      if (jambL > s.x0) next.push({ x0: s.x0, x1: Math.min(s.x1, jambL), cut: true });
+      if (jambR < s.x1) next.push({ x0: Math.max(s.x0, jambR), x1: s.x1, cut: true });
+    }
+    segs = next.filter(s => s.x1 - s.x0 >= 1);
+  }
+  const out: Course["blocks"] = [];
+  for (const s of segs) {
+    const tl = wallTopAt(f, w, s.x0), tr = wallTopAt(f, w, s.x1);
+    const lo = Math.min(tl, tr), hi = Math.max(tl, tr);
+    if (y >= hi - 0.5) continue;
+    // A block the top crosses is cut to the LOWER of its two edges: the piece
+    // that survives the cut is the one standing under the roofline at both.
+    const cutByTop = y + h > lo + 0.5;
+    const blockH = cutByTop ? Math.max(0, Math.min(h, lo - y)) : h;
+    if (blockH < 1) continue;
+    out.push({
+      x: s.x0, w: s.x1 - s.x0, cut: s.cut || cutByTop,
+      ...(blockH < h - 0.5 ? { h: blockH } : {}),
+    });
+  }
+  return out;
+}
+
+/** The wall's block courses -- see courseBlocks(). A row left with no blocks
+ *  at all (every one dropped, e.g. beyond a gable's eaves) is left out of
+ *  the result entirely rather than kept empty. */
+function buildCourses(
+  f: Floor, w: Wall, Lf: number, topMax: number, blockMm: { length: number; height: number },
+): Course[] {
+  const courses: Course[] = [];
+  let row = 0;
+  for (let y = 0; y < topMax - 0.5; y += blockMm.height, row++) {
+    const h = Math.min(blockMm.height, topMax - y);
+    const blocks = courseBlocks(f, w, Lf, row, y, h, blockMm.length);
+    if (blocks.length > 0) courses.push({ row, y, h, blocks });
+  }
+  return courses;
+}
+
+/** Panel edges at every `panelMm` from the a end, interior divisions only:
+ *  an edge exactly at `Lf` would not divide anything, so an exact division
+ *  simply ends in one full-width panel rather than gaining a zero-width one,
+ *  and an inexact one leaves its last panel short -- the "cut fifth panel"
+ *  a sandwich wall's legend counts. */
+function panelEdgePositions(Lf: number, panelMm: number): number[] {
+  const edges: number[] = [];
+  for (let x = panelMm; x < Lf - 0.5; x += panelMm) edges.push(Math.round(x));
+  return edges;
+}
+
+/**
+ * Every wall's elevation. `kind` always names the wall's own material
+ * family (frame/block/panel/plain), whether or not there was enough to draw
+ * beyond the face -- see the module comment above. `lengthMm`/`heightMm`/
+ * `topLine`/`openings` are read the same way for every kind, the same
+ * centerline mm frameLayout() itself reads member positions against.
+ */
+export function wallElevation(f: Floor, w: Wall, rw: ResolvedWall): WallElevation {
+  const L = rw.length;
+  const Lf = Math.round((rw.faces.left + rw.faces.right) / 2);
+  const topMax = wallTopRange(f, w, L).max;
+  const topLine = wallTopPolyline(f, w, Lf).map(p => ({ x: p.s, y: p.h }));
+  const openings: FrameLayout["openings"] = w.openings.map(o => ({
+    openingId: o.id, x: o.t - o.width / 2, y: openingSill(o), w: o.width, h: openingHeight(o),
+  }));
+  const base = { lengthMm: Lf, heightMm: topMax, topLine, openings };
+
+  if (isFramedMaterial(w.material)) {
+    const layout = frameLayout(f, w, rw);
+    return {
+      ...base, kind: "frame", members: layout?.members ?? [], courses: [], panelEdges: [],
+      notes: layout ? [] : ["postWidth"],
+    };
+  }
+  if (isBlockMaterial(w.material)) {
+    const fmt = w.blockMm;
+    const hasFormat = fmt !== undefined && fmt.length > 0 && fmt.height > 0;
+    const courses = hasFormat ? buildCourses(f, w, Lf, topMax, fmt!) : [];
+    return { ...base, kind: "block", members: [], courses, panelEdges: [], notes: hasFormat ? [] : ["block"] };
+  }
+  if (w.material === "sandwich") {
+    const hasWidth = w.panelMm !== undefined && w.panelMm > 0;
+    const panelEdges = hasWidth ? panelEdgePositions(Lf, w.panelMm!) : [];
+    return { ...base, kind: "panel", members: [], courses: [], panelEdges, notes: hasWidth ? [] : ["panel"] };
+  }
+  return { ...base, kind: "plain", members: [], courses: [], panelEdges: [], notes: [] };
 }

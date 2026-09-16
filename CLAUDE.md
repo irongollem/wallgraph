@@ -375,13 +375,22 @@ indicative defaults. Verified by [tests/stock.test.ts](tests/stock.test.ts) and
 **The takeoff counts a layout, and the elevation draws the same layout.** `frameLayout()` in
 [frame.ts](src/core/frame.ts) places every member of one framed wall as a rectangle in the wall's own
 plane — x along the frame from node `a`, y up from the floor — and `WallTakeoff.members` is that list
-aggregated by name, section and length. The aanzicht overlay draws it through `drawFrame()` under the
-symbol draw contract, so `recordSymbol()` replays it into the SVG download. There is no second member
-construction: a count that changes changes the drawing with it. x is the centerline distance, the same
-`t` openings and `postPositions()` use, clamped into the mitered frame length. The bottom plate runs through
-a door because it is counted whole and cut out after standing; a run-end nogging keeps the takeoff's
-centre-to-centre cut and overlaps the end stud by half a post. Verified by
-[tests/frame.test.ts](tests/frame.test.ts).
+aggregated by name, section and length. x is the centerline distance, the same `t` openings and
+`postPositions()` use, clamped into the mitered frame length. The bottom plate runs through a door
+because it is counted whole and cut out after standing; a run-end nogging keeps the takeoff's
+centre-to-centre cut and overlaps the end stud by half a post.
+
+`wallElevation()`, in the same file, generalises this to every wall, not only a framed one: `kind`
+names the wall's own material family (frame/block/panel/plain), `members` is `frameLayout()`'s own list
+for a frame, `courses` a block wall's stretcher-bond rows, and `panelEdges` a sandwich wall's panel
+divisions — whichever the wall's material does not populate stays empty, and `notes` says which of a
+post width, a block format or a panel width was missing rather than leaving the caller to guess from an
+empty array. `WallTakeoff.blocks` reads `courses` the same way `.members` reads `frameLayout()`: a whole
+block and a cut piece each count as one piece, times the waste allowance, rather than a second
+area-based estimate. The aanzicht overlay draws whichever kind's own arrays are populated through
+`drawElevation()` under the symbol draw contract, so `recordSymbol()` replays it into the SVG download.
+There is no second member or course construction: a count that changes changes the drawing with it.
+Verified by [tests/frame.test.ts](tests/frame.test.ts) and [tests/materials.test.ts](tests/materials.test.ts).
 
 **A wall under a sloped top is cut to the profile, never to a flat height.** `frameLayout()` reads
 `wallTopAt()`/`wallTopPolyline()` (model/profile.ts) off a member's own `x`, the same centerline mm an

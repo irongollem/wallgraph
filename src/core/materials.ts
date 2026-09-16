@@ -17,7 +17,7 @@ import { kerfMm, sheetMm, stockLengths, wastePct } from "../model/materials";
 import type { Resolved, ResolvedWall } from "./resolve";
 import type { FloorSurface } from "./surface";
 import { nest, type NestResult, type Piece } from "./stock";
-import { computeBacking, frameLayoutOf, type PlacedMember, type WallBacking } from "./frame";
+import { computeBacking, frameLayoutOf, wallElevation, type PlacedMember, type WallBacking } from "./frame";
 
 /** What a wall's frame is built as -- decides which members and quantities
  *  the takeoff counts, not just what draws as poché. */
@@ -178,7 +178,13 @@ function wallTakeoffOf(
     const faceArea = wsurf ? Math.min(wsurf.faces[0].netMm2, wsurf.faces[1].netMm2) : 0;
     blockMm2 = faceArea;
     if (w.blockMm && w.blockMm.length > 0 && w.blockMm.height > 0) {
-      blocks = faceArea > 0 ? Math.ceil((faceArea * (1 + waste)) / (w.blockMm.length * w.blockMm.height)) : 0;
+      // core/frame.ts's own courses, not a second area-based estimate: a
+      // whole block and a cut piece each count as one, so the count already
+      // reflects the stretcher bond and the cuts at the ends and jambs
+      // rather than approximating them from an area.
+      const elevation = wallElevation(f, w, rw);
+      const pieces = elevation.courses.reduce((n, c) => n + c.blocks.length, 0);
+      blocks = Math.ceil(pieces * (1 + waste));
     } else {
       incomplete.push("block");
     }

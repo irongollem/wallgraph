@@ -429,10 +429,15 @@ stijlbreedte, een blokformaat of een paneelbreedte niet opgeeft telt voor dat on
 apart gemeld.</p>
 <p>De materiaalstaat is een schatting uit de getekende constructie, op basis van de opgegeven aannames —
 geen bestellijst en geen controle op wat een aannemer daadwerkelijk nodig heeft.</p>
-<p>Een regelwand met een opgegeven stijlbreedte biedt in haar eigen paneel de knop <b>Aanzicht</b>: een
-zijaanzicht van het regelwerk op ware schaal, met onder- en bovenregel, stijlen, kozijnstijlen,
-onderstijlen, klossen, aansluitstijlen en de sparingen zoals ze in de muur staan, elk gerekend zoals de
-materiaalstaat ze telt. Het aanzicht volgt de muur mee terwijl het openstaat en is als SVG te downloaden.</p>
+<p>Elke muur biedt in haar eigen paneel de knop <b>Aanzicht</b>: een zijaanzicht op ware schaal van wat er
+in die muur staat. Een regelwand met een opgegeven stijlbreedte toont onder- en bovenregel, stijlen,
+kozijnstijlen, onderstijlen, klossen en aansluitstijlen, elk gerekend zoals de materiaalstaat ze telt; een
+blokwand met een opgegeven blokformaat toont haar lagen in halfsteensverband, met pasblokken aan de
+einden en bij elke sparing; een sandwichwand met een opgegeven paneelbreedte toont de paneellijnen, het
+laatste paneel op maat gezaagd. Elke andere muur — en een regel-, blok- of sandwichwand die haar ene
+benodigde maat niet opgeeft — toont het vlak en de sparingen zonder die eigen tekening; de knop staat
+altijd aan en het aanzicht meldt zelf wat ontbreekt. Het aanzicht volgt de muur mee terwijl het openstaat
+en is als SVG te downloaden.</p>
 <p>Onder een hellende bovenkant volgt het regelwerk het profiel: elke stijl, kozijnstijl en aansluitstijl is
 gesneden op de hoogte van zijn hoogste kant min de platen, zodat niets te kort wordt besteld, en de
 bovenregel bestaat uit één schuine regel per recht stuk van het profiel, in lengte langs de helling. Een
@@ -901,10 +906,15 @@ no stock length instead, naming the wall and the member. A wall that states no p
 or no panel width is left out of that part of the count and reported separately.</p>
 <p>The materials takeoff is an estimate from the drawn construction, under the stated assumptions — not an
 order, and no check on what a contractor actually needs.</p>
-<p>A framed wall that states a stud width offers an <b>Elevation</b> button in its own panel: a side
-elevation of the frame at true scale, with the bottom and top plate, studs, king studs, jack studs,
-noggings, backing and the openings as drawn in the wall, each counted the way the materials takeoff
-counts them. The elevation follows the wall while it stays open and downloads as SVG.</p>
+<p>Every wall offers an <b>Elevation</b> button in its own panel: a side elevation at true scale of what
+that wall states. A framed wall that states a stud width shows its bottom and top plate, studs, king
+studs, jack studs, noggings and backing, each counted the way the materials takeoff counts them; a block
+wall that states a block format shows its courses in stretcher bond, with cut blocks at the ends and at
+every opening; a sandwich wall that states a panel width shows its panel lines, the last panel cut to
+fit. Any other wall — and a framed, block or sandwich wall that does not state the one measurement its
+own kind needs — shows the face and its openings without that further drawing; the button is always
+enabled and the elevation itself names what is missing. The elevation follows the wall while it stays
+open and downloads as SVG.</p>
 <p>Under a sloped top the frame follows the profile: every stud, king stud and backing stud is cut to the
 height at its own higher edge, less the plates, so nothing is ever ordered short, and the top plate is one
 raked plate per straight run of the profile, its length measured along the slope. A wall may stand as more

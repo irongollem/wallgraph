@@ -10,9 +10,9 @@ import { resolveFloor } from "../src/core/resolve";
 import { detectRooms } from "../src/core/rooms";
 import { floorSurface } from "../src/core/surface";
 import { floorMaterials } from "../src/core/materials";
-import { computeBacking, frameLayout, type PlacedMember } from "../src/core/frame";
+import { computeBacking, frameLayout, wallElevation, type PlacedMember } from "../src/core/frame";
 import { recordSymbol } from "../src/io/record";
-import { drawFrame } from "../src/render/frame";
+import { drawElevation } from "../src/render/frame";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ""): void {
@@ -59,6 +59,44 @@ function comboWall(): { doc: PlanDoc; f: Floor; w: Wall } {
   const win = opening({ kind: "window", t: 3000, width: 900, sillHeight: 900, height: 1200 });
   w.openings = [door, win];
   return { doc, f, w };
+}
+
+// ---- wallElevation(): a block wall's courses, a sandwich wall's panels ------
+
+const BLOCK_LEN = 600, BLOCK_H = 250;
+
+function blockWall(over: Partial<Wall> = {}): { doc: PlanDoc; f: Floor; w: Wall } {
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.height = H;
+  const n1 = newId("n"), n2 = newId("n");
+  f.nodes = [{ id: n1, x: 0, y: 0 }, { id: n2, x: LEN, y: 0 }];
+  const w: Wall = {
+    id: newId("w"), a: n1, b: n2, thickness: 240, bulge: 0, openings: [],
+    material: "aerated", blockMm: { length: BLOCK_LEN, height: BLOCK_H }, ...over,
+  };
+  f.walls = [w];
+  return { doc, f, w };
+}
+
+function sandwichWall(len: number, panelMm?: number): { doc: PlanDoc; f: Floor; w: Wall } {
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.height = H;
+  const n1 = newId("n"), n2 = newId("n");
+  f.nodes = [{ id: n1, x: 0, y: 0 }, { id: n2, x: len, y: 0 }];
+  const w: Wall = {
+    id: newId("w"), a: n1, b: n2, thickness: 150, bulge: 0, openings: [],
+    material: "sandwich", ...(panelMm !== undefined ? { panelMm } : {}),
+  };
+  f.walls = [w];
+  return { doc, f, w };
+}
+
+function elevationOf(f: Floor, w: Wall) {
+  const resolved = resolveFloor(f);
+  const rw = resolved.walls.get(w.id)!;
+  return { rw, elevation: wallElevation(f, w, rw) };
 }
 
 // ---- studs and plates on a bare frame ---------------------------------------
@@ -314,8 +352,9 @@ function comboWall(): { doc: PlanDoc; f: Floor; w: Wall } {
 
 {
   const { f, w } = comboWall();
-  const { layout } = layoutOf(f, w);
-  const prims = recordSymbol({ draw: ctx => drawFrame(ctx, layout) }, 0, 0, 0, false);
+  const { rw, layout } = layoutOf(f, w);
+  const elevation = wallElevation(f, w, rw);
+  const prims = recordSymbol({ draw: ctx => drawElevation(ctx, elevation) }, 0, 0, 0, false);
   const pts: { x: number; y: number }[] = [];
   for (const p of prims) {
     if (p.kind === "line") pts.push(p.a, p.b);
@@ -628,6 +667,185 @@ function higherEdge(x: number, w: number): number {
     raked.length === 2 && raked.every(m => m.x >= rise - 1 && m.x + m.w <= LEN - rise + 1)
       && near(raked[0]!.y, H + POST_WIDTH, 1),
     JSON.stringify(raked.map(m => [m.x, m.y, m.w])));
+}
+
+// ---- a block wall's courses: stretcher bond, cut to fit, cut at ends -----
+
+{
+  const { f, w } = blockWall();
+  const { elevation } = elevationOf(f, w);
+  check("a 4000x2600 cellenbeton wall at 600x250 gives 11 courses",
+    elevation.courses.length === 11, String(elevation.courses.length));
+  const top = elevation.courses[elevation.courses.length - 1]!;
+  check("the top course is cut to fit (100 high)", near(top.h, 100, 1), String(top.h));
+  check("every course below it is a full 250 high",
+    elevation.courses.slice(0, -1).every(c => near(c.h, 250, 1)));
+
+  const even = elevation.courses.find(c => c.row === 0)!;
+  const odd = elevation.courses.find(c => c.row === 1)!;
+  check("an even course starts flush at the a end", even.blocks[0]!.x === 0 && !even.blocks[0]!.cut);
+  check("an even course is cut only at the far end (4000 is not a multiple of 600)",
+    even.blocks[even.blocks.length - 1]!.cut && even.blocks.slice(0, -1).every(b => !b.cut));
+  check("an odd course is offset by half a block (300mm)",
+    near(odd.blocks[0]!.x + odd.blocks[0]!.w, 300, 1), String(odd.blocks[0]!.x + odd.blocks[0]!.w));
+  check("an odd course carries cut pieces at both ends",
+    odd.blocks[0]!.cut && odd.blocks[odd.blocks.length - 1]!.cut);
+}
+
+// ---- a door removes the blocks in its hole and cuts the ones at its jambs -
+
+{
+  const { f, w } = blockWall();
+  const door = opening({ kind: "door", t: 2000, width: 900, sillHeight: 0, height: 2100 });
+  w.openings = [door];
+  const { elevation } = elevationOf(f, w);
+  const jambL = door.t - door.width / 2, jambR = door.t + door.width / 2;
+
+  const affected = elevation.courses.filter(c => c.y < door.height!);
+  check("some courses reach up to the door's head", affected.length > 0);
+  for (const c of affected) {
+    check(`course row ${c.row} has no block reaching into the door's hole`,
+      c.blocks.every(b => b.x + b.w <= jambL + 0.5 || b.x >= jambR - 0.5));
+    check(`course row ${c.row} carries a cut block against the left jamb`,
+      c.blocks.some(b => near(b.x + b.w, jambL, 1) && b.cut));
+    check(`course row ${c.row} carries a cut block against the right jamb`,
+      c.blocks.some(b => near(b.x, jambR, 1) && b.cut));
+  }
+
+  const above = elevation.courses.find(c => c.y >= door.height!)!;
+  const bareWall = blockWall();
+  const { elevation: bareElevation } = elevationOf(bareWall.f, bareWall.w);
+  const bare = bareElevation.courses.find(c => c.row === above.row)!;
+  check("a course above the head is unaffected by the door -- the lintel is not modelled",
+    above.blocks.length === bare.blocks.length, `${above.blocks.length} vs ${bare.blocks.length}`);
+}
+
+// ---- a masonry wall without a block format: plain face, notes: ["block"] --
+
+{
+  const { f, w } = blockWall({ blockMm: undefined, material: "masonry" });
+  const { elevation } = elevationOf(f, w);
+  check("still classified as kind \"block\"", elevation.kind === "block");
+  check("no courses without a block format", elevation.courses.length === 0);
+  check("notes report the missing block format", JSON.stringify(elevation.notes) === JSON.stringify(["block"]));
+  check("the face outline still draws", elevation.topLine.length >= 2);
+  check("openings still draw", elevation.openings.length === 0); // this wall has none, but the field is populated
+}
+
+// ---- a sandwich wall's panel edges: full panels, then a cut one -----------
+
+{
+  const { f, w } = sandwichWall(4200, 1000);
+  const { elevation } = elevationOf(f, w);
+  check("kind is \"panel\"", elevation.kind === "panel");
+  check("elevation length is 4200 (isolated wall, no miters)",
+    elevation.lengthMm === 4200, String(elevation.lengthMm));
+  check("four edges on a 4200mm wall at 1000mm panels",
+    JSON.stringify(elevation.panelEdges) === JSON.stringify([1000, 2000, 3000, 4000]),
+    JSON.stringify(elevation.panelEdges));
+  check("the last (fifth) panel would be the 200mm cut one -- edges + 1 panels",
+    elevation.panelEdges.length + 1 === 5);
+  check("no notes when a panel width is stated", elevation.notes.length === 0);
+}
+
+{
+  const { f, w } = sandwichWall(4200); // no panelMm
+  const { elevation } = elevationOf(f, w);
+  check("kind is still \"panel\" without a panel width", elevation.kind === "panel");
+  check("no edges without a panel width", elevation.panelEdges.length === 0);
+  check("notes report the missing panel width", JSON.stringify(elevation.notes) === JSON.stringify(["panel"]));
+}
+
+// ---- a plain wall: the face and openings, nothing else --------------------
+
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.height = H;
+  const n1 = newId("n"), n2 = newId("n");
+  f.nodes = [{ id: n1, x: 0, y: 0 }, { id: n2, x: LEN, y: 0 }];
+  const concreteWall: Wall = {
+    id: newId("w"), a: n1, b: n2, thickness: 200, bulge: 0, openings: [], material: "concrete",
+  };
+  const noMaterialWall: Wall = { id: newId("w"), a: n1, b: n2, thickness: 200, bulge: 0, openings: [] };
+  f.walls = [concreteWall];
+  const { elevation } = elevationOf(f, concreteWall);
+  check("a concrete wall yields kind \"plain\"", elevation.kind === "plain");
+  check("no members, courses or panel edges",
+    elevation.members.length === 0 && elevation.courses.length === 0 && elevation.panelEdges.length === 0);
+  check("no notes for a plain wall", elevation.notes.length === 0);
+
+  f.walls = [noMaterialWall];
+  const { elevation: unstated } = elevationOf(f, noMaterialWall);
+  check("a wall with no material stated also yields kind \"plain\"", unstated.kind === "plain");
+}
+
+// ---- a frame without a post width: notes: ["postWidth"], no members -------
+
+{
+  const { f, w } = straightWall({ postWidthMm: undefined });
+  const { elevation } = elevationOf(f, w);
+  check("kind is still \"frame\" without a post width", elevation.kind === "frame");
+  check("no members without a post width", elevation.members.length === 0);
+  check("notes report the missing post width", JSON.stringify(elevation.notes) === JSON.stringify(["postWidth"]));
+  check("the face outline still draws", elevation.topLine.length >= 2);
+}
+
+// ---- the course count feeds the takeoff's block count, before waste -------
+
+{
+  const { doc, f, w } = blockWall();
+  const resolved = resolveFloor(f);
+  const rooms = detectRooms(f);
+  const surface = floorSurface(f, resolved, rooms);
+  const materials = floorMaterials(doc, f, resolved, surface);
+  const wt = materials.walls.find(x => x.wallId === w.id)!;
+  const { elevation } = elevationOf(f, w);
+  const pieces = elevation.courses.reduce((n, c) => n + c.blocks.length, 0);
+  check("the takeoff's block count is the course piece count times the waste allowance (10%)",
+    wt.blocks === Math.ceil(pieces * 1.10), `${wt.blocks} vs pieces=${pieces}`);
+}
+
+// ---- the recorder replay draws nothing outside the wall's bounds, for -----
+// ---- every one of the four elevation kinds --------------------------------
+
+{
+  const cases: { name: string; f: Floor; w: Wall }[] = [];
+  { const c = comboWall(); cases.push({ name: "frame", f: c.f, w: c.w }); }
+  {
+    const c = blockWall();
+    c.w.openings = [opening({ kind: "door", t: 2000, width: 900, sillHeight: 0, height: 2100 })];
+    cases.push({ name: "block", f: c.f, w: c.w });
+  }
+  { const c = sandwichWall(4200, 1000); cases.push({ name: "panel", f: c.f, w: c.w }); }
+  {
+    const doc = emptyDoc();
+    const f = doc.floors[0]!;
+    f.height = H;
+    const n1 = newId("n"), n2 = newId("n");
+    f.nodes = [{ id: n1, x: 0, y: 0 }, { id: n2, x: LEN, y: 0 }];
+    const w: Wall = { id: newId("w"), a: n1, b: n2, thickness: 200, bulge: 0, openings: [], material: "concrete" };
+    f.walls = [w];
+    cases.push({ name: "plain", f, w });
+  }
+
+  for (const { name, f, w } of cases) {
+    const resolved = resolveFloor(f);
+    const rw = resolved.walls.get(w.id)!;
+    const elevation = wallElevation(f, w, rw);
+    const prims = recordSymbol({ draw: ctx => drawElevation(ctx, elevation) }, 0, 0, 0, false);
+    const pts: { x: number; y: number }[] = [];
+    for (const p of prims) {
+      if (p.kind === "line") pts.push(p.a, p.b);
+      else if (p.kind === "poly") pts.push(...p.pts);
+      else if (p.kind === "text") pts.push(p.at);
+      else pts.push({ x: p.c.x - p.r, y: p.c.y - p.r }, { x: p.c.x + p.r, y: p.c.y + p.r });
+    }
+    const outside = pts.filter(p =>
+      p.x < -1 || p.y < -1 || p.x > elevation.lengthMm + 1 || p.y > elevation.heightMm + 1);
+    check(`the ${name} elevation's replay draws nothing outside its bounds`,
+      outside.length === 0, JSON.stringify(outside.slice(0, 3)));
+  }
 }
 
 console.log(failures === 0 ? "ok" : `FAIL (${failures} failures)`);
