@@ -46,17 +46,37 @@ export interface MaterialAssumptions {
 }
 
 /**
+ * The two comfort marks a timber deck's joists are checked against (issue
+ * #61): the lowest acceptable fundamental frequency of the span, and the
+ * largest acceptable deflection under a 1 kN point load at midspan. Ordinary
+ * engineering formulas (core/comfort.ts), not a standard's table -- commonly
+ * used comfort marks, editable and indicative like every other figure here.
+ * Both required once `comfort` itself is stated, the way `sheetMm` requires
+ * both width and height: there is no sensible reading of stating one figure
+ * and leaving the other at some unstated default silently.
+ */
+export interface ComfortAssumptions {
+  /** Lowest acceptable fundamental frequency, Hz. */
+  minHz: number;
+  /** Deflection under a 1 kN point load at midspan, mm. */
+  maxPointMm: number;
+}
+
+/**
  * Timber material properties a span check needs. fmk/fvk/e0mean are
  * characteristic bending strength, shear strength and mean modulus of
  * elasticity, N/mm² -- the strength-class figures a TIMBER_CLASSES preset
  * fills in. kmod (load-duration and service-class modification factor),
  * gammaM (material partial factor) and kdef (creep factor) are the same for
  * every class, carried alongside so a document can edit them without also
- * restating the class.
+ * restating the class. `comfort` rides in the same bundle for the same
+ * reason: a document edits its comfort marks alongside its strength class
+ * rather than as a separate assumption block.
  */
 export interface TimberAssumptions {
   fmk: number; fvk: number; e0mean: number;
   kmod: number; gammaM: number; kdef: number;
+  comfort?: ComfortAssumptions;
 }
 
 /** Indicative defaults for the three factors shared by every timber class. */
@@ -70,6 +90,19 @@ export const GAMMA_Q_DEFAULT = 1.5;
 
 /** Indicative default deflection limit: L/250. */
 export const DEFLECTION_DIV_DEFAULT = 250;
+
+/**
+ * Indicative default comfort marks (issue #61): a lowest acceptable
+ * fundamental frequency of 8 Hz, and a largest acceptable deflection of
+ * 1.5 mm under a 1 kN point load at midspan. Commonly used comfort marks,
+ * not a standard's table: 1.5 mm is the ordinary domestic figure and 1.0 mm
+ * the stricter one a floor carrying a brittle finish is held to, which is
+ * why the mark is an editable row rather than a constant. A floor at
+ * ordinary loft spans lands near enough to both that reporting the figure
+ * matters more than the mark it is read against.
+ */
+export const MIN_HZ_DEFAULT = 8;
+export const MAX_POINT_MM_DEFAULT = 1.5;
 
 /** Indicative default steel yield strength, N/mm² (S235). */
 export const STEEL_FY_DEFAULT = 235;
@@ -93,6 +126,7 @@ export const TIMBER_CLASSES: readonly TimberClass[] = [
 export const TIMBER_DEFAULT: TimberAssumptions = {
   fmk: 24, fvk: 4.0, e0mean: 11000,
   kmod: KMOD_DEFAULT, gammaM: GAMMA_M_DEFAULT, kdef: KDEF_DEFAULT,
+  comfort: { minHz: MIN_HZ_DEFAULT, maxPointMm: MAX_POINT_MM_DEFAULT },
 };
 
 /** Two figures count as the same class within this tolerance, N/mm². */
@@ -139,7 +173,11 @@ function positiveOr(n: number | undefined, fallback: number): number {
 
 /** Timber material properties: the document's own, else TIMBER_DEFAULT (C24)
  *  -- each of the six figures individually, so one bad field does not fall
- *  back to the whole default class. */
+ *  back to the whole default class. `comfort` is merged the same way, one
+ *  figure at a time, so `comfort.minHz` alone stated of the two still keeps
+ *  the document's own value and only falls back to the default for
+ *  `maxPointMm`. The return always carries a `comfort` object -- a caller
+ *  never has to fall back to the module constants itself. */
 export function timberOf(d: PlanDoc): TimberAssumptions {
   const t = d.materials?.timber;
   if (!t) return TIMBER_DEFAULT;
@@ -150,6 +188,10 @@ export function timberOf(d: PlanDoc): TimberAssumptions {
     kmod: positiveOr(t.kmod, TIMBER_DEFAULT.kmod),
     gammaM: positiveOr(t.gammaM, TIMBER_DEFAULT.gammaM),
     kdef: positiveOr(t.kdef, TIMBER_DEFAULT.kdef),
+    comfort: {
+      minHz: positiveOr(t.comfort?.minHz, MIN_HZ_DEFAULT),
+      maxPointMm: positiveOr(t.comfort?.maxPointMm, MAX_POINT_MM_DEFAULT),
+    },
   };
 }
 
@@ -207,6 +249,18 @@ export const WALL_DENSITY_KG_M3: Partial<Record<WallMaterial, number>> = {
 /** A framed wall's self-weight per m² of face, kN/m² -- indicative, covers
  *  the boarding, insulation and frame together rather than the frame alone. */
 export const FRAMED_WALL_FACE_LOAD_KNM2 = 0.5;
+
+/**
+ * Indicative self-weight density for a deck's own joists and decking,
+ * kg/m³, beside the wall densities above -- ordinary structural softwood
+ * and sheet decking are close enough in bulk density that one figure
+ * covers both rather than adding a second table. Used by core/checks.ts to
+ * derive the mass a comfort check needs (issue #61) from the deck's own
+ * stated section, centres and decking thickness, kept apart from the
+ * document's authored `loadG`/`loadQ` -- which state what the floor
+ * carries, not what the joists and decking themselves weigh.
+ */
+export const TIMBER_DENSITY_KG_M3 = 500;
 
 /** Ordinary Dutch timber stock lengths, mm, ascending. */
 export const STOCK_MM_DEFAULT: readonly number[] = [2400, 2700, 3000, 3600, 4200, 4800, 5400, 6000];

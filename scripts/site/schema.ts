@@ -174,6 +174,20 @@ export function planSchema(siteUrl: string): JsonSchema {
               kmod: { type: "number", exclusiveMinimum: 0, description: "Load-duration/service-class modification factor." },
               gammaM: { type: "number", exclusiveMinimum: 0, description: "Material partial factor." },
               kdef: { type: "number", minimum: 0, description: "Creep factor." },
+              comfort: {
+                type: "object", additionalProperties: false,
+                required: ["minHz", "maxPointMm"],
+                description:
+                  "Comfort marks for a deck's own joists, checked beside bending, shear " +
+                  "and deflection: a floor that passes those three can still feel lively " +
+                  "underfoot. Ordinary engineering formulas (fundamental frequency, " +
+                  "deflection under a 1 kN point load), not a standard's table. Absent " +
+                  "means 8 Hz and 1 mm -- indicative, editable.",
+                properties: {
+                  minHz: { type: "number", exclusiveMinimum: 0, description: "Lowest acceptable fundamental frequency, Hz." },
+                  maxPointMm: { type: "number", exclusiveMinimum: 0, description: "Deflection limit under a 1 kN point load at midspan, mm." },
+                },
+              },
             },
           },
           steel: {

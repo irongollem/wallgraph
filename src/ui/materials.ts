@@ -12,6 +12,7 @@ import {
   stockLengths, stockPresetOf, STOCK_PRESETS, kerfMm, wastePct, sheetMm,
   timberOf, timberClassOf, applyTimberClass, TIMBER_CLASSES, TIMBER_DEFAULT,
   gammaGOf, gammaQOf, deflectionDivOf, sectionsMmOf,
+  MIN_HZ_DEFAULT, MAX_POINT_MM_DEFAULT,
   type TimberClassId,
 } from "../model/materials";
 import type { StockPreset } from "../model/materials";
@@ -220,6 +221,23 @@ export function renderStructureAssumptions(
     dd.materials ??= {};
     dd.materials.deflectionDiv = Math.max(1, Math.round(n));
   }), 50, { title: t("materials.deflectionDivHelp") });
+
+  // Comfort marks (issue #61) -- ride along in the same `timber` bundle as
+  // the class and its factors, the same "?? {...TIMBER_DEFAULT}" pattern
+  // the rows above use so setting one figure never clobbers the other.
+  const comfort = timberOf(d).comfort!;
+  rows.numRow(t("materials.comfortMinHz"), comfort.minHz, n => store.mutate(dd => {
+    dd.materials ??= {};
+    dd.materials.timber ??= { ...TIMBER_DEFAULT };
+    const prev = dd.materials.timber.comfort;
+    dd.materials.timber.comfort = { minHz: Math.max(0.1, n), maxPointMm: prev?.maxPointMm ?? MAX_POINT_MM_DEFAULT };
+  }), 0.5);
+  rows.numRow(t("materials.comfortMaxPointMm"), comfort.maxPointMm, n => store.mutate(dd => {
+    dd.materials ??= {};
+    dd.materials.timber ??= { ...TIMBER_DEFAULT };
+    const prev = dd.materials.timber.comfort;
+    dd.materials.timber.comfort = { minHz: prev?.minHz ?? MIN_HZ_DEFAULT, maxPointMm: Math.max(0.1, n) };
+  }), 0.1);
 
   rows.textRow(t("materials.sections"), sectionsMmOf(d).map(s => `${s.w}x${s.d}`).join(", "), text => {
     store.mutate(dd => {

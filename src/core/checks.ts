@@ -19,12 +19,13 @@ import { STEEL_PROFILES, STRUCTURE_LIMITS } from "../model/structure";
 import { spanLength } from "./structure";
 import {
   timberOf, gammaGOf, gammaQOf, deflectionDivOf, sectionsMmOf, steelFyOf,
-  WALL_DENSITY_KG_M3, FRAMED_WALL_FACE_LOAD_KNM2, type TimberAssumptions,
+  WALL_DENSITY_KG_M3, FRAMED_WALL_FACE_LOAD_KNM2, TIMBER_DENSITY_KG_M3, type TimberAssumptions,
 } from "../model/materials";
 import {
   checkSpan, proposeSection, checkSteelSpan,
   type SpanInput, type SpanCheck, type SteelSpanInput,
 } from "./timber";
+import { checkComfort, DECKING_E_MPA, type ComfortCheck } from "./comfort";
 
 export type CheckStatus = "ok" | "fails" | "incomplete";
 
@@ -58,6 +59,18 @@ export interface CheckResult {
    * lintelCheck()'s own header).
    */
   loadBreakdown?: { gLineKNm: number; qLineKNm: number; wallLineKNm?: number };
+  /**
+   * A deck's own comfort figures (issue #61) -- fundamental frequency and
+   * 1 kN point-load deflection -- reported beside the strength check, never
+   * folded into `status`: a floor that fails comfort but passes bending,
+   * shear and deflection is still `status: "ok"` here, with `comfort.passes`
+   * false telling the rest of the story. Present only for joistCheck(); a
+   * beam or lintel carries no comfort figure. Undefined when the deck states
+   * no joist section or no permanent load -- see the "loadG" `missing` key,
+   * which always accompanies an undefined `comfort` (the section is covered
+   * by "joistSection", the span by "span").
+   */
+  comfort?: ComfortCheck;
 }
 
 /** Standard gravity, m/s² -- for turning a wall's density into a self-weight. */
@@ -110,12 +123,55 @@ function timberResult(base: Omit<SpanInput, "section">, section: { w: number; d:
 // ── joist ────────────────────────────────────────────────────────────────
 
 /**
+ * A joist's own self-weight spread over the floor area it carries, kg/m²:
+ * TIMBER_DENSITY_KG_M3 times the joist's cross-section, spread over its
+ * tributary width (the centres) -- an "equivalent thickness" of solid
+ * timber over the floor, the same idea FRAMED_WALL_FACE_LOAD_KNM2 applies
+ * to a stud wall's face. kg/m³ × mm² / mm gives mm (an equivalent
+ * thickness); /1000 turns that into m for the kg/m³ to cancel to kg/m².
+ */
+function joistSelfWeightKgM2(joist: { w: number; d: number }, centresMm: number): number {
+  return centresMm > 0 ? (TIMBER_DENSITY_KG_M3 * joist.w * joist.d) / (centresMm * 1000) : 0;
+}
+
+/** A decking sheet's own self-weight, kg/m²: density × thickness, mm to m. */
+function deckingSelfWeightKgM2(deckingMm: number): number {
+  return (TIMBER_DENSITY_KG_M3 * deckingMm) / 1000;
+}
+
+/**
+ * The comfort check's own inputs, derived from the deck's stated facts --
+ * undefined when a joist section or the permanent load is not stated, since
+ * neither the stiffness (EI) nor the mass can be assumed. Not gated on the
+ * variable load (unlike the strength check's `hasLoad`): comfort's mass is
+ * self weight plus the PERMANENT load only, so a deck missing only its
+ * variable load can still report a comfort figure.
+ */
+function comfortInputs(doc: PlanDoc, deck: Deck, spanMm: number): ComfortCheck | undefined {
+  if (!deck.joist || deck.loadG === undefined || spanMm <= 0) return undefined;
+  const timber = timberOf(doc);
+  const selfWeightKgM2 = joistSelfWeightKgM2(deck.joist, deck.joistMm)
+    + (deck.deckingMm ? deckingSelfWeightKgM2(deck.deckingMm) : 0);
+  // N/m² / (m/s²) = kg/m²: the authored permanent load as a mass rather
+  // than a force, matching the self-weight figures above.
+  const massKgM2 = selfWeightKgM2 + deck.loadG / GRAVITY_MS2;
+  const deckEiPerMm = deck.deckingMm ? (DECKING_E_MPA * deck.deckingMm ** 3) / 12 : 0;
+  return checkComfort({
+    spanMm, centresMm: deck.joistMm, section: deck.joist, e0mean: timber.e0mean,
+    massKgM2, deckEiPerMm, minHz: timber.comfort!.minHz, maxPointMm: timber.comfort!.maxPointMm,
+  });
+}
+
+/**
  * A deck's joists: span = the deck's own clear extent along the joist axis
  * plus one bearing -- centre-to-centre of the joist's own bearings at each
  * end, the same convention every span check here uses (see lintelCheck());
  * load width = joist centres; g and q from the deck's authored area loads
  * (N/m²); section = the deck's stated joist, else incomplete with a proposal
- * (which still needs the load to compute).
+ * (which still needs the load to compute). `comfort` is derived alongside
+ * and independently of the strength result -- see comfortInputs() -- so it
+ * can be present even where the strength check itself is `incomplete` over
+ * a missing variable load.
  */
 export function joistCheck(doc: PlanDoc, deck: Deck): CheckResult {
   const missing: string[] = [];
@@ -123,6 +179,7 @@ export function joistCheck(doc: PlanDoc, deck: Deck): CheckResult {
   if (spanMm <= 0) missing.push("span");
   const hasLoad = deck.loadG !== undefined && deck.loadQ !== undefined;
   if (!hasLoad) missing.push("load");
+  if (deck.loadG === undefined) missing.push("loadG");
   if (!deck.joist) missing.push("joistSection");
 
   const sections = sectionsMmOf(doc);
@@ -131,18 +188,19 @@ export function joistCheck(doc: PlanDoc, deck: Deck): CheckResult {
   const qLineNmm = hasLoad ? (deck.loadQ! * deck.joistMm) / 1_000_000 : 0;
   const base = spanMm > 0 && hasLoad ? timberBase(doc, spanMm, gLineNmm, qLineNmm) : null;
   const loadBreakdown = hasLoad ? { gLineKNm: gLineNmm, qLineKNm: qLineNmm } : undefined;
+  const comfort = comfortInputs(doc, deck, spanMm);
 
   if (!deck.joist || !base) {
     return {
       status: "incomplete", missing, material: "timber",
-      proposal: base ? proposeSection(base, sections) : null, loadBreakdown,
+      proposal: base ? proposeSection(base, sections) : null, loadBreakdown, comfort,
     };
   }
 
   const { check, proposal } = timberResult(base, deck.joist, sections);
   return {
     status: check.passes ? "ok" : "fails", missing: [], material: "timber",
-    input: { ...base, section: deck.joist }, check, proposal, loadBreakdown,
+    input: { ...base, section: deck.joist }, check, proposal, loadBreakdown, comfort,
   };
 }
 

@@ -828,6 +828,8 @@ export const resources = {
         deflectionDivHelp: "grens als deel van de overspanning; 250 betekent L/250",
         sections: "Beschikbare doorsnedes (mm)",
         sectionsHelp: "kommagescheiden, breedte×hoogte, bijv. 44x195 · leeg voor de standaardlijst",
+        comfortMinHz: "Laagst aanvaardbare eigenfrequentie (Hz)",
+        comfortMaxPointMm: "Grens doorbuiging bij 1 kN puntlast (mm)",
         csv: {
           header: {
             storey: "Verdieping",
@@ -878,10 +880,16 @@ export const resources = {
         missingSpanDeck: "afmeting van de balklaag (breedte/diepte)",
         missingLoadDeck: "belasting (hierboven op dit paneel)",
         missingSpanBeam: "lengte van de balk (verplaats een eindpunt)",
+        missingLoadGDeck: "permanente belasting (hierboven op dit paneel) — nodig voor het trillingscijfer, de massa kan niet worden aangenomen",
         proposalHint: "Voorstel: {{w}} × {{d}} mm zou voldoen",
         applyProposal: "{{w}} × {{d}} voldoet",
         noSectionPasses: "Geen van de opgegeven doorsnedes voldoet.",
         resultNote: "Indicatieve voorlopige maatvoering: één vrij opgelegde overspanning onder een gelijkmatig verdeelde belasting. Zonder rekening met puntlasten, doorlopende of uitkragende overspanningen, kipstabiliteit, trillingen, insnijdingen, opleggingsdruk, verbindingen of brandwerendheid. Gemeld, geen constructieberekening; een geregistreerde berekening vereist een daarvoor gekwalificeerde constructeur.",
+        comfortHz: "Eigenfrequentie",
+        comfortPoint: "Doorbuiging bij 1 kN puntlast",
+        comfortResult: "Comfort",
+        comfortNote: "Een balklaag die voldoet aan buiging, afschuiving en doorbuiging kan nog steeds merkbaar meeveren; deze twee cijfers — eigenfrequentie en doorbuiging onder een puntlast — zeggen daar iets over. Gewone rekenformules met indicatieve grenzen, geen trillingsanalyse: ze gaan uit van de massa die de balklaag draagt (eigen gewicht plus permanente belasting, niet de veranderlijke belasting) en zeggen niets over een zware afwerking, een lange of doorlopende overspanning, of een vloer die machines draagt.",
+        comfortAdvice: "Om te verbeteren: een dikkere balk, een kleinere hart-op-hart afstand, doorschietende regels of een strongback tussen de balken, of een vloerplaat die zowel gelijmd als geschroefd is.",
       },
       frame: {
         title: "Aanzicht",
@@ -2106,6 +2114,8 @@ export const resources = {
         deflectionDivHelp: "limit as a span fraction; 250 means L/250",
         sections: "Available sections (mm)",
         sectionsHelp: "comma-separated, width×depth, e.g. 44x195 · empty for the default list",
+        comfortMinHz: "Lowest acceptable fundamental frequency (Hz)",
+        comfortMaxPointMm: "Deflection limit under a 1 kN point load (mm)",
         csv: {
           header: {
             storey: "Storey",
@@ -2156,10 +2166,16 @@ export const resources = {
         missingSpanDeck: "the deck's size (width/depth)",
         missingLoadDeck: "load (above, on this panel)",
         missingSpanBeam: "the beam's length (move an endpoint)",
+        missingLoadGDeck: "permanent load (above, on this panel) — needed for the comfort figure, the mass cannot be assumed",
         proposalHint: "Proposal: {{w}} × {{d}} mm would pass",
         applyProposal: "{{w}} × {{d}} passes",
         noSectionPasses: "None of the stated sections passes.",
         resultNote: "Indicative preliminary sizing: one simply supported span under a uniformly distributed load. Excludes point loads, continuous or cantilevered spans, lateral-torsional stability, vibration, notches, bearing stress, connections and fire. Reported, not a constructieberekening (structural calculation); a registered calculation requires a qualified structural engineer.",
+        comfortHz: "Fundamental frequency",
+        comfortPoint: "Deflection under a 1 kN point load",
+        comfortResult: "Comfort",
+        comfortNote: "A deck that passes bending, shear and deflection can still feel noticeably lively; these two figures — fundamental frequency and deflection under a point load — speak to that. Ordinary engineering formulas against indicative limits, not a vibration analysis: they read the mass the deck carries (self weight plus the permanent load, not the variable load) and say nothing about a heavy finish, a long or continuous span, or a floor carrying machinery.",
+        comfortAdvice: "To raise it: a deeper joist, closer centres, blocking or a strongback between the joists, or a deck glued as well as screwed.",
       },
       frame: {
         title: "Elevation",

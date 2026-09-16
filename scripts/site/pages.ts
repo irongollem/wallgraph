@@ -479,6 +479,18 @@ Energie — de partiële factoren op permanente en veranderlijke belasting, de d
 overspanning, en de lijst doorsnedes waaruit een voorstel wordt gekozen. Zonder eigen opgave gelden
 indicatieve tabelwaarden. Zoals overal hier: gemeld, geen constructieberekening — die vereist een daarvoor
 gekwalificeerde constructeur.</p>
+<p>Een balklaag toont bij haar Constructie ook twee comfortcijfers naast de sterktetoets: de
+eigenfrequentie van de overspanning en de doorbuiging onder een puntlast van 1 kN, elk tegen een
+indicatieve grens — 8 Hz en 1 mm, onder Materialen te wijzigen. Een balklaag die voldoet aan buiging,
+afschuiving en doorbuiging kan nog steeds merkbaar meeveren; deze twee cijfers zijn gewone
+rekenformules zoals de sterktetoets zelf, geen tabel uit een norm. Ze gaan uit van de eigen massa van
+de balken en de vloerplaat plus de opgegeven permanente belasting, niet de veranderlijke belasting, en
+van de opgegeven balkdoorsnede; ontbreekt de permanente belasting of de doorsnede, dan wordt geen
+cijfer getoond. Ze zeggen niets over een zware afwerking, een lange of doorlopende overspanning, of een
+vloer die machines draagt — die vragen een eigen beoordeling. Voldoet een balklaag niet, dan noemt het
+paneel een vaste lijst met wat het cijfer verhoogt: een dikkere balk, een kleinere hart-op-hart
+afstand, doorschietende regels of een strongback tussen de balken, of een vloerplaat die zowel gelijmd
+als geschroefd is.</p>
 
 <h2 id="selecteren">Selecteren, verplaatsen, krommen</h2>
 <p><kbd>V</kbd> activeert het selectiegereedschap voor knopen, muren en symbolen. Een geselecteerde muur
@@ -986,6 +998,16 @@ the strength figures, the same way the insulation class does under Energy — th
 and variable load, the deflection limit as a span fraction, and the list of sections a proposal is chosen
 from. Without a stated figure, indicative table values apply. As everywhere here: reported, not a
 constructieberekening (structural calculation) — that requires a qualified structural engineer.</p>
+<p>A deck's Structure head also shows two comfort figures beside the strength check: the span's
+fundamental frequency and its deflection under a 1 kN point load, each against an indicative limit — 8
+Hz and 1 mm, editable under Materials. A deck that passes bending, shear and deflection can still feel
+noticeably lively; these two figures are ordinary engineering formulas the same way the strength check
+itself is, not a table from a standard. They read the joists' and decking's own mass plus the stated
+permanent load, not the variable load, and the stated joist section; without a stated permanent load or
+section, no figure is shown. They say nothing about a heavy finish, a long or continuous span, or a
+floor carrying machinery — those need their own assessment. Where a deck fails, the panel names a fixed
+list of what raises the figure: a deeper joist, closer centres, blocking or a strongback between the
+joists, or a deck glued as well as screwed.</p>
 
 <h2 id="select">Selecting, moving, curving</h2>
 <p><kbd>V</kbd> activates selection and dragging for nodes, walls and symbols. A selected wall displays
@@ -1470,7 +1492,9 @@ lateien en rekent geen mortel, lijm, bevestigingsmiddelen of aansluitdetails.</p
 aannames — één vrij opgelegde overspanning onder een gelijkmatig verdeelde belasting, zonder puntlasten,
 doorlopende of uitkragende overspanningen, kipstabiliteit, trillingen, insnijdingen, opleggingsdruk,
 verbindingen of brandwerendheid — en geen constructieberekening. Een geregistreerde berekening vereist
-een daarvoor gekwalificeerde constructeur.</p>
+een daarvoor gekwalificeerde constructeur. De twee comfortcijfers van een balklaag (eigenfrequentie en
+doorbuiging bij een puntlast van 1 kN) zijn eveneens gewone rekenformules tegen indicatieve grenzen,
+geen trillingsanalyse of comfortbeoordeling volgens een norm.</p>
 <p>Het lage-ruimteoppervlak in de ruimtelijst onder Zoomen en het hellend dakoppervlak onder Dak zijn
 afgeleid van de getekende dakvlakken en de opgegeven plafondhoogtes, en zijn geen
 NEN 2580-meetrapport.</p>
@@ -1540,7 +1564,9 @@ not count mortar, adhesive, fixings or junction details.</p>
 supported span under a uniformly distributed load, excluding point loads, continuous or cantilevered
 spans, lateral-torsional stability, vibration, notches, bearing stress, connections and fire — and not a
 constructieberekening (structural calculation). A registered calculation requires a qualified structural
-engineer.</p>
+engineer. A deck's two comfort figures (fundamental frequency and deflection under a 1 kN point load)
+are likewise ordinary engineering formulas against indicative limits, not a vibration analysis or a
+standard's comfort assessment.</p>
 <p>The low-headroom area in the room list under Zoomen and the sloped roof area under Roof are derived
 from the drawn roof planes and the stated ceiling heights, and are not a NEN 2580 measurement
 report.</p>

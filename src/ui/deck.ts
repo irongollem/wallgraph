@@ -10,7 +10,7 @@ import {
 } from "../model/deck";
 import { deckSpanMm, deckJoistsLocal } from "../core/deck";
 import { joistCheck } from "../core/checks";
-import { renderCheckResult } from "./checks";
+import { renderCheckResult, renderComfortResult } from "./checks";
 import { stairAngle } from "../model/stair";
 import { isMixed } from "../core/mixed";
 import { t } from "../i18n";
@@ -88,6 +88,7 @@ export function renderDeckProps(store: Store, tools: Tools, rows: PaneRows, id: 
   const result = joistCheck(store.doc, deck);
   renderCheckResult(rows, result, joistMissingLabel, deck.joist ? `${deck.joist.w} × ${deck.joist.d} mm` : undefined,
     (w, d) => mut(d2 => { d2.joist = { w, d }; }));
+  renderComfortResult(rows, result.comfort);
 
   rows.dangerRow(t("panel.deleteOpening"), () => tools.deleteSelected());
 }
@@ -98,6 +99,7 @@ function joistMissingLabel(key: string): string {
   switch (key) {
     case "span": return t("checks.missingSpanDeck");
     case "load": return t("checks.missingLoadDeck");
+    case "loadG": return t("checks.missingLoadGDeck");
     case "joistSection": return t("panel.deckSectionOn");
     default: return key;
   }

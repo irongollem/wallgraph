@@ -114,3 +114,30 @@ export function renderCheckResult(
   }
   rows.noteRow(t("checks.resultNote"));
 }
+
+/**
+ * A deck's own comfort figures (issue #61), appended to the same
+ * "Constructie" section renderCheckResult() already opened -- no header of
+ * its own, since these are two more figures about the same joist, not a
+ * separate check. Renders nothing when `comfort` is undefined: the reason
+ * (a missing joist section, span or permanent load) is already named by
+ * renderCheckResult()'s own `missing` loop above, which runs whenever
+ * `comfort` can be absent (see core/checks.ts's joistCheck()).
+ *
+ * `comfort.passes` never feeds `result.status` -- a deck can be `status:
+ * "ok"` for strength while `comfort.passes` is false, and that is reported
+ * here rather than folded into the pass/fail line above.
+ */
+export function renderComfortResult(
+  rows: Pick<PaneRows, "infoRow" | "noteRow" | "warnRow">,
+  comfort: CheckResult["comfort"],
+): void {
+  if (!comfort) return;
+  rows.infoRow(crit(t("checks.comfortHz"), comfort.governing === "frequency"),
+    `${comfort.hz.toFixed(1)} / ${comfort.minHz.toFixed(1)} Hz`);
+  rows.infoRow(crit(t("checks.comfortPoint"), comfort.governing === "point"),
+    `${comfort.pointMm.toFixed(1)} / ${comfort.maxPointMm.toFixed(1)} mm`);
+  rows.infoRow(t("checks.comfortResult"), comfort.passes ? t("checks.pass") : t("checks.fail"));
+  rows.noteRow(t("checks.comfortNote"));
+  if (!comfort.passes) rows.warnRow(t("checks.comfortAdvice"));
+}
