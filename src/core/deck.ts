@@ -2,7 +2,9 @@
 // its joists stand, the heights it occupies and the prisms it is built from all
 // follow from the anchor, the rotation and the figures in model/deck.ts.
 import { Deck, bearingOf } from "../model/deck";
-import { Vec, v, distToSeg } from "../geometry/vec";
+import type { Floor, Id } from "../model/doc";
+import { liningSideOf, wallLiningMm } from "../model/doc";
+import { Vec, v, add, scale, norm, perp, distToSeg } from "../geometry/vec";
 import { boxCorners, boxHit, worldPoint, type LocalBox } from "./placed";
 import type { DeckJoistLayout, JoistSegment } from "./trimmer";
 
@@ -42,6 +44,47 @@ export function deckMeetsWall(d: Deck, a: Vec, b: Vec, tolMm = DECK_WALL_TOL_MM)
     if (Math.min(...dists) <= tolMm) return true;
   }
   return false;
+}
+
+/** Tolerance for a resize handle snapping to a wall FACE, mm (issue #65):
+ *  tighter than DECK_WALL_TOL_MM, which asks "does this deck touch that wall
+ *  at all", not "is the pointer close enough to snap to it". */
+const WALL_FACE_SNAP_TOL_MM = 40;
+
+/**
+ * The nearest point on a wall's own FACE -- half its thickness off the
+ * centerline, plus a stated lining (the lined face is where a floor bears,
+ * per CLAUDE.md's "A lining is a skin ... measured only by the net area") --
+ * within `tolMm`, or null. Read by the deck/vide resize handle (issue #65) to
+ * let an edge dragged toward a wall land on it instead of stopping a
+ * millimetre short, the same reason deckMeetsWall() reads a tolerance rather
+ * than requiring an exact crossing.
+ *
+ * Walked the same way deckMeetsWall() walks a deck's own outline: per wall,
+ * both faces as offset segments, closest point via distToSeg(). Arcs are not
+ * special-cased -- straight per-face segments through the endpoints, the same
+ * simplification deckMeetsWall() already makes for "near-axis-aligned" work.
+ */
+export function nearestWallFace(f: Floor, p: Vec, tolMm = WALL_FACE_SNAP_TOL_MM): { p: Vec; wallId: Id } | null {
+  let best: { p: Vec; wallId: Id; d: number } | null = null;
+  for (const w of f.walls) {
+    const a = f.nodes.find(n => n.id === w.a), b = f.nodes.find(n => n.id === w.b);
+    if (!a || !b) continue;
+    const A = v(a.x, a.y), B = v(b.x, b.y);
+    const dir = norm({ x: B.x - A.x, y: B.y - A.y });
+    if (dir.x === 0 && dir.y === 0) continue;
+    const nrm = perp(dir);
+    for (const side of ["left", "right"] as const) {
+      const off = w.thickness / 2 + (liningSideOf(w, side) ? wallLiningMm(w) : 0);
+      const faceDir = side === "left" ? nrm : scale(nrm, -1);
+      const A2 = add(A, scale(faceDir, off)), B2 = add(B, scale(faceDir, off));
+      const { d, t } = distToSeg(p, A2, B2);
+      if (d <= tolMm && (!best || d < best.d)) {
+        best = { p: add(A2, scale({ x: B2.x - A2.x, y: B2.y - A2.y }, t)), wallId: w.id, d };
+      }
+    }
+  }
+  return best ? { p: best.p, wallId: best.wallId } : null;
 }
 
 /** Height of the word on the drawing, mm. */

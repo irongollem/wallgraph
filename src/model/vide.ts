@@ -35,11 +35,16 @@ export interface VideSize { width: number; depth: number }
  */
 export const VIDE_DEFAULT: VideSize = { width: 1200, depth: 2600 };
 
+/** Read by the resize handle (issue #65) as well as clampVide() below, so the
+ *  drag stops at the same bounds the typed fields already clamp to. */
+export const VIDE_LIMITS = { size: { min: 200, max: 50000 } } as const;
+
 /** Whole millimetres, and large enough to be an opening rather than a slot. */
 export function clampVide(s: VideSize): VideSize {
   return { width: clampInt(s.width), depth: clampInt(s.depth) };
 }
 
 function clampInt(n: number): number {
-  return Math.max(200, Math.min(50000, Math.round(isFinite(n) ? n : 200)));
+  const L = VIDE_LIMITS.size;
+  return Math.max(L.min, Math.min(L.max, Math.round(isFinite(n) ? n : L.min)));
 }

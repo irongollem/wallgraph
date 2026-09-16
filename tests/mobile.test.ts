@@ -80,7 +80,7 @@ function check(name: string, cond: boolean, detail = ""): void {
   // laid out for touch. i18n falls back to the key itself, so a missing twin
   // shows the visitor "hint.touchWallChain" rather than an instruction.
   const bases = [
-    "select", "selectWall", "selectWallTyped", "selectFurnishing",
+    "select", "selectWall", "selectWallTyped", "selectFurnishing", "resize",
     "wallStart", "wallChain", "wallTyped",
     "wallRect", "wallRectTo", "wallCircle", "wallCircleTo", "wallPolygon", "wallPolygonTo",
     "door", "window", "passage", "symbol", "stair", "structure", "structureSpan", "structureSpanTo",

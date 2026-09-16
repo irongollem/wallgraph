@@ -14,8 +14,8 @@ import {
   stairAngle, inheritsRise,
   type StairUse,
 } from "../model/stair";
-import { Vide, VideSize, VIDE_DEFAULT, clampVide } from "../model/vide";
-import { Deck, DeckSize, DECK_DEFAULT, clampDeckSize } from "../model/deck";
+import { Vide, VideSize, VIDE_DEFAULT, VIDE_LIMITS, clampVide } from "../model/vide";
+import { Deck, DeckSize, DECK_DEFAULT, DECK_LIMITS, clampDeckSize } from "../model/deck";
 import {
   Structural, Column, Beam, Railing, StructureKind, ColumnSize, SpanSize,
   COLUMN_DEFAULT, BEAM_DEFAULT, BEAM_LABEL_DEFAULT,
@@ -63,12 +63,13 @@ import { stairHit, resolveStair, stairBox, stairCorners, stairIssues, gradient }
 import { drawStairGhost } from "../render/stair";
 import { videHit, videCorners } from "../core/vide";
 import { drawVideGhost } from "../render/vide";
-import { deckHit, deckCorners } from "../core/deck";
+import { deckHit, deckCorners, nearestWallFace } from "../core/deck";
 import { drawDeckGhost } from "../render/deck";
+import { RESIZE_HANDLES, handleLocalPoint, resizeRect, type ResizeHandle } from "../core/resize";
 import { structureHit, structureCorners, columnBox, spanTurned } from "../core/structure";
 import { drawStructureGhost } from "../render/structure";
 import { furnishingHit, furnishingBox, furnishingCorners } from "../core/furnishing";
-import { turnAbout } from "../core/placed";
+import { turnAbout, worldPoint, localPoint } from "../core/placed";
 import { drawFurnishingGhost } from "../render/furnishing";
 import { planBounds, polyBounds, Bounds } from "../core/bounds";
 import { Room, roomAnchor, orphanedRoomNames } from "../core/rooms";
@@ -141,11 +142,21 @@ const MEASURE_EDGE_PX = 9;
  *  enough for the three pills of a diagonal reading to stay apart. */
 const MEASURE_LEG_LABEL_PX = 60;
 
+/**
+ * Grab radii for a deck/vide resize handle, screen px (issue #65): a corner
+ * wins over an edge, the tape measure's own convention. Touch gets a
+ * finger-sized 22px target rather than the desktop radius -- CLAUDE.md's
+ * "at least 22 CSS px in the compact layout".
+ */
+const RESIZE_CORNER_PX = MEASURE_CORNER_PX;
+const RESIZE_EDGE_PX = MEASURE_EDGE_PX;
+const RESIZE_TOUCH_PX = 22;
+
 export interface SnapResult { p: Vec; kind: "node" | "wall" | "grid" | "free"; wall?: Wall; tMm?: number; node?: PlanNode }
 
 interface DragState {
   kind: "node" | "wall" | "symbol" | "stair" | "vide" | "deck" | "structure" | "furnishing"
-      | "bow" | "opening" | "pan" | "zoomBox" | "routeVertex" | "marquee";
+      | "bow" | "opening" | "pan" | "zoomBox" | "routeVertex" | "marquee" | "resize";
   id?: string;
   wallId?: string;
   /** routeVertex only: which point in the route's own array is being moved. */
@@ -163,18 +174,26 @@ interface DragState {
   /** Where the press started on screen. A pan moves the world under a fixed
    *  cursor, so startWorld cannot answer "did this travel?". */
   startScreen?: Vec;
+  /** resize only: which handle and which kind of placed object. */
+  handle?: ResizeHandle;
+  resizeKind?: "deck" | "vide";
+  /** resize only: the object's pose and size when the drag started, read
+   *  fresh every pointer move so the opposite corner/edge stays fixed in
+   *  WORLD space through a rotated drag (see core/resize.ts). */
+  resizeOrig?: { x: number; y: number; rotation: number; width: number; depth: number };
 }
 
 /**
  * Whether a drag kind is a handle on the currently selected object -- a
- * route's waypoint or a wall's bow handle -- rather than picking the object
- * up fresh. selectDownHold() uses this to skip arming the long-press hold:
- * the object (route/wall) stays `sel`, which IS in MULTI_SELECT_KINDS, so
- * without the check a still press aiming a handle would fire the hold timer
- * mid-aim. Exported for testing as a pure predicate, without faking timers.
+ * route's waypoint, a wall's bow handle, or a deck/vide's resize handle --
+ * rather than picking the object up fresh. selectDownHold() uses this to
+ * skip arming the long-press hold: the object stays `sel`, which IS in
+ * MULTI_SELECT_KINDS, so without the check a still press aiming a handle
+ * would fire the hold timer mid-aim. Exported for testing as a pure
+ * predicate, without faking timers.
  */
 export function isHandleDrag(kind: DragState["kind"]): boolean {
-  return kind === "routeVertex" || kind === "bow";
+  return kind === "routeVertex" || kind === "bow" || kind === "resize";
 }
 
 /**
@@ -1501,6 +1520,10 @@ export class Tools {
   }
 
   private onDown(e: PointerEvent): void {
+    // A new press starts a new undo step. A drag coalesces its own writes
+    // through a stable key, and without this two drags of the same object in
+    // quick succession fall inside the store's coalesce window and undo as one.
+    this.store.endGesture();
     // Capture keeps a drag alive when the finger leaves the canvas. It throws
     // for a pointer id the browser has no active pointer for, which must not
     // take the rest of the gesture down with it.
@@ -2992,6 +3015,36 @@ export class Tools {
   }
 
   /**
+   * The resize handle under `w`, when exactly one deck or vide is selected
+   * (issue #65) -- several selected shows no handles, since a drag would say
+   * nothing about whose extent it changes. Checked in selectDown() before
+   * every other pick, the same priority a wall's bow handle already gets.
+   * RESIZE_HANDLES lists corners before edges, so a plain nearest-wins scan
+   * already gives a corner the tie at equal distance.
+   */
+  private resizeHandleAt(w: Vec): { kind: "deck" | "vide"; id: Id; handle: ResizeHandle; box: { x: number; y: number; rotation: number; width: number; depth: number } } | undefined {
+    const sel = this.store.sel;
+    if (!sel || (sel.kind !== "deck" && sel.kind !== "vide")) return undefined;
+    if (this.store.selectedOf(sel.kind).length !== 1) return undefined;
+    const obj = sel.kind === "deck"
+      ? decksOf(this.floor).find(x => x.id === sel.id)
+      : videsOf(this.floor).find(x => x.id === sel.id);
+    if (!obj) return undefined;
+    const placed = { x: obj.x, y: obj.y, rotation: obj.rotation };
+    const cornerTol = (this.touchUi ? RESIZE_TOUCH_PX : RESIZE_CORNER_PX) / this.vp.pxPerMm;
+    const edgeTol = (this.touchUi ? RESIZE_TOUCH_PX : RESIZE_EDGE_PX) / this.vp.pxPerMm;
+    let best: { handle: ResizeHandle; d: number } | undefined;
+    for (const h of RESIZE_HANDLES) {
+      const at = worldPoint(placed, handleLocalPoint(h.id, obj.width, obj.depth));
+      const d = dist(at, w);
+      if (d > (h.corner ? cornerTol : edgeTol)) continue;
+      if (!best || d < best.d) best = { handle: h.id, d };
+    }
+    if (!best) return undefined;
+    return { kind: sel.kind, id: obj.id, handle: best.handle, box: { ...placed, width: obj.width, depth: obj.depth } };
+  }
+
+  /**
    * Topmost column, beam or railing covering `w`. The margin is wider than a
    * symbol's: a handrail is a 50 mm line, and a beam's dashed outline is
    * mostly gap.
@@ -3049,6 +3102,17 @@ export class Tools {
         this.drag = { kind: "bow", id: selWall.id, startWorld: w, moved: false };
         return;
       }
+    }
+
+    // Resize handle of a selected deck or vide (issue #65)? Same priority as
+    // the bow handle above: a press here aims the handle, not the object.
+    const resizeHit = this.resizeHandleAt(w);
+    if (resizeHit) {
+      this.drag = {
+        kind: "resize", id: resizeHit.id, handle: resizeHit.handle, resizeKind: resizeHit.kind,
+        resizeOrig: resizeHit.box, startWorld: w, moved: false,
+      };
+      return;
     }
 
     // A waypoint of the SELECTED route: checked before the generic node loop,
@@ -3541,6 +3605,28 @@ export class Tools {
         const snapped = Math.abs(sag) < 60 ? 0 : Math.round(sag / 10) * 10;
         wall.bulge = bulgeFromSagitta(A, B, snapped);
       }, "bow" + d.id);
+    } else if (d.kind === "resize") {
+      const orig = d.resizeOrig!;
+      const placed = { x: orig.x, y: orig.y, rotation: orig.rotation };
+      // Snap first to the grid, then to a nearby wall FACE, which wins when
+      // both apply (issue #65) -- the structural face, half the wall's own
+      // thickness off the centerline, plus a stated lining: the lined face is
+      // where a floor bears (see core/deck.ts's nearestWallFace()).
+      const gridded = v(Math.round(w.x / g) * g, Math.round(w.y / g) * g);
+      const face = nearestWallFace(this.floor, w);
+      const local = localPoint(placed, face ? face.p : gridded);
+      const limits = d.resizeKind === "deck" ? DECK_LIMITS.size : VIDE_LIMITS.size;
+      const res = resizeRect({ width: orig.width, depth: orig.depth }, d.handle!, local, {
+        min: limits.min, max: limits.max, keepAspect: this.shiftKey, aboutCenter: this.altKey,
+      });
+      const centre = worldPoint(placed, v(res.dx, res.dy));
+      this.store.mutate(doc => {
+        const list = d.resizeKind === "deck" ? decksOf(this.store.floorOf(doc)) : videsOf(this.store.floorOf(doc));
+        const obj = list.find(x => x.id === d.id);
+        if (!obj) return;
+        obj.width = res.width; obj.depth = res.depth;
+        obj.x = Math.round(centre.x); obj.y = Math.round(centre.y);
+      }, "resize" + d.id);
     } else if (d.kind === "opening") {
       this.store.mutate(doc => {
         const f = this.store.floorOf(doc);
@@ -4011,6 +4097,8 @@ export class Tools {
             : h("selectWall"))
           : this.store.sel?.kind === "furnishing" ? h("selectFurnishing")
           : this.store.sel?.kind === "route" ? h("selectRoute")
+          : (this.store.sel?.kind === "deck" || this.store.sel?.kind === "vide")
+            && this.store.selectedOf(this.store.sel.kind).length === 1 ? h("resize")
           : h("select");
         break;
       case "door": this.hint = h("door"); break;
@@ -4555,6 +4643,27 @@ export class Tools {
           const r = 5 * px;
           ctx.moveTo(h.x, h.y - r); ctx.lineTo(h.x + r, h.y); ctx.lineTo(h.x, h.y + r); ctx.lineTo(h.x - r, h.y);
           ctx.closePath(); ctx.fill();
+        }
+      }
+
+      // Resize handles for a single selected deck or vide (issue #65) -- none
+      // with several selected: a drag would not say whose extent it changes.
+      if (sel && (sel.kind === "deck" || sel.kind === "vide") && this.store.selectedOf(sel.kind).length === 1) {
+        const obj = sel.kind === "deck"
+          ? decksOf(f).find(x => x.id === sel.id)
+          : videsOf(f).find(x => x.id === sel.id);
+        if (obj) {
+          const placed = { x: obj.x, y: obj.y, rotation: obj.rotation };
+          const r = (this.touchUi ? 7 : 4.5) * px;
+          for (const handleDef of RESIZE_HANDLES) {
+            const at = worldPoint(placed, handleLocalPoint(handleDef.id, obj.width, obj.depth));
+            ctx.fillStyle = "#ffffff";
+            ctx.strokeStyle = COLORS.select;
+            ctx.lineWidth = 1.5 * px;
+            ctx.beginPath();
+            ctx.rect(at.x - r, at.y - r, r * 2, r * 2);
+            ctx.fill(); ctx.stroke();
+          }
         }
       }
     }
