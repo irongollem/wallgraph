@@ -368,5 +368,25 @@ for (const lng of ["nl", "en"] as const) {
     (hint.structureSpan ?? "").includes("{{label}}") && (hint.structureSpanTo ?? "").includes("{{label}}"));
 }
 
+// ---- steel catalogue figures ----------------------------------------------
+
+{
+  // A doubly symmetric I-section has Wel,y = Iy / (h/2) exactly, so the two
+  // columns of the table can only disagree by their own rounding. This is the
+  // guard on a hand-typed catalogue: spot checks against published EN 10365
+  // tables (IPE 200: 194 cm³ / 1943 cm⁴, HEA 200: 389 / 3692, HEB 300:
+  // 1678 / 25166) pinned the figures once; this keeps a later edit honest.
+  let worst = 0, worstLabel = "";
+  for (const p of STEEL_PROFILES) {
+    const derived = (2 * p.iy) / (p.depth / 10); // cm⁴ and mm -> cm³
+    const err = Math.abs(derived - p.wy) / p.wy;
+    if (err > worst) { worst = err; worstLabel = p.label; }
+  }
+  check("every steel profile's Wel,y agrees with 2 x Iy / h within rounding",
+    worst < 0.01, `${worstLabel} off by ${(worst * 100).toFixed(2)}%`);
+  check("every steel profile states both catalogue figures",
+    STEEL_PROFILES.every(p => p.wy > 0 && p.iy > 0));
+}
+
 console.log(failures === 0 ? "ALL STRUCTURE TESTS PASSED" : `${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

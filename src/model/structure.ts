@@ -138,8 +138,10 @@ export const RAILING_POST_DEFAULT = 1000;
  * section edited afterwards is whatever its figures say.
  *
  * `wy`/`iy` are the elastic section modulus and second moment of area about
- * the strong axis (y-y), cm³ and cm⁴ -- ordinary European rolled-section
- * catalogue figures (the "Blue Book" HEA/HEB/IPE tables), added so
+ * the strong axis (y-y), cm³ and cm⁴. These follow from the profile's own
+ * shape, which EN 10365 standardises, so they are the same whoever rolled the
+ * section -- the steel GRADE (S235, S355) is the vendor's statement and lives
+ * in the document's own `steel.fy` instead. Added so
  * core/checks.ts's beamCheck() can check a placed beam whose label matches
  * one of these against its real stiffness rather than treating it as a
  * rectangular timber section. Absent on a profile would mean "no catalogue
