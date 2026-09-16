@@ -75,8 +75,10 @@ import { arcFlatten } from "../geometry/arc";
 import { ifcGuid } from "../model/guid";
 import { wallLength } from "../model/ops";
 import { wallTopAt, wallTopRange, wallAreaUnder } from "../model/profile";
-import { floorSolids, videHole } from "../core/solids";
+import { floorSolids, videHole, projectS } from "../core/solids";
 import { detectRooms, roomSize, sizeLabel, Room, roomArea } from "../core/rooms";
+import { resolveFloor } from "../core/resolve";
+import { floorSurface } from "../core/surface";
 import { resolveStair, stairBox } from "../core/stair";
 import { StairKind, stairParams } from "../model/stair";
 import { furnishingHeight, furnishingClass, type FurnishingClass } from "../model/furnishing";
@@ -751,20 +753,30 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
   ): number | null {
     if (L <= 0) return extrudedSolid(poly, zBase, maxH);
 
-    // The segment's span along the wall: project every vertex onto the chord.
+    // The segment's span along the wall's own chord, for the boundary plane
+    // built below (a tangent-line approximation, like an arc's own miter).
     const dir = norm(sub(B, A));
     let s0 = Infinity, s1 = -Infinity;
+    // The same span, but via projectS() -- the arc-aware centerline
+    // projection core/solids.ts's wallBodyPrisms() already uses -- since
+    // wallTopAt() is parameterised by arc length, not chord distance; a plain
+    // chord projection only agrees with it when the wall is straight.
+    let arc0 = Infinity, arc1 = -Infinity;
     for (const p of poly) {
       const t = dot(sub(p, A), dir);
       if (t < s0) s0 = t;
       if (t > s1) s1 = t;
+      const sArc = projectS(A, B, wall.bulge, L, p);
+      if (sArc < arc0) arc0 = sArc;
+      if (sArc > arc1) arc1 = sArc;
     }
-    // A mitered end reaches past [0, L]; the heights are read at the clamped
-    // span and the boundary below covers the whole footprint.
+    // A mitered end reaches past [0, L]; the boundary below covers the whole
+    // footprint using the chord span, while the heights are read at the
+    // clamped arc-length span.
     const r0 = s0, r1 = s1;
     s0 = Math.max(0, Math.min(L, s0));
     s1 = Math.max(0, Math.min(L, s1));
-    const h0 = wallTopAt(floor, wall, s0), h1 = wallTopAt(floor, wall, s1);
+    const h0 = wallTopAt(floor, wall, arc0), h1 = wallTopAt(floor, wall, arc1);
     // Extruded to this segment's own high end, not the wall's maximum. The
     // bounded half-space's boundary is swept along the tilted plane normal, so
     // material standing above the high end of the segment would project past
@@ -1004,6 +1016,10 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
     // set, and detectRooms() is pure, so a second call would just repeat it.
     const rooms = detectRooms(floor);
     const roomPolys = rooms.map(r => r.poly);
+    // The same per-wall figures the surface takeoff reports, reused for
+    // Qto_WallBaseQuantities's GrossSideArea/NetSideArea below rather than
+    // re-deriving them: floorSurface() already walks every wall once.
+    const surface = floorSurface(floor, resolveFloor(floor), rooms);
 
     // Identity placement relative to the storey: floorSolids() already
     // returns absolute plan coordinates, so every element on this storey
@@ -1149,12 +1165,26 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
       // times its flat height exactly.
       const heightMm = maxH;
       const grossVolumeM3 = (wallAreaUnder(floor, wall, lengthMm, 0, lengthMm) * wall.thickness) / 1e9;
-      attachQuantitySet(wallEntity, `${wall.id}:qto`, "Qto_WallBaseQuantities", [
+      const wallQuantities: IfcArg[] = [
         ref(w.entity("IFCQUANTITYLENGTH", [str("Length"), UNSET, UNSET, real(lengthMm), UNSET])),
         ref(w.entity("IFCQUANTITYLENGTH", [str("Width"), UNSET, UNSET, real(wall.thickness), UNSET])),
         ref(w.entity("IFCQUANTITYLENGTH", [str("Height"), UNSET, UNSET, real(heightMm), UNSET])),
         ref(w.entity("IFCQUANTITYVOLUME", [str("GrossVolume"), UNSET, UNSET, real(grossVolumeM3), UNSET])),
-      ]);
+      ];
+      // GrossSideArea/NetSideArea: the same per-face figures the surface
+      // takeoff (core/surface.ts's floorSurface()) reports, read off ONE face
+      // -- this element is one IFCWALL, not two, so it states one side's area
+      // rather than the two faces' (differently mitered) figures, or their
+      // sum, either of which a reader would have no honest way to interpret
+      // back into a single wall's own gross/net.
+      const wallFace = surface.walls.find(s => s.wallId === wall.id)?.faces[0];
+      if (wallFace) {
+        wallQuantities.push(
+          ref(w.entity("IFCQUANTITYAREA", [str("GrossSideArea"), UNSET, UNSET, real(wallFace.grossMm2 / 1e6), UNSET])),
+          ref(w.entity("IFCQUANTITYAREA", [str("NetSideArea"), UNSET, UNSET, real(wallFace.netMm2 / 1e6), UNSET])),
+        );
+      }
+      attachQuantitySet(wallEntity, `${wall.id}:qto`, "Qto_WallBaseQuantities", wallQuantities);
 
       for (const og of ws.voids) {
         const opening = wall.openings.find(o => o.id === og.openingId)!;
@@ -1462,6 +1492,17 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
         const slabEntity = w.entity("IFCSLAB",
           [str(ifcGuid(seed, `${plane.id}:slab`)), ref(ownerHistory), str("Roof"), UNSET, UNSET,
             ref(levelPlacement), shape, UNSET, enumv("ROOF")]);
+        // Pset_SlabCommon, the way a wall carries Pset_WallCommon and an
+        // opening's leaf its own: a roof plane is external by definition --
+        // unlike a wall, there is no room probe to ask -- and its U comes from
+        // the document's roof Rc where one is stated, so attested software
+        // reads the same figure core/energy.ts's estimate is built from.
+        const roofProps: IfcArg[] = [ref(propValue("IsExternal", boolValue(true)))];
+        const roofRc = doc.energy?.roofRc;
+        if (roofRc !== undefined) {
+          roofProps.push(ref(propValue("ThermalTransmittance", transmittanceValue(uFromRc(roofRc, "roof")))));
+        }
+        attachPropertySet(slabEntity, `${plane.id}:pset`, "Pset_SlabCommon", roofProps);
         roofSlabs.push(slabEntity);
       }
       if (roofSlabs.length > 0) {

@@ -3,7 +3,8 @@
 // checkSteelSpan() know nothing about the document -- every input here is
 // already in N, mm and N/mm² -- so this file pins the calculation itself.
 import { checkSpan, checkSteelSpan, proposeSection, STEEL_E_MPA, type SpanInput } from "../src/core/timber";
-import { TIMBER_DEFAULT, SECTIONS_DEFAULT } from "../src/model/materials";
+import { TIMBER_DEFAULT, SECTIONS_DEFAULT, timberOf } from "../src/model/materials";
+import { emptyDoc } from "../src/model/doc";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ""): void {
@@ -156,6 +157,33 @@ function near(a: number, b: number, tol: number): boolean { return Math.abs(a - 
   check("proposeSection returns the passing section with the least timber",
     passing.every(sec => sec.w * sec.d >= proposed.w * proposed.d),
     `${proposed.w}x${proposed.d} vs ${JSON.stringify(passing)}`);
+}
+
+// ---- timberOf validation ---------------------------------------------------
+//
+// A pasted gammaM: 0 must not reach checkSpan(): fmd = kmod*fmk/gammaM would
+// be infinite, and an infinite design strength always "passes" -- so
+// timberOf() validates each of the six figures individually (finite and > 0)
+// and falls back to TIMBER_DEFAULT's own field, one at a time.
+{
+  const doc = emptyDoc();
+  doc.materials = { timber: { ...TIMBER_DEFAULT, gammaM: 0 } };
+  const t = timberOf(doc);
+  check("an invalid gammaM (0) falls back to the default", t.gammaM === TIMBER_DEFAULT.gammaM, String(t.gammaM));
+  check("the other five figures are carried through unchanged",
+    t.fmk === TIMBER_DEFAULT.fmk && t.fvk === TIMBER_DEFAULT.fvk && t.e0mean === TIMBER_DEFAULT.e0mean
+    && t.kmod === TIMBER_DEFAULT.kmod && t.kdef === TIMBER_DEFAULT.kdef,
+    JSON.stringify(t));
+}
+
+{
+  // Each figure is validated on its own: a non-finite fmk falls back without
+  // disturbing a genuinely custom fvk alongside it.
+  const doc = emptyDoc();
+  doc.materials = { timber: { ...TIMBER_DEFAULT, fmk: NaN, fvk: 9.9 } };
+  const t = timberOf(doc);
+  check("a non-finite fmk falls back to the default", t.fmk === TIMBER_DEFAULT.fmk, String(t.fmk));
+  check("a genuinely custom fvk is kept", t.fvk === 9.9, String(t.fvk));
 }
 
 console.log(failures === 0 ? "ok" : `FAIL (${failures} failures)`);

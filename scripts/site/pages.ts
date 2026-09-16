@@ -390,15 +390,20 @@ vastgelegd na <b>Overnemen</b>; <b>Plat dak</b> en <b>Zadeldak 45°</b> zetten d
 vormen direct neer, zonder eerst een voorstel te tonen.</p>
 <p>Per dakvlak staan de dakrandhoogte, de hellingshoek en, optioneel, een eigen dakdikte — zonder eigen
 opgave geldt de standaarddikte. Het hellend oppervlak (vlakoppervlak gedeeld door de cosinus van de hoek)
-staat ernaast, en elk vlak is ook los te verwijderen. Waar een muur onder een dakvlak een andere hoogte
-opgeeft dan het dak daar heeft, meldt het paneel de afwijking met de knop <b>Volg dak</b>, die het
-bovenprofiel van die muur naar het dak overneemt.</p>
+staat ernaast, en elk vlak is ook los te verwijderen. Twee soorten muur onder een dakvlak wijken ervan
+af en worden gemeld, elk met de knop <b>Volg dak</b> die het bovenprofiel van die muur naar het dak
+overneemt: een muur die ergens door de onderkant van het dak heen steekt, en een muur die zelf al een
+bovenprofiel opgeeft dat niet met het dak overeenkomt. Een vlakke muur die over zijn hele lengte onder
+het dak blijft — de gewone binnenwand onder een nok — is geen afwijking en wordt niet gemeld.</p>
 <p>Het dak verandert drie dingen die elders in het paneel staan. Onder Energie telt het hellend
-dakoppervlak mee in plaats van de platte bovenste vloerplaat. Onder Zoomen krijgt een ruimte met minder
-dan 1500 mm vrije hoogte onder een dakvlak een gemeld <em>lage-ruimte</em>-oppervlak, en het
-gebruiksoppervlak dat NEN 2580 telt is het netto oppervlak min dat deel. In de 3D-weergave en de
-IFC-export staat elk dakvlak als een plaat op zijn dakdikte, samengevoegd tot één <code>IfcRoof</code>.
-Zoals overal hier: gemeld, niet getoetst.</p>
+dakoppervlak mee in plaats van de platte bovenste vloerplaat. In de ruimtelijst onder Zoomen krijgt elke
+ruimte met minder dan 1500 mm vrije hoogte een gemeld <em>lage-ruimte</em>-oppervlak op haar eigen regel,
+met daaronder het gebruiksoppervlak dat NEN 2580 telt: het netto oppervlak min dat deel. Gemeten wordt
+naar de laagste van twee: de onderkant van het dak en een opgegeven plafondhoogte, zodat ook een plafond
+onder 1500 mm meetelt. Het totaal van de verdieping staat onder Dak. Bij een geselecteerde trap staat de
+vrije hoogte onder het dak bij de overige trapmaten. In de 3D-weergave en de IFC-export staat elk dakvlak
+als een plaat op zijn dakdikte, samengevoegd tot één <code>IfcRoof</code>. Zoals overal hier: gemeld,
+niet getoetst.</p>
 
 <h2 id="materialen">Materialen</h2>
 <p>Onder <b>Materialen</b> staat de materiaalstaat van de verdieping: wat de getekende muren aan
@@ -897,14 +902,20 @@ proposed over the storey's own outer outline, at storey height. The proposal is 
 directly, without showing a proposal first.</p>
 <p>Each plane states its eave height, its pitch and, optionally, a roof thickness of its own — without a
 stated value the default thickness applies. The sloped area (plan area divided by the cosine of the
-pitch) sits beside it, and each plane can be removed on its own. Where a wall under a roof plane states a
-different height than the roof has there, the panel reports the mismatch with a <b>Follow roof</b>
-button that carries that wall's top profile from the roof.</p>
+pitch) sits beside it, and each plane can be removed on its own. Two kinds of wall under a roof plane
+disagree with it and are reported, each with a <b>Follow roof</b> button that carries that wall's top
+profile from the roof: a wall that pokes through the roof's underside somewhere, and a wall that already
+states a top profile of its own that the roof does not agree with. A flat wall standing below the roof
+over its whole length — the ordinary partition under a ridge — is not a mismatch and is not
+reported.</p>
 <p>A roof changes three figures stated elsewhere in the panel. Under Energy, the sloped roof area counts
-instead of the flat top plate. Under the room list, a room with less than 1500 mm of headroom under a
-roof plane reports a <em>low-headroom</em> area, and the usable area NEN 2580 counts is the net area
-minus that part. In the 3D view and the IFC export, each plane is a slab at its own thickness, grouped
-under one <code>IfcRoof</code>. As everywhere here: reported, never checked.</p>
+instead of the flat top plate. In the room list under Zoomen, every room with less than 1500 mm of
+headroom reports a <em>low-headroom</em> area on its own row, with the usable area NEN 2580 counts — the
+net area minus that part — under it. The measurement takes the lower of two figures at every point, the
+roof's underside and a stated ceiling height, so a ceiling below 1500 mm counts as well. The storey's
+total sits under Roof. A selected stair states its headroom under the roof beside its other figures. In
+the 3D view and the IFC export, each plane is a slab at its own thickness, grouped under one
+<code>IfcRoof</code>. As everywhere here: reported, never checked.</p>
 
 <h2 id="materials">Materials</h2>
 <p><b>Materials</b> states the storey's materials takeoff: what the drawn walls ask for in timber,
@@ -1460,8 +1471,9 @@ aannames — één vrij opgelegde overspanning onder een gelijkmatig verdeelde b
 doorlopende of uitkragende overspanningen, kipstabiliteit, trillingen, insnijdingen, opleggingsdruk,
 verbindingen of brandwerendheid — en geen constructieberekening. Een geregistreerde berekening vereist
 een daarvoor gekwalificeerde constructeur.</p>
-<p>Het lage-ruimteoppervlak onder Zoomen en het hellend dakoppervlak onder Dak zijn afgeleid van de
-getekende dakvlakken en zijn geen NEN 2580-meetrapport.</p>
+<p>Het lage-ruimteoppervlak in de ruimtelijst onder Zoomen en het hellend dakoppervlak onder Dak zijn
+afgeleid van de getekende dakvlakken en de opgegeven plafondhoogtes, en zijn geen
+NEN 2580-meetrapport.</p>
 
 <h2 id="aansprakelijkheid">Aansprakelijkheid</h2>
 <p>Voor zover de wet dat toestaat aanvaardt de maker <b>geen enkele aansprakelijkheid</b> voor schade
@@ -1529,8 +1541,9 @@ supported span under a uniformly distributed load, excluding point loads, contin
 spans, lateral-torsional stability, vibration, notches, bearing stress, connections and fire — and not a
 constructieberekening (structural calculation). A registered calculation requires a qualified structural
 engineer.</p>
-<p>The low-headroom area under the room list and the sloped roof area under Roof are derived from the
-drawn roof planes and are not a NEN 2580 measurement report.</p>
+<p>The low-headroom area in the room list under Zoomen and the sloped roof area under Roof are derived
+from the drawn roof planes and the stated ceiling heights, and are not a NEN 2580 measurement
+report.</p>
 
 <h2 id="liability">Liability</h2>
 <p>To the fullest extent permitted by law the author accepts <b>no liability</b> for any damage

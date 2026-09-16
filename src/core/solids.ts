@@ -275,9 +275,13 @@ function splitAtBreaks(poly: Vec[], A: Vec, B: Vec, bulge: number, L: number, br
 /**
  * Where a point projects onto the wall's centerline, mm from node a, clamped
  * to [0, L]: the dot-product parameter for a straight wall, or the point's
- * angle about the arc centre mapped to arc length for a bulged one.
+ * angle about the arc centre mapped to arc length for a bulged one. Exported
+ * for io/ifc.ts's slopedPieceSolid(), which needs the same arc-aware
+ * projection to look up a profile height -- wallTopAt() is parameterised by
+ * arc length, and a plain chord projection agrees with it only when bulge is
+ * 0.
  */
-function projectS(A: Vec, B: Vec, bulge: number, L: number, p: Vec): number {
+export function projectS(A: Vec, B: Vec, bulge: number, L: number, p: Vec): number {
   if (L <= 0) return 0;
   if (bulge === 0) {
     const ab = sub(B, A);

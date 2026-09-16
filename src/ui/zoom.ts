@@ -18,6 +18,7 @@ import { areaModeOf, roomNamesOf, floorHeight, storeyCeiling } from "../model/do
 import { floorSurface, type RoomSurface } from "../core/surface";
 import { sqm } from "./walls";
 import { roomFigures, roomVentRouted, type RoomFigures, type RoomVentRouted } from "../core/fitout";
+import { roomLowHeadroom } from "../core/headroom";
 import { icon } from "./icons";
 import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
@@ -136,10 +137,15 @@ function looseNameRow(tools: Tools, edit: RoomEdit, rn: RoomName): HTMLElement {
 
 /**
  * A room at rest, with its figures underneath: the wall face area it takes to
- * finish, and -- for a verblijfsruimte -- its fit-out figures.
+ * finish, the floor a roof plane or a low ceiling leaves under 1500 mm, and --
+ * for a verblijfsruimte -- its fit-out figures.
  *
  * The wall area is on every room because every room is painted; the fit-out
- * figures are only on the rooms the Bouwbesluit gives them to.
+ * figures are only on the rooms the Bouwbesluit gives them to. The headroom
+ * pair is on the rooms that actually have one: it is a statement about THIS
+ * room's floor, so it belongs on this room's row rather than in a list of
+ * rooms repeated inside the Dak section, which states the storey's totals
+ * (ui/roof.ts).
  */
 function roomItem(
   tools: Tools, edit: RoomEdit, store: Store, r: Room, area: string, surface?: RoomSurface,
@@ -157,6 +163,11 @@ function roomItem(
     if (surface.ceilingMm !== undefined) {
       line(box, t("panel.roomWallSurfaceCeiling", { mm: surface.ceilingMm }));
     }
+  }
+  const lowMm2 = roomLowHeadroom(store.floor, r);
+  if (lowMm2 > 0) {
+    line(box, t("panel.roomLowHeadroom", { area: sqm(lowMm2) }), true);
+    line(box, t("panel.roomHeadroomUsable", { area: sqm(Math.max(0, r.netAreaMm2 - lowMm2)) }));
   }
   const figures = roomFigures(store.floor, r, store.doc);
   if (figures) figuresBlock(box, figures, roomVentRouted(store.floor, r, store.doc));

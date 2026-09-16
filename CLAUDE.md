@@ -317,8 +317,10 @@ wall area is the MITERED clad face from `resolveFloor()`, `facadeSideOf()` decid
 `wallHeight()` floor to floor — a ceiling is a finish and does not enter — with openings deducted once
 by the rule `floorSurface()` uses. The facade skin's own thickness is not added to the face length. A
 storey's plate is the sum of `Room.bvoAreaMm2`, which lies at the facade's outer face where one is
-stated and on the centerline elsewhere; the ground floor plate and the roof are plates, the roof being
-the top storey's plate plus whatever a set-back leaves uncovered below, since there is no roof object.
+stated and on the centerline elsewhere; the ground floor plate is a plate, and the roof is the stated
+roof planes' true sloped area where the storey states them and otherwise the top storey's plate, plus
+whatever a set-back leaves uncovered below. Two planes overlapping in plan and plate area no plane covers
+are reported (`overlappingRoof`, `uncoveredRoofMm2`), never added to Als in silence.
 An upper storey standing outside the one below is flagged (`overhang`), never measured. Orientation is
 the outward normal, `perp` of the tangent and negated for a right-hand facade, turned through
 `northDeg`; without a north direction it is null rather than guessed. The takeoff also counts what the
@@ -408,9 +410,11 @@ openings that reach into IT (`bandOverlapsOpening()`, `bandRunIntervals()`) -- a
 band cuts no run out of a band above it, so that band's studs and noggings run clear across at the same
 set-out `postPositions()` gives anywhere else -- a `"grid"` band's own wall-wide centres, unbroken by a
 run it does not itself cut around. This is also why an upper band's studs are NOT the
-plan's drawn posts: the plan is a section through the lowest band, and only that band's own runs are
-built from `rw.intervals` unchanged, which is what keeps an ordinary (unbanded) wall's studs and its
-takeoff agreeing exactly. `FrameLayout.suggestedBreaksMm` reports the smallest number
+plan's drawn posts: the plan is a section through the lowest band, and only that band's runs coincide
+with `rw.intervals` — they are rebuilt from the openings that reach into it, which on an unbanded wall is
+every opening — and that coincidence is what keeps an ordinary wall's studs and its takeoff agreeing
+exactly. An opening confined to an upper band would break it for the lowest band too, and is the case
+[tests/frame.test.ts](tests/frame.test.ts) does not cover. `FrameLayout.suggestedBreaksMm` reports the smallest number
 of equal-height breaks that would let every stud fit `stockLengths()`'s longest entry, at the profile's
 worst case — reported beside the unfit members, never applied.
 
@@ -422,8 +426,23 @@ mark, `deckSolids()` and the `decks` group of `floorMaterials()` all read that o
 the span plus `bearingMm` at both ends and never spliced, the two rim boards splice. Without `topMm` the
 deck is the storey's floor, drawn solid, with no slab of its own in 3D; with one it lies above the
 section plane, dashed on the canvas and in the SVG and on `DECKS-OVERHEAD` in the DXF. A `DECK_USES`
-preset only fills `loadG`/`loadQ`. Loads are stored and reported; nothing checks them. Verified by
+preset only fills `loadG`/`loadQ`. Loads are stored and reported; the span checks read them. Verified by
 [tests/deck.test.ts](tests/deck.test.ts).
+
+**A span check is derived, preliminary and stated with its assumptions.** `checkSpan()` in
+[core/timber.ts](src/core/timber.ts) is one simply supported member under a uniformly distributed load:
+M = qL²/8, V = qL/2, bending and shear against kmod·f_k/γM, final deflection with (1 + kdef) against
+L/div. [core/checks.ts](src/core/checks.ts) applies it three ways — a deck's joists over its centres, a
+placed beam under its authored line load (steel through the catalogue Wy where the label matches a
+profile), a lintel under the wall above the opening by material density plus an authored floor load
+taken as variable — and proposes the smallest section of `PlanDoc.materials.sectionsMm` that passes.
+**The effective span is the clear span plus one bearing**, centre to centre of the bearings, the same
+for a joist and a lintel. Every figure the check uses is a document assumption a preset only fills
+(`TIMBER_CLASSES`, the partial factors, the deflection limit), validated on read so a pasted zero cannot
+yield an infinite strength; an absent input makes the result `incomplete` rather than a number, and no
+standards edition is named as the ruleset. Nothing is stored: the proposal button writes a section the
+way the pane would. Verified by [tests/timber.test.ts](tests/timber.test.ts) against hand-worked figures
+and [tests/checks.test.ts](tests/checks.test.ts).
 
 ## Adding a symbol
 
@@ -648,8 +667,9 @@ before changing one:
 - Varying-thickness walls; a wall is one thickness, not a material build-up. A facade and a
   lining are skins outside that thickness, not layers within it.
 - A wall's top profile is read by the wall surface, 3D, IFC, energy, the frame and the materials
-  takeoff. A roof plane over it is a separate statement, checked against the profile and never
-  repaired (`roofWallMismatches()`) rather than the two being reconciled automatically.
+  takeoff. A roof plane over it is a separate statement: a wall that pierces the roof's underside, or
+  states a profile that disagrees with it, is reported (`roofWallMismatches()`) and never repaired; a
+  flat wall standing wholly below the roof is not a mismatch.
 - Exact wall-to-arc miters (tangent-line approximation instead).
 - Stair figures are reported, never enforced; a stair does not snap to a wall the way a
   wall-mounted symbol does.
@@ -677,7 +697,7 @@ before changing one:
   the frame section, on edge, whatever the span — and every frame member, backing included, shares the
   post's own section rather than one chosen for its span. Blocking behind a fixture and an extra stud at
   a lining board joint are not counted, nor are mortar, adhesive, fixings, or floor, roof and finish
-  materials; nothing checks a member's structural adequacy.
+  materials. The takeoff checks no member; the span checks below do, preliminarily.
 - Wall surface counts the two faces of a wall plus the reveals through it. A reveal is measured over
   the structural thickness only — cladding makes it deeper, but that is facade work — and a floor
   build-up is not modelled. A ceiling is one height per room, not a plenum with its own geometry.
@@ -690,6 +710,12 @@ before changing one:
   measured, and the envelope face is the structural face, not the outer face of the facade skin.
   `roofWallMismatches()` and `roomLowHeadroom()` report what does not add up; nothing here repairs
   a wall or refuses a plan over it.
+- The span checks are one simply supported member under a uniform load: no point loads, continuous or
+  cantilevered spans, lateral-torsional stability, vibration, notches, bearing stress, connections or
+  fire, and a deck's load reaches a lintel only as an authored line load, never derived from where the
+  deck bears.
+- A block course under a sloped wall top is cut to the lower of its two edge heights, not to the
+  diagonal; the drawn course and the block count are short by that triangle.
 - The energy figure is transmission-only at one fixed degree-day figure. The insulation and glazing
   presets are indicative table values, not a per-year tabulation of the regulations, and nothing
   checks a stated Rc or U against what the Bbl requires.

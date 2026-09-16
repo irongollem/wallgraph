@@ -221,16 +221,22 @@ function bandRunIntervals(openings: readonly Opening[], L: number): WallRun[] {
 
 /**
  * The higher of a member's own two edges (x and x+width) on the wall's top,
- * and the slope between them -- undefined where the two agree, which is
+ * OR of any profile breakpoint strictly inside that span (a ridge or valley
+ * vertex the member straddles, which stands higher than both edges) -- and
+ * the slope between the two edges, undefined where they agree, which is
  * what keeps a flat run's members free of a `slope` field entirely (see
  * PlacedMember.slope). Shared by every full-height member (stud, king,
- * backing, cripple): each is cut to its own higher edge so nothing is ever
- * ordered short of the roofline crossing its width.
+ * backing, cripple): each is cut to its own highest point so nothing is
+ * ever ordered short of the roofline crossing its width.
  */
 function edgeTop(f: Floor, w: Wall, x: number, width: number): { hi: number; slope?: number } {
   if (width <= 0) return { hi: wallTopAt(f, w, x) };
   const tl = wallTopAt(f, w, x), tr = wallTopAt(f, w, x + width);
-  return { hi: Math.max(tl, tr), slope: tl === tr ? undefined : (tr - tl) / width };
+  let hi = Math.max(tl, tr);
+  for (const p of wallTopPolyline(f, w, x + width)) {
+    if (p.s > x && p.s < x + width) hi = Math.max(hi, p.h);
+  }
+  return { hi, slope: tl === tr ? undefined : (tr - tl) / width };
 }
 
 /** The wall's top polyline no higher than `cap`, with a point inserted
@@ -515,10 +521,10 @@ function layoutWithBacking(
       const topPoly = wallTopPolyline(f, w, L);
       const spans = band.bottom > 0 ? spansAbove(topPoly, band.bottom + 2 * pw, Lf) : [{ from: 0, to: Lf }];
       for (const sp of spans) {
-        const full = sp.from === 0 && sp.to === Lf;
+        const isWholeSpan = sp.from === 0 && sp.to === Lf;
         members.push({
           name: plateName, x: sp.from, y: band.bottom, w: sp.to - sp.from, h: pw,
-          sectionMm: section, lengthMm: full ? Lf : Math.ceil(sp.to - sp.from), count: 1, spliceable: true,
+          sectionMm: section, lengthMm: isWholeSpan ? Lf : Math.ceil(sp.to - sp.from), count: 1, spliceable: true,
         });
       }
       const topClears = band.top !== undefined && topPoly.every(p => p.h >= band.top!);
@@ -757,10 +763,11 @@ export interface WallElevation {
   /** Panel: edges along the wall, mm from the a end -- interior divisions
    *  only, never at x = 0 or x = lengthMm. Empty otherwise. */
   panelEdges: number[];
-  /** What the drawing could not show, and why: a frame without a post
-   *  width, a block wall without a format, a sandwich wall without a panel
-   *  width. The face and its openings draw regardless. */
-  notes: ("postWidth" | "block" | "panel")[];
+  /** What the drawing could not show, and why: a frame without any posts
+   *  stated at all, a frame with posts but no post width, a block wall
+   *  without a format, a sandwich wall without a panel width. The face and
+   *  its openings draw regardless. */
+  notes: ("posts" | "postWidth" | "block" | "panel")[];
 }
 
 /**
@@ -876,10 +883,10 @@ export function wallElevation(f: Floor, w: Wall, rw: ResolvedWall): WallElevatio
 
   if (isFramedMaterial(w.material)) {
     const layout = frameLayout(f, w, rw);
-    return {
-      ...base, kind: "frame", members: layout?.members ?? [], courses: [], panelEdges: [],
-      notes: layout ? [] : ["postWidth"],
-    };
+    const notes: WallElevation["notes"] = layout
+      ? []
+      : wallPostMm(w) === undefined ? ["posts"] : ["postWidth"];
+    return { ...base, kind: "frame", members: layout?.members ?? [], courses: [], panelEdges: [], notes };
   }
   if (isBlockMaterial(w.material)) {
     const fmt = w.blockMm;

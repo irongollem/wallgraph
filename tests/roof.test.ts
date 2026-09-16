@@ -6,8 +6,13 @@ import { ROOF_THICKNESS_DEFAULT_MM } from "../src/model/roof";
 import {
   roofUndersideAt, planeUndersideAt, roofPlaneArea, roofWallMismatches, profileFromRoof, roofStoreyClashes,
 } from "../src/core/roof";
+import { clampRoofPlane } from "../src/model/roof";
+import { stairRoofClearanceMm } from "../src/core/headroom";
+import { stairDefaults, type Stair } from "../src/model/stair";
+import { stairSteps } from "../src/core/stair3d";
 import { suggestRoof, flatRoof, gableRoof } from "../src/core/roofsuggest";
 import { roomLowHeadroom, HEADROOM_MIN_MM } from "../src/core/headroom";
+import { wallLength } from "../src/model/ops";
 import { envelopeTakeoff } from "../src/core/energy";
 import { v } from "../src/geometry/vec";
 
@@ -17,6 +22,15 @@ function check(name: string, cond: boolean, detail = ""): void {
   else console.log(`ok   ${name}`);
 }
 function near(a: number, b: number, tol = 1): boolean { return Math.abs(a - b) <= tol; }
+/** Shoelace area of a plan outline: positive is counter-clockwise under y-down. */
+function polygonAreaOf(poly: readonly { x: number; y: number }[]): number {
+  let acc = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]!, b = poly[(i + 1) % poly.length]!;
+    acc += a.x * b.y - b.x * a.y;
+  }
+  return acc / 2;
+}
 
 const rectOutline = (w: number, d: number) => [v(0, 0), v(w, 0), v(w, d), v(0, d)];
 
@@ -281,6 +295,139 @@ function gableHouse(peakOffsetMm: number): { doc: PlanDoc; w1: Wall; w3: Wall } 
   check("a storey above with no closed wall loop reports no clash",
     roofStoreyClashes(doc, 0).length === 0);
 }
+
+// --- mismatches: only a wall that pierces the roof, or states a top of its own ---
+{
+  // A plain 6000x4000 storey under the 45 deg gable preset: every wall is flat
+  // at storey height, well below the ridge. That is the ordinary partition, not
+  // a mismatch.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  rectWalls(f, 6000, 4000);
+  f.roofPlanes = gableRoof(f, 45);
+  check("gable preset: two planes", f.roofPlanes.length === 2, String(f.roofPlanes.length));
+  check("flat walls wholly below the roof report no mismatch",
+    roofWallMismatches(f).length === 0, JSON.stringify(roofWallMismatches(f)));
+
+  // A wall whose own top pokes through the underside is reported even without
+  // a profile: it cannot be built as drawn.
+  const tall = f.walls.find(w => Math.round(wallLength(f, w)) === 6000)!;
+  tall.profile = [{ t: 3000, height: 6000 }];
+  const pierced = roofWallMismatches(f).find(m => m.wallId === tall.id);
+  check("a wall poking through the roof underside is reported", pierced !== undefined,
+    JSON.stringify(roofWallMismatches(f)));
+  delete tall.profile;
+
+  // BOTH gable-end walls of a symmetric roof report, not just one: their
+  // centerlines lie exactly on the plane outlines, where a bare point-in-polygon
+  // test answers by its ray-casting convention rather than by the geometry.
+  const ends = f.walls.filter(w => Math.round(wallLength(f, w)) === 4000);
+  check("the symmetric gable has two 4000 end walls", ends.length === 2, String(ends.length));
+  for (const w of ends) {
+    const pts = profileFromRoof(f, w);
+    check("profileFromRoof reads a roof over each gable end", pts !== null, w.id);
+    if (pts) w.profile = pts.map(pt => ({ t: pt.t, height: pt.height - 300 }));
+  }
+  const both = roofWallMismatches(f);
+  for (const w of ends) {
+    const m = both.find(x => x.wallId === w.id);
+    check("both gable ends report their 300mm disagreement",
+      m !== undefined && near(m.gapMm, 300, 5), `${w.id}: ${JSON.stringify(both)}`);
+  }
+
+  // Following the roof exactly clears both again.
+  for (const w of ends) {
+    const pts = profileFromRoof(f, w);
+    if (pts) w.profile = pts;
+  }
+  check("a gable end that follows the roof reports nothing",
+    roofWallMismatches(f).filter(m => ends.some(w => w.id === m.wallId)).length === 0,
+    JSON.stringify(roofWallMismatches(f)));
+}
+
+// --- clampRoofPlane rewinds a clockwise outline and keeps the eave edge ---
+{
+  const ccw = rectOutline(4000, 3000);                 // positive area under y-down
+  const cw = [...ccw].reverse();                       // the same rectangle, pasted clockwise
+  // Edge 0 of the CCW outline runs (0,0)->(4000,0); pick the same edge in the
+  // reversed array so the remap has something to be right about.
+  const eaveEdgeCw = cw.length - 2 - 0;
+  const plane: RoofPlane = { id: "rw", outline: cw, eaveEdge: eaveEdgeCw, eaveMm: 600, pitchDeg: 30 };
+  clampRoofPlane(plane);
+  check("a clockwise outline is rewound counter-clockwise",
+    polygonAreaOf(plane.outline) > 0, String(polygonAreaOf(plane.outline)));
+  const a = plane.outline[plane.eaveEdge]!, b = plane.outline[(plane.eaveEdge + 1) % plane.outline.length]!;
+  check("the eave edge still names the same two corners",
+    a.x === 0 && a.y === 0 && b.x === 4000 && b.y === 0, JSON.stringify([a, b]));
+  // And it now reads the same way an authored plane does.
+  const authored: RoofPlane = { id: "au", outline: ccw, eaveEdge: 0, eaveMm: 600, pitchDeg: 30 };
+  const p = v(2000, 1500);
+  check("a rewound plane states the same underside as the authored one",
+    near(planeUndersideAt(plane, p), planeUndersideAt(authored, p), 0.5),
+    `${planeUndersideAt(plane, p)} vs ${planeUndersideAt(authored, p)}`);
+}
+
+// --- headroom reads a stated ceiling as well as the roof ---
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  const netPoly = [v(0, 0), v(4000, 0), v(4000, 3000), v(0, 3000)];
+  const full = 4000 * 3000;
+
+  check("no planes and no ceiling: nothing is low", roomLowHeadroom(f, { netPoly }) === 0);
+  check("a ceiling at 1400 makes the whole floor low",
+    near(roomLowHeadroom(f, { netPoly, ceilingMm: 1400 }), full, 1),
+    String(roomLowHeadroom(f, { netPoly, ceilingMm: 1400 })));
+  check("a ceiling at 2400 lowers nothing on its own",
+    roomLowHeadroom(f, { netPoly, ceilingMm: 2400 }) === 0);
+
+  // With a roof over it, the stated ceiling is the lower figure everywhere.
+  f.roofPlanes = [{ id: "pa", outline: rectOutline(4000, 3000), eaveEdge: 0, eaveMm: 600, pitchDeg: 45 }];
+  const roofOnly = roomLowHeadroom(f, { netPoly });
+  check("the roof alone leaves part of the floor low", roofOnly > 0 && roofOnly < full, String(roofOnly));
+  check("a ceiling below 1500 makes the whole floor low whatever the roof does",
+    near(roomLowHeadroom(f, { netPoly, ceilingMm: 1400 }), full, 1),
+    String(roomLowHeadroom(f, { netPoly, ceilingMm: 1400 })));
+  check("a ceiling above 1500 leaves the roof's own figure",
+    near(roomLowHeadroom(f, { netPoly, ceilingMm: 2400 }), roofOnly, 1));
+}
+
+// --- a stair under a roof reports its clearance to it ---
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  const stair: Stair = { id: "s1", kind: "steektrap", x: 0, y: 0, rotation: 0, ...stairDefaults("steektrap") };
+  f.stairs = [stair];
+  const topTread = Math.max(...stairSteps(f, stair).map(st => st.z1));
+
+  check("no roof: no clearance to report", stairRoofClearanceMm(f, stair) === null);
+
+  // One flat plane well clear of the whole plan: the tightest clearance is at
+  // the highest tread, which is what STAIR_HEADROOM_MM measures against a slab.
+  const wide = rectOutline(20000, 20000).map(p => ({ x: p.x - 10000, y: p.y - 10000 }));
+  const flatAt = (eaveMm: number): number | null => {
+    f.roofPlanes = [{ id: "flat", outline: wide, eaveEdge: 0, eaveMm, pitchDeg: 0 }];
+    return stairRoofClearanceMm(f, stair);
+  };
+  const high = flatAt(4000);
+  check("a plane over the flight reports a clearance to the highest tread",
+    high !== null && near(high, 4000 - topTread, 1), `${high} vs ${4000 - topTread}`);
+  const lower = flatAt(3000);
+  check("lowering the plane by 1000 lowers the clearance by 1000",
+    high !== null && lower !== null && near(high - lower, 1000, 1), `${high} vs ${lower}`);
+
+  // Low enough and the roof's underside falls below the tread: a clash, stated
+  // as a negative clearance rather than clamped away.
+  const clash = flatAt(1000);
+  check("a plane below the flight reports a negative clearance",
+    clash !== null && clash < 0, String(clash));
+
+  // A plane that does not reach the flight at all has nothing to say about it.
+  f.roofPlanes = [{ id: "away", outline: rectOutline(3000, 3000).map(p => ({ x: p.x + 50000, y: p.y })), eaveEdge: 0, eaveMm: 3000, pitchDeg: 0 }];
+  check("a plane the flight never comes under reports nothing",
+    stairRoofClearanceMm(f, stair) === null);
+}
+
 
 console.log(failures === 0 ? "ALL ROOF TESTS PASSED" : `${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

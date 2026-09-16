@@ -6,6 +6,7 @@ import {
   postLayoutOf, postFromOf, wallPostMm, flipGridOffset, canonPostOffset,
 } from "./doc";
 import { routeInstallation } from "./route";
+import { clampProfile } from "./profile";
 import { Vec, dist, distToSeg, v, add, sub, scale, dot, cross, norm, perp, lineIntersect } from "../geometry/vec";
 import { arcLength, arcPointAt, arcFlatten, arcTangentAt } from "../geometry/arc";
 
@@ -249,7 +250,13 @@ export function flipWall(f: Floor, w: Wall): void {
       outward: sh.outward !== true,
     }));
   }
-  if (w.profile) for (const p of w.profile) p.t = L - p.t;
+  if (w.profile) {
+    for (const p of w.profile) p.t = L - p.t;
+    // Mirroring a fractional-length wall (a diagonal, an arc chord) leaves
+    // L - t fractional and possibly out of order; clampProfile() rounds and
+    // re-sorts, the same pass any other geometry change runs afterwards.
+    clampProfile(f, w);
+  }
 }
 
 /** Merge node b into node a (used when dragging one node onto another). */

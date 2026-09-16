@@ -17,7 +17,9 @@ import type { PlanDoc, Wall, Opening } from "./doc";
 export interface EnergyAssumptions {
   /** Default Rc for an envelope wall stating none of its own. */
   wallRc?: number;
-  /** Default Rc for the roof -- no roof object exists; this is the top plate. */
+  /** Default Rc for the roof: the storey's own roof planes where it states
+   *  any (model/roof.ts), and the top plate read as a flat roof where it
+   *  does not. */
   roofRc?: number;
   /** Default Rc for the ground floor plate. */
   floorRc?: number;

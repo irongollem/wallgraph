@@ -6,6 +6,10 @@
 // renders on every rebuild, while the mismatch and headroom rows read
 // derived rooms (core/rooms.ts's detectRooms) and so are computed by the
 // caller only while the section is open -- see panel.ts's syncRoofTakeoff.
+//
+// The headroom figures appear here as the STOREY's totals only. Per room they
+// belong beside the room itself, in the room list under Zoomen (ui/zoom.ts),
+// which already names each room and frames it on the canvas.
 import { Store } from "../model/store";
 import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
@@ -63,15 +67,20 @@ export function renderRoof(rows: RoofRows, store: Store, floor: Floor, proposal:
   const planes = roofPlanesOf(floor);
 
   if (planes.length === 0) {
-    if (proposal.value) {
-      rows.noteRow(summarize(proposal.value));
-      if (proposal.value.note) rows.warnRow(t("roof.note" + proposal.value.note[0]!.toUpperCase() + proposal.value.note.slice(1)));
-      rows.btnRow(t("roof.accept"), () => {
-        const s = proposal.value;
-        if (!s) return;
-        store.mutate(d => { store.floorOf(d).roofPlanes = s.planes; });
-        proposal.set(null);
-      });
+    const pending = proposal.value;
+    if (pending) {
+      // A suggestion with no planes in it -- the storey's walls enclose
+      // nothing, so suggestRoof() had no outline to propose over. Accepting it
+      // would write an empty roofPlanes array, which states nothing the
+      // absence of the field did not already state; say so and offer nothing.
+      rows.noteRow(pending.planes.length === 0 ? t("roof.suggestNone") : summarize(pending));
+      if (pending.note) rows.warnRow(t("roof.note" + pending.note[0]!.toUpperCase() + pending.note.slice(1)));
+      if (pending.planes.length > 0) {
+        rows.btnRow(t("roof.accept"), () => {
+          store.mutate(d => { store.floorOf(d).roofPlanes = pending.planes; });
+          proposal.set(null);
+        });
+      }
     }
     rows.btnRow(t("roof.suggest"), () => proposal.set(suggestRoof(floor)));
     rows.btnRow(t("roof.presetFlat"), () => store.mutate(d => {
@@ -117,24 +126,25 @@ export function renderRoof(rows: RoofRows, store: Store, floor: Floor, proposal:
 
 export interface RoofTakeoffData {
   mismatches: readonly RoofWallMismatch[];
-  /** Named rooms that actually have low headroom -- an unnamed room, and one
-   *  with none, are left out (see ui/roof.ts's caller). */
-  headroomRooms: ReadonlyArray<{ room: Room; lowMm2: number }>;
+  /** The storey's own low-headroom total, mm², and the usable area left once
+   *  it is excluded. The figures PER ROOM sit in the room list (ui/zoom.ts),
+   *  beside the room they belong to and the button that frames it; this
+   *  section states the storey's sum. */
+  headroom: { lowMm2: number; usableMm2: number };
   /** roofStoreyClashes() against the storey above, empty on the top storey
    *  or where that storey has no closed boundary of its own -- see
    *  core/roof.ts. */
   clashes: readonly RoofStoreyClash[];
   /** The storey above's own name, for the clash row -- core reports the
-   *  clash by planeId and mm, the caller names the floor the same way
-   *  syncRoofTakeoff already supplies room names for the headroom rows.
-   *  Absent exactly when `clashes` is empty. */
+   *  clash by planeId and mm, and the caller names the floor. Absent exactly
+   *  when `clashes` is empty. */
   aboveName?: string;
 }
 
 /**
  * Mismatch rows (each with a "Follow roof" button that writes
- * profileFromRoof() into that wall) and headroom rows (a named room's low
- * area and the usable area left once it is excluded). `data` is supplied by
+ * profileFromRoof() into that wall) and the storey's own headroom totals.
+ * `data` is supplied by
  * the caller -- see panel.ts's syncRoofTakeoff, which recomputes it only
  * while the section is open and only when the document has actually changed.
  */
@@ -171,26 +181,27 @@ export function renderRoofTakeoff(
     }
   }
 
-  if (data.headroomRooms.length > 0) {
+  if (data.headroom.lowMm2 > 0) {
     rows.secHead(t("roof.headroomHead"), { later: true });
-    for (const { room, lowMm2 } of data.headroomRooms) {
-      const name = room.name ?? "";
-      rows.infoRow(t("roof.headroomLow", { room: name }), sqm(lowMm2));
-      rows.infoRow(t("roof.headroomUsable", { room: name }), sqm(Math.max(0, room.netAreaMm2 - lowMm2)));
-    }
+    rows.infoRow(t("roof.headroomTotal"), sqm(data.headroom.lowMm2));
+    rows.infoRow(t("roof.headroomUsableTotal"), sqm(data.headroom.usableMm2));
     rows.noteRow(t("roof.headroomNote"));
   }
 }
 
-/** Every named room with low headroom under the storey's roof planes --
- *  roomLowHeadroom() itself returns 0 for an unroofed storey, so this is
- *  naturally empty there. */
-export function roofHeadroomRooms(floor: Floor, rooms: readonly Room[]): RoofTakeoffData["headroomRooms"] {
-  const out: Array<{ room: Room; lowMm2: number }> = [];
+/**
+ * The storey's low-headroom total and the usable area left once it is
+ * excluded, over every room whether named or not -- floor under 1500 mm is
+ * floor under 1500 mm whether or not anyone has written a word in it.
+ * roomLowHeadroom() reports 0 for a room under no plane and no low ceiling,
+ * so a storey with neither sums to zero.
+ */
+export function roofHeadroomTotals(floor: Floor, rooms: readonly Room[]): RoofTakeoffData["headroom"] {
+  let lowMm2 = 0, usableMm2 = 0;
   for (const room of rooms) {
-    if (room.name === undefined) continue;
-    const lowMm2 = roomLowHeadroom(floor, room);
-    if (lowMm2 > 0) out.push({ room, lowMm2 });
+    const low = roomLowHeadroom(floor, room);
+    lowMm2 += low;
+    usableMm2 += Math.max(0, room.netAreaMm2 - low);
   }
-  return out;
+  return { lowMm2, usableMm2 };
 }

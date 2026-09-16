@@ -117,8 +117,9 @@ export interface Opening {
   uValue?: number;
   /**
    * Bearing each end of a lintel takes beyond the opening, mm -- the lintel's
-   * checked span is the opening width plus twice this. Absent means
-   * OPENING_BEARING_DEFAULT_MM; read via openingBearing().
+   * checked span is the opening width plus this, the same centre-to-centre-
+   * of-bearings convention every span check uses (see core/checks.ts).
+   * Absent means OPENING_BEARING_DEFAULT_MM; read via openingBearing().
    */
   bearingMm?: number;
   /**
@@ -130,8 +131,11 @@ export interface Opening {
   /**
    * An additional line load on the lintel, kN/m -- a floor bearing on the
    * wall above the opening, authored because the model does not yet say
-   * which wall carries which deck end (see issue #46's follow-ups). Added to
-   * the wall's own self-weight above the head; absent means none.
+   * which wall carries which deck end (see issue #46's follow-ups). Summed
+   * with the wall's own self-weight above the head for the characteristic
+   * load, but factored separately: this is a variable load (gammaQ), a
+   * floor's live load passing through the wall, where the wall's self-weight
+   * is permanent (gammaG). Absent means none.
    */
   lintelLoadKNm?: number;
 }

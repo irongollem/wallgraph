@@ -5,11 +5,12 @@
 import { createRequire } from "node:module";
 import type * as WebIFC from "web-ifc";
 import {
-  emptyDoc, floorHeight, type ProfilePoint, type Opening,
+  emptyDoc, floorHeight, type ProfilePoint, type Opening, type Wall,
   WINDOW_SILL_DEFAULT, WINDOW_HEIGHT_DEFAULT, DOOR_HEIGHT_DEFAULT,
 } from "../src/model/doc";
 import { toIfc } from "../src/io/ifc";
 import { wallTopAt } from "../src/model/profile";
+import { arcLength, arcPointAt } from "../src/geometry/arc";
 
 const require = createRequire(import.meta.url);
 const webifc = require("web-ifc") as typeof WebIFC;
@@ -157,6 +158,39 @@ function wallVolumesM3(api: WebIFC.IfcAPI, text: string): number[] {
   return [...walls.values()];
 }
 
+/**
+ * Every wall vertex, in world mm: (x, y) plan position and z height -- unlike
+ * wallVertices()/wallTriangles() above, not filtered to near the y = 0 line,
+ * since a bulged wall's own footprint does not stay near its chord.
+ */
+function allWallPoints(api: WebIFC.IfcAPI, text: string): { x: number; y: number; z: number }[] {
+  const id = api.OpenModel(new TextEncoder().encode(text));
+  const walls = new Set<number>();
+  const ids = api.GetLineIDsWithType(id, webifc.IFCWALL);
+  for (let i = 0; i < ids.size(); i++) walls.add(ids.get(i));
+  const out: { x: number; y: number; z: number }[] = [];
+  api.StreamAllMeshes(id, mesh => {
+    if (!walls.has(mesh.expressID)) return;
+    for (let i = 0; i < mesh.geometries.size(); i++) {
+      const pg = mesh.geometries.get(i);
+      const g = api.GetGeometry(id, pg.geometryExpressID);
+      const verts = api.GetVertexArray(g.GetVertexData(), g.GetVertexDataSize());
+      const m = pg.flatTransformation;
+      for (let vi = 0; vi * 6 < verts.length; vi++) {
+        const k = vi * 6;
+        const x = verts[k]!, y = verts[k + 1]!, z = verts[k + 2]!;
+        const wx = m[0]! * x + m[4]! * y + m[8]! * z + m[12]!;
+        const wy = m[1]! * x + m[5]! * y + m[9]! * z + m[13]!;
+        const wz = m[2]! * x + m[6]! * y + m[10]! * z + m[14]!;
+        // web-ifc returns y-up metres; plan y is -z (see the module comment).
+        out.push({ x: wx * 1000, y: wz * 1000, z: wy * 1000 });
+      }
+    }
+  });
+  api.CloseModel(id);
+  return out;
+}
+
 async function run(): Promise<void> {
   const api = new webifc.IfcAPI();
   await api.Init();
@@ -268,6 +302,62 @@ async function run(): Promise<void> {
     check("gable window: the band above reaches the profile at both jambs, not a flat top",
       Math.abs(topLo - topHi) > 10 && hasSlopingFaceBetween(tris, sLo, topLo, sHi, topHi),
       `topLo=${topLo} topHi=${topHi}`);
+  }
+
+  // ── issue #54: slopedPieceSolid() must project via arc length, not chord ──
+  {
+    // A bulge-1 (semicircle) wall carrying a lean-to profile: wallTopAt() is
+    // parameterised by arc length s, from 0 at node a to L (the arc length,
+    // not the chord) at node b. slopedPieceSolid() used to project the
+    // piece's own vertices onto the CHORD to read those two end heights,
+    // which agrees with wallTopAt() only when the wall is straight -- here
+    // the chord (4000 mm) is well under the arc length L (a full semicircle,
+    // ~6283 mm), so the old height at node b read as if only 4000 of the
+    // 6283 mm had been travelled.
+    const doc = emptyDoc();
+    const f = doc.floors[0]!;
+    const h = floorHeight(f);
+    f.nodes.push({ id: "n1", x: 0, y: 0 }, { id: "n2", x: 4000, y: 0 });
+    const A = { x: 0, y: 0 }, B = { x: 4000, y: 0 }, bulge = 1;
+    const L = arcLength(A, B, bulge); // > the 4000 mm chord
+    const wall: Wall = {
+      id: "w-arc", a: "n1", b: "n2", thickness: 150, bulge, openings: [],
+      profile: [{ t: 0, height: h }, { t: L, height: h + 1000 }],
+    };
+    f.walls.push(wall);
+    const text = toIfc(doc, 0);
+    const points = allWallPoints(api, text);
+
+    // The wall's own reported top (Math.max over every exported vertex) is
+    // slopedPieceSolid()'s flat extrusion height BEFORE the tilted clip --
+    // Math.max(h0, h1) -- which the clip can only lower, never raise. h0 (at
+    // node a, s = 0) reads the same under either projection, so this figure
+    // is entirely decided by h1, read at node b: exactly the value the fix
+    // changes. This is a robust, tessellation-independent readout, unlike
+    // probing the interior of a heavily curved boolean-clip result, which a
+    // very large bulge can leave web-ifc unable to evaluate cleanly.
+    const gotTop = Math.max(...points.map(p => p.z));
+    const expected = wallTopAt(f, wall, L); // the profile's own peak, h + 1000
+    check("an arc wall's exported top reaches wallTopAt(L), not a chord-distance mismeasure",
+      Math.abs(gotTop - expected) <= 1, `${gotTop} vs ${expected}`);
+
+    // The wall's own true midpoint (s = L/2): by the semicircle's symmetry,
+    // this is also the apex, and the apex's tangent is parallel to the
+    // chord, so a face vertex there is displaced purely PERPENDICULAR to the
+    // chord and still projects onto it at exactly half the chord length --
+    // the clip plane's own linear interpolation and wallTopAt() therefore
+    // agree there exactly, in principle. In practice a bulge this large
+    // pushes the boundary rectangle slopedPieceSolid() builds (itself a
+    // tangent-line approximation, like an arc's own miter) past what the
+    // tessellator resolves cleanly, so this is read with a wide tolerance,
+    // as a second, independent confirmation rather than the primary check.
+    const mid = arcPointAt(A, B, bulge, 0.5);
+    const near = points.filter(p => Math.hypot(p.x - mid.x, p.y - mid.y) <= wall.thickness);
+    const midExpected = wallTopAt(f, wall, L / 2);
+    const midGot = near.length > 0 ? Math.max(...near.map(p => p.z)) : NaN;
+    check("and the apex is at least closer to wallTopAt(L/2) than to the wall's flat height",
+      near.length > 0 && Math.abs(midGot - midExpected) < Math.abs(midGot - h),
+      `${midGot} vs ${midExpected} (wall height ${h})`);
   }
 }
 

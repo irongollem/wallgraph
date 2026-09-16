@@ -61,10 +61,11 @@ const lines = body.split("\r\n").filter(l => l.length > 0);
 check("more than one line (header plus data)", lines.length > 1, String(lines.length));
 
 const header = lines[0]!.split(";");
-check("header has 9 semicolon-separated columns", header.length === 9, String(header.length));
+check("header has 10 semicolon-separated columns", header.length === 10, String(header.length));
 check("header is in the document's current language (nl default): storey first",
   header[0] === "Verdieping", header[0]);
-check("header names the incomplete column last", header[8] === "Onvolledig", header[8]);
+check("header names the incomplete column", header[8] === "Onvolledig", header[8]);
+check("header names the offcut column last", header[9] === "Restant (mm)", header[9]);
 
 const rows = lines.slice(1).map(l => l.split(";"));
 check("every data row has as many fields as the header", rows.every(r => r.length === header.length),
@@ -82,6 +83,7 @@ if (studRow) {
   check("its count is a plain integer", /^\d+$/.test(studRow[5]!), studRow[5]);
   check("its unit is \"stuk\" (piece)", studRow[7] === "stuk", studRow[7]);
   check("a complete member row carries no incomplete flag", studRow[8] === "", studRow[8]);
+  check("a member row leaves the offcut column blank", studRow[9] === "", studRow[9]);
 }
 
 // ── block system: a stated format counts blocks, an unstated one is flagged,
@@ -134,9 +136,12 @@ if (deckingRow) {
 const stockRow = rows.find(r => r[1] === "Houten regelwerk" && r[2] === "Voorraadlengte");
 check("the framed-timber system carries at least one nested stock-length row", stockRow !== undefined);
 if (stockRow) {
-  check("its length is a bought stock length (a plain integer)", /^\d+$/.test(stockRow[4]!), stockRow[4]);
+  check("its length column is blank -- the bar length lives in the stock column",
+    stockRow[4] === "", stockRow[4]);
   check("its count is a plain integer", /^\d+$/.test(stockRow[5]!), stockRow[5]);
-  check("its offcut (stock column) is a plain integer", /^\d+$/.test(stockRow[6]!), stockRow[6]);
+  check("its stock column carries the bought stock length (a plain integer)",
+    /^\d+$/.test(stockRow[6]!), stockRow[6]);
+  check("its offcut is a plain integer in its own column", /^\d+$/.test(stockRow[9]!), stockRow[9]);
 }
 
 // ── a frame with no post width states its own dedicated incomplete row ──
@@ -167,6 +172,29 @@ if (stockRow) {
     check("it counts exactly the one affected wall", postWidthRow[5] === "1", postWidthRow[5]);
     check("its storey is \"Verdieping\"", postWidthRow[0] === "Verdieping", postWidthRow[0]);
   }
+}
+
+// ── formula injection guard: a storey name a spreadsheet would execute ──
+//
+// A field starting with =, +, -, @, tab or CR opens as a formula in a
+// spreadsheet unless neutralised. csvField() quotes it and prefixes a
+// leading apostrophe inside the quotes, forcing it to read as text.
+
+{
+  const doc3 = emptyDoc();
+  const f3 = doc3.floors[0]!;
+  f3.name = "=SUM(A1)";
+  const n1 = newId("n"), n2 = newId("n");
+  f3.nodes = [{ id: n1, x: 0, y: 0 }, { id: n2, x: 4000, y: 0 }];
+  f3.walls = [{
+    id: newId("w"), a: n1, b: n2, thickness: 89, bulge: 0, openings: [],
+    material: "timber", postMm: 600, postWidthMm: 38,
+  }];
+  const csv3 = materialsCsv(doc3);
+  const rows3 = csv3.slice(1).split("\r\n").filter(l => l.length > 0).slice(1).map(l => l.split(";"));
+  check("a formula-like storey name is quoted with a leading apostrophe",
+    rows3.length > 0 && rows3.every(r => r[0] === "\"'=SUM(A1)\""),
+    JSON.stringify(rows3.map(r => r[0])));
 }
 
 // ── purity: same document, same output ───────────────────────────────────

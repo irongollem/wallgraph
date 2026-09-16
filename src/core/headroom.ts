@@ -58,18 +58,32 @@ function lowHeadroomUnder(netPoly: Vec[], plane: RoofPlane): Vec[] {
 }
 
 /**
- * A room's own low-headroom area, mm²: the sum of what each roof plane over
- * it leaves under HEADROOM_MIN_MM. Summed rather than unioned, which is exact
- * for planes that partition the storey (core/roofsuggest.ts's gable and
- * lean-to cases, meeting only along a shared edge) and over-counts only where
- * two AUTHORED planes are made to overlap on purpose (a hip drawn with
- * deliberately overlapping outlines) -- the same trade-off roofUndersideAt()
- * accepts for the ridge itself. Zero on a storey with no roof planes: nothing
- * here is low, because nothing here is known to be sloped.
+ * A room's own low-headroom area, mm²: the floor under HEADROOM_MIN_MM,
+ * measured against the LOWER of the roof underside and the room's stated
+ * ceiling at every point.
+ *
+ * A stated ceiling (`Room.ceilingMm` -- the room's own where its name gives
+ * one, the storey's otherwise, see core/rooms.ts) is one figure over the whole
+ * room, so where it is itself below 1500 the whole floor is low whatever the
+ * roof does, and where it is at or above 1500 it lowers nothing the roof has
+ * not already lowered. That is why the two cases are exact rather than
+ * sampled.
+ *
+ * The roof part is the sum of what each plane leaves under HEADROOM_MIN_MM.
+ * Summed rather than unioned, which is exact for planes that partition the
+ * storey (core/roofsuggest.ts's gable and lean-to cases, meeting only along a
+ * shared edge) and over-counts only where two AUTHORED planes are made to
+ * overlap on purpose (a hip drawn with deliberately overlapping outlines) --
+ * the same trade-off roofUndersideAt() accepts for the ridge itself, and the
+ * one core/energy.ts's `overlappingRoof` flags.
  */
-export function roomLowHeadroom(f: Floor, room: { netPoly: Vec[] }): number {
+export function roomLowHeadroom(f: Floor, room: { netPoly: Vec[]; ceilingMm?: number }): number {
+  if (room.netPoly.length < 3) return 0;
+  if (room.ceilingMm !== undefined && room.ceilingMm < HEADROOM_MIN_MM) {
+    return Math.abs(polygonArea(room.netPoly));
+  }
   const planes = roofPlanesOf(f);
-  if (planes.length === 0 || room.netPoly.length < 3) return 0;
+  if (planes.length === 0) return 0;
   let area = 0;
   for (const plane of planes) area += Math.abs(polygonArea(lowHeadroomUnder(room.netPoly, plane)));
   return area;

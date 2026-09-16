@@ -420,6 +420,38 @@ function higherEdge(x: number, w: number): number {
     studs.every(s => s.lengthMm >= higherEdge(s.x, s.w) - 2 * POST_WIDTH - 1));
 }
 
+// ---- a ridge falling strictly inside a stud's own width: edgeTop() must ---
+// ---- sample it too, not just the stud's two edges --------------------------
+//
+// straightWall()'s default postLayout is "grid" (isFramedMaterial's own
+// default), so studs stand at exact multiples of POST_MM (600): 600, 1200,
+// 1800, ... Placing the ridge 10mm off the 1800 grid position puts it well
+// inside that stud's own [1800 - 19, 1800 + 19] footprint (postWidth 38), so
+// both of the stud's edges read lower than the peak itself.
+
+{
+  const { f, w } = straightWall();
+  const ridgeT = 1810, ridgeH = 4600, eaves = H;
+  w.profile = [{ t: ridgeT, height: ridgeH }];
+  const { layout } = layoutOf(f, w);
+  // This profile's own top at x -- linear from eaves at each end up to the
+  // off-centre ridge -- independent of edgeTop() itself.
+  const localTop = (x: number): number => x <= ridgeT
+    ? eaves + (x / ridgeT) * (ridgeH - eaves)
+    : ridgeH + ((x - ridgeT) / (LEN - ridgeT)) * (eaves - ridgeH);
+
+  const straddling = layout.members.find(m => m.name === "stud" && near(m.x + m.w / 2, 1800, 1))!;
+  check("the ridge sits strictly inside the straddling stud's own width",
+    ridgeT > straddling.x && ridgeT < straddling.x + straddling.w);
+
+  const edgesHigh = Math.max(localTop(straddling.x), localTop(straddling.x + straddling.w));
+  check("the straddling stud's own two edges are both lower than the ridge", edgesHigh < ridgeH);
+
+  const expected = Math.floor(ridgeH - 2 * POST_WIDTH);
+  check("the straddling stud is cut to the ridge height, not to its own (lower) edges",
+    straddling.lengthMm === expected, `${straddling.lengthMm} vs ${expected}`);
+}
+
 // ---- a flat wall's layout is unchanged by the sloped-top machinery --------
 
 {
@@ -789,6 +821,18 @@ function higherEdge(x: number, w: number): number {
   check("no members without a post width", elevation.members.length === 0);
   check("notes report the missing post width", JSON.stringify(elevation.notes) === JSON.stringify(["postWidth"]));
   check("the face outline still draws", elevation.topLine.length >= 2);
+}
+
+// ---- a frame without ANY posts stated: notes: ["posts"], not "postWidth" --
+
+{
+  const { f, w } = straightWall({ postMm: undefined });
+  const { elevation } = elevationOf(f, w);
+  check("kind is still \"frame\" without posts stated", elevation.kind === "frame");
+  check("no members without posts stated", elevation.members.length === 0);
+  check("notes report the missing posts, not the missing post width",
+    JSON.stringify(elevation.notes) === JSON.stringify(["posts"]));
+  check("the face outline still draws without posts stated", elevation.topLine.length >= 2);
 }
 
 // ---- the course count feeds the takeoff's block count, before waste -------

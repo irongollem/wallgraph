@@ -534,7 +534,7 @@ function emitWallPrism(
   top?: number[],
 ): void {
   if (!ax || !spans || spans.length === 0) {
-    emitPrism(acc, poly, [], elev + z0, elev + z1, color, glass, top);
+    emitPrism(acc, poly, [], elev + z0, elev + z1, color, glass, top?.map(z => elev + z));
     return;
   }
   let p0 = Infinity, p1 = -Infinity;
@@ -566,7 +566,8 @@ function emitWallPrism(
       part = r.poly; partTop = r.top;
     }
     const cappedTop = partTop.map(h => Math.min(h, cap));
-    emitPrism(acc, part, [], elev + z0, elev + Math.max(z0, ...cappedTop), color, glass, top ? cappedTop : undefined);
+    emitPrism(acc, part, [], elev + z0, elev + Math.max(z0, ...cappedTop), color, glass,
+      top ? cappedTop.map(h => elev + h) : undefined);
   }
 }
 

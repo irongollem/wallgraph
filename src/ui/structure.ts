@@ -187,7 +187,7 @@ export function renderStructureProps(store: Store, tools: Tools, rows: PaneRows,
     const result = beamCheck(store.doc, f, elm);
     const sectionLabel = result.material === "steel" ? (elm.label ?? "") : `${elm.width} × ${elm.depth} mm`;
     renderCheckResult(rows, result, beamMissingLabel, sectionLabel || undefined,
-      (w, d) => mut("beam", e => { e.width = w; e.depth = d; }));
+      (w, d) => { const s = clampBeamSize({ width: w, depth: d }); mut("beam", e => { e.width = s.width; e.depth = s.depth; }); });
   }
   else railingProps(rows, elm, fn => mut("railing", fn));
 

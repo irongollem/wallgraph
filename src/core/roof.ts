@@ -16,6 +16,7 @@ import { wallTopAt, wallTopPolyline } from "../model/profile";
 import type { ProfilePoint } from "../model/doc";
 import {
   Vec, v, add, sub, scale, dot, norm, perp, polygonArea, polygonCentroid, pointInPolygon, clipHalfPlane,
+  distToSeg,
 } from "../geometry/vec";
 import { arcPointAt } from "../geometry/arc";
 import { outerBoundary } from "./rooms";
@@ -75,6 +76,25 @@ export function planeUndersideAt(plane: RoofPlane, p: Vec): number {
   return plane.eaveMm + d * Math.tan(plane.pitchDeg * DEG);
 }
 
+/** A point exactly on a plane outline's own edge counts as under it, within
+ *  this many mm. A plane proposed or preset from the storey's outer boundary
+ *  (core/roofsuggest.ts) is wound along the wall CENTERLINES, so every
+ *  perimeter wall is sampled exactly on an outline edge, where pointInPolygon
+ *  alone answers by its ray-casting convention rather than by the geometry --
+ *  which is how one gable end of a symmetric roof reads as covered and the
+ *  opposite one does not. */
+const OUTLINE_EDGE_TOL_MM = 1;
+
+/** `p` inside `poly`, or within OUTLINE_EDGE_TOL_MM of one of its edges. */
+function pointInOutline(p: Vec, poly: Vec[]): boolean {
+  if (pointInPolygon(p, poly)) return true;
+  const n = poly.length;
+  for (let i = 0; i < n; i++) {
+    if (distToSeg(p, poly[i]!, poly[(i + 1) % n]!).d <= OUTLINE_EDGE_TOL_MM) return true;
+  }
+  return false;
+}
+
 /**
  * The underside a point actually meets: the LOWEST underside of every plane
  * whose outline contains it, or null outside every plane. Taking the lowest
@@ -85,7 +105,7 @@ export function roofUndersideAt(f: Floor, p: Vec): number | null {
   let best: number | null = null;
   for (const plane of roofPlanesOf(f)) {
     if (plane.outline.length < 3) continue;
-    if (!pointInPolygon(p, plane.outline.map(q => v(q.x, q.y)))) continue;
+    if (!pointInOutline(p, plane.outline.map(q => v(q.x, q.y)))) continue;
     const h = planeUndersideAt(plane, p);
     if (best === null || h < best) best = h;
   }
@@ -122,8 +142,8 @@ const BISECT_ITERS = 24;
 function wallPlaneSpans(A: Vec, B: Vec, bulge: number, L: number, outline: { x: number; y: number }[]): Array<{ s0: number; s1: number }> {
   const poly = outline.map(p => v(p.x, p.y));
   if (poly.length < 3) return [];
-  if (L <= 0) return pointInPolygon(A, poly) ? [{ s0: 0, s1: 0 }] : [];
-  const inside = (s: number): boolean => pointInPolygon(wallPointAt(A, B, bulge, L, s), poly);
+  if (L <= 0) return pointInOutline(A, poly) ? [{ s0: 0, s1: 0 }] : [];
+  const inside = (s: number): boolean => pointInOutline(wallPointAt(A, B, bulge, L, s), poly);
   const n = Math.max(1, Math.ceil(L / SPAN_SAMPLE_MM));
   const spans: Array<{ s0: number; s1: number }> = [];
   let curStart: number | null = inside(0) ? 0 : null;
@@ -165,9 +185,20 @@ const ROOF_MISMATCH_TOL_MM = 20;
 const MISMATCH_SAMPLE_MM = 250;
 
 /**
- * Every wall whose centerline passes under a roof plane, sampled at its own
- * profile breakpoints and every MISMATCH_SAMPLE_MM against the roof
- * underside there: the worst gap, when it exceeds ROOF_MISMATCH_TOL_MM.
+ * Every wall whose centerline passes under a roof plane and DISAGREES with
+ * it, sampled at its own profile breakpoints and every MISMATCH_SAMPLE_MM
+ * against the roof underside there: the worst gap, when it exceeds
+ * ROOF_MISMATCH_TOL_MM.
+ *
+ * Two kinds of wall disagree with the roof over them. One pokes through the
+ * underside somewhere (a negative gap): whatever it states, it cannot be
+ * built as drawn. The other already states a top profile of its own, which is
+ * a claim about the same surface the roof states -- a gable end 300 mm below
+ * the ridge is the case this check exists for. A flat wall standing wholly
+ * BELOW the roof is neither: an ordinary 2600 partition under a 3600 ridge is
+ * what a storey normally looks like, and reporting every one of them buries
+ * the two cases that mean something.
+ *
  * Reported, never repaired -- a wall's own top stays its own statement (see
  * model/profile.ts).
  */
@@ -184,14 +215,18 @@ export function roofWallMismatches(f: Floor): RoofWallMismatch[] {
     if (!na || !nb) continue;
     const A = v(na.x, na.y), B = v(nb.x, nb.y);
     let worst: { gapMm: number; atT: number } | null = null;
+    let pierces = false;
     for (const s of stops) {
       if (s < 0 || s > L) continue;
       const p = wallPointAt(A, B, w.bulge, L, s);
       const underside = roofUndersideAt(f, p);
       if (underside === null) continue;
       const gap = underside - wallTopAt(f, w, s);
+      if (gap < -ROOF_MISMATCH_TOL_MM) pierces = true;
       if (!worst || Math.abs(gap) > Math.abs(worst.gapMm)) worst = { gapMm: gap, atT: s };
     }
+    const states = w.profile !== undefined && w.profile.length > 0;
+    if (!pierces && !states) continue;
     if (worst && Math.abs(worst.gapMm) > ROOF_MISMATCH_TOL_MM) {
       out.push({ wallId: w.id, gapMm: Math.round(worst.gapMm), atT: Math.round(worst.atT) });
     }

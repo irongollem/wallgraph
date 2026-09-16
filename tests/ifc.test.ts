@@ -8,6 +8,8 @@ import {
 import { wallLength, nodeAt } from "../src/model/ops";
 import { toIfc } from "../src/io/ifc";
 import { detectRooms } from "../src/core/rooms";
+import { resolveFloor } from "../src/core/resolve";
+import { floorSurface } from "../src/core/surface";
 import { SLAB_DEFAULT_MM } from "../src/core/solids";
 import { ifcGuid } from "../src/model/guid";
 import { uFromRc } from "../src/model/energy";
@@ -891,9 +893,10 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
     const out: Record<string, number> = {};
     for (const id of qtyRefs) {
       const qLine = ents8.find(l =>
-        l.startsWith(`#${id}=IFCQUANTITYLENGTH(`) || l.startsWith(`#${id}=IFCQUANTITYVOLUME(`));
+        l.startsWith(`#${id}=IFCQUANTITYLENGTH(`) || l.startsWith(`#${id}=IFCQUANTITYVOLUME(`)
+        || l.startsWith(`#${id}=IFCQUANTITYAREA(`));
       const m = qLine
-        ? /^#\d+=IFCQUANTITY(?:LENGTH|VOLUME)\('([^']*)',\$,\$,(-?\d+\.?\d*(?:E[+-]?\d+)?),\$\);$/.exec(qLine)
+        ? /^#\d+=IFCQUANTITY(?:LENGTH|VOLUME|AREA)\('([^']*)',\$,\$,(-?\d+\.?\d*(?:E[+-]?\d+)?),\$\);$/.exec(qLine)
         : null;
       if (m) out[m[1]!] = Number(m[2]!);
     }
@@ -961,6 +964,24 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
     `${qto?.GrossVolume} vs ${expectedGrossVolume}`);
   check("Qto_WallBaseQuantities is emitted once per wall (7 walls, unconditional)",
     ents8.filter(l => l.includes("=IFCELEMENTQUANTITY(") && l.includes("'Qto_WallBaseQuantities'")).length === 7);
+
+  // ── GrossSideArea / NetSideArea (issue #55) ─────────────────────────────
+  // wBottomLeft carries a door (see addWall8/openings above), so its one
+  // face's gross and net figures genuinely differ -- the same per-face
+  // numbers core/surface.ts's floorSurface() reports, read off one face.
+  const surface8 = floorSurface(floor8, resolveFloor(floor8), rooms8);
+  const faceOf8 = surface8.walls.find(s => s.wallId === wBottomLeft.id)!.faces[0]!;
+  check("Qto_WallBaseQuantities.GrossSideArea matches floorSurface()'s one-face gross figure",
+    qto?.GrossSideArea !== undefined && Math.abs(qto.GrossSideArea - faceOf8.grossMm2 / 1e6) < 1e-9,
+    `${qto?.GrossSideArea} vs ${faceOf8.grossMm2 / 1e6}`);
+  check("Qto_WallBaseQuantities.NetSideArea matches floorSurface()'s one-face net figure",
+    qto?.NetSideArea !== undefined && Math.abs(qto.NetSideArea - faceOf8.netMm2 / 1e6) < 1e-9,
+    `${qto?.NetSideArea} vs ${faceOf8.netMm2 / 1e6}`);
+  check("net is gross less the opening (the door), not equal to it",
+    qto?.GrossSideArea !== undefined && qto?.NetSideArea !== undefined
+    && qto.GrossSideArea > qto.NetSideArea
+    && Math.abs((qto.GrossSideArea - qto.NetSideArea) - faceOf8.openingsMm2 / 1e6) < 1e-9,
+    `gross ${qto?.GrossSideArea}, net ${qto?.NetSideArea}, openings ${faceOf8.openingsMm2 / 1e6}`);
 
   // ── pset/qto GlobalIds are unique and stable across a re-export ─────────
   {

@@ -12,10 +12,10 @@
 import type { PlanDoc, Floor, Wall, Opening, WallMaterial } from "../model/doc";
 import { isFramedMaterial, openingHead, openingBearing } from "../model/doc";
 import { wallTopAt } from "../model/profile";
-import type { Deck } from "../model/deck";
+import { type Deck, bearingOf } from "../model/deck";
 import { deckSpanMm } from "./deck";
 import type { Beam } from "../model/structure";
-import { STEEL_PROFILES } from "../model/structure";
+import { STEEL_PROFILES, STRUCTURE_LIMITS } from "../model/structure";
 import { spanLength } from "./structure";
 import {
   timberOf, gammaGOf, gammaQOf, deflectionDivOf, sectionsMmOf, steelFyOf,
@@ -52,9 +52,10 @@ export interface CheckResult {
    * can show what a result is built from without re-deriving the unit
    * conversion this module owns. Present once the load itself is known, even
    * when the check as a whole is `incomplete` over a missing section.
-   * `wallLineKNm` is present only for a lintel: the wall self-weight
-   * component of `gLineKNm`, the rest being the opening's own
-   * `lintelLoadKNm`.
+   * `wallLineKNm` is present only for a lintel: the wall's own self-weight,
+   * which is `gLineKNm` in full -- the opening's own `lintelLoadKNm` is a
+   * variable load and so is carried in `qLineKNm` instead (see
+   * lintelCheck()'s own header).
    */
   loadBreakdown?: { gLineKNm: number; qLineKNm: number; wallLineKNm?: number };
 }
@@ -109,14 +110,16 @@ function timberResult(base: Omit<SpanInput, "section">, section: { w: number; d:
 // ── joist ────────────────────────────────────────────────────────────────
 
 /**
- * A deck's joists: span = the deck's own extent along the joist axis; load
- * width = joist centres; g and q from the deck's authored area loads (N/m²);
- * section = the deck's stated joist, else incomplete with a proposal (which
- * still needs the load to compute).
+ * A deck's joists: span = the deck's own clear extent along the joist axis
+ * plus one bearing -- centre-to-centre of the joist's own bearings at each
+ * end, the same convention every span check here uses (see lintelCheck());
+ * load width = joist centres; g and q from the deck's authored area loads
+ * (N/m²); section = the deck's stated joist, else incomplete with a proposal
+ * (which still needs the load to compute).
  */
 export function joistCheck(doc: PlanDoc, deck: Deck): CheckResult {
   const missing: string[] = [];
-  const spanMm = deckSpanMm(deck);
+  const spanMm = deckSpanMm(deck) + bearingOf(deck);
   if (spanMm <= 0) missing.push("span");
   const hasLoad = deck.loadG !== undefined && deck.loadQ !== undefined;
   if (!hasLoad) missing.push("load");
@@ -178,12 +181,22 @@ export function beamCheck(doc: PlanDoc, _f: Floor, beam: Beam): CheckResult {
       fy: steelFyOf(doc), deflectionDiv,
     };
     const check = checkSteelSpan(input);
-    return { status: check.passes ? "ok" : "fails", missing: [], material: "steel", input, check, loadBreakdown };
+    // A steel beam is checked against its own catalogue section, never
+    // proposed a replacement -- proposal is always null so a failing steel
+    // beam reads "none passes" rather than silently carrying no note.
+    return { status: check.passes ? "ok" : "fails", missing: [], material: "steel", input, check, proposal: null, loadBreakdown };
   }
 
   const timber = timberOf(doc);
   const base: Omit<SpanInput, "section"> = { spanMm, qdNmm, qkNmm, material: timber, deflectionDiv };
-  const { check, proposal } = timberResult(base, { w: beam.width, d: beam.depth }, sectionsMmOf(doc));
+  // A beam's proposal must survive clampBeamSize() -- STRUCTURE_LIMITS.section
+  // is narrower than the document's own default sections list (which offers
+  // 38 mm wide joist stock, below a beam's 50 mm minimum) -- so the smallest
+  // passing section here is also one the panel can actually store.
+  const beamSections = sectionsMmOf(doc).filter(s =>
+    s.w >= STRUCTURE_LIMITS.section.min && s.w <= STRUCTURE_LIMITS.section.max
+    && s.d >= STRUCTURE_LIMITS.beamDepth.min && s.d <= STRUCTURE_LIMITS.beamDepth.max);
+  const { check, proposal } = timberResult(base, { w: beam.width, d: beam.depth }, beamSections);
   return {
     status: check.passes ? "ok" : "fails", missing: [], material: "timber",
     input: { ...base, section: { w: beam.width, d: beam.depth } }, check, proposal, loadBreakdown,
@@ -193,17 +206,21 @@ export function beamCheck(doc: PlanDoc, _f: Floor, beam: Beam): CheckResult {
 // ── lintel ───────────────────────────────────────────────────────────────
 
 /**
- * An opening's lintel: span = opening width + 2 × bearing; load = the wall
- * above the opening head (density × thickness × the wall's own height above
- * the head there, read via wallTopAt() so a gable's rake is not loaded with a
- * rectangle of wall that is not there) plus an optional authored
- * `lintelLoadKNm` for a floor bearing on the wall. A wall stating no material
- * (or one with no density figure -- glass, sandwich) is incomplete; section =
- * the opening's stated `lintel`, else incomplete with a proposal.
+ * An opening's lintel: span = opening width + bearing -- centre-to-centre of
+ * the lintel's own bearings at each end, the same convention joistCheck()
+ * uses; load = the wall above the opening head (density × thickness × the
+ * wall's own height above the head there, read via wallTopAt() so a gable's
+ * rake is not loaded with a rectangle of wall that is not there), permanent,
+ * plus an optional authored `lintelLoadKNm` for a floor bearing on the wall,
+ * variable -- a floor's live load is not the wall's own weight, so it is
+ * factored by gammaQ rather than folded into the wall's gammaG line. A wall
+ * stating no material (or one with no density figure -- glass, sandwich) is
+ * incomplete; section = the opening's stated `lintel`, else incomplete with
+ * a proposal.
  */
 export function lintelCheck(doc: PlanDoc, f: Floor, wall: Wall, opening: Opening): CheckResult {
   const missing: string[] = [];
-  const spanMm = opening.width + 2 * openingBearing(opening);
+  const spanMm = opening.width + openingBearing(opening);
 
   const headMm = openingHead(opening);
   const topMm = wallTopAt(f, wall, opening.t);
@@ -215,10 +232,12 @@ export function lintelCheck(doc: PlanDoc, f: Floor, wall: Wall, opening: Opening
 
   const sections = sectionsMmOf(doc);
   const extraNmm = opening.lintelLoadKNm ?? 0;
-  // kN/m and N/mm are the same number.
-  const base = selfWeightNmm !== null ? timberBase(doc, spanMm, selfWeightNmm + extraNmm, 0) : null;
+  // kN/m and N/mm are the same number. The wall's self-weight is permanent
+  // (g); an authored lintelLoadKNm is a floor bearing on the wall and so is
+  // variable (q), never summed into the g line.
+  const base = selfWeightNmm !== null ? timberBase(doc, spanMm, selfWeightNmm, extraNmm) : null;
   const loadBreakdown = selfWeightNmm !== null
-    ? { gLineKNm: selfWeightNmm + extraNmm, qLineKNm: 0, wallLineKNm: selfWeightNmm }
+    ? { gLineKNm: selfWeightNmm, qLineKNm: extraNmm, wallLineKNm: selfWeightNmm }
     : undefined;
 
   if (!opening.lintel || !base) {

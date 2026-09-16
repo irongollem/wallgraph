@@ -558,5 +558,71 @@ function twoRoomFloor(): { f: Floor; divider: Wall } {
     !near(eo.areaMm2, flatClampArea, 1), `${eo.areaMm2} vs flat clamp ${flatClampArea}`);
 }
 
+// ---- roof planes: overlap is flagged, uncovered plate is reported ------------
+
+{
+  // The storey's own outline is the centerline rectangle (0,0)-(W,D): a plane
+  // drawn over exactly that covers the whole plate.
+  const { doc, f } = baseDoc();
+  const whole = [{ x: 0, y: 0 }, { x: W, y: 0 }, { x: W, y: D }, { x: 0, y: D }];
+  f.roofPlanes = [{ id: "p1", outline: whole, eaveEdge: 0, eaveMm: H, pitchDeg: 0 }];
+  const t = envelopeTakeoff(doc);
+  check("one plane over the whole storey leaves nothing uncovered",
+    t.uncoveredRoofMm2 === 0, String(t.uncoveredRoofMm2));
+  check("a single plane is not an overlap", t.overlappingRoof === false);
+  check("the storey carries the same figures", t.storeys[0]!.uncoveredRoofMm2 === 0);
+}
+
+{
+  // Half a roof: the other half of the plate is reported, never added to Als.
+  const { doc, f } = baseDoc();
+  const half = [{ x: 0, y: 0 }, { x: W, y: 0 }, { x: W, y: D / 2 }, { x: 0, y: D / 2 }];
+  f.roofPlanes = [{ id: "p1", outline: half, eaveEdge: 0, eaveMm: H, pitchDeg: 0 }];
+  const t = envelopeTakeoff(doc);
+  check("the plate no plane covers is reported",
+    near(t.uncoveredRoofMm2, (W * D) / 2, 1000), String(t.uncoveredRoofMm2));
+  check("...and is not in the roof area", near(t.roofMm2, (W * D) / 2, 1000), String(t.roofMm2));
+  check("...nor silently in Als",
+    near(t.envelopeMm2, t.wallsMm2 + t.glazingMm2 + t.doorsMm2 + t.roofMm2 + t.groundMm2, 1),
+    String(t.envelopeMm2));
+}
+
+{
+  // Two planes deliberately overlapping (a hip drawn that way): the shared plan
+  // area counts twice in roofMm2, which the flag states rather than corrects.
+  const { doc, f } = baseDoc();
+  const lower = [{ x: 0, y: 0 }, { x: W, y: 0 }, { x: W, y: (D * 2) / 3 }, { x: 0, y: (D * 2) / 3 }];
+  const upper = [{ x: 0, y: D / 3 }, { x: W, y: D / 3 }, { x: W, y: D }, { x: 0, y: D }];
+  f.roofPlanes = [
+    { id: "p1", outline: lower, eaveEdge: 0, eaveMm: H, pitchDeg: 0 },
+    { id: "p2", outline: upper, eaveEdge: 2, eaveMm: H, pitchDeg: 0 },
+  ];
+  const t = envelopeTakeoff(doc);
+  check("two overlapping planes are flagged", t.overlappingRoof === true);
+  check("the overlap is counted twice in the roof area",
+    near(t.roofMm2, W * ((D * 2) / 3) * 2, 1000), String(t.roofMm2));
+
+  // Two planes meeting along one shared edge -- the ordinary gable -- are not
+  // an overlap.
+  const a = [{ x: 0, y: 0 }, { x: W, y: 0 }, { x: W, y: D / 2 }, { x: 0, y: D / 2 }];
+  const b = [{ x: 0, y: D / 2 }, { x: W, y: D / 2 }, { x: W, y: D }, { x: 0, y: D }];
+  f.roofPlanes = [
+    { id: "pa", outline: a, eaveEdge: 0, eaveMm: H, pitchDeg: 0 },
+    { id: "pb", outline: b, eaveEdge: 2, eaveMm: H, pitchDeg: 0 },
+  ];
+  const t2 = envelopeTakeoff(doc);
+  check("two planes sharing only a ridge edge are not an overlap", t2.overlappingRoof === false);
+  check("...and together they cover the plate", t2.uncoveredRoofMm2 === 0, String(t2.uncoveredRoofMm2));
+}
+
+{
+  // A storey with no planes at all is the flat-plate case: nothing uncovered,
+  // because the plate itself is already counted as the roof.
+  const { doc } = baseDoc();
+  const t = envelopeTakeoff(doc);
+  check("a storey with no planes reports nothing uncovered", t.uncoveredRoofMm2 === 0);
+  check("...and no overlap", t.overlappingRoof === false);
+}
+
 console.log(failures === 0 ? "ALL ENERGY TESTS PASSED" : `${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

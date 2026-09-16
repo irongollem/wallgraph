@@ -17,6 +17,7 @@ import {
   stairBox, stairMetrics, gradient, resolveStair, stairIssues, stairFigures, STAIR_LIMITS,
 } from "../core/stair";
 import { turnAbout } from "../core/placed";
+import { stairRoofClearanceMm } from "../core/headroom";
 import { isMixed } from "../core/mixed";
 import { getStair } from "../render/stairs";
 import { COLORS } from "../render/draw";
@@ -212,6 +213,15 @@ export function renderStairProps(store: Store, tools: Tools, rows: PaneRows, id:
   });
   turnRows(rows, stair, mut);
   metricRows(rows, stair);
+  // The roof over the flight, where there is one: the same free-height
+  // reading STAIR_HEADROOM_MM states against the slab, taken against the
+  // storey's own roof planes instead (core/headroom.ts). Absent on a storey
+  // with no roof, and on a flight that never comes under one -- a figure
+  // stated only where there is something to state, like the metrics above.
+  const roofClearance = stairRoofClearanceMm(store.floor, raw);
+  if (roofClearance !== null) {
+    rows.infoRow(t("panel.stairRoofClearance"), `${roofClearance} mm`);
+  }
   rows.noteRow(t("panel.stairNote"));
   rows.dangerRow(t("panel.deleteOpening"), () => tools.deleteSelected());
 }

@@ -50,7 +50,7 @@ import { renderOpeningTool } from "./openings";
 import { renderWallTool, renderWallSurface, renderPostLayout } from "./walls";
 import { renderEnergyAssumptions, renderEnergyTakeoff } from "./energy";
 import {
-  renderRoof, renderRoofTakeoff, roofHeadroomRooms, type RoofProposal, type RoofTakeoffData,
+  renderRoof, renderRoofTakeoff, roofHeadroomTotals, type RoofProposal, type RoofTakeoffData,
 } from "./roof";
 import { roofPlanesOf } from "../model/roof";
 import { roofWallMismatches, roofStoreyClashes } from "../core/roof";
@@ -199,31 +199,31 @@ export class Panel {
   private floorsOpen = false;
   /** The permit checklist's container; repopulated in place while open. */
   private permitChecksEl: HTMLElement | null = null;
-  /** permitChecklist() cache, keyed on store.revision -- it runs resolveFloor,
+  /** permitChecklist() cache, keyed on paneCacheKey() -- it runs resolveFloor,
    *  planBounds, dimensionChains and detectRooms itself (see core/permit.ts),
    *  so recomputing it on every store notification would repeat that work per
    *  mutation during a drag while the permit section happens to be open. Same
    *  pattern as derived() in main.ts. */
-  private permitCacheRev = -1;
+  private permitCacheRev = "";
   private permitCacheItems: PermitCheck[] = [];
   /** The Energie takeoff's container; repopulated in place while open. */
   private energyTakeoffEl: HTMLElement | null = null;
-  /** envelopeTakeoff() cache, keyed on store.revision -- it resolves every
+  /** envelopeTakeoff() cache, keyed on paneCacheKey() -- it resolves every
    *  storey (resolveFloor + detectRooms via core/energy.ts), so recomputing it
    *  on every store notification would repeat that work per mutation during a
    *  drag while the Energie section happens to be open. Same pattern as
    *  permitCacheItems above. */
-  private energyCacheRev = -1;
+  private energyCacheRev = "";
   private energyCacheTakeoff: EnvelopeTakeoff | null = null;
   /** The Dak takeoff's container; repopulated in place while open. */
   private roofTakeoffEl: HTMLElement | null = null;
-  /** roofWallMismatches()/roomLowHeadroom() cache, keyed on store.revision --
+  /** roofWallMismatches()/roomLowHeadroom() cache, keyed on paneCacheKey() --
    *  the mismatches sample every wall against the roof and the headroom rows
    *  read detectRooms() (via Tools.rooms()), so recomputing them on every
    *  store notification would repeat that work per mutation during a drag
    *  while the Dak section happens to be open. Same pattern as
    *  energyCacheTakeoff above. */
-  private roofCacheRev = -1;
+  private roofCacheRev = "";
   private roofCacheData: RoofTakeoffData | null = null;
   /** The pending "Voorstel uit muren" suggestion, held until Accept writes it
    *  or the visitor changes storey -- see ui/roof.ts's RoofProposal. */
@@ -231,12 +231,12 @@ export class Panel {
   private roofProposalFloor: string | null = null;
   /** The Materialen takeoff's container; repopulated in place while open. */
   private materialsTakeoffEl: HTMLElement | null = null;
-  /** floorMaterials() cache, keyed on store.revision -- it resolves the active
+  /** floorMaterials() cache, keyed on paneCacheKey() -- it resolves the active
    *  storey and nests every system's members (core/materials.ts's floorMaterials
    *  + core/stock.ts's nest), so recomputing it on every store notification
    *  would repeat that work per mutation during a drag while the Materialen
    *  section happens to be open. Same pattern as energyCacheTakeoff above. */
-  private materialsCacheRev = -1;
+  private materialsCacheRev = "";
   private materialsCacheTakeoff: FloorMaterials | null = null;
   /** Which room's name field is open in the zoom pane; see RoomEdit. */
   private roomEditKey: string | null = null;
@@ -1868,14 +1868,25 @@ export class Panel {
   }
 
   /**
+   * What every fold-out's derived-geometry cache is keyed on: the document
+   * revision AND the active storey. Changing storey is not a mutation, so it
+   * does not bump the revision -- a cache keyed on the revision alone keeps
+   * showing the previous storey's checklist, envelope, roof and materials
+   * until the visitor happens to edit something.
+   */
+  private paneCacheKey(): string {
+    return `${this.store.revision}:${this.store.activeFloor}`;
+  }
+
+  /**
    * The checklist reads derived geometry, so it cannot wait for the pane
    * signature; it refreshes in place, and only while the section is open.
    */
   private syncPermitChecks(): void {
     const box = this.permitChecksEl;
     if (!box || !this.permitOpen) return;
-    if (this.store.revision !== this.permitCacheRev) {
-      this.permitCacheRev = this.store.revision;
+    if (this.paneCacheKey() !== this.permitCacheRev) {
+      this.permitCacheRev = this.paneCacheKey();
       this.permitCacheItems = permitChecklist(this.store.doc, this.store.activeFloor);
     }
     const items = this.permitCacheItems;
@@ -1942,8 +1953,8 @@ export class Panel {
   private syncEnergyTakeoff(): void {
     const box = this.energyTakeoffEl;
     if (!box || !this.energyOpen) return;
-    if (this.store.revision !== this.energyCacheRev) {
-      this.energyCacheRev = this.store.revision;
+    if (this.paneCacheKey() !== this.energyCacheRev) {
+      this.energyCacheRev = this.paneCacheKey();
       this.energyCacheTakeoff = envelopeTakeoff(this.store.doc);
     }
     const takeoff = this.energyCacheTakeoff;
@@ -2022,13 +2033,13 @@ export class Panel {
   private syncRoofTakeoff(): void {
     const box = this.roofTakeoffEl;
     if (!box || !this.roofOpen) return;
-    if (this.store.revision !== this.roofCacheRev) {
-      this.roofCacheRev = this.store.revision;
+    if (this.paneCacheKey() !== this.roofCacheRev) {
+      this.roofCacheRev = this.paneCacheKey();
       const f = this.store.floor;
       const above = this.store.doc.floors[this.store.activeFloor + 1];
       this.roofCacheData = {
         mismatches: roofWallMismatches(f),
-        headroomRooms: roofHeadroomRooms(f, this.tools.rooms()),
+        headroom: roofHeadroomTotals(f, this.tools.rooms()),
         clashes: roofStoreyClashes(this.store.doc, this.store.activeFloor),
         ...(above ? { aboveName: above.name } : {}),
       };
@@ -2094,8 +2105,8 @@ export class Panel {
   private syncMaterialsTakeoff(): void {
     const box = this.materialsTakeoffEl;
     if (!box || !this.materialsOpen) return;
-    if (this.store.revision !== this.materialsCacheRev) {
-      this.materialsCacheRev = this.store.revision;
+    if (this.paneCacheKey() !== this.materialsCacheRev) {
+      this.materialsCacheRev = this.paneCacheKey();
       const f = this.store.floor;
       const resolved = this.tools.resolvedFloor();
       const surface = floorSurface(f, resolved, this.tools.rooms());

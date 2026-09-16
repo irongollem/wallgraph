@@ -129,9 +129,28 @@ export const SECTIONS_DEFAULT: readonly { w: number; d: number }[] = [
   { w: 44, d: 195 }, { w: 71, d: 196 }, { w: 44, d: 220 }, { w: 71, d: 221 },
 ];
 
-/** Timber material properties: the document's own, else TIMBER_DEFAULT (C24). */
+/** A figure that must be finite and positive to be used at all -- a pasted
+ *  0 or NaN falls back to the class default per field rather than reaching
+ *  checkSpan() and dividing by it (gammaM: 0 would otherwise yield an
+ *  infinite design strength and a false pass). */
+function positiveOr(n: number | undefined, fallback: number): number {
+  return n !== undefined && isFinite(n) && n > 0 ? n : fallback;
+}
+
+/** Timber material properties: the document's own, else TIMBER_DEFAULT (C24)
+ *  -- each of the six figures individually, so one bad field does not fall
+ *  back to the whole default class. */
 export function timberOf(d: PlanDoc): TimberAssumptions {
-  return d.materials?.timber ?? TIMBER_DEFAULT;
+  const t = d.materials?.timber;
+  if (!t) return TIMBER_DEFAULT;
+  return {
+    fmk: positiveOr(t.fmk, TIMBER_DEFAULT.fmk),
+    fvk: positiveOr(t.fvk, TIMBER_DEFAULT.fvk),
+    e0mean: positiveOr(t.e0mean, TIMBER_DEFAULT.e0mean),
+    kmod: positiveOr(t.kmod, TIMBER_DEFAULT.kmod),
+    gammaM: positiveOr(t.gammaM, TIMBER_DEFAULT.gammaM),
+    kdef: positiveOr(t.kdef, TIMBER_DEFAULT.kdef),
+  };
 }
 
 /** Steel yield strength, N/mm²: the document's own, else STEEL_FY_DEFAULT. */

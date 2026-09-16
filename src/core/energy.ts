@@ -22,6 +22,14 @@
 //              the storey below, never measured as its own area or corrected
 //              for.
 //
+// Roof planes are SUMMED, not unioned, so two planes made to overlap on
+// purpose -- a hip drawn with deliberately overlapping outlines, the overlap
+// roofUndersideAt() reads a ridge out of -- count their shared plan area
+// twice in roofMm2, exactly as core/headroom.ts's roomLowHeadroom() does.
+// `overlappingRoof` flags the storey where that happens rather than
+// correcting the figure, since which of the two planes covers the overlap is
+// not something the document states.
+//
 // Reported, never enforced or certified: nothing here decides whether a plan
 // meets BENG, only what its geometry and stated figures currently add up to.
 import type { Floor, Id, OpeningKind, PlanDoc } from "../model/doc";
@@ -96,8 +104,25 @@ export interface StoreyEnvelope {
   usableMm2: number;
   /** plateMm2 x heightMm: bruto inhoud. */
   volumeMm3: number;
-  /** max(0, plate - plate of the storey above); the top storey's whole plate. */
+  /**
+   * The storey's own roof, mm²: the sloped area of its authored planes over
+   * the part the storey above does not cover, or max(0, plate - plate of the
+   * storey above) -- the top storey's whole plate -- where it has none.
+   * Overlapping planes count their shared plan area twice; see
+   * `overlappingRoof` and the module comment.
+   */
   roofMm2: number;
+  /**
+   * Plan area of this storey's own roofing plate that no plane covers, mm²,
+   * and 0 on a storey with no planes at all. Reported beside roofMm2, never
+   * added to it: a plate with no plane over it states no pitch, no build-up
+   * and no Rc, so counting it as roof would be an invention rather than a
+   * measurement. See storeyUncoveredRoofMm2().
+   */
+  uncoveredRoofMm2: number;
+  /** Two of this storey's planes overlap in plan with positive area, so
+   *  roofMm2 counts that area twice. */
+  overlappingRoof: boolean;
   /** floors[0]: plateMm2; every other storey 0. */
   groundMm2: number;
   walls: EnvelopeWall[];
@@ -133,6 +158,11 @@ export interface EnvelopeTakeoff {
   /** Sum of StoreyEnvelope.inwardFacades. */
   inwardFacades: number;
   overhang: boolean;
+  /** Sum of StoreyEnvelope.uncoveredRoofMm2. Reported, never in envelopeMm2. */
+  uncoveredRoofMm2: number;
+  /** Any storey has two planes overlapping in plan; roofMm2 double-counts
+   *  that area. Reported like `overhang`, never corrected. */
+  overlappingRoof: boolean;
 }
 
 export interface TransmissionEstimate {
@@ -306,6 +336,80 @@ function clipToPolygon(subject: Vec[], clip: readonly Vec[]): Vec[] {
   return out;
 }
 
+/** A plane outline read with the winding clipToPolygon() needs -- model/roof.ts
+ *  states counter-clockwise under y-down, and clampRoofPlane() enforces it,
+ *  but a plane read straight out of a pasted document may not have been
+ *  through it yet. */
+function ccwOutline(outline: readonly { x: number; y: number }[]): Vec[] {
+  const poly = outline.map(p => v(p.x, p.y));
+  return polygonArea(poly) < 0 ? poly.reverse() : poly;
+}
+
+/** Below this an overlap is the shared EDGE of two planes that partition the
+ *  storey (the gable and lean-to cases core/roofsuggest.ts builds), not an
+ *  overlap, mm². */
+const ROOF_OVERLAP_EPS_MM2 = 10000;
+
+/**
+ * Two of this storey's planes overlap in plan with positive area, which is
+ * what makes storeyRoofMm2() (and roomLowHeadroom()) count that area twice.
+ * The intersection is measured with the same convex-clip approximation the
+ * rest of this module uses, in both directions so that a convex plane against
+ * a concave one is still found; a concave pair can only be under-reported,
+ * never invented.
+ */
+function planesOverlap(f: Floor): boolean {
+  const polys = roofPlanesOf(f).filter(p => p.outline.length >= 3).map(p => ccwOutline(p.outline));
+  for (let i = 0; i < polys.length; i++) {
+    for (let j = i + 1; j < polys.length; j++) {
+      const a = Math.abs(polygonArea(clipToPolygon(polys[i]!, polys[j]!)));
+      const b = Math.abs(polygonArea(clipToPolygon(polys[j]!, polys[i]!)));
+      if (Math.max(a, b) > ROOF_OVERLAP_EPS_MM2) return true;
+    }
+  }
+  return false;
+}
+
+/** Below this the plate and the planes over it agree within rounding, mm². */
+const ROOF_UNCOVERED_EPS_MM2 = 10000;
+
+/**
+ * The plan area of this storey's own roofing plate that no plane covers, mm².
+ *
+ * The plate is read here as the storey's own outer boundary -- the same
+ * outline core/roofsuggest.ts proposes planes over, so a roof that covers the
+ * storey exactly reports zero -- rather than as StoreyEnvelope.plateMm2, which
+ * lies at the facade's outer face and would leave a permanent sliver
+ * uncovered. The part the storey above stands on is taken off both sides,
+ * since that is floor rather than roof, the way storeyRoofMm2() takes it off
+ * the planes.
+ *
+ * Zero where the storey has no planes (its whole plate is already counted as
+ * a flat roof) and where it has no closed outline of its own (nothing to
+ * measure against). The covered figure sums the planes, so an overlapping
+ * pair over-counts it and this figure under-reports -- the same double count
+ * `overlappingRoof` flags.
+ */
+function storeyUncoveredRoofMm2(f: Floor, outer: Vec[] | null, aboveOuter: Vec[] | null): number {
+  if (roofPlanesOf(f).length === 0) return 0;
+  const plate = ccwOuter(outer);
+  if (!plate) return 0;
+  const plateMm2 = Math.abs(polygonArea(plate));
+  const underAbove = aboveOuter ? Math.abs(polygonArea(clipToPolygon(plate, aboveOuter))) : 0;
+  const open = Math.max(0, plateMm2 - underAbove);
+  let covered = 0;
+  for (const plane of roofPlanesOf(f)) {
+    if (plane.outline.length < 3) continue;
+    const inPlate = clipToPolygon(ccwOutline(plane.outline), plate);
+    if (inPlate.length < 3) continue;
+    const full = Math.abs(polygonArea(inPlate));
+    const overAbove = aboveOuter ? Math.abs(polygonArea(clipToPolygon(inPlate, aboveOuter))) : 0;
+    covered += Math.max(0, full - overAbove);
+  }
+  const left = open - Math.min(open, covered);
+  return left > ROOF_UNCOVERED_EPS_MM2 ? left : 0;
+}
+
 /**
  * A storey's own roof area, mm²: where it has authored roof planes
  * (model/roof.ts), the sum of their sloped areas (plan area / cos(pitch))
@@ -352,11 +456,14 @@ export function envelopeTakeoff(doc: PlanDoc): EnvelopeTakeoff {
     const above = per[i + 1];
     const heightMm = floorHeight(it.floor);
     const flatRoofMm2 = above ? Math.max(0, it.plateMm2 - above.plateMm2) : it.plateMm2;
+    const aboveOuter = above ? ccwOuter(above.outer) : null;
     return {
       floorIndex: i, name: it.floor.name, heightMm,
       plateMm2: it.plateMm2, usableMm2: it.usableMm2,
       volumeMm3: it.plateMm2 * heightMm,
-      roofMm2: storeyRoofMm2(it.floor, above ? ccwOuter(above.outer) : null, flatRoofMm2),
+      roofMm2: storeyRoofMm2(it.floor, aboveOuter, flatRoofMm2),
+      uncoveredRoofMm2: storeyUncoveredRoofMm2(it.floor, it.outer, aboveOuter),
+      overlappingRoof: planesOverlap(it.floor),
       groundMm2: i === 0 ? it.plateMm2 : 0,
       walls: it.walls,
       unstatedExterior: it.unstatedExterior,
@@ -370,9 +477,10 @@ export function envelopeTakeoff(doc: PlanDoc): EnvelopeTakeoff {
     : ORIENTATIONS.reduce((acc, o) => { acc[o] = 0; return acc; }, {} as Record<Orientation, number>);
 
   let wallsMm2 = 0, glazingMm2 = 0, doorsMm2 = 0, roofMm2 = 0, groundMm2 = 0;
-  let usableMm2 = 0, volumeMm3 = 0, unstatedExterior = 0, inwardFacades = 0;
+  let usableMm2 = 0, volumeMm3 = 0, unstatedExterior = 0, inwardFacades = 0, uncoveredRoofMm2 = 0;
   for (const s of storeys) {
     roofMm2 += s.roofMm2;
+    uncoveredRoofMm2 += s.uncoveredRoofMm2;
     groundMm2 += s.groundMm2;
     usableMm2 += s.usableMm2;
     volumeMm3 += s.volumeMm3;
@@ -398,6 +506,8 @@ export function envelopeTakeoff(doc: PlanDoc): EnvelopeTakeoff {
     compactness: usableMm2 === 0 ? null : envelopeMm2 / usableMm2,
     volumeMm3, glazingByOrientation, unstatedExterior, inwardFacades,
     overhang: storeys.some(s => s.overhang),
+    uncoveredRoofMm2,
+    overlappingRoof: storeys.some(s => s.overlappingRoof),
   };
 }
 

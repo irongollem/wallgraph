@@ -1,7 +1,7 @@
 // 3D scene mesh: triangulation area preservation, prism volumes against the
 // derived solids, storey elevation and bounds.
 import {
-  emptyDoc, newId, FLOOR_HEIGHT_DEFAULT, Wall, Opening, Floor,
+  emptyDoc, newId, floorElevation, FLOOR_HEIGHT_DEFAULT, Wall, Opening, Floor,
 } from "../src/model/doc";
 import { floorSolids, SLAB_DEFAULT_MM } from "../src/core/solids";
 import {
@@ -595,6 +595,45 @@ const RING_AREA = 1400000;
   const gotVolume = volumeOf(m, WALL_COLOR);
   check("a flat wall's mesh volume is exactly length x height x thickness",
     near(gotVolume, expectedVolume, expectedVolume * 1e-4), `${gotVolume} vs ${expectedVolume}`);
+}
+
+// ── sloped tops on an upper storey (issue #54): elev must reach `top` too ──
+
+{
+  // A gable-only floor stacked above a plain ground floor: emitWallPrism()
+  // passes the piece's per-vertex `top` storey-local while z0/z1 already
+  // carry `elev`, so on any storey but the ground one the roof used to
+  // collapse to the wrong level even though the flat z0/z1 caps were right.
+  const ground = rectFloor();
+  const upper: Floor = {
+    id: newId("f"), name: "Verdieping", nodes: [], walls: [], symbols: [],
+    stairs: [], vides: [], furnishings: [], roomNames: [],
+  };
+  const a = newId("n"), b = newId("n");
+  upper.nodes.push({ id: a, x: 0, y: 0 }, { id: b, x: 4000, y: 0 });
+  const th = 100;
+  const base = FLOOR_HEIGHT_DEFAULT;
+  const w: Wall = {
+    id: newId("w"), a, b, thickness: th, bulge: 0, openings: [],
+    profile: [{ t: 2000, height: base + 2000 }],
+  };
+  upper.walls = [w];
+
+  const doc = emptyDoc();
+  doc.floors = [ground, upper];
+  const elev = floorElevation(doc, 1);
+  const m = buildSceneMesh(doc);
+
+  check("the upper storey exists above the ground floor", elev > 0, String(elev));
+  check("the ridge on the upper storey stands at that storey's elevation plus its own peak",
+    !!m.bounds && near(m.bounds.max[2], elev + base + 2000, 1),
+    JSON.stringify(m.bounds));
+
+  const expectedFaceArea = 4000 * base + 0.5 * 4000 * 2000; // trapezoid under the ridge
+  const expectedVolume = expectedFaceArea * th;
+  const upperVol = volumeOf(m, WALL_COLOR, elev);
+  check("the sloped wall's volume on the upper storey equals the single-storey figure",
+    near(upperVol, expectedVolume, expectedVolume * 1e-4), `${upperVol} vs ${expectedVolume}`);
 }
 
 console.log(failures === 0 ? "ALL MESH3D TESTS PASSED" : `${failures} FAILURES`);

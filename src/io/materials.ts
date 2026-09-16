@@ -36,8 +36,14 @@ const INCOMPLETE_FIELD_KEY: Record<WallTakeoff["incomplete"][number], string> = 
   lining: "panel.liningOn",
 };
 
+/** A field starting with `=`, `+`, `-`, `@`, tab or carriage return is a formula
+ *  in a spreadsheet that opens this CSV -- prefixing it with an apostrophe
+ *  (the conventional neutralisation) forces it to read as text, so a storey
+ *  or item named e.g. "=SUM(A1)" cannot execute anything on open. */
 function csvField(s: string): string {
-  return /[;"\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  const injection = /^[=+\-@\t\r]/.test(s);
+  const text = injection ? `'${s}` : s;
+  return injection || /[;"\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 function row(fields: readonly string[]): string {
   return fields.map(csvField).join(";");
@@ -83,29 +89,37 @@ function systemIncompleteCounts(
  *  one per bought stock length (its own count and total offcut), then a
  *  waste-percentage row and a splice-count row where either is non-zero, and
  *  one row per unfit piece -- a piece too long for every stock length, never
- *  silently dropped from the sheet. */
+ *  silently dropped from the sheet.
+ *
+ *  The stock column ("Voorraadlengte (mm)") means the same thing on every
+ *  row: the length of stock a bar was bought in. The stock-summary row is
+ *  the only one that states one, so it carries the bar length there rather
+ *  than in the general-purpose length column, its count in the count
+ *  column, and the offcut that bar leaves in its own dedicated column --
+ *  item rows leave that column blank. */
 function pushStockRows(out: string[], storey: string, system: string, nested: NestResult): void {
   for (const s of nested.stock) {
-    out.push(row([storey, system, t("materials.csv.stockItem"), "", csvInt(s.lengthMm), csvInt(s.count),
-      csvInt(s.offcutMm), t("materials.csv.unit.length"), ""]));
+    out.push(row([storey, system, t("materials.csv.stockItem"), "", "", csvInt(s.count),
+      csvInt(s.lengthMm), t("materials.csv.unit.length"), "", csvInt(s.offcutMm)]));
   }
   if (nested.wastePct > 0) {
-    out.push(row([storey, system, t("materials.csv.wasteItem"), "", "", csvInt(nested.wastePct), "", "%", ""]));
+    out.push(row([storey, system, t("materials.csv.wasteItem"), "", "", csvInt(nested.wastePct), "",
+      t("materials.csv.unit.percent"), "", ""]));
   }
   if (nested.splices > 0) {
     out.push(row([storey, system, t("materials.csv.splicesItem"), "", "", csvInt(nested.splices), "",
-      t("materials.csv.unit.piece"), ""]));
+      t("materials.csv.unit.piece"), "", ""]));
   }
   for (const u of nested.unfit) {
     out.push(row([storey, system, memberLabel(u.name as MemberName), "", csvInt(u.lengthMm), csvInt(u.count), "",
-      t("materials.csv.unit.piece"), "x"]));
+      t("materials.csv.unit.piece"), "x", ""]));
   }
 }
 
 function pushMemberRows(out: string[], storey: string, system: string, members: readonly Member[]): void {
   for (const m of members) {
     out.push(row([storey, system, memberLabel(m.name), `${m.sectionMm.w}x${m.sectionMm.d}`,
-      csvInt(m.lengthMm), csvInt(m.count), "", t("materials.csv.unit.piece"), ""]));
+      csvInt(m.lengthMm), csvInt(m.count), "", t("materials.csv.unit.piece"), "", ""]));
   }
 }
 
@@ -118,28 +132,28 @@ function pushSystemRows(
   pushMemberRows(out, storey, name, sys.members);
   if (sys.boardMm2 > 0 || incomplete.has("lining")) {
     out.push(row([storey, name, t("materials.boardArea"), "", "", csvArea(sys.boardMm2), "",
-      t("materials.csv.unit.area"), incomplete.has("lining") ? "x" : ""]));
+      t("materials.csv.unit.area"), incomplete.has("lining") ? "x" : "", ""]));
   }
   if (sys.sheets > 0) {
     out.push(row([storey, name, t("materials.sheets"), "", "", csvInt(sys.sheets), "",
-      t("materials.csv.unit.sheet"), ""]));
+      t("materials.csv.unit.sheet"), "", ""]));
   }
   if (sys.insulationMm2 > 0) {
     out.push(row([storey, name, t("materials.insulationArea"), "", "", csvArea(sys.insulationMm2), "",
-      t("materials.csv.unit.area"), ""]));
+      t("materials.csv.unit.area"), "", ""]));
   }
   if (sys.blocks > 0 || incomplete.has("block")) {
     out.push(row([storey, name, t("materials.blocks"), "", "", csvInt(sys.blocks), "",
-      t("materials.csv.unit.block"), incomplete.has("block") ? "x" : ""]));
+      t("materials.csv.unit.block"), incomplete.has("block") ? "x" : "", ""]));
   }
   if (sys.panels > 0 || incomplete.has("panel")) {
     out.push(row([storey, name, t("materials.panels"), "", "", csvInt(sys.panels), "",
-      t("materials.csv.unit.panel"), incomplete.has("panel") ? "x" : ""]));
+      t("materials.csv.unit.panel"), incomplete.has("panel") ? "x" : "", ""]));
   }
   const postWidth = incomplete.get("postWidth");
   if (postWidth) {
     out.push(row([storey, name, t(INCOMPLETE_FIELD_KEY.postWidth), "", "", csvInt(postWidth), "",
-      t("materials.csv.unit.wall"), "x"]));
+      t("materials.csv.unit.wall"), "x", ""]));
   }
   pushStockRows(out, storey, name, sys.nested);
 }
@@ -160,15 +174,15 @@ function pushDeckRows(out: string[], storey: string, decks: FloorMaterials["deck
   pushMemberRows(out, storey, name, decks.members);
   if (decks.deckingMm2 > 0) {
     out.push(row([storey, name, t("materials.deckingArea"), "", "", csvArea(decks.deckingMm2), "",
-      t("materials.csv.unit.area"), ""]));
+      t("materials.csv.unit.area"), "", ""]));
   }
   if (decks.sheets > 0) {
     out.push(row([storey, name, t("materials.sheets"), "", "", csvInt(decks.sheets), "",
-      t("materials.csv.unit.sheet"), ""]));
+      t("materials.csv.unit.sheet"), "", ""]));
   }
   if (incompleteDecks > 0) {
     out.push(row([storey, name, t("panel.deckSectionOn"), "", "", csvInt(incompleteDecks), "",
-      t("materials.csv.unit.deck"), "x"]));
+      t("materials.csv.unit.deck"), "x", ""]));
   }
   pushStockRows(out, storey, name, decks.nested);
 }
@@ -197,6 +211,7 @@ export function materialsCsv(doc: PlanDoc): string {
     t("materials.csv.header.storey"), t("materials.csv.header.system"), t("materials.csv.header.item"),
     t("materials.csv.header.section"), t("materials.csv.header.length"), t("materials.csv.header.count"),
     t("materials.csv.header.stock"), t("materials.csv.header.unit"), t("materials.csv.header.incomplete"),
+    t("materials.csv.header.offcut"),
   ]);
   const lines = [header];
   for (const f of doc.floors) lines.push(...floorRows(doc, f));

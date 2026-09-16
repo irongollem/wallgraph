@@ -9,10 +9,16 @@ import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
 import type { CheckResult } from "../core/checks";
 
-/** Utilisation as a whole-number percentage; a non-finite figure (a zero
- *  section, division by zero) reads as an em dash rather than "Infinity%". */
+/** Within this of 1.0, utilisation reads to one decimal rather than a whole
+ *  percentage -- a 1.004 reads "100.4%" beside "voldoet niet" rather than a
+ *  rounded "100%" that reads as passing. */
+const PCT_DECIMAL_BAND = 0.05;
+
+/** Utilisation as a percentage; a non-finite figure (a zero section, division
+ *  by zero) reads as an em dash rather than "Infinity%". */
 function pct(u: number): string {
-  return isFinite(u) ? `${Math.round(u * 100)}%` : "—";
+  if (!isFinite(u)) return "—";
+  return Math.abs(u - 1) <= PCT_DECIMAL_BAND ? `${(u * 100).toFixed(1)}%` : `${Math.round(u * 100)}%`;
 }
 
 function knm(n: number): string {
@@ -24,6 +30,12 @@ function knm(n: number): string {
 function crit(label: string, isGoverning: boolean): string {
   return isGoverning ? `${label} (${t("checks.governing")})` : label;
 }
+
+/** The `missing` keys that name an absent SECTION rather than an absent load
+ *  or span -- the joist and lintel checks are the only two with an optional
+ *  section of their own, and only there does "incomplete" still mean "here
+ *  is what would pass". */
+const SECTION_MISSING_KEYS = new Set(["joistSection", "lintelSection"]);
 
 /**
  * Renders the whole "Constructie" section for one check: the load make-up,
@@ -48,20 +60,29 @@ export function renderCheckResult(
   const load = result.loadBreakdown;
   if (load) {
     if (load.wallLineKNm !== undefined) {
+      // For a lintel, gLineKNm is the wall's self-weight alone (wallLineKNm);
+      // any authored lintelLoadKNm is a variable load and so lives in
+      // qLineKNm instead of being folded into g -- see lintelCheck().
       rows.infoRow(t("checks.loadWall"), knm(load.wallLineKNm));
-      const extra = load.gLineKNm - load.wallLineKNm;
-      if (extra > 0) rows.infoRow(t("checks.loadExtra"), knm(extra));
+      if (load.qLineKNm > 0) rows.infoRow(t("checks.loadExtra"), knm(load.qLineKNm));
     } else {
       rows.infoRow(t("checks.loadG"), knm(load.gLineKNm));
+      if (load.qLineKNm > 0) rows.infoRow(t("checks.loadQ"), knm(load.qLineKNm));
     }
-    if (load.qLineKNm > 0) rows.infoRow(t("checks.loadQ"), knm(load.qLineKNm));
   }
+
+  const onlyMissingSection = result.missing.length === 1 && SECTION_MISSING_KEYS.has(result.missing[0]!);
 
   if (result.status === "incomplete") {
     for (const key of result.missing) rows.warnRow(t("checks.missingRow", { row: missingLabel(key) }));
     if (result.proposal !== undefined) {
-      if (result.proposal) rows.noteRow(t("checks.proposalHint", { w: result.proposal.w, d: result.proposal.d }));
-      else rows.noteRow(t("checks.noSectionPasses"));
+      if (result.proposal) {
+        const { w, d } = result.proposal;
+        if (onlyMissingSection) rows.btnRow(t("checks.applyProposal", { w, d }), () => onApply(w, d));
+        else rows.noteRow(t("checks.proposalHint", { w, d }));
+      } else {
+        rows.noteRow(t("checks.noSectionPasses"));
+      }
     }
     rows.noteRow(t("checks.resultNote"));
     return;

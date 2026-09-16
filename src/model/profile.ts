@@ -23,11 +23,24 @@ interface Breakpoint { t: number; h: number }
  * deduplicated by `t` (last write at a given `t` wins), with an implied point
  * at 0 and/or at L holding `wallHeight()` wherever the profile does not state
  * one there itself.
+ *
+ * A point outside [0, L] -- a stale `t` left over from a wall that has since
+ * shrunk, say, since nothing else in this module enforces the stored value is
+ * clean -- would otherwise extend the domain a caller integrates or ranges
+ * over. It is dropped, but not silently: `heightAt()` against the full,
+ * unclamped list gives the height its own interpolation implies exactly at
+ * the boundary it overshoots, and that height -- not the point itself -- is
+ * kept in its place.
  */
 function breakpoints(f: Floor, w: Wall, L: number): Breakpoint[] {
   const byT = new Map<number, number>();
   for (const p of w.profile ?? []) byT.set(p.t, p.height);
-  const stated = [...byT.entries()].sort((a, b) => a[0] - b[0]).map(([t, h]) => ({ t, h }));
+  const all = [...byT.entries()].sort((a, b) => a[0] - b[0]).map(([t, h]) => ({ t, h }));
+  if (all.length === 0) return [{ t: 0, h: wallHeight(f, w) }, { t: L, h: wallHeight(f, w) }];
+  const stated = all.filter(p => p.t >= 0 && p.t <= L);
+  if (all[0]!.t < 0 && !stated.some(p => p.t === 0)) stated.unshift({ t: 0, h: heightAt(all, 0) });
+  if (all[all.length - 1]!.t > L && !stated.some(p => p.t === L)) stated.push({ t: L, h: heightAt(all, L) });
+  stated.sort((a, b) => a.t - b.t);
   if (stated.length === 0) return [{ t: 0, h: wallHeight(f, w) }, { t: L, h: wallHeight(f, w) }];
   const pts = [...stated];
   if (pts[0]!.t > 0) pts.unshift({ t: 0, h: wallHeight(f, w) });
@@ -103,7 +116,11 @@ function clampInt(n: number, lo: number, hi: number): number {
  */
 export function clampProfile(f: Floor, w: Wall): void {
   if (!w.profile || w.profile.length === 0) return;
-  const L = wallLength(f, w);
+  // Math.floor(), not the raw (possibly fractional) length -- a diagonal or
+  // arc-length wall's L is rarely a whole mm, and clamping to it directly
+  // would let a point past the floor land on that fractional value instead
+  // of being rounded, breaking invariant 1.
+  const L = Math.floor(wallLength(f, w));
   const byT = new Map<number, number>();
   for (const p of w.profile) {
     byT.set(clampInt(p.t, 0, L), clampInt(p.height, PROFILE_HEIGHT_MIN, PROFILE_HEIGHT_MAX));

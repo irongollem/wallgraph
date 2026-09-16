@@ -166,23 +166,24 @@ export interface FloorSurface {
 }
 
 /**
- * What one opening does to one face, mm²: the area it takes out, and the reveal
- * it opens up.
+ * What one opening does to one face, mm²: the reveal it opens up. The jambs
+ * and head are measured against `localTopMm` -- the lowest point of the
+ * face's own (possibly ceiling-capped) top over the opening's width, so a
+ * sloped or capped top never yields more reveal than is actually there. Both
+ * are clamped to it: the jambs are measured over the height that shows, and
+ * the head counts only where the opening's own head is under the top
+ * EVERYWHERE across the width -- a dagkant is a physical edge, not an
+ * average, so it reads the worst case rather than a mean.
  *
- * `localTopMm` is the top the opening is measured against -- the lowest point
- * of the face's own (possibly ceiling-capped) top over the opening's width,
- * so a sloped or capped top never yields more area than is actually there.
- * Both figures are clamped to it: an opening taller than the top takes the
- * top and not more, the jambs are measured over the height that shows, and
- * the head counts only where the opening's own head is under the top.
+ * `cutMm2` -- the area actually removed -- is a different question: see
+ * openingCutArea(), which integrates rather than reading one worst-case
+ * height for the whole width.
  *
  * `thicknessMm` is the STRUCTURAL body. A clad wall's reveal is deeper by its
  * facade, but that depth is an exterior detail rather than plasterwork, and
  * this figure is read by the trades working inside.
  */
-function openingOn(localTopMm: number, thicknessMm: number, o: Opening): {
-  cutMm2: number; revealMm2: number;
-} {
+function openingOn(localTopMm: number, thicknessMm: number, o: Opening): { revealMm2: number } {
   const sill = openingSill(o);
   const head = sill + openingHeight(o);
   const top = Math.min(head, localTopMm);
@@ -193,7 +194,65 @@ function openingOn(localTopMm: number, thicknessMm: number, o: Opening): {
   // No sill: under a door or a passage it is the floor, and under a window a
   // vensterbank rather than plaster. A head clipped by the top is above it.
   const headArea = head <= localTopMm ? width * thicknessMm : 0;
-  return { cutMm2: width * clear, revealMm2: jambs + headArea };
+  return { revealMm2: jambs + headArea };
+}
+
+/**
+ * The area one opening actually removes from a face, mm²: the integral over
+ * its own width of max(0, min(head, topAt(s)) - sill), where topAt(s) is
+ * itself capped at `cap` (a room's ceiling) first -- the same pointwise cap
+ * grossAreaUnderTop() applies. Exact and piecewise linear between the wall's
+ * own profile breakpoints inside the opening's span, so a flat or single-slope
+ * run integrates as one trapezoid and a rake crossing the head or the sill is
+ * split at the exact crossing point.
+ *
+ * Reading one worst-case height (the minimum over the whole width, as
+ * openingOn() still does for the reveal) understates this figure whenever the
+ * top varies across the opening -- most of a raked window sits under MORE
+ * roof than its lowest corner, and crediting all of it with the lowest
+ * corner's height overstates the net face that remains.
+ */
+function openingCutArea(f: Floor, w: Wall, L: number, cap: number | undefined, o: Opening): number {
+  const sill = openingSill(o);
+  const head = sill + openingHeight(o);
+  const ceiling = Math.min(head, cap ?? Infinity);
+  const lo = Math.max(0, Math.min(L, o.t - o.width / 2)), hi = Math.max(0, Math.min(L, o.t + o.width / 2));
+  if (hi <= lo) return 0;
+  const stops = [...new Set([lo, hi, ...wallTopPolyline(f, w, L).map(p => p.s).filter(s => s > lo && s < hi)])]
+    .sort((a, b) => a - b);
+  let area = 0;
+  for (let i = 0; i + 1 < stops.length; i++) {
+    const a = stops[i]!, b = stops[i + 1]!;
+    area += clearSegmentArea(a, wallTopAt(f, w, a), b, wallTopAt(f, w, b), sill, ceiling);
+  }
+  return area;
+}
+
+/**
+ * Area of max(0, min(h(s), ceiling) - sill) over [s0, s1], where h runs
+ * linearly from h0 to h1 -- exact via subdividing at the (at most two) points
+ * where h crosses `ceiling` or `sill`, on each of which the integrand is then
+ * itself linear (or constant), so the trapezoid rule over each piece is exact.
+ */
+function clearSegmentArea(s0: number, h0: number, s1: number, h1: number, sill: number, ceiling: number): number {
+  const width = s1 - s0;
+  if (width <= 0) return 0;
+  const us = [0, 1];
+  if (h1 !== h0) {
+    const uCeil = (ceiling - h0) / (h1 - h0);
+    if (uCeil > 0 && uCeil < 1) us.push(uCeil);
+    const uSill = (sill - h0) / (h1 - h0);
+    if (uSill > 0 && uSill < 1) us.push(uSill);
+  }
+  us.sort((a, b) => a - b);
+  let area = 0;
+  for (let i = 0; i + 1 < us.length; i++) {
+    const ua = us[i]!, ub = us[i + 1]!;
+    const ha = h0 + (h1 - h0) * ua, hb = h0 + (h1 - h0) * ub;
+    const ka = Math.max(0, Math.min(ha, ceiling) - sill), kb = Math.max(0, Math.min(hb, ceiling) - sill);
+    area += (ka + kb) / 2 * (ub - ua) * width;
+  }
+  return area;
 }
 
 /**
@@ -286,7 +345,7 @@ function wallSurface(f: Floor, rw: ResolvedWall, byFace: ReadonlyMap<string, Roo
     for (const o of w.openings) {
       const top = localTop(f, w, L, o.t - o.width / 2, o.t + o.width / 2, cap);
       const on = openingOn(top, w.thickness, o);
-      cut += on.cutMm2;
+      cut += openingCutArea(f, w, L, cap, o);
       reveal += on.revealMm2;
     }
     // A face shorter than its openings is a wall the openings do not fit in;

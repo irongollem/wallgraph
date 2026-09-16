@@ -361,8 +361,17 @@ export function planScene(doc: PlanDoc, floor: Floor, resolved: ReturnType<typeo
     const solid: Item[] = [];
     const labels: Item[] = [];
     for (const plane of roofPlanes) {
-      if (plane.outline.length < 3) continue;
-      dashed.push(poly(plane.outline, true));
+      const out = plane.outline;
+      if (out.length < 3) continue;
+      // Every edge but the eave, each as its own open path -- the canvas draws
+      // it the same way (render/roof.ts). Dashing the closed outline and then
+      // stroking the eave over it leaves the dash pattern's gaps showing
+      // through the solid line at any zoom where the two do not coincide.
+      const eaveIdx = Math.max(0, Math.min(out.length - 1, Math.round(plane.eaveEdge)));
+      for (let i = 0; i < out.length; i++) {
+        if (i === eaveIdx) continue;
+        dashed.push(poly([out[i]!, out[(i + 1) % out.length]!], false));
+      }
       const { a, b } = eaveSegment(plane);
       solid.push(poly([a, b], false));
       const c = polygonCentroid(plane.outline);

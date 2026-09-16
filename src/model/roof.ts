@@ -11,6 +11,7 @@
 // and core/roof.ts's profileFromRoof() can propose a wall's profile back from
 // a plane the same way.
 import type { Id } from "./doc";
+import { polygonArea } from "../geometry/vec";
 
 /**
  * One roof plane. `outline` is this plane's own footprint in plan, integer
@@ -74,6 +75,14 @@ function clampInt(n: number, lo: number, hi: number): number {
  * clampProfile()/clampOpening(). A plane whose outline collapses to fewer
  * than 3 points is left with that short outline for the caller to drop --
  * this function states ranges, it does not decide whether a plane survives.
+ *
+ * A clockwise outline is reversed here, with `eaveEdge` remapped to the same
+ * geometric edge (edge i of the reversed array is edge n-2-i of the original),
+ * because the winding is a stated invariant that several readers rely on
+ * rather than re-derive: core/headroom.ts and core/roof.ts's clip helpers take
+ * +perp(edge direction) as inward. eaveLineOf() tolerates either winding, so
+ * nothing else has to change; this is what makes a pasted or hand-built plane
+ * behave like an authored one.
  */
 export function clampRoofPlane(plane: RoofPlane): void {
   const cleaned: { x: number; y: number }[] = [];
@@ -89,6 +98,10 @@ export function clampRoofPlane(plane: RoofPlane): void {
   plane.outline = cleaned;
   const n = plane.outline.length;
   plane.eaveEdge = n > 0 ? clampInt(plane.eaveEdge, 0, n - 1) : 0;
+  if (n >= 3 && polygonArea(plane.outline) < 0) {
+    plane.outline = [...plane.outline].reverse();
+    plane.eaveEdge = (((n - 2 - plane.eaveEdge) % n) + n) % n;
+  }
   plane.eaveMm = clampInt(plane.eaveMm, ROOF_EAVE_MM_MIN, ROOF_EAVE_MM_MAX);
   plane.pitchDeg = Math.max(ROOF_PITCH_MIN, Math.min(ROOF_PITCH_MAX, isFinite(plane.pitchDeg) ? plane.pitchDeg : 0));
   if (plane.thicknessMm !== undefined) {

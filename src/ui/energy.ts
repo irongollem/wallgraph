@@ -151,6 +151,13 @@ export function renderEnergyTakeoff(
     rows.warnRow(t("energy.inwardFacades", { n: takeoff.inwardFacades }));
   }
   if (takeoff.overhang) rows.warnRow(t("energy.overhang"));
+  if (takeoff.overlappingRoof) rows.warnRow(t("energy.overlappingRoof"));
+  // Reported beside the envelope, never inside it: a plate no plane covers
+  // states no pitch, no build-up and no Rc, so adding it to Als would be an
+  // invention. Same treatment as unstatedExterior above.
+  if (takeoff.uncoveredRoofMm2 > 0) {
+    rows.warnRow(t("energy.uncoveredRoof", { area: sqm(takeoff.uncoveredRoofMm2) }));
+  }
 
   const est = transmissionEstimate(takeoff, store.doc);
   if (est) {

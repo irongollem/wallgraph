@@ -28,6 +28,17 @@ function wallFloor(L = 4000): { f: Floor; w: Wall } {
   return { f, w };
 }
 
+/** A diagonal wall, whose own length (1000*sqrt(2) mm) is not a whole mm. */
+function diagonalWallFloor(): { f: Floor; w: Wall } {
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  const a = newId("n"), b = newId("n");
+  f.nodes.push({ id: a, x: 0, y: 0 }, { id: b, x: 1000, y: 1000 });
+  const w: Wall = { id: newId("w"), a, b, thickness: 100, bulge: 0, openings: [] };
+  f.walls.push(w);
+  return { f, w };
+}
+
 // ---- wallTopAt --------------------------------------------------------------
 
 {
@@ -95,6 +106,25 @@ function wallFloor(L = 4000): { f: Floor; w: Wall } {
     near(area, 4000 * 3600, 1), String(area));
 }
 
+{
+  // A point past the wall's own end (issue #55) extends the domain unless
+  // breakpoints() clips it: it must fold in at L by interpolation (here flat
+  // extrapolation, the only point in play) rather than be read as if the
+  // wall were 5000 mm long.
+  const { f, w } = wallFloor(3000);
+  const h = floorHeight(f);
+  const L = wallLength(f, w);
+  w.profile = [{ t: 5000, height: 4000 }];
+  const area = wallAreaUnder(f, w, L, 0, L);
+  const expected = (h + 4000) / 2 * L;
+  check("a point past the wall's end folds in at the boundary, not left in place",
+    near(area, expected, 1), `${area} vs ${expected}`);
+  check("the clipped trapezoid never exceeds L x the highest stated height",
+    area <= L * 4000 + 1e-6, String(area));
+  check("wallTopAt at L reads the folded-in height",
+    wallTopAt(f, w, L) === 4000);
+}
+
 // ---- splitWall ----------------------------------------------------------------
 
 {
@@ -148,6 +178,21 @@ function wallFloor(L = 4000): { f: Floor; w: Wall } {
     && w.profile!.find(p => p.t === 3000)!.height === 3000);
 }
 
+{
+  // A diagonal wall's own length is fractional, so t -> L - t is fractional
+  // too: flipWall() has to re-run clampProfile() to round and re-sort, the
+  // same pass any other geometry change gets.
+  const { f, w } = diagonalWallFloor();
+  const L = wallLength(f, w); // 1000 * sqrt(2) = 1414.213562...
+  w.profile = [{ t: 500, height: 3200 }];
+  flipWall(f, w);
+  check("flipping a fractional-length wall rounds the mirrored point to a whole mm",
+    w.profile!.length === 1 && Number.isInteger(w.profile![0]!.t), JSON.stringify(w.profile));
+  check("at the correctly rounded position",
+    w.profile![0]!.t === Math.round(L - 500), `${w.profile![0]!.t} vs L=${L}`);
+  check("the height carries over unchanged", w.profile![0]!.height === 3200);
+}
+
 // ---- clampProfile ---------------------------------------------------------------
 
 {
@@ -160,6 +205,20 @@ function wallFloor(L = 4000): { f: Floor; w: Wall } {
     p0!.height === PROFILE_HEIGHT_MIN && p2!.height === PROFILE_HEIGHT_MAX);
   check("an in-range point is rounded to integer mm", p1!.t === 2001 && p1!.height === 3000);
   check("sorted by t", w.profile!.every((p, i) => i === 0 || w.profile![i - 1]!.t <= p.t));
+}
+
+{
+  // A diagonal wall's own length is fractional (1000 * sqrt(2) mm): clamping
+  // a point past its end must not leave that fractional length itself as the
+  // clamped t, which would break invariant 1 (integer mm in the document).
+  const { f, w } = diagonalWallFloor();
+  const L = wallLength(f, w);
+  w.profile = [{ t: 5000, height: 3000 }];
+  clampProfile(f, w);
+  check("t clamps to a whole mm even on a fractional-length wall",
+    Number.isInteger(w.profile![0]!.t), String(w.profile![0]!.t));
+  check("landing at the wall's own length floored, not its fractional value",
+    w.profile![0]!.t === Math.floor(L), `${w.profile![0]!.t} vs L=${L}`);
 }
 
 {

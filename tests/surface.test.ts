@@ -515,11 +515,42 @@ const reveal = (w: number, h: number, th = TH): number => (2 * h + w) * th;
 
   check("an opening poking through the slope is listed in openingsAbove",
     one.openingsAbove.includes(win.id), JSON.stringify(one.openingsAbove));
-  // The top over the opening's span [L-600, L] bottoms out at L itself,
-  // where the profile states 1800 -- so the deduction stops there, not at
-  // the opening's own (taller) stated head.
-  check("and deducted only up to the top, not its own stated height",
-    near(one.openingsMm2, 2 * 600 * 1800, 1), String(one.openingsMm2));
+  // The top over the opening's own span [L-600, L] runs from 1950 (at
+  // L-600) down to 1800 (at L), entirely under the opening's own (taller)
+  // stated head -- so the deduction is the trapezoid under that slope, not
+  // a rectangle at either end's own height.
+  const expected = 2 * ((1950 + 1800) / 2) * 600;
+  check("and integrated under the slope rather than read off one end",
+    near(one.openingsMm2, expected, 1), `${one.openingsMm2} vs ${expected}`);
+}
+
+{
+  // A window whose head crosses the rake partway across its own width: from
+  // one jamb the sloping top clears the opening's stated head entirely, and
+  // from the crossing point on the top itself is what limits the cut -- a
+  // genuine two-piece trapezoid, not one worst-case height times the width.
+  const f = rectFloor();
+  const w = f.walls[0]!;
+  const L = wallLength(f, w); // 4000, the rectangle's long wall
+  w.profile = [{ t: 0, height: 3000 }, { t: L, height: 1000 }]; // top(s) = 3000 - 0.5s
+  const win = opening({ kind: "window", t: 2000, width: 2000, sillHeight: 800, height: 900 }); // head 1700
+  w.openings.push(win);
+  const one = surfaceOf(f).walls.find(x => x.wallId === w.id)!;
+
+  // top(s) = 1700 at s = 2600, inside the opening's own span [1000, 3000]:
+  // [1000, 2600] clears the head fully (rectangle at head - sill = 900);
+  // [2600, 3000] is capped by the top, sloping from 900 down to 700 (at
+  // s = 3000, top = 1500).
+  const rect = 1600 * 900;
+  const wedge = ((900 + 700) / 2) * 400;
+  const expected = 2 * (rect + wedge);
+  // What reading a single worst-case height (the width's own minimum, 700 at
+  // s = 3000) would have given -- less than the true trapezoid, which is the
+  // shape of the bug this integration replaces.
+  const worstCase = 2 * 2000 * 700;
+  check("a window whose head crosses the rake deducts the hand-worked trapezoid",
+    near(one.openingsMm2, expected, 1) && one.openingsMm2 > worstCase,
+    `${one.openingsMm2} vs ${expected} (worst-case reading would be ${worstCase})`);
 }
 
 console.log(failures === 0 ? "ALL SURFACE TESTS PASSED" : `${failures} FAILURES`);

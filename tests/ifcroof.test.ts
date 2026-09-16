@@ -8,6 +8,7 @@ import { emptyDoc } from "../src/model/doc";
 import type { RoofPlane } from "../src/model/roof";
 import { toIfc } from "../src/io/ifc";
 import { planeUndersideAt } from "../src/core/roof";
+import { SURFACE_R } from "../src/model/energy";
 import { v } from "../src/geometry/vec";
 
 const require = createRequire(import.meta.url);
@@ -95,6 +96,31 @@ async function run(): Promise<void> {
       && p.x >= -50 && p.x <= 4050 && p.y >= -50 && p.y <= 3050);
     check(`${plane.id}: at least one readback vertex lies on the plane within 1mm`, near.length > 0,
       JSON.stringify(verts.slice(0, 4)));
+  }
+
+  // ── Pset_SlabCommon ───────────────────────────────────────────────────────
+  //
+  // A roof plane is external by definition, and carries the document's roof U
+  // where one is stated, the way a facade wall and a glazed leaf do.
+  check("each roof slab carries a Pset_SlabCommon",
+    (text.match(/'Pset_SlabCommon'/g) ?? []).length === planes.length,
+    String((text.match(/'Pset_SlabCommon'/g) ?? []).length));
+  check("the roof pset states IsExternal true",
+    /IFCPROPERTYSINGLEVALUE\('IsExternal',\$,IFCBOOLEAN\(\.T\.\)/.test(text));
+  check("with no roof Rc stated, no ThermalTransmittance is guessed at",
+    !/'ThermalTransmittance'/.test(text));
+
+  {
+    const withRc = emptyDoc();
+    withRc.floors[0]!.roofPlanes = planes;
+    withRc.energy = { roofRc: 6.3 };
+    const rcText = toIfc(withRc, 0);
+    const u = Math.round((1 / (6.3 + SURFACE_R.roof)) * 1000) / 1000;
+    check("a stated roof Rc becomes ThermalTransmittance on every roof slab",
+      (rcText.match(/'ThermalTransmittance'/g) ?? []).length === planes.length,
+      String((rcText.match(/'ThermalTransmittance'/g) ?? []).length));
+    check("...at U = 1 / (Rc + Rsi + Rse) for a roof",
+      rcText.includes(`IFCTHERMALTRANSMITTANCEMEASURE(${u})`), String(u));
   }
 
   // Every bottom-face vertex of BOTH planes together must sit on ITS OWN
