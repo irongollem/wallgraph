@@ -9,6 +9,7 @@ import { PlanDoc, Floor, Id, floorElevation, floorHeight, stairsOf, furnishingsO
 import { floorSolids, FloorSolids, roofSlabSolids } from "../core/solids";
 import { structureSolids } from "../core/structure";
 import { deckSolids } from "../core/deck";
+import { deckJoistLayout } from "../core/trimmer";
 import { stairSteps, StairStep } from "../core/stair3d";
 import { furnishingSolids, type FitoutMaterial } from "../core/furnishing3d";
 import { Vec, v, dist, polygonArea, mid, norm, add, sub, scale } from "../geometry/vec";
@@ -173,7 +174,7 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
     // A deck stands on its own for the same reason: a vliering is built into a
     // storey whether or not its walls are drawn. Timber, like a door leaf.
     for (const dk of decksOf(f)) {
-      for (const s of deckSolids(dk)) emitPrism(acc, s.poly, [], elev + s.z0, elev + s.z1, DOOR_COLOR);
+      for (const s of deckSolids(dk, deckJoistLayout(f, dk))) emitPrism(acc, s.poly, [], elev + s.z0, elev + s.z1, DOOR_COLOR);
     }
 
     // The inrichting stands on its own for the same reason: each piece as the

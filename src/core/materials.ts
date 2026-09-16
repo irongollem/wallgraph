@@ -12,7 +12,8 @@ import {
 } from "../model/doc";
 import { wallTopRange } from "../model/profile";
 import { type Deck, bearingOf } from "../model/deck";
-import { deckAcrossMm, deckJoistsLocal, deckSpanMm } from "./deck";
+import { deckAcrossMm, deckSpanMm } from "./deck";
+import { trimDeck } from "./trimmer";
 import { kerfMm, sheetMm, stockLengths, wastePct } from "../model/materials";
 import type { Resolved, ResolvedWall } from "./resolve";
 import type { FloorSurface } from "./surface";
@@ -39,10 +40,16 @@ function systemOf(w: Wall): WallSystem {
   return "other";
 }
 
-/** A structural member of a wall system: one shape, one count. */
+/** A structural member of a wall system: one shape, one count. `header` is a
+ *  wall frame's own lintel member (over a door or window); a deck's header
+ *  across a trimmed opening (issue #64) is `deckHeader` -- the Dutch labels
+ *  differ (latei vs. kopbalk) and conflating them would misname one on the
+ *  materiaalstaat. `trimmer` is the doubled joist either side of the hole
+ *  (wisselbalk); its own `Member.count` already carries the doubling (2 per
+ *  trimmer position), so its section is the single, undoubled joist size. */
 export type MemberName =
   | "stud" | "plate" | "nogging" | "header" | "sill" | "cripple" | "rail"
-  | "king" | "jack" | "backing" | "joist" | "rim";
+  | "king" | "jack" | "backing" | "joist" | "rim" | "deckHeader" | "trimmer";
 
 export interface Member {
   name: MemberName;
@@ -220,22 +227,41 @@ function wallTakeoffOf(
 }
 
 /**
- * One deck's timber: a joist at every set-out position, cut to the clear span
- * plus the bearing at both ends and never spliced, since a joist spliced
- * between its supports is not the member that was set out; and a rim board
- * across each joist end at the same section, spliceable like a wall plate.
- * Decking sheets come off the platform area.
+ * One deck's timber: a joist at every UNCUT set-out position, cut to the
+ * clear span plus the bearing at both ends and never spliced, since a joist
+ * spliced between its supports is not the member that was set out; a rim
+ * board across each joist end at the same section, spliceable like a wall
+ * plate; and, where trimDeck() (core/trimmer.ts) finds a hole in the deck
+ * (issue #64), the shortened cut-joist stubs in place of the full-length
+ * joists they replace, one `deckHeader` per header the hole needs and one
+ * `trimmer` entry per hole counting all its doubled pieces (both positions,
+ * each doubled -- see TrimmedDeck's own comment on why one entry covers
+ * both). Decking sheets come off the platform area, unreduced by the hole --
+ * an opening's own decking is simply not there to sheet, not a cut piece to
+ * count.
  */
-export function deckTakeoffOf(d: Deck, waste: number, sheetArea: number): DeckTakeoff {
+export function deckTakeoffOf(f: Floor, d: Deck, waste: number, sheetArea: number): DeckTakeoff {
   const spanMm = deckSpanMm(d);
   const incomplete: DeckTakeoff["incomplete"] = [];
   const members: Member[] = [];
   if (d.joist) {
     const sectionMm = { w: d.joist.w, d: d.joist.d };
-    members.push({
-      name: "joist", sectionMm, lengthMm: spanMm + 2 * bearingOf(d),
-      count: deckJoistsLocal(d).length, spliceable: false,
-    });
+    const trimmed = trimDeck(f, d);
+    if (trimmed.fullJoists > 0) {
+      members.push({
+        name: "joist", sectionMm: { ...sectionMm }, lengthMm: spanMm + 2 * bearingOf(d),
+        count: trimmed.fullJoists, spliceable: false,
+      });
+    }
+    for (const cut of trimmed.cutJoists) {
+      members.push({ name: "joist", sectionMm: { ...sectionMm }, lengthMm: cut.lengthMm, count: cut.count, spliceable: false });
+    }
+    for (const header of trimmed.headers) {
+      members.push({ name: "deckHeader", sectionMm: { ...sectionMm }, lengthMm: header.spanMm, count: 1, spliceable: false });
+    }
+    for (const trimmer of trimmed.trimmers) {
+      members.push({ name: "trimmer", sectionMm: { ...sectionMm }, lengthMm: trimmer.spanMm, count: trimmer.count, spliceable: false });
+    }
     members.push({ name: "rim", sectionMm: { ...sectionMm }, lengthMm: deckAcrossMm(d), count: 2, spliceable: true });
   } else {
     incomplete.push("joist");
@@ -296,7 +322,7 @@ export function floorMaterials(doc: PlanDoc, f: Floor, resolved: Resolved, surfa
     };
   });
 
-  const perDeck = decksOf(f).map(d => deckTakeoffOf(d, waste, sheetArea));
+  const perDeck = decksOf(f).map(d => deckTakeoffOf(f, d, waste, sheetArea));
   const deckMembers: Member[] = [];
   let deckingMm2 = 0;
   for (const dt of perDeck) { mergeMembers(deckMembers, dt.members); deckingMm2 += dt.deckingMm2; }

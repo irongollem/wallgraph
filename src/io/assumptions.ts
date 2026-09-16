@@ -22,9 +22,12 @@ import { decksOf, structureOf, projectOf, openingBearing, openingHead } from "..
 import { wallTopAt } from "../model/profile";
 import { bearingOf } from "../model/deck";
 import { deckSpanMm } from "../core/deck";
+import { trimDeck } from "../core/trimmer";
 import type { Beam } from "../model/structure";
 import { spanLength } from "../core/structure";
-import { joistCheck, beamCheck, lintelCheck, type CheckResult } from "../core/checks";
+import {
+  joistCheck, beamCheck, lintelCheck, headerCheck, trimmerCheck, type CheckResult,
+} from "../core/checks";
 import {
   timberOf, timberClassOf, steelFyOf, gammaGOf, gammaQOf, deflectionDivOf, sectionsMmOf,
   assumptionDrift, type TimberAssumptions, type AssumptionDrift,
@@ -48,6 +51,18 @@ export interface SheetDeckRow {
   loadQ?: number;
   deckingMm?: number;
   result: CheckResult;
+  /** One row per header/trimmer trimDeck() (core/trimmer.ts) finds across
+   *  the deck's own openings (issue #64) -- see that module for why these
+   *  are flat lists rather than grouped per opening. */
+  headers: { spanMm: number; carriesJoists: number; result: CheckResult }[];
+  /** `pointsAtMm` is one entry per header landing on this trimmer -- one
+   *  beside a hole that reaches the deck's edge, two beside a fully
+   *  interior one (issue #64's own follow-up: a trimmer beside a hatch in
+   *  the middle of a floor carries both at once, not the worse alone). */
+  trimmers: { spanMm: number; pointsAtMm: number[]; result: CheckResult }[];
+  /** Openings that overlap this deck but are not fully inside it -- nothing
+   *  was trimmed for them; see trimDeck()'s own DeckOpening.complete. */
+  incompleteHoles: number;
 }
 
 export interface SheetBeamRow {
@@ -113,12 +128,22 @@ export interface SheetModel {
 }
 
 function sheetStorey(doc: PlanDoc, f: Floor): SheetStorey {
-  const decks: SheetDeckRow[] = decksOf(f).map(d => ({
-    id: d.id, label: d.label ?? "",
-    spanMm: deckSpanMm(d) + bearingOf(d), joistMm: d.joistMm, bearingMm: bearingOf(d),
-    loadG: d.loadG, loadQ: d.loadQ, deckingMm: d.deckingMm,
-    result: joistCheck(doc, d),
-  }));
+  const decks: SheetDeckRow[] = decksOf(f).map(d => {
+    const trimmed = trimDeck(f, d);
+    return {
+      id: d.id, label: d.label ?? "",
+      spanMm: deckSpanMm(d) + bearingOf(d), joistMm: d.joistMm, bearingMm: bearingOf(d),
+      loadG: d.loadG, loadQ: d.loadQ, deckingMm: d.deckingMm,
+      result: joistCheck(doc, d),
+      headers: trimmed.headers.map(h => (
+        { spanMm: h.spanMm, carriesJoists: h.carriesJoists, result: headerCheck(doc, d, h) }
+      )),
+      trimmers: trimmed.trimmers.map(tr => (
+        { spanMm: tr.spanMm, pointsAtMm: tr.points.map(p => p.atMm), result: trimmerCheck(doc, d, tr) }
+      )),
+      incompleteHoles: trimmed.openings.filter(o => !o.complete).length,
+    };
+  });
 
   const beams: SheetBeamRow[] = structureOf(f)
     .filter((el): el is Beam => el.kind === "beam")
@@ -193,6 +218,14 @@ const MISSING_KEYS: Record<string, string> = {
   material: "assumptions.missingMaterial",
   lintelSection: "assumptions.missingLintelSection",
 };
+
+/** headerCheck()/trimmerCheck() push "span" for their own (rare, degenerate)
+ *  missing-span case -- reworded per block below rather than through the
+ *  shared MISSING_KEYS table, since the same key already means something
+ *  else ("assumptions.missingSpan") for a deck/beam/lintel. */
+function missingLabelFor(key: string, spanKey: string): string {
+  return key === "span" ? t(spanKey) : missingLabel(key);
+}
 
 function missingLabel(key: string): string {
   const k = MISSING_KEYS[key];
@@ -332,13 +365,16 @@ class Cursor {
  *  every missing input named -- never silently omitted. Shared by the three
  *  kinds; only the facts line and the section label differ, handed in by the
  *  caller exactly as ui/checks.ts's renderCheckResult() takes them. */
-function addResultBlock(cursor: Cursor, title: string, facts: string[], result: CheckResult, sectionLabel: string | undefined): void {
+function addResultBlock(
+  cursor: Cursor, title: string, facts: string[], result: CheckResult, sectionLabel: string | undefined,
+  missingLabelFn: (key: string) => string = missingLabel,
+): void {
   cursor.sub(title);
   for (const f of facts) cursor.para(f, 3.1, 3);
   if (sectionLabel) cursor.para(`${t("checks.section")}: ${sectionLabel}`, 3.1, 3);
 
   if (result.status === "incomplete") {
-    for (const key of result.missing) cursor.para(t("checks.missingRow", { row: missingLabel(key) }), 3.1, 3);
+    for (const key of result.missing) cursor.para(t("checks.missingRow", { row: missingLabelFn(key) }), 3.1, 3);
     if (result.proposal) cursor.para(t("checks.proposalHint", { w: result.proposal.w, d: result.proposal.d }), 3.1, 3);
     else if (result.proposal === null) cursor.para(t("checks.noSectionPasses"), 3.1, 3);
   } else if (result.check) {
@@ -397,6 +433,30 @@ function timberSectionLabel(result: CheckResult): string | undefined {
   return `${w} × ${d} mm`;
 }
 
+/** `2 × w × d mm` for a trimmer's check -- its checked section (result.input)
+ *  is the DOUBLED width (see core/checks.ts's trimmerCheck()); the sheet
+ *  states the single piece and the doubling separately, matching the pane
+ *  (issue #64: "say so on the pane and the sheet"). */
+function trimmerSectionLabel(result: CheckResult): string | undefined {
+  if (result.material !== "timber" || !result.input) return undefined;
+  const { w, d } = (result.input as { section: { w: number; d: number } }).section;
+  return `2 × ${w / 2} × ${d} mm`;
+}
+
+function addHeader(cursor: Cursor, index: number, total: number, row: SheetDeckRow["headers"][number]): void {
+  const title = total > 1 ? `${t("panel.deckHoleHeader")} ${index + 1}` : t("panel.deckHoleHeader");
+  const facts = [`${t("checks.span")}: ${mm(row.spanMm)}  ·  ${t("assumptions.headerCarries")}: ${row.carriesJoists}`];
+  addResultBlock(cursor, title, facts, row.result, timberSectionLabel(row.result),
+    key => missingLabelFor(key, "assumptions.missingSpanHeader"));
+}
+
+function addTrimmer(cursor: Cursor, index: number, total: number, row: SheetDeckRow["trimmers"][number]): void {
+  const title = total > 1 ? `${t("panel.deckHoleTrimmer")} ${index + 1}` : t("panel.deckHoleTrimmer");
+  const facts = [`${t("checks.span")}: ${mm(row.spanMm)}  ·  ${t("assumptions.trimmerPointAt")}: ${row.pointsAtMm.map(mm).join(", ")}`];
+  addResultBlock(cursor, title, facts, row.result, trimmerSectionLabel(row.result),
+    key => missingLabelFor(key, "assumptions.missingSpanTrimmer"));
+}
+
 function addDeck(cursor: Cursor, row: SheetDeckRow): void {
   const facts = [
     `${t("checks.span")}: ${mm(row.spanMm)}  ·  ${t("panel.deckJoistMm")}: ${mm(row.joistMm)}  ·  ${t("panel.deckBearing")}: ${mm(row.bearingMm)}`,
@@ -405,6 +465,9 @@ function addDeck(cursor: Cursor, row: SheetDeckRow): void {
     (row.deckingMm ? `  ·  ${t("panel.deckDecking")}: ${mm(row.deckingMm)}` : ""),
   ];
   addResultBlock(cursor, deckTitle(row), facts, row.result, timberSectionLabel(row.result));
+  row.headers.forEach((h, i) => addHeader(cursor, i, row.headers.length, h));
+  row.trimmers.forEach((tr, i) => addTrimmer(cursor, i, row.trimmers.length, tr));
+  if (row.incompleteHoles > 0) cursor.para(t("assumptions.incompleteHoles", { n: row.incompleteHoles }), 3.1, 3);
 }
 
 function addBeam(cursor: Cursor, row: SheetBeamRow): void {

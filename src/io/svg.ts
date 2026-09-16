@@ -14,6 +14,7 @@
 // markup, because io/pdf.ts renders the same scene onto the permit sheet.
 // This module is the SVG renderer for it plus the scene the plan makes.
 import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, stairsOf, videsOf, decksOf, furnishingsOf, structureOf, roomNamesOf } from "../model/doc";
+import { deckJoistLayout } from "../core/trimmer";
 import { Vec, add, sub, scale, perp, norm, polygonCentroid } from "../geometry/vec";
 import { arcPointAt } from "../geometry/arc";
 import { resolveFloor } from "../core/resolve";
@@ -221,7 +222,7 @@ export function planScene(doc: PlanDoc, floor: Floor, resolved: ReturnType<typeo
   // dashed on its group, since the recorder discards dash patterns.
   const decks = decksOf(floor);
   if (decks.length > 0) {
-    const items = decks.map(dk => group(deckPrims(dk, t("deck.label")), {
+    const items = decks.map(dk => group(deckPrims(dk, t("deck.label"), deckJoistLayout(floor, dk)), {
       ink: symbolInk(dk),
       ...(deckRaised(dk) ? { dash: BEAM_DASH } : {}),
     }));

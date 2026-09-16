@@ -17,6 +17,7 @@
 // their arcs flatten to polylines, which is exact enough at symbol scale and
 // avoids guessing how a mirrored, rotated transform maps onto an ARC.
 import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, stairsOf, videsOf, decksOf, structureOf, furnishingsOf, routesOf, roomNamesOf, Wall, wallGlazed, wallInfill } from "../model/doc";
+import { deckJoistLayout } from "../core/trimmer";
 import { Vec } from "../geometry/vec";
 import { roofPlanesOf } from "../model/roof";
 import { roofRidges } from "../core/roof";
@@ -386,7 +387,8 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
 
     for (const vd of videsOf(floor)) emitPrims(w, LAYER.vides, videPrims(vd, t("vide.label")));
     for (const dk of decksOf(floor)) {
-      emitPrims(w, deckRaised(dk) ? LAYER.decksOverhead : LAYER.decks, deckPrims(dk, t("deck.label")));
+      emitPrims(w, deckRaised(dk) ? LAYER.decksOverhead : LAYER.decks,
+        deckPrims(dk, t("deck.label"), deckJoistLayout(floor, dk)));
     }
 
     const structureLayer = { column: LAYER.columns, beam: LAYER.beams, railing: LAYER.railings } as const;

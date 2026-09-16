@@ -64,7 +64,8 @@ import {
   openingHeight, videsOf, stairsOf, structureOf, furnishingsOf, routesOf, SymbolInstance, fireLabel, WallMaterial,
   wallPostMm, wallFacadeMm, wallLiningMm, liningSideOf, facadeSideOf, decksOf,
 } from "../model/doc";
-import { deckSolids } from "../core/deck";
+import { deckSolids, type DeckPart } from "../core/deck";
+import { deckJoistLayout } from "../core/trimmer";
 import { structureSolid, spanLength } from "../core/structure";
 import {
   Discipline, Route, routeDiameter, routeDuctDiameter, routeHeat, routeHeatDiameter,
@@ -1392,10 +1393,18 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
     // converted from the document's N/m^2 to IFC's more usual kN/m^2 --
     // never a derived figure, so absent stays absent rather than reading as
     // zero load.
+    // `layout` (issue #64, core/trimmer.ts's deckJoistLayout()) is the same
+    // trimmed layout the plan and the 3D view read: a joist a hole cuts
+    // stops at its header here too, and the header and the doubled trimmers
+    // export as their own IFCMEMBERs -- one source, so an IFC viewer cannot
+    // show timber running through a hole the plan already cuts it at.
+    const MEMBER_LABEL: Record<Exclude<DeckPart, "decking">, string> = {
+      joist: "Joist", deckHeader: "Header", trimmer: "Trimmer",
+    };
     for (const d of decksOf(floor)) {
-      const solids = deckSolids(d);
+      const solids = deckSolids(d, deckJoistLayout(floor, d));
       const deckingSolid = solids.find(s => s.part === "decking");
-      const joistSolids = solids.filter(s => s.part === "joist");
+      const memberSolids = solids.filter(s => s.part !== "decking");
 
       let slabEntity: number | undefined;
       if (deckingSolid) {
@@ -1409,31 +1418,32 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
         }
       }
 
-      const joistEntities: number[] = [];
-      for (let i = 0; i < joistSolids.length; i++) {
-        const js = joistSolids[i]!;
-        const solidId = extrudedSolid(js.poly, js.z0, js.z1);
+      const memberEntities: number[] = [];
+      for (let i = 0; i < memberSolids.length; i++) {
+        const ms = memberSolids[i]!;
+        const solidId = extrudedSolid(ms.poly, ms.z0, ms.z1);
         if (solidId === null) continue;
-        joistEntities.push(w.entity("IFCMEMBER",
-          [str(ifcGuid(seed, `${d.id}:joist:${i}`)), ref(ownerHistory), str("Joist"), UNSET, UNSET,
+        const label = MEMBER_LABEL[ms.part as Exclude<typeof ms.part, "decking">];
+        memberEntities.push(w.entity("IFCMEMBER",
+          [str(ifcGuid(seed, `${d.id}:${ms.part}:${i}`)), ref(ownerHistory), str(label), UNSET, UNSET,
             ref(levelPlacement), bodyShape([solidId]), UNSET, enumv("NOTDEFINED")]));
       }
 
       if (slabEntity !== undefined) {
         contained.push(slabEntity);
-        if (joistEntities.length > 0) {
+        if (memberEntities.length > 0) {
           w.entity("IFCRELAGGREGATES",
             [str(ifcGuid(seed, `${d.id}:parts`)), ref(ownerHistory), UNSET, UNSET,
-              ref(slabEntity), list(...joistEntities.map(ref))]);
+              ref(slabEntity), list(...memberEntities.map(ref))]);
         }
       } else {
-        contained.push(...joistEntities);
+        contained.push(...memberEntities);
       }
 
       const loadProps: IfcArg[] = [];
       if (d.loadG !== undefined) loadProps.push(ref(propValue("PermanentLoad", typed("IFCREAL", real(d.loadG / 1000)))));
       if (d.loadQ !== undefined) loadProps.push(ref(propValue("VariableLoad", typed("IFCREAL", real(d.loadQ / 1000)))));
-      const loadTarget = slabEntity !== undefined ? slabEntity : joistEntities;
+      const loadTarget = slabEntity !== undefined ? slabEntity : memberEntities;
       attachPropertySet(loadTarget, `${d.id}:loads`, "Wallgraph_Loads", loadProps);
     }
 

@@ -3,13 +3,14 @@
 // structure pane, where the deck is one of its kinds.
 import { Store } from "../model/store";
 import { Tools } from "../input/tools";
-import { decksOf, floorHeight } from "../model/doc";
+import { decksOf, floorHeight, videsOf } from "../model/doc";
 import {
   Deck, DeckSize, DECK_DEFAULT, DECK_USES, BEARING_DEFAULT_MM, clampDeckSize, clampSection,
   clampBearing, clampDecking, clampDeckTop, deckUseOf,
 } from "../model/deck";
 import { deckSpanMm, deckJoistsLocal } from "../core/deck";
-import { joistCheck } from "../core/checks";
+import { trimDeck } from "../core/trimmer";
+import { joistCheck, headerCheck, trimmerCheck, type DeckHeader, type DeckTrimmer } from "../core/checks";
 import { renderCheckResult, renderComfortResult } from "./checks";
 import { stairAngle } from "../model/stair";
 import { isMixed } from "../core/mixed";
@@ -91,7 +92,59 @@ export function renderDeckProps(store: Store, tools: Tools, rows: PaneRows, id: 
     (w, d) => mut(d2 => { d2.joist = { w, d }; }));
   renderComfortResult(rows, result.comfort);
 
+  renderDeckHoles(store, rows, deck, mut);
+
   rows.dangerRow(t("panel.deleteOpening"), () => tools.deleteSelected());
+}
+
+/** headerCheck()/trimmerCheck() share joistCheck()'s own missing keys except
+ *  "span", which needs its own wording per kind (see io/assumptions.ts's own
+ *  identical split, MISSING_KEYS). */
+function holeMissingLabel(kind: "header" | "trimmer"): (key: string) => string {
+  return key => {
+    if (key === "span") return t(kind === "header" ? "checks.missingSpanHeader" : "checks.missingSpanTrimmer");
+    return joistMissingLabel(key);
+  };
+}
+
+/**
+ * A deck's own trimmed openings (issue #64): its holes (a vide fully or
+ * partly inside it, per trimDeck()'s own DeckOpening), then every header and
+ * trimmer trimDeck() derives, each in the same "Constructie" idiom the
+ * joist result above uses. Flat lists, not grouped per opening -- see
+ * core/trimmer.ts's own header for why -- which in the ordinary case of one
+ * hole in a deck reads no differently. A header's or trimmer's proposal
+ * applies to the SAME `deck.joist` field the joist check itself reads: there
+ * is no separate header/trimmer section in the document, so upsizing one
+ * upsizes the whole run.
+ */
+function renderDeckHoles(store: Store, rows: PaneRows, deck: Deck, mut: (fn: (d: Deck) => void) => void): void {
+  const trimmed = trimDeck(store.floor, deck);
+  if (trimmed.openings.length === 0) return;
+
+  rows.secHead(t("panel.deckHoles"));
+  const vides = videsOf(store.floor);
+  for (const o of trimmed.openings) {
+    const label = vides.find(v => v.id === o.id)?.label || t("panel.structureVide");
+    rows.infoRow(t("panel.deckHoleOpening"), label);
+    if (!o.complete) rows.warnRow(t("panel.deckHoleIncomplete"));
+  }
+
+  const apply = (w: number, d: number): void => mut(d2 => { d2.joist = { w, d }; });
+  const joistLabel = deck.joist ? `${deck.joist.w} × ${deck.joist.d} mm` : undefined;
+  const trimmerLabel = deck.joist ? `2 × ${deck.joist.w} × ${deck.joist.d} mm` : undefined;
+
+  trimmed.headers.forEach((h: DeckHeader, i) => {
+    rows.secHead(trimmed.headers.length > 1 ? `${t("panel.deckHoleHeader")} ${i + 1}` : t("panel.deckHoleHeader"), { later: true });
+    rows.infoRow(t("panel.deckHoleCarries"), String(h.carriesJoists));
+    renderCheckResult(rows, store.doc, headerCheck(store.doc, deck, h), holeMissingLabel("header"), joistLabel, apply);
+  });
+  trimmed.trimmers.forEach((tr: DeckTrimmer, i) => {
+    rows.secHead(trimmed.trimmers.length > 1 ? `${t("panel.deckHoleTrimmer")} ${i + 1}` : t("panel.deckHoleTrimmer"), { later: true });
+    rows.infoRow(t("panel.deckHolePointAt"), tr.points.map(p => `${Math.round(p.atMm)} mm`).join(" · "));
+    renderCheckResult(rows, store.doc, trimmerCheck(store.doc, deck, tr), holeMissingLabel("trimmer"), trimmerLabel, apply);
+  });
+  rows.noteRow(t("panel.deckHoleNote"));
 }
 
 /** Wording for joistCheck()'s `missing` keys -- each points at the row it is

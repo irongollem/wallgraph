@@ -26,6 +26,7 @@ import {
   type SpanInput, type SpanCheck, type SteelSpanInput,
 } from "./timber";
 import { checkComfort, DECKING_E_MPA, type ComfortCheck } from "./comfort";
+import type { TrimmedDeck } from "./trimmer";
 
 export type CheckStatus = "ok" | "fails" | "incomplete";
 
@@ -236,6 +237,126 @@ export function joistCheck(doc: PlanDoc, deck: Deck): CheckResult {
   return {
     status: check.passes ? "ok" : "fails", missing: [], material: "timber",
     input: { ...base, section: deck.joist }, check, proposal, loadBreakdown, comfort, flags,
+  };
+}
+
+// ── header / trimmer (issue #64) ────────────────────────────────────────
+
+export type DeckHeader = TrimmedDeck["headers"][number];
+export type DeckTrimmer = TrimmedDeck["trimmers"][number];
+
+/**
+ * A header across a trimmed opening (core/trimmer.ts's trimDeck()): span and
+ * carried-joist count are its own; load is its own end reaction, already
+ * split into g and q (header.reactionG/reactionQ, both characteristic --
+ * trimDeck() derives them straight from the deck's own loadG/loadQ, with no
+ * combined figure to split back by ratio) turned into a line load over the
+ * header's own span (reactionG/Q is the header's own reaction at ONE end,
+ * i.e. half its own total UDL load, so the total is 2*reaction). Section =
+ * the deck's own stated joist, exactly as joistCheck() reads it: this issue
+ * adds no separate header section field, so a header is checked -- and
+ * proposed a size -- against the same joist stock the rest of the deck
+ * orders. `comfort` is left undefined; issue #64 does not ask for one on a
+ * header.
+ */
+export function headerCheck(doc: PlanDoc, deck: Deck, header: DeckHeader): CheckResult {
+  const missing: string[] = [];
+  if (header.spanMm <= 0) missing.push("span");
+  const hasLoad = deck.loadG !== undefined && deck.loadQ !== undefined;
+  if (!hasLoad) missing.push("load");
+  if (deck.loadG === undefined) missing.push("loadG");
+  if (!deck.joist) missing.push("joistSection");
+
+  const gLineNmm = header.spanMm > 0 ? (2 * header.reactionG) / header.spanMm : 0;
+  const qLineNmm = header.spanMm > 0 ? (2 * header.reactionQ) / header.spanMm : 0;
+  const base = header.spanMm > 0 ? timberBase(doc, header.spanMm, gLineNmm, qLineNmm) : null;
+  const loadBreakdown = { gLineKNm: gLineNmm, qLineKNm: qLineNmm };
+  const sections = sectionsMmOf(doc);
+
+  if (!deck.joist || !base) {
+    return {
+      status: "incomplete", missing, material: "timber",
+      proposal: base ? proposeSection(base, sections) : null, loadBreakdown,
+    };
+  }
+  const { check, proposal } = timberResult(base, deck.joist, sections);
+  return {
+    status: check.passes ? "ok" : "fails", missing: [], material: "timber",
+    input: { ...base, section: deck.joist }, check, proposal, loadBreakdown,
+  };
+}
+
+/**
+ * proposeSection(), exactly as joistCheck() uses it, but against every
+ * candidate section doubled in width first (the trimmer's own convention --
+ * see core/trimmer.ts's header) and with `points` folded into the base so a
+ * candidate is judged against the same combined load the stated section is
+ * checked against. Doubling every candidate by the same factor does not
+ * change which one is smallest, so ranking by the doubled candidate's area
+ * gives the same order proposeSection() would over the single-piece list;
+ * the result is halved back to the single piece a builder orders two of.
+ */
+function proposeDoubledSection(
+  base: Omit<SpanInput, "section">, sections: readonly { w: number; d: number }[], points: SpanInput["points"],
+): { w: number; d: number } | null {
+  const doubled = sections.map(s => ({ w: s.w * 2, d: s.d }));
+  const found = proposeSection({ ...base, points }, doubled);
+  return found ? { w: found.w / 2, d: found.d } : null;
+}
+
+/**
+ * A trimmer beside a trimmed opening: its own strip of floor (the same
+ * tributary width, `joistMm`, an ordinary joist at this position would
+ * carry -- doubling the section for strength does not double what it
+ * carries) as a UDL, plus every header's reaction landing on it as a point
+ * load at its own distance along the span (trimmer.points, from
+ * trimDeck()) -- ONE beside a hole that reaches the deck's edge, TWO beside
+ * a fully interior one, both superposed by checkSpan() rather than checked
+ * against the worse alone (issue #64's own follow-up: the ordinary case for
+ * a hatch in the middle of a floor is exactly two headers). Each point's g
+ * and q are factored separately: `nd = gammaG*g + gammaQ*q` for moment and
+ * shear, `nk = g+q` (characteristic) for deflection -- see core/timber.ts's
+ * own note on why a point load, unlike the pre-#64 single-point case, now
+ * carries this split just like the UDL's own qd/qk. Section = the deck's
+ * own stated joist DOUBLED in width for the check (the trimmer's
+ * convention); the checked and proposed section are both reported as the
+ * doubled figure, and the caller (ui/deck.ts, io/assumptions.ts) halves it
+ * back and states "doubled" beside it -- this module reports the physics,
+ * not the wording.
+ */
+export function trimmerCheck(doc: PlanDoc, deck: Deck, trimmer: DeckTrimmer): CheckResult {
+  const missing: string[] = [];
+  if (trimmer.spanMm <= 0) missing.push("span");
+  const hasLoad = deck.loadG !== undefined && deck.loadQ !== undefined;
+  if (!hasLoad) missing.push("load");
+  if (deck.loadG === undefined) missing.push("loadG");
+  if (!deck.joist) missing.push("joistSection");
+
+  const sections = sectionsMmOf(doc);
+  const gLineNmm = hasLoad ? (deck.loadG! * deck.joistMm) / 1_000_000 : 0;
+  const qLineNmm = hasLoad ? (deck.loadQ! * deck.joistMm) / 1_000_000 : 0;
+  const base = trimmer.spanMm > 0 && hasLoad ? timberBase(doc, trimmer.spanMm, gLineNmm, qLineNmm) : null;
+  const loadBreakdown = hasLoad ? { gLineKNm: gLineNmm, qLineKNm: qLineNmm } : undefined;
+
+  const gammaG = gammaGOf(doc), gammaQ = gammaQOf(doc);
+  const points: SpanInput["points"] = trimmer.points.map(p => (
+    { nd: gammaG * p.g + gammaQ * p.q, nk: p.g + p.q, atMm: p.atMm }
+  ));
+
+  if (!deck.joist || !base) {
+    return {
+      status: "incomplete", missing, material: "timber",
+      proposal: base ? proposeDoubledSection(base, sections, points) : null, loadBreakdown,
+    };
+  }
+
+  const doubled = { w: deck.joist.w * 2, d: deck.joist.d };
+  const input: SpanInput = { ...base, section: doubled, points };
+  const check = checkSpan(input);
+  const proposal = check.passes ? undefined : proposeDoubledSection(base, sections, points);
+  return {
+    status: check.passes ? "ok" : "fails", missing: [], material: "timber",
+    input, check, proposal, loadBreakdown,
   };
 }
 

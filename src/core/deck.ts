@@ -4,6 +4,7 @@
 import { Deck, bearingOf } from "../model/deck";
 import { Vec, v, distToSeg } from "../geometry/vec";
 import { boxCorners, boxHit, worldPoint, type LocalBox } from "./placed";
+import type { DeckJoistLayout, JoistSegment } from "./trimmer";
 
 /** Local bounds. The anchor is the centre, so the box is symmetric both ways. */
 export function deckBox(d: Deck): LocalBox {
@@ -96,7 +97,7 @@ export const deckBottom = (d: Deck): number =>
 /** True when the deck lies above the storey's section plane rather than being its floor. */
 export const deckRaised = (d: Deck): boolean => deckTop(d) > 0;
 
-export type DeckPart = "decking" | "joist";
+export type DeckPart = "decking" | "joist" | "deckHeader" | "trimmer";
 
 export interface DeckSolid {
   part: DeckPart;
@@ -111,14 +112,47 @@ function localQuad(d: Deck, x0: number, y0: number, x1: number, y1: number): Vec
   return [v(x0, y0), v(x1, y0), v(x1, y1), v(x0, y1)].map(p => worldPoint(d, p));
 }
 
+/** A JoistSegment (always axis-aligned: one coordinate constant, the other
+ *  spanning) extruded `halfWidth` mm either side of its own line -- the
+ *  general case of the old per-axis localQuad() calls below, since
+ *  deckJoistLayout()'s header segments run across where a joist's own run
+ *  along, and both are handled the same way once the segment itself already
+ *  carries the right length (including any bearing extension). */
+function segmentQuad(d: Deck, seg: JoistSegment, halfWidth: number): Vec[] {
+  if (seg.a.y === seg.b.y) {
+    const x0 = Math.min(seg.a.x, seg.b.x), x1 = Math.max(seg.a.x, seg.b.x);
+    return localQuad(d, x0, seg.a.y - halfWidth, x1, seg.a.y + halfWidth);
+  }
+  const y0 = Math.min(seg.a.y, seg.b.y), y1 = Math.max(seg.a.y, seg.b.y);
+  return localQuad(d, seg.a.x - halfWidth, y0, seg.a.x + halfWidth, y1);
+}
+
+/** A segment shifted `amount` mm perpendicular to its own run -- how a
+ *  trimmer's single centreline becomes the two ADJACENT, touching members a
+ *  real doubled trimmer is (as opposed to the 2D mark's purely legible gap;
+ *  see render/deck.ts's own TRIMMER_GAP_MM). */
+function offsetAcross(seg: JoistSegment, amount: number): JoistSegment {
+  return seg.a.y === seg.b.y
+    ? { a: { x: seg.a.x, y: seg.a.y + amount }, b: { x: seg.b.x, y: seg.b.y + amount } }
+    : { a: { x: seg.a.x + amount, y: seg.a.y }, b: { x: seg.b.x + amount, y: seg.b.y } };
+}
+
 /**
  * The prisms the deck is built from: the decking sheet over the joists where a
  * thickness is stated, and one prism per joist at its section, running the
  * clear span plus the bearing at both ends. A deck at floor level draws no
  * slab of its own, since the storey's slab is there; its joists still stand
  * below. Without a stated section there are no joists to extrude.
+ *
+ * `layout` (issue #64, core/trimmer.ts's deckJoistLayout()) replaces the
+ * plain joist set-out with the shortened joists either side of a hole, the
+ * header across it, and the doubled trimmers -- as two ADJACENT single-width
+ * prisms, not a single double-width one, matching the pair of real members
+ * the materials takeoff (core/materials.ts's deckTakeoffOf()) counts.
+ * Undefined draws every joist full length, unaware of any hole -- the
+ * pre-#64 behaviour, used where no floor is at hand to check for one.
  */
-export function deckSolids(d: Deck): DeckSolid[] {
+export function deckSolids(d: Deck, layout?: DeckJoistLayout): DeckSolid[] {
   const out: DeckSolid[] = [];
   const top = deckTop(d);
   const decking = d.deckingMm ?? 0;
@@ -128,13 +162,24 @@ export function deckSolids(d: Deck): DeckSolid[] {
   }
   if (!d.joist) return out;
   const z1 = top - decking, z0 = z1 - d.joist.d;
-  const reach = deckSpanMm(d) / 2 + bearingOf(d);
   const hw = d.joist.w / 2;
-  for (const j of deckJoistsLocal(d)) {
-    const poly = d.joistAxis === "x"
-      ? localQuad(d, -reach, j.a.y - hw, reach, j.a.y + hw)
-      : localQuad(d, j.a.x - hw, -reach, j.a.x + hw, reach);
-    out.push({ part: "joist", poly, z0, z1 });
+
+  if (!layout) {
+    const reach = deckSpanMm(d) / 2 + bearingOf(d);
+    for (const j of deckJoistsLocal(d)) {
+      const poly = d.joistAxis === "x"
+        ? localQuad(d, -reach, j.a.y - hw, reach, j.a.y + hw)
+        : localQuad(d, j.a.x - hw, -reach, j.a.x + hw, reach);
+      out.push({ part: "joist", poly, z0, z1 });
+    }
+    return out;
+  }
+
+  for (const seg of [...layout.full, ...layout.cut]) out.push({ part: "joist", poly: segmentQuad(d, seg, hw), z0, z1 });
+  for (const seg of layout.headers) out.push({ part: "deckHeader", poly: segmentQuad(d, seg, hw), z0, z1 });
+  for (const seg of layout.trimmers) {
+    out.push({ part: "trimmer", poly: segmentQuad(d, offsetAcross(seg, -hw), hw), z0, z1 });
+    out.push({ part: "trimmer", poly: segmentQuad(d, offsetAcross(seg, hw), hw), z0, z1 });
   }
   return out;
 }

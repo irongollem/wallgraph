@@ -17,6 +17,7 @@ import { getSymbol } from "./symbols";
 import { drawStair, drawStairGhost } from "./stair";
 import { drawVide } from "./vide";
 import { drawDeck } from "./deck";
+import { deckJoistLayout } from "../core/trimmer";
 import { drawStructure } from "./structure";
 import { drawFurnishing } from "./furnishing";
 import { drawRoute, drawRiserMarks } from "./route";
@@ -471,6 +472,7 @@ export function drawScene(
       px, ink: symbolInk(dk), fallbackLabel: t("deck.label"),
       selected: isSel("deck", dk.id),
       select: COLORS.select, wash: COLORS.selectWash,
+      layout: deckJoistLayout(floor, dk),
     });
   }
 
