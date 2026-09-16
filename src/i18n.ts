@@ -97,6 +97,7 @@ export const resources = {
         dxfTitle: "floorplan.dxf opslaan — CAD-tekening op ware grootte, per laag",
         ifc: "Exporteren als IFC",
         csv: "Materiaalstaat exporteren",
+        assumptions: "Uitgangspunten exporteren",
         open: "Openen…",
         openTitle: "Een floorplan.json openen",
         paste: "JSON plakken…",
@@ -830,6 +831,11 @@ export const resources = {
         sectionsHelp: "kommagescheiden, breedte×hoogte, bijv. 44x195 · leeg voor de standaardlijst",
         comfortMinHz: "Laagst aanvaardbare eigenfrequentie (Hz)",
         comfortMaxPointMm: "Grens doorbuiging bij 1 kN puntlast (mm)",
+        // Issue #62: een figuur die van zijn standaardwaarde afwijkt krijgt
+        // een zichtbaar label en een titel met de standaardwaarde erin, zodat
+        // een aangepaste aanname nooit onopgemerkt blijft.
+        driftLabel: "{{label}} (aangepast)",
+        driftHelp: "standaardwaarde {{preset}}",
         csv: {
           header: {
             storey: "Verdieping",
@@ -890,6 +896,25 @@ export const resources = {
         comfortResult: "Comfort",
         comfortNote: "Een balklaag die voldoet aan buiging, afschuiving en doorbuiging kan nog steeds merkbaar meeveren; deze twee cijfers — eigenfrequentie en doorbuiging onder een puntlast — zeggen daar iets over. Gewone rekenformules met indicatieve grenzen, geen trillingsanalyse: ze gaan uit van de massa die de balklaag draagt (eigen gewicht plus permanente belasting, niet de veranderlijke belasting) en zeggen niets over een zware afwerking, een lange of doorlopende overspanning, of een vloer die machines draagt.",
         comfortAdvice: "Om te verbeteren: een dikkere balk, een kleinere hart-op-hart afstand, doorschietende regels of een strongback tussen de balken, of een vloerplaat die zowel gelijmd als geschroefd is.",
+        // Issue #62: elk paneel dat een toetsing toont, meldt in één regel
+        // welke aannames zijn aangepast -- gemeld, nooit blokkerend.
+        driftRow: "Afwijkende aannames: {{items}}.",
+        driftItem: "{{label}} {{value}} (standaard {{preset}})",
+        driftKmod: "k_mod",
+        driftGammaM: "γ_M",
+        driftKdef: "k_def",
+        driftGammaG: "γ_G",
+        driftGammaQ: "γ_Q",
+        driftDeflectionDiv: "doorbuigingsgrens",
+        driftSteelFy: "f_y staal",
+        driftComfortMinHz: "grens eigenfrequentie",
+        driftComfortMaxPointMm: "grens doorbuiging puntlast",
+        driftTimberClass: "houtsterkteklasse aangepast",
+        // Issue #62: een opgegeven belasting die lager is dan wat aannemelijk
+        // is -- gemeld naast het resultaat, verandert niets aan de toetsing.
+        flagLowLoadQ: "opgegeven belasting is lager dan gebruikelijk voor een vloer",
+        flagLowLoadG: "opgegeven permanente belasting is lager dan het eigen gewicht van de balklaag zelf",
+        flagZeroLoad: "opgegeven belasting is nul",
       },
       frame: {
         title: "Aanzicht",
@@ -923,6 +948,38 @@ export const resources = {
         areaNet: "netto (NEN 2580)",
         areaCenterline: "hart-op-hart",
         areaBvo: "bruto, BVO (NEN 2580)",
+      },
+      // De uitgangspuntensheet (issue #63): één afdrukbare pagina met de
+      // overspanningen, belastingen, doorsnedes en aannames van elke
+      // balklaag, balk en latei, plus wat de voorlopige toetsing niet heeft
+      // meegenomen -- wat een constructeur nodig heeft om de berekening
+      // zelf over te doen, zonder de app te openen.
+      assumptions: {
+        title: "Uitgangspunten",
+        subtitle: "Dit blad meldt wat in deze plattegrond is getekend en aangenomen voor de balklagen, balken en lateien; het is een overzicht van uitgangspunten, geen constructieberekening. Een geregistreerde berekening vereist een daarvoor gekwalificeerde constructeur.",
+        assumptionsHeading: "Aannames",
+        driftHeading: "Afwijkende aannames",
+        excludedHeading: "Wat dit blad niet heeft getoetst",
+        excludedPoint: "Puntlasten.",
+        excludedContinuous: "Doorlopende en uitkragende overspanningen.",
+        excludedLateral: "Kipstabiliteit.",
+        excludedNotches: "Insnijdingen in de doorsnede.",
+        excludedBearing: "Opleggingsdruk.",
+        excludedConnections: "Verbindingen.",
+        excludedFire: "Brandwerendheid.",
+        excludedLoadPath: "De lastafdracht onder het element.",
+        excludedFoundation: "De fundering.",
+        excludedTrimmer: "Balken die rond een uitsparing in een balklaag worden ingekort, en de kopbalk, balkdragers en verbindingen die dat vraagt.",
+        noElements: "Dit document bevat geen balklagen, balken of lateien.",
+        aboveHead: "Hoogte muur boven latei",
+        steelFy: "Vloeigrens staal (f_y)",
+        missingSpan: "de overspanning",
+        missingLoad: "de belasting",
+        missingLoadG: "de permanente belasting",
+        missingJoistSection: "de balkdoorsnede",
+        missingLoadKNm: "de belasting op de balk",
+        missingMaterial: "het materiaal van de muur",
+        missingLintelSection: "de doorsnede van de latei",
       },
       hint: {
         wallStart: "klik om een muurketen te beginnen",
@@ -1018,6 +1075,8 @@ export const resources = {
         ifcFailed: "IFC-export mislukt",
         csvSaved: "Materiaalstaat opgeslagen",
         csvFailed: "Materiaalstaat-export mislukt",
+        assumptionsSaved: "Uitgangspunten opgeslagen",
+        assumptionsFailed: "Export uitgangspunten mislukt",
         pngSaved: "floorplan.png opgeslagen",
         pngCopied: "afbeelding naar klembord gekopieerd",
         pngEmpty: "niets te exporteren — de plattegrond is leeg",
@@ -1386,6 +1445,7 @@ export const resources = {
         dxfTitle: "Save floorplan.dxf — full-size CAD drawing, on layers",
         ifc: "Export as IFC",
         csv: "Export bill of materials",
+        assumptions: "Export assumptions sheet",
         open: "Open…",
         openTitle: "Open a floorplan.json file",
         paste: "Paste JSON…",
@@ -2116,6 +2176,11 @@ export const resources = {
         sectionsHelp: "comma-separated, width×depth, e.g. 44x195 · empty for the default list",
         comfortMinHz: "Lowest acceptable fundamental frequency (Hz)",
         comfortMaxPointMm: "Deflection limit under a 1 kN point load (mm)",
+        // Issue #62: a figure that differs from its default gets a visible
+        // label and a title naming the default, so an edited assumption is
+        // never unmarked.
+        driftLabel: "{{label}} (edited)",
+        driftHelp: "default {{preset}}",
         csv: {
           header: {
             storey: "Storey",
@@ -2176,6 +2241,25 @@ export const resources = {
         comfortResult: "Comfort",
         comfortNote: "A deck that passes bending, shear and deflection can still feel noticeably lively; these two figures — fundamental frequency and deflection under a point load — speak to that. Ordinary engineering formulas against indicative limits, not a vibration analysis: they read the mass the deck carries (self weight plus the permanent load, not the variable load) and say nothing about a heavy finish, a long or continuous span, or a floor carrying machinery.",
         comfortAdvice: "To raise it: a deeper joist, closer centres, blocking or a strongback between the joists, or a deck glued as well as screwed.",
+        // Issue #62: every pane that shows a check names, in one row, which
+        // assumptions it reads have been edited -- reported, never blocking.
+        driftRow: "Adjusted assumptions: {{items}}.",
+        driftItem: "{{label}} {{value}} (default {{preset}})",
+        driftKmod: "k_mod",
+        driftGammaM: "γ_M",
+        driftKdef: "k_def",
+        driftGammaG: "γ_G",
+        driftGammaQ: "γ_Q",
+        driftDeflectionDiv: "deflection limit",
+        driftSteelFy: "steel f_y",
+        driftComfortMinHz: "frequency limit",
+        driftComfortMaxPointMm: "point-load deflection limit",
+        driftTimberClass: "timber class edited",
+        // Issue #62: a stated load lower than what is plausible -- reported
+        // beside the result, changes nothing about the check itself.
+        flagLowLoadQ: "the stated load is lower than ordinary for a floor",
+        flagLowLoadG: "the stated permanent load is lower than the deck's own self-weight",
+        flagZeroLoad: "the stated load is zero",
       },
       frame: {
         title: "Elevation",
@@ -2209,6 +2293,33 @@ export const resources = {
         areaNet: "net (NEN 2580)",
         areaCenterline: "centerline",
         areaBvo: "gross, BVO (NEN 2580)",
+      },
+      assumptions: {
+        title: "Assumptions",
+        subtitle: "This sheet states what is drawn and assumed in this plan for its decks, beams and lintels; it is a statement of assumptions, not a constructieberekening (structural calculation). A registered calculation requires a qualified structural engineer.",
+        assumptionsHeading: "Assumptions",
+        driftHeading: "Adjusted assumptions",
+        excludedHeading: "What this sheet did not check",
+        excludedPoint: "Point loads.",
+        excludedContinuous: "Continuous and cantilevered spans.",
+        excludedLateral: "Lateral-torsional stability.",
+        excludedNotches: "Notches in the section.",
+        excludedBearing: "Bearing stress.",
+        excludedConnections: "Connections.",
+        excludedFire: "Fire resistance.",
+        excludedLoadPath: "The load path below the member.",
+        excludedFoundation: "The foundation.",
+        excludedTrimmer: "A joist trimmed around an opening in a deck, and the header, hangers and connections that needs.",
+        noElements: "This document contains no decks, beams or lintels.",
+        aboveHead: "Wall height above the lintel",
+        steelFy: "Steel yield strength (f_y)",
+        missingSpan: "the span",
+        missingLoad: "the load",
+        missingLoadG: "the permanent load",
+        missingJoistSection: "the joist section",
+        missingLoadKNm: "the load on the beam",
+        missingMaterial: "the wall's material",
+        missingLintelSection: "the lintel section",
       },
       hint: {
         wallStart: "click to start a wall chain",
@@ -2304,6 +2415,8 @@ export const resources = {
         ifcFailed: "IFC export failed",
         csvSaved: "Bill of materials saved",
         csvFailed: "Bill of materials export failed",
+        assumptionsSaved: "Assumptions sheet saved",
+        assumptionsFailed: "Assumptions sheet export failed",
         pngSaved: "floorplan.png saved",
         pngCopied: "image copied to clipboard",
         pngEmpty: "nothing to export — the plan is empty",
@@ -2656,6 +2769,18 @@ export function t(key: string, vars?: Record<string, string | number>): string {
 }
 
 export function language(): Lang { return current; }
+
+/**
+ * A number in the interface language's own convention -- comma decimal
+ * separator in Dutch, period in English, the way an assumption-drift row
+ * (issue #62) names an edited figure beside its preset. Not used for mm/kN
+ * figures elsewhere in the app, which are plain ASCII by convention; this is
+ * for the one place a figure is read out loud in a sentence rather than
+ * shown in its own field.
+ */
+export function formatNumber(n: number, opts?: Intl.NumberFormatOptions): string {
+  return new Intl.NumberFormat(current === "nl" ? "nl-NL" : "en-US", opts).format(n);
+}
 
 /**
  * Every language's value for a key. Used by symbol search so a query matches

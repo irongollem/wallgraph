@@ -86,7 +86,8 @@ export function renderDeckProps(store: Store, tools: Tools, rows: PaneRows, id: 
   rows.noteRow(t("panel.deckNote"));
 
   const result = joistCheck(store.doc, deck);
-  renderCheckResult(rows, result, joistMissingLabel, deck.joist ? `${deck.joist.w} × ${deck.joist.d} mm` : undefined,
+  renderCheckResult(rows, store.doc, result, joistMissingLabel,
+    deck.joist ? `${deck.joist.w} × ${deck.joist.d} mm` : undefined,
     (w, d) => mut(d2 => { d2.joist = { w, d }; }));
   renderComfortResult(rows, result.comfort);
 

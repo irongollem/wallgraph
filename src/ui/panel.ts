@@ -14,6 +14,7 @@ import { exportPng } from "../io/image";
 import { exportDxf } from "../io/dxf";
 import { exportIfc } from "../io/ifc";
 import { exportMaterialsCsv } from "../io/materials";
+import { exportAssumptions } from "../io/assumptions";
 import { exportSvg } from "../io/svg";
 import { exportPermit, PermitFormat } from "../io/permit";
 import { permitChecklist, PermitCheck } from "../core/permit";
@@ -611,6 +612,7 @@ export class Panel {
       { kind: "item", icon: "docDxf", label: t("action.dxf"), hint: "DXF", onPick: () => { void this.saveDxf(); } },
       { kind: "item", icon: "docDxf", label: t("action.ifc"), hint: "IFC", onPick: () => { void this.saveIfc(); } },
       { kind: "item", icon: "docCsv", label: t("action.csv"), hint: "CSV", onPick: () => { void this.saveMaterialsCsv(); } },
+      { kind: "item", icon: "docCsv", label: t("action.assumptions"), hint: "PDF", onPick: () => { void this.saveAssumptions(); } },
       { kind: "item", icon: "docCopy", label: t("action.copy"), onPick: () => {
         void copyJson(this.store.doc).then(ok => this.flash(ok ? t("status.copied") : t("status.copyFailed")));
       } },
@@ -684,6 +686,13 @@ export class Panel {
   private async saveMaterialsCsv(): Promise<void> {
     const result = await exportMaterialsCsv(this.store.doc);
     this.flash(t(result === "saved" ? "status.csvSaved" : "status.csvFailed"));
+  }
+
+  /** Uitgangspunten sheet (issue #63). Whole document like saveIfc(): every
+   *  storey's decks, beams and lintels get their own section on one page. */
+  private async saveAssumptions(): Promise<void> {
+    const result = await exportAssumptions(this.store.doc);
+    this.flash(t(result === "saved" ? "status.assumptionsSaved" : "status.assumptionsFailed"));
   }
 
   /**
@@ -1306,7 +1315,8 @@ export class Panel {
     }
 
     const lintelResult = lintelCheck(this.store.doc, f, wall, o);
-    renderCheckResult(rows, lintelResult, lintelMissingLabel, o.lintel ? `${o.lintel.w} × ${o.lintel.d} mm` : undefined,
+    renderCheckResult(rows, this.store.doc, lintelResult, lintelMissingLabel,
+      o.lintel ? `${o.lintel.w} × ${o.lintel.d} mm` : undefined,
       (w, d) => mutOpening(o2 => { o2.lintel = { w, d }; }));
 
     rows.dangerRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());
@@ -2092,6 +2102,7 @@ export class Panel {
 
     noteRow(t("materials.closingNote"));
     btnRow(t("action.csv"), () => { void this.saveMaterialsCsv(); }, "CSV");
+    btnRow(t("action.assumptions"), () => { void this.saveAssumptions(); }, "PDF");
 
     wrap.append(head, body);
     this.syncMaterialsTakeoff();

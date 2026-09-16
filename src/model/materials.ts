@@ -328,3 +328,67 @@ export function sheetMm(d: PlanDoc): { width: number; height: number } {
   const s = d.materials?.sheetMm;
   return s && s.width > 0 && s.height > 0 ? s : SHEET_MM_DEFAULT;
 }
+
+/**
+ * One figure `assumptionDrift()` reports: `key` names it (a stable key, worded
+ * by the pane that reads it, the same idiom `CheckResult.missing` uses),
+ * `value` is the document's own figure, `preset` the default it is read
+ * against. `value`/`preset` are not meaningful for the "timberClass" entry --
+ * present only when no named TIMBER_CLASSES entry matches (timberClassOf()
+ * returns null, the same test the class select already reads "aangepast"
+ * from) -- a pane naming that entry reads it by class, not by number.
+ */
+export interface AssumptionDrift { key: string; value: number; preset: number }
+
+/** A figure within a rounding hair of its preset does not count as drift --
+ *  see this module's positiveOr() for the same idea applied to a missing
+ *  figure rather than an edited one. */
+const DRIFT_TOL = 1e-6;
+function drifts(value: number, preset: number): boolean {
+  return Math.abs(value - preset) > DRIFT_TOL;
+}
+
+/**
+ * Every figure timberOf()/steelFyOf()/gammaGOf()/gammaQOf()/deflectionDivOf()
+ * read that the document has edited away from the indicative preset it falls
+ * back to otherwise -- kmod, gammaM, kdef and the two comfort marks (issue
+ * #61) against TIMBER_DEFAULT, gammaG/gammaQ/deflectionDiv against their own
+ * defaults, steel.fy against STEEL_FY_DEFAULT, and the timber class itself
+ * once no named class matches. Nothing here judges whether the edit is
+ * reasonable -- a document may have good cause to state its own figures --
+ * only that it happened, so tuning an assumption until a preliminary check
+ * turns green stays visible wherever that check is shown (issue #62).
+ */
+export function assumptionDrift(d: PlanDoc): AssumptionDrift[] {
+  const out: AssumptionDrift[] = [];
+  const timber = timberOf(d);
+  if (drifts(timber.kmod, TIMBER_DEFAULT.kmod)) {
+    out.push({ key: "kmod", value: timber.kmod, preset: TIMBER_DEFAULT.kmod });
+  }
+  if (drifts(timber.gammaM, TIMBER_DEFAULT.gammaM)) {
+    out.push({ key: "gammaM", value: timber.gammaM, preset: TIMBER_DEFAULT.gammaM });
+  }
+  if (drifts(timber.kdef, TIMBER_DEFAULT.kdef)) {
+    out.push({ key: "kdef", value: timber.kdef, preset: TIMBER_DEFAULT.kdef });
+  }
+  const comfort = timber.comfort!;
+  if (drifts(comfort.minHz, MIN_HZ_DEFAULT)) {
+    out.push({ key: "comfortMinHz", value: comfort.minHz, preset: MIN_HZ_DEFAULT });
+  }
+  if (drifts(comfort.maxPointMm, MAX_POINT_MM_DEFAULT)) {
+    out.push({ key: "comfortMaxPointMm", value: comfort.maxPointMm, preset: MAX_POINT_MM_DEFAULT });
+  }
+  const gammaG = gammaGOf(d);
+  if (drifts(gammaG, GAMMA_G_DEFAULT)) out.push({ key: "gammaG", value: gammaG, preset: GAMMA_G_DEFAULT });
+  const gammaQ = gammaQOf(d);
+  if (drifts(gammaQ, GAMMA_Q_DEFAULT)) out.push({ key: "gammaQ", value: gammaQ, preset: GAMMA_Q_DEFAULT });
+  const div = deflectionDivOf(d);
+  if (drifts(div, DEFLECTION_DIV_DEFAULT)) out.push({ key: "deflectionDiv", value: div, preset: DEFLECTION_DIV_DEFAULT });
+  const fy = steelFyOf(d);
+  if (drifts(fy, STEEL_FY_DEFAULT)) out.push({ key: "steelFy", value: fy, preset: STEEL_FY_DEFAULT });
+  // No named class matches -- the same test the class select already reads
+  // "aangepast" from (ui/materials.ts). value/preset carry no figure of
+  // their own here.
+  if (timberClassOf(timber) === null) out.push({ key: "timberClass", value: 0, preset: 0 });
+  return out;
+}

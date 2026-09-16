@@ -5,9 +5,11 @@
 // the missing-key wording and the section label differ, and both are handed
 // in by the caller, which is where a deck's joist, a beam's width/depth or an
 // opening's lintel each already know how to name themselves.
-import { t } from "../i18n";
+import { t, formatNumber } from "../i18n";
 import type { PaneRows } from "./stairs";
 import type { CheckResult } from "../core/checks";
+import type { PlanDoc } from "../model/doc";
+import { assumptionDrift, type AssumptionDrift } from "../model/materials";
 
 /** Within this of 1.0, utilisation reads to one decimal rather than a whole
  *  percentage -- a 1.004 reads "100.4%" beside "voldoet niet" rather than a
@@ -37,6 +39,63 @@ function crit(label: string, isGoverning: boolean): string {
  *  is what would pass". */
 const SECTION_MISSING_KEYS = new Set(["joistSection", "lintelSection"]);
 
+/** assumptionDrift() keys read as a whole number in the drift row (a
+ *  deflection divisor, a steel yield strength) -- every other figure reads
+ *  to at least one decimal, so a stated "1" (k_mod) does not read as if
+ *  nothing had been typed. Exported so ui/materials.ts marks a row with the
+ *  same precision the drift row itself names it at. */
+const DRIFT_WHOLE = new Set(["deflectionDiv", "steelFy"]);
+
+/** The short, symbol-style name a figure is called by inline (issue #62) --
+ *  not materials.*'s own long field label, which reads on its own row. */
+export function driftLabel(key: string): string {
+  return t("checks.drift" + key[0]!.toUpperCase() + key.slice(1));
+}
+
+/** A drifted figure's value, in the number format of the interface
+ *  language -- see i18n.ts's formatNumber(). */
+export function driftValue(n: number, key: string): string {
+  const decimals = DRIFT_WHOLE.has(key) ? 0 : 1;
+  return formatNumber(n, { minimumFractionDigits: decimals, maximumFractionDigits: Math.max(decimals, 2) });
+}
+
+/** One drift entry, worded in full ("k_mod 1,0 (standaard 0,8)"); the
+ *  timber-class entry carries no figures of its own and is named by class
+ *  instead. */
+function driftItemText(item: AssumptionDrift): string {
+  if (item.key === "timberClass") return t("checks.driftTimberClass");
+  return t("checks.driftItem", {
+    label: driftLabel(item.key), value: driftValue(item.value, item.key), preset: driftValue(item.preset, item.key),
+  });
+}
+
+/**
+ * The one warn row every pane that shows a check adds when the document has
+ * edited an assumption the check reads (issue #62) -- never gates or
+ * changes the check itself, only says so beside it, so tuning an assumption
+ * until a result turns green cannot read the same as an unedited one.
+ */
+function renderAssumptionDrift(rows: Pick<PaneRows, "warnRow">, doc: PlanDoc): void {
+  const drift = assumptionDrift(doc);
+  if (drift.length === 0) return;
+  rows.warnRow(t("checks.driftRow", { items: drift.map(driftItemText).join(", ") }));
+}
+
+/** Wording for a CheckResult's own `flags` (issue #62) -- an implausible
+ *  load, reported beside the result and never blocking. */
+const FLAG_KEY: Record<string, string> = {
+  lowLoadQ: "checks.flagLowLoadQ",
+  lowLoadG: "checks.flagLowLoadG",
+  zeroLoad: "checks.flagZeroLoad",
+};
+
+function renderFlags(rows: Pick<PaneRows, "warnRow">, flags: readonly string[] | undefined): void {
+  for (const flag of flags ?? []) {
+    const key = FLAG_KEY[flag];
+    if (key) rows.warnRow(t(key));
+  }
+}
+
 /**
  * Renders the whole "Constructie" section for one check: the load make-up,
  * span, section, utilisation per criterion with the governing one marked,
@@ -50,12 +109,15 @@ const SECTION_MISSING_KEYS = new Set(["joistSection", "lintelSection"]);
  */
 export function renderCheckResult(
   rows: Pick<PaneRows, "secHead" | "infoRow" | "noteRow" | "warnRow" | "btnRow">,
+  doc: PlanDoc,
   result: CheckResult,
   missingLabel: (key: string) => string,
   sectionLabel: string | undefined,
   onApply: (w: number, d: number) => void,
 ): void {
   rows.secHead(t("checks.title"), { later: true });
+  renderAssumptionDrift(rows, doc);
+  renderFlags(rows, result.flags);
 
   const load = result.loadBreakdown;
   if (load) {

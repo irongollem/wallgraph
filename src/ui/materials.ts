@@ -11,11 +11,12 @@ import { sqm } from "./walls";
 import {
   stockLengths, stockPresetOf, STOCK_PRESETS, kerfMm, wastePct, sheetMm,
   timberOf, timberClassOf, applyTimberClass, TIMBER_CLASSES, TIMBER_DEFAULT,
-  gammaGOf, gammaQOf, deflectionDivOf, sectionsMmOf,
+  gammaGOf, gammaQOf, deflectionDivOf, sectionsMmOf, assumptionDrift,
   MIN_HZ_DEFAULT, MAX_POINT_MM_DEFAULT,
-  type TimberClassId,
+  type TimberClassId, type AssumptionDrift,
 } from "../model/materials";
 import type { StockPreset } from "../model/materials";
+import { driftValue } from "./checks";
 import type { Member, MemberName, WallSystem, WallTakeoff, DeckTakeoff, FloorMaterials } from "../core/materials";
 import { decksOf } from "../model/doc";
 import type { NestResult } from "../core/stock";
@@ -168,6 +169,23 @@ export function renderMaterialAssumptions(
 }
 
 /**
+ * Marks a numRow whose figure has drifted from its preset (issue #62): the
+ * label reads "…(aangepast)" and the tooltip names the preset it no longer
+ * matches, in the same number format the Constructie panes' drift row uses
+ * (ui/checks.ts's driftValue()) -- an edited assumption reads the same way
+ * wherever it is named. A row with no matching drift entry is unaffected.
+ */
+function markedRow(
+  rows: Pick<PaneRows, "numRow">, drift: readonly AssumptionDrift[], key: string,
+  label: string, value: number, commit: (n: number) => void, step: number, help?: string,
+): void {
+  const hit = drift.find(x => x.key === key);
+  if (!hit) { rows.numRow(label, value, commit, step, help ? { title: help } : undefined); return; }
+  rows.numRow(t("materials.driftLabel", { label }), value, commit, step,
+    { title: t("materials.driftHelp", { preset: driftValue(hit.preset, key) }) });
+}
+
+/**
  * The assumptions the preliminary span checks (core/checks.ts, core/timber.ts)
  * read: the timber strength class -- a preset that only fills fmk/fvk/e0mean,
  * mirroring ui/energy.ts's insulation-class select -- the load partial
@@ -182,6 +200,10 @@ export function renderStructureAssumptions(
 ): void {
   const d = store.doc;
   rows.secHead(t("checks.title"), { later: true });
+  // Issue #62: the class select already reads "aangepast" (custom) on its
+  // own whenever no TIMBER_CLASSES entry matches -- see timberClassOf()
+  // below -- so only the numeric figures need marking here.
+  const drift = assumptionDrift(d);
 
   const timber = timberOf(d);
   const classId = timberClassOf(timber);
@@ -199,7 +221,7 @@ export function renderStructureAssumptions(
   // kmod, gammaM and kdef decide every utilisation as much as the class does,
   // so they are edited here rather than only through a pasted document.
   const timberRow = (key: "kmod" | "gammaM" | "kdef", step: number, min: number): void => {
-    rows.numRow(t("materials." + key), timberOf(d)[key], n => store.mutate(dd => {
+    markedRow(rows, drift, key, t("materials." + key), timberOf(d)[key], n => store.mutate(dd => {
       dd.materials ??= {};
       dd.materials.timber ??= { ...TIMBER_DEFAULT };
       dd.materials.timber[key] = Math.max(min, n);
@@ -209,30 +231,30 @@ export function renderStructureAssumptions(
   timberRow("gammaM", 0.05, 1);
   timberRow("kdef", 0.1, 0);
 
-  rows.numRow(t("materials.gammaG"), gammaGOf(d), n => store.mutate(dd => {
+  markedRow(rows, drift, "gammaG", t("materials.gammaG"), gammaGOf(d), n => store.mutate(dd => {
     dd.materials ??= {};
     dd.materials.gammaG = Math.max(0.1, n);
   }), 0.1);
-  rows.numRow(t("materials.gammaQ"), gammaQOf(d), n => store.mutate(dd => {
+  markedRow(rows, drift, "gammaQ", t("materials.gammaQ"), gammaQOf(d), n => store.mutate(dd => {
     dd.materials ??= {};
     dd.materials.gammaQ = Math.max(0.1, n);
   }), 0.1);
-  rows.numRow(t("materials.deflectionDiv"), deflectionDivOf(d), n => store.mutate(dd => {
+  markedRow(rows, drift, "deflectionDiv", t("materials.deflectionDiv"), deflectionDivOf(d), n => store.mutate(dd => {
     dd.materials ??= {};
     dd.materials.deflectionDiv = Math.max(1, Math.round(n));
-  }), 50, { title: t("materials.deflectionDivHelp") });
+  }), 50, t("materials.deflectionDivHelp"));
 
   // Comfort marks (issue #61) -- ride along in the same `timber` bundle as
   // the class and its factors, the same "?? {...TIMBER_DEFAULT}" pattern
   // the rows above use so setting one figure never clobbers the other.
   const comfort = timberOf(d).comfort!;
-  rows.numRow(t("materials.comfortMinHz"), comfort.minHz, n => store.mutate(dd => {
+  markedRow(rows, drift, "comfortMinHz", t("materials.comfortMinHz"), comfort.minHz, n => store.mutate(dd => {
     dd.materials ??= {};
     dd.materials.timber ??= { ...TIMBER_DEFAULT };
     const prev = dd.materials.timber.comfort;
     dd.materials.timber.comfort = { minHz: Math.max(0.1, n), maxPointMm: prev?.maxPointMm ?? MAX_POINT_MM_DEFAULT };
   }), 0.5);
-  rows.numRow(t("materials.comfortMaxPointMm"), comfort.maxPointMm, n => store.mutate(dd => {
+  markedRow(rows, drift, "comfortMaxPointMm", t("materials.comfortMaxPointMm"), comfort.maxPointMm, n => store.mutate(dd => {
     dd.materials ??= {};
     dd.materials.timber ??= { ...TIMBER_DEFAULT };
     const prev = dd.materials.timber.comfort;

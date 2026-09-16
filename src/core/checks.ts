@@ -12,7 +12,7 @@
 import type { PlanDoc, Floor, Wall, Opening, WallMaterial } from "../model/doc";
 import { isFramedMaterial, openingHead, openingBearing } from "../model/doc";
 import { wallTopAt } from "../model/profile";
-import { type Deck, bearingOf } from "../model/deck";
+import { type Deck, bearingOf, DECK_USES } from "../model/deck";
 import { deckSpanMm } from "./deck";
 import type { Beam } from "../model/structure";
 import { STEEL_PROFILES, STRUCTURE_LIMITS } from "../model/structure";
@@ -71,6 +71,15 @@ export interface CheckResult {
    * by "joistSection", the span by "span").
    */
   comfort?: ComfortCheck;
+  /**
+   * Stable keys naming a load this module read as implausible -- a figure
+   * typed low enough to pass a check rather than one the building actually
+   * states (issue #62). Reported beside the result exactly like `missing`,
+   * worded by the pane that reads it; never changes `status`, a
+   * utilisation or `proposal` -- see joistCheck()/beamCheck()/lintelCheck()'s
+   * own comments for what each key tests. Undefined when nothing is flagged.
+   */
+  flags?: string[];
 }
 
 /** Standard gravity, m/s² -- for turning a wall's density into a self-weight. */
@@ -140,6 +149,31 @@ function deckingSelfWeightKgM2(deckingMm: number): number {
 }
 
 /**
+ * Issue #62: a load typed low enough to pass a check must still read as odd
+ * beside the result -- reported, never enforced (this module's own header).
+ * `lowLoadQ` compares the deck's own stated loadQ against the lightest
+ * DECK_USES preset: typed below even a berging/balkon figure understates
+ * what any ordinary floor use asks for. `lowLoadG` compares loadG against
+ * the deck's OWN computed self-weight (joists plus decking, the same figures
+ * comfortInputs() derives) -- a stated permanent load below what the timber
+ * already weighs cannot be the floor's true permanent load, whatever the
+ * use, and needs a joist section to compute at all.
+ */
+function deckLoadFlags(deck: Deck): string[] | undefined {
+  const flags: string[] = [];
+  if (deck.loadQ !== undefined) {
+    const lowestQ = Math.min(...DECK_USES.map(u => u.loadQ));
+    if (deck.loadQ < lowestQ) flags.push("lowLoadQ");
+  }
+  if (deck.loadG !== undefined && deck.joist) {
+    const selfWeightNm2 = (joistSelfWeightKgM2(deck.joist, deck.joistMm)
+      + (deck.deckingMm ? deckingSelfWeightKgM2(deck.deckingMm) : 0)) * GRAVITY_MS2;
+    if (deck.loadG < selfWeightNm2) flags.push("lowLoadG");
+  }
+  return flags.length > 0 ? flags : undefined;
+}
+
+/**
  * The comfort check's own inputs, derived from the deck's stated facts --
  * undefined when a joist section or the permanent load is not stated, since
  * neither the stiffness (EI) nor the mass can be assumed. Not gated on the
@@ -189,18 +223,19 @@ export function joistCheck(doc: PlanDoc, deck: Deck): CheckResult {
   const base = spanMm > 0 && hasLoad ? timberBase(doc, spanMm, gLineNmm, qLineNmm) : null;
   const loadBreakdown = hasLoad ? { gLineKNm: gLineNmm, qLineKNm: qLineNmm } : undefined;
   const comfort = comfortInputs(doc, deck, spanMm);
+  const flags = deckLoadFlags(deck);
 
   if (!deck.joist || !base) {
     return {
       status: "incomplete", missing, material: "timber",
-      proposal: base ? proposeSection(base, sections) : null, loadBreakdown, comfort,
+      proposal: base ? proposeSection(base, sections) : null, loadBreakdown, comfort, flags,
     };
   }
 
   const { check, proposal } = timberResult(base, deck.joist, sections);
   return {
     status: check.passes ? "ok" : "fails", missing: [], material: "timber",
-    input: { ...base, section: deck.joist }, check, proposal, loadBreakdown, comfort,
+    input: { ...base, section: deck.joist }, check, proposal, loadBreakdown, comfort, flags,
   };
 }
 
@@ -220,9 +255,13 @@ export function beamCheck(doc: PlanDoc, _f: Floor, beam: Beam): CheckResult {
 
   const profile = beam.label !== undefined ? STEEL_PROFILES.find(p => p.label === beam.label) : undefined;
   const isSteel = profile !== undefined;
+  // Issue #62: a load stated as exactly zero passes trivially -- flagged
+  // beside the result rather than folded into `missing`, since zero is a
+  // value the document did type, not one it left absent.
+  const flags: string[] | undefined = beam.loadKNm === 0 ? ["zeroLoad"] : undefined;
 
   if (missing.length > 0) {
-    return { status: "incomplete", missing, material: isSteel ? "steel" : "timber", proposal: null };
+    return { status: "incomplete", missing, material: isSteel ? "steel" : "timber", proposal: null, flags };
   }
 
   // kN/m and N/mm are the same number; the whole authored load is permanent.
@@ -242,7 +281,10 @@ export function beamCheck(doc: PlanDoc, _f: Floor, beam: Beam): CheckResult {
     // A steel beam is checked against its own catalogue section, never
     // proposed a replacement -- proposal is always null so a failing steel
     // beam reads "none passes" rather than silently carrying no note.
-    return { status: check.passes ? "ok" : "fails", missing: [], material: "steel", input, check, proposal: null, loadBreakdown };
+    return {
+      status: check.passes ? "ok" : "fails", missing: [], material: "steel", input, check, proposal: null,
+      loadBreakdown, flags,
+    };
   }
 
   const timber = timberOf(doc);
@@ -257,7 +299,7 @@ export function beamCheck(doc: PlanDoc, _f: Floor, beam: Beam): CheckResult {
   const { check, proposal } = timberResult(base, { w: beam.width, d: beam.depth }, beamSections);
   return {
     status: check.passes ? "ok" : "fails", missing: [], material: "timber",
-    input: { ...base, section: { w: beam.width, d: beam.depth } }, check, proposal, loadBreakdown,
+    input: { ...base, section: { w: beam.width, d: beam.depth } }, check, proposal, loadBreakdown, flags,
   };
 }
 
@@ -297,17 +339,22 @@ export function lintelCheck(doc: PlanDoc, f: Floor, wall: Wall, opening: Opening
   const loadBreakdown = selfWeightNmm !== null
     ? { gLineKNm: selfWeightNmm, qLineKNm: extraNmm, wallLineKNm: selfWeightNmm }
     : undefined;
+  // Issue #62: an authored floor bearing stated as exactly zero (the toggle
+  // is on, the figure typed to nothing) reports the same way beamCheck()'s
+  // zero load does -- the wall's own self-weight is never authored, so this
+  // is the one load figure a lintel can state at all.
+  const flags: string[] | undefined = opening.lintelLoadKNm === 0 ? ["zeroLoad"] : undefined;
 
   if (!opening.lintel || !base) {
     return {
       status: "incomplete", missing, material: "timber",
-      proposal: base ? proposeSection(base, sections) : null, loadBreakdown,
+      proposal: base ? proposeSection(base, sections) : null, loadBreakdown, flags,
     };
   }
 
   const { check, proposal } = timberResult(base, opening.lintel, sections);
   return {
     status: check.passes ? "ok" : "fails", missing: [], material: "timber",
-    input: { ...base, section: opening.lintel }, check, proposal, loadBreakdown,
+    input: { ...base, section: opening.lintel }, check, proposal, loadBreakdown, flags,
   };
 }

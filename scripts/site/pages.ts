@@ -491,6 +491,15 @@ vloer die machines draagt — die vragen een eigen beoordeling. Voldoet een balk
 paneel een vaste lijst met wat het cijfer verhoogt: een dikkere balk, een kleinere hart-op-hart
 afstand, doorschietende regels of een strongback tussen de balken, of een vloerplaat die zowel gelijmd
 als geschroefd is.</p>
+<p>De knop <b>Uitgangspunten exporteren</b> — in het documentmenu en onderaan Materialen — legt deze
+toetsing vast op één afdrukbare pagina, om aan een constructeur mee te geven: per verdieping elke
+balklaag, balk en latei met haar overspanning, belastingopbouw, doorsnede en resultaat, de comfortcijfers
+van elke balklaag, de opgegeven aannames in cijfers, elke aanname die van haar standaardwaarde afwijkt, en
+een vaste lijst met wat de toetsing niet heeft meegenomen — puntlasten, doorlopende of uitkragende
+overspanningen, kipstabiliteit, insnijdingen, opleggingsdruk, verbindingen, brandwerendheid, de
+lastafdracht onder het element en de fundering, plus het inkorten van balken rond een sparing in een
+balklaag. Een document zonder balklaag, balk of latei krijgt een pagina die dat met zoveel woorden meldt in
+plaats van een lege pagina. Zoals overal hier: gemeld, geen constructieberekening.</p>
 
 <h2 id="selecteren">Selecteren, verplaatsen, krommen</h2>
 <p><kbd>V</kbd> activeert het selectiegereedschap voor knopen, muren en symbolen. Een geselecteerde muur
@@ -1008,6 +1017,14 @@ section, no figure is shown. They say nothing about a heavy finish, a long or co
 floor carrying machinery — those need their own assessment. Where a deck fails, the panel names a fixed
 list of what raises the figure: a deeper joist, closer centres, blocking or a strongback between the
 joists, or a deck glued as well as screwed.</p>
+<p>The <b>Export assumptions sheet</b> button — in the document menu and at the foot of Materials —
+records this checking on one printable page, to hand a structural engineer: per storey, every deck, beam
+and lintel with its span, load make-up, section and result, every deck's comfort figures, the stated
+assumptions as figures, every assumption edited away from its default, and a fixed list of what the check
+does not cover — point loads, continuous or cantilevered spans, lateral-torsional stability, notches,
+bearing stress, connections, fire, the load path below the member and the foundation, plus a joist trimmed
+around an opening in a deck. A document with no deck, beam or lintel gets a page that says so, rather than
+an empty one. As everywhere here: reported, not a constructieberekening.</p>
 
 <h2 id="select">Selecting, moving, curving</h2>
 <p><kbd>V</kbd> activates selection and dragging for nodes, walls and symbols. A selected wall displays
