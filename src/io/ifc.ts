@@ -738,9 +738,17 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
    * tangent-line approximation resolve.ts already accepts at an arc's own
    * ends, since a half-space plane cannot itself follow a curve. Returns the
    * flat extrusion unclipped when this segment is already flat at `maxH`.
+   *
+   * `zBase` is the extrusion's own floor, 0 for the wall's body pieces. An
+   * opening's band above its head (`OpeningVoid.above`, core/solids.ts) reuses
+   * this same clip against the wall's own top line, starting from the head
+   * height instead of the slab -- the tilted plane depends only on the wall's
+   * profile, never on where the extrusion begins.
    */
-  function slopedPieceSolid(floor: Floor, wall: Wall, poly: Vec[], maxH: number, A: Vec, B: Vec, L: number): number | null {
-    if (L <= 0) return extrudedSolid(poly, 0, maxH);
+  function slopedPieceSolid(
+    floor: Floor, wall: Wall, poly: Vec[], maxH: number, A: Vec, B: Vec, L: number, zBase = 0,
+  ): number | null {
+    if (L <= 0) return extrudedSolid(poly, zBase, maxH);
 
     // The segment's span along the wall: project every vertex onto the chord.
     const dir = norm(sub(B, A));
@@ -761,7 +769,7 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
     // material standing above the high end of the segment would project past
     // the boundary and survive the clip.
     const top = Math.max(h0, h1);
-    const base = extrudedSolid(poly, 0, top);
+    const base = extrudedSolid(poly, zBase, top);
     if (base === null || s1 - s0 <= 0.5) return base;
     if (Math.abs(h1 - h0) <= 0.5) return base; // a flat segment needs no clip
 
@@ -1028,8 +1036,30 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
         const na = floor.nodes.find(n => n.id === wall.a), nb = floor.nodes.find(n => n.id === wall.b);
         const A = na ? v(na.x, na.y) : v(0, 0), B = nb ? v(nb.x, nb.y) : v(0, 0);
         bodyIds = ws.body.map(p => slopedPieceSolid(floor, wall, p.poly, maxH, A, B, lengthMm));
+        // ws.body's pieces (ResolvedWall.pieces) run BETWEEN openings -- see
+        // wallBodyPrisms() in core/solids.ts -- so the band below a sill and
+        // the band above a head (issue #59) are missing material, not a
+        // second solid: every opening's void cuts a full-height hole out of a
+        // body that carries nothing over its own span. The band below is
+        // always flat (0 to z0 <= the wall's top everywhere across the
+        // opening's own width, by construction of OpeningVoid.z0/z1 in
+        // core/solids.ts); the band above follows the profile through the
+        // same clip a body piece gets, one solid per `above` piece, starting
+        // at the head height instead of the slab.
+        for (const og of ws.voids) {
+          bodyIds.push(extrudedSolid(og.poly, 0, og.z0));
+          for (const p of og.above ?? []) {
+            bodyIds.push(slopedPieceSolid(floor, wall, p.poly, maxH, A, B, lengthMm, og.z1));
+          }
+        }
       } else {
         bodyIds = ws.body.map(p => extrudedSolid(p.poly, p.z0, p.z1));
+        // Same bands, flat wall: the above-band simply runs to the wall's one
+        // height (maxH here equals wallHeight(), see wallBodyPrisms()).
+        for (const og of ws.voids) {
+          bodyIds.push(extrudedSolid(og.poly, 0, og.z0));
+          bodyIds.push(extrudedSolid(og.poly, og.z1, maxH));
+        }
       }
       // A wall carrying posts is IFC4's ELEMENTEDWALL: a wall assembled from
       // components. That is the honest predefined type for a curtain-walled or
