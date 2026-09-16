@@ -13,6 +13,7 @@ import { pickUnderlayImage, prepareUnderlayImage, initialUnderlay, imageFromClip
 import { exportPng } from "../io/image";
 import { exportDxf } from "../io/dxf";
 import { exportIfc } from "../io/ifc";
+import { exportMaterialsCsv } from "../io/materials";
 import { exportSvg } from "../io/svg";
 import { exportPermit, PermitFormat } from "../io/permit";
 import { permitChecklist, PermitCheck } from "../core/permit";
@@ -609,6 +610,7 @@ export class Panel {
       { kind: "item", icon: "docSvg", label: t("action.svg"), hint: "SVG", onPick: () => { void this.saveSvg(); } },
       { kind: "item", icon: "docDxf", label: t("action.dxf"), hint: "DXF", onPick: () => { void this.saveDxf(); } },
       { kind: "item", icon: "docDxf", label: t("action.ifc"), hint: "IFC", onPick: () => { void this.saveIfc(); } },
+      { kind: "item", icon: "docCsv", label: t("action.csv"), hint: "CSV", onPick: () => { void this.saveMaterialsCsv(); } },
       { kind: "item", icon: "docCopy", label: t("action.copy"), onPick: () => {
         void copyJson(this.store.doc).then(ok => this.flash(ok ? t("status.copied") : t("status.copyFailed")));
       } },
@@ -675,6 +677,13 @@ export class Panel {
   private async saveIfc(): Promise<void> {
     const result = await exportIfc(this.store.doc);
     this.flash(t(result === "saved" ? "status.ifcSaved" : "status.ifcFailed"));
+  }
+
+  /** Materiaalstaat CSV. Whole document like saveIfc(): the sheet states its
+   *  own storey column per row rather than needing a floorIndex. */
+  private async saveMaterialsCsv(): Promise<void> {
+    const result = await exportMaterialsCsv(this.store.doc);
+    this.flash(t(result === "saved" ? "status.csvSaved" : "status.csvFailed"));
   }
 
   /**
@@ -2071,6 +2080,7 @@ export class Panel {
     inner.append(this.materialsTakeoffEl);
 
     noteRow(t("materials.closingNote"));
+    btnRow(t("action.csv"), () => { void this.saveMaterialsCsv(); }, "CSV");
 
     wrap.append(head, body);
     this.syncMaterialsTakeoff();

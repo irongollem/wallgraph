@@ -17,6 +17,8 @@ import { bulgeFromSagitta } from "../src/geometry/arc";
 import type { Vide } from "../src/model/vide";
 import type { Stair } from "../src/model/stair";
 import type { Furnishing } from "../src/model/furnishing";
+import type { Deck } from "../src/model/deck";
+import { deckJoistsLocal } from "../src/core/deck";
 import { SYMBOLS } from "../src/render/symbols";
 
 let failures = 0;
@@ -1423,6 +1425,200 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
   check("Qto_WallBaseQuantities.GrossVolume reads the area under the profile, not length x height",
     qto9.GrossVolume !== undefined && Math.abs(qto9.GrossVolume - expectedGross9) < 1e-9,
     `${qto9.GrossVolume} vs ${expectedGross9}`);
+}
+
+// ── BIM 10 (issue #51): physical layer order, Wallgraph_Construction and
+// Wallgraph_Loads, and the deck export ──────────────────────────────────────
+{
+  const doc10 = emptyDoc();
+  const f10 = doc10.floors[0]!;
+  const seed10 = doc10.guid ?? "";
+  const n0 = nodeAt(f10, v(0, 0)).id, n1 = nodeAt(f10, v(4000, 0)).id;
+  const n2 = nodeAt(f10, v(0, 3000)).id, n3 = nodeAt(f10, v(4000, 3000)).id;
+
+  // No lintel/bearing on this one, to prove nothing leaks in from
+  // openingBearing()'s OPENING_BEARING_DEFAULT_MM when nothing is authored.
+  const plainWindow: Opening = { id: newId("o"), kind: "window", t: 1500, width: 900, sashes: [] };
+  const doorWithLintel: Opening = {
+    id: newId("o"), kind: "door", t: 1500, width: 900, sashes: [],
+    bearingMm: 175, lintel: { w: 89, d: 220 },
+  };
+  const leftWall: Wall = { // facadeSide absent -> "left"
+    id: newId("w"), a: n0, b: n1, thickness: 100, bulge: 0, openings: [doorWithLintel],
+    material: "sandwich", facadeMm: 60,
+    postMm: 600, postWidthMm: 38, noggingRows: 2, insulated: true,
+  };
+  const rightWall: Wall = {
+    id: newId("w"), a: n2, b: n3, thickness: 240, bulge: 0, openings: [plainWindow],
+    material: "aerated", facadeMm: 50, facadeSide: "right", blockMm: { length: 600, height: 250 },
+  };
+  const sandwichWall: Wall = {
+    id: newId("w"), a: n1, b: n3, thickness: 100, bulge: 0, openings: [],
+    material: "sandwich", panelMm: 1200, // no facade, no post frame
+  };
+  const bareWall: Wall = { // states nothing this pset reads
+    id: newId("w"), a: n0, b: n2, thickness: 100, bulge: 0, openings: [],
+  };
+  f10.walls.push(leftWall, rightWall, sandwichWall, bareWall);
+
+  const out10 = toIfc(doc10);
+  const ents10 = out10.split("\n").filter(l => l.startsWith("#"));
+  function argRefs10(line: string): number[] {
+    return [...line.slice(line.indexOf("=") + 1).matchAll(/#(\d+)/g)].map(m => Number(m[1]));
+  }
+  function lineOf10(id: number): string | undefined {
+    return ents10.find(l => l.startsWith(`#${id}=`));
+  }
+  /** The IFCPROPERTYSET line for a given ifcGuid(seed10, guidKey), if any --
+   *  the same key attachPropertySet() derives its own GlobalId from, so this
+   *  finds the exact pset a given wall/opening/deck carries without having
+   *  to chase IFCRELDEFINESBYPROPERTIES by hand. */
+  function psetLine(guidKey: string): string | undefined {
+    const guid = ifcGuid(seed10, guidKey);
+    return ents10.find(l => l.includes(`=IFCPROPERTYSET('${guid}'`));
+  }
+  function propValues(line: string): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const id of argRefs10(line).slice(1)) { // slice(1): drop the ownerHistory ref
+      const l = lineOf10(id);
+      const m = l ? /IFCPROPERTYSINGLEVALUE\('([^']+)',\$,(.+),\$\);$/.exec(l) : null;
+      if (m) out[m[1]!] = m[2]!;
+    }
+    return out;
+  }
+
+  // ── physical layer order ────────────────────────────────────────────────
+  function layerNames(wallId: string): string[] {
+    const guid = ifcGuid(seed10, wallId);
+    const wallLine = ents10.find(l => l.includes(`=IFCWALL('${guid}'`));
+    const eid = wallLine ? Number(/^#(\d+)=/.exec(wallLine)![1]) : undefined;
+    if (eid === undefined) return [];
+    const rel = ents10.find(l => l.includes("=IFCRELASSOCIATESMATERIAL(") && new RegExp(`#${eid}(?!\\d)`).test(l));
+    if (!rel) return [];
+    const setLine = lineOf10(argRefs10(rel).at(-1)!);
+    if (!setLine?.includes("=IFCMATERIALLAYERSET(")) return [];
+    return argRefs10(setLine).map(id => {
+      const l = lineOf10(id);
+      const m = l ? /IFCMATERIALLAYER\([^,]*,[^,]*,[^,]*,'([^']*)'/.exec(l) : null;
+      return m?.[1] ?? "";
+    });
+  }
+  check("facadeSide \"left\" (default): the facade layer lists FIRST, before Structure",
+    JSON.stringify(layerNames(leftWall.id)) === JSON.stringify(["Facade", "Structure"]),
+    JSON.stringify(layerNames(leftWall.id)));
+  check("facadeSide \"right\": the facade layer lists LAST, after Structure",
+    JSON.stringify(layerNames(rightWall.id)) === JSON.stringify(["Structure", "Facade"]),
+    JSON.stringify(layerNames(rightWall.id)));
+
+  // ── Wallgraph_Construction (wall) ───────────────────────────────────────
+  const leftProps = psetLine(`${leftWall.id}:construction`);
+  check("the framed, insulated wall carries Wallgraph_Construction", leftProps !== undefined);
+  if (leftProps) {
+    const values = propValues(leftProps);
+    check("PostCentres reads back the authored postMm", values.PostCentres === "IFCPOSITIVELENGTHMEASURE(600.)", values.PostCentres);
+    check("PostWidth reads back the authored postWidthMm", values.PostWidth === "IFCPOSITIVELENGTHMEASURE(38.)", values.PostWidth);
+    check("NoggingRows reads back the authored count", values.NoggingRows === "IFCCOUNTMEASURE(2)", values.NoggingRows);
+    check("Insulated reads back true", values.Insulated === "IFCBOOLEAN(.T.)", values.Insulated);
+    check("a wall with no block format carries no BlockLength/BlockHeight",
+      values.BlockLength === undefined && values.BlockHeight === undefined);
+  }
+  const rightProps = psetLine(`${rightWall.id}:construction`);
+  check("the block wall carries Wallgraph_Construction", rightProps !== undefined);
+  if (rightProps) {
+    const values = propValues(rightProps);
+    check("BlockLength reads back the authored blockMm.length", values.BlockLength === "IFCPOSITIVELENGTHMEASURE(600.)", values.BlockLength);
+    check("BlockHeight reads back the authored blockMm.height", values.BlockHeight === "IFCPOSITIVELENGTHMEASURE(250.)", values.BlockHeight);
+    check("a wall with no post frame carries no PostCentres", values.PostCentres === undefined);
+  }
+  const panelProps = psetLine(`${sandwichWall.id}:construction`);
+  check("the panelled wall carries Wallgraph_Construction", panelProps !== undefined);
+  if (panelProps) {
+    check("PanelWidth reads back the authored panelMm",
+      propValues(panelProps).PanelWidth === "IFCPOSITIVELENGTHMEASURE(1200.)", propValues(panelProps).PanelWidth);
+  }
+  check("a wall stating no construction fact at all carries no Wallgraph_Construction pset",
+    psetLine(`${bareWall.id}:construction`) === undefined);
+
+  // ── Wallgraph_Construction (opening) ────────────────────────────────────
+  const doorProps = psetLine(`${doorWithLintel.id}:construction`);
+  check("the door with an authored bearing and lintel carries Wallgraph_Construction", doorProps !== undefined);
+  if (doorProps) {
+    const values = propValues(doorProps);
+    check("Bearing reads back the authored bearingMm, not OPENING_BEARING_DEFAULT_MM",
+      values.Bearing === "IFCPOSITIVELENGTHMEASURE(175.)", values.Bearing);
+    check("LintelWidth reads back the authored lintel.w", values.LintelWidth === "IFCPOSITIVELENGTHMEASURE(89.)", values.LintelWidth);
+    check("LintelDepth reads back the authored lintel.d", values.LintelDepth === "IFCPOSITIVELENGTHMEASURE(220.)", values.LintelDepth);
+  }
+  check("a window stating no bearing or lintel carries no Wallgraph_Construction pset at all",
+    psetLine(`${plainWindow.id}:construction`) === undefined);
+
+  // ── decks: one slab, the expected joist count, Wallgraph_Loads ─────────
+  const raisedDeck: Deck = {
+    id: newId("dk"), x: 2000, y: 1500, rotation: 0, width: 1600, depth: 1200,
+    joistAxis: "x", joistMm: 400, joist: { w: 63, d: 145 }, deckingMm: 18,
+    topMm: 2400, loadG: 500, loadQ: 1750,
+  };
+  // At floor level (topMm absent): deckSolids() draws no decking prism of its
+  // own -- the storey's own slab already covers it -- so this one gets no
+  // IFCSLAB, but its joists are still exported, and it states no load.
+  const floorDeck: Deck = {
+    id: newId("dk"), x: 2000, y: 900, rotation: 0, width: 1200, depth: 900,
+    joistAxis: "y", joistMm: 400, joist: { w: 63, d: 145 },
+  };
+  f10.decks = [raisedDeck, floorDeck];
+  const out10b = toIfc(doc10);
+  const ents10b = out10b.split("\n").filter(l => l.startsWith("#"));
+  function lineOf10b(id: number): string | undefined { return ents10b.find(l => l.startsWith(`#${id}=`)); }
+  function psetLineB(guidKey: string): string | undefined {
+    const guid = ifcGuid(seed10, guidKey);
+    return ents10b.find(l => l.includes(`=IFCPROPERTYSET('${guid}'`));
+  }
+  function guidLineB(entityType: string, guidKey: string): string | undefined {
+    const guid = ifcGuid(seed10, guidKey);
+    return ents10b.find(l => l.includes(`=${entityType}('${guid}'`));
+  }
+  function argRefs10b(line: string): number[] {
+    return [...line.slice(line.indexOf("=") + 1).matchAll(/#(\d+)/g)].map(m => Number(m[1]));
+  }
+  function propValuesB(line: string): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const id of argRefs10b(line).slice(1)) {
+      const l = lineOf10b(id);
+      const m = l ? /IFCPROPERTYSINGLEVALUE\('([^']+)',\$,(.+),\$\);$/.exec(l) : null;
+      if (m) out[m[1]!] = m[2]!;
+    }
+    return out;
+  }
+
+  check("the raised deck yields exactly one IFCSLAB (its own GlobalId resolves)",
+    guidLineB("IFCSLAB", `${raisedDeck.id}:slab`) !== undefined);
+  check("a deck at floor level yields no IFCSLAB of its own",
+    guidLineB("IFCSLAB", `${floorDeck.id}:slab`) === undefined);
+
+  const expectedRaisedJoists = deckJoistsLocal(raisedDeck).length;
+  const expectedFloorJoists = deckJoistsLocal(floorDeck).length;
+  check("the raised deck's joist count matches deckJoistsLocal()", expectedRaisedJoists > 0, String(expectedRaisedJoists));
+  for (let i = 0; i < expectedRaisedJoists; i++) {
+    check(`raised deck joist #${i} is present`, guidLineB("IFCMEMBER", `${raisedDeck.id}:joist:${i}`) !== undefined);
+  }
+  check("the raised deck carries no extra joist beyond the expected count",
+    guidLineB("IFCMEMBER", `${raisedDeck.id}:joist:${expectedRaisedJoists}`) === undefined);
+  for (let i = 0; i < expectedFloorJoists; i++) {
+    check(`floor-level deck joist #${i} is present even without its own slab`,
+      guidLineB("IFCMEMBER", `${floorDeck.id}:joist:${i}`) !== undefined);
+  }
+
+  const loadsLine = psetLineB(`${raisedDeck.id}:loads`);
+  check("the raised deck carries Wallgraph_Loads", loadsLine !== undefined);
+  if (loadsLine) {
+    const values = propValuesB(loadsLine);
+    check("PermanentLoad is the authored loadG converted from N/m^2 to kN/m^2",
+      values.PermanentLoad === "IFCREAL(0.5)", values.PermanentLoad);
+    check("VariableLoad is the authored loadQ converted from N/m^2 to kN/m^2",
+      values.VariableLoad === "IFCREAL(1.75)", values.VariableLoad);
+  }
+  check("a deck stating no loads carries no Wallgraph_Loads pset at all -- never a derived zero",
+    psetLineB(`${floorDeck.id}:loads`) === undefined);
 }
 
 console.log(failures === 0 ? "ALL IFC TESTS PASSED" : `${failures} FAILURES`);

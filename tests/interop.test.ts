@@ -22,12 +22,14 @@ import path from "node:path";
 import type * as WebIFC from "web-ifc";
 import {
   type PlanDoc, type Floor, type Wall, type Opening, type SymbolInstance,
-  floorElevation, wallHeight, fireLabel, stairsOf, furnishingsOf, videsOf,
+  floorElevation, wallHeight, fireLabel, stairsOf, furnishingsOf, videsOf, decksOf,
 } from "../src/model/doc";
 import { wallLength } from "../src/model/ops";
 import type { Vide } from "../src/model/vide";
 import type { Stair } from "../src/model/stair";
 import type { Furnishing } from "../src/model/furnishing";
+import type { Deck } from "../src/model/deck";
+import { deckJoistsLocal } from "../src/core/deck";
 import { toIfc } from "../src/io/ifc";
 import { ifcGuid } from "../src/model/guid";
 import { detectRooms } from "../src/core/rooms";
@@ -72,6 +74,9 @@ function buildDoc(): PlanDoc {
     id: "gf-o-door", kind: "door", t: 1200, width: 900,
     sashes: [{ action: "turn", hinge: "b" }],
     fireRating: { kind: "wbdbo", minutes: 60 }, selfClosing: true,
+    // BIM 10 (issue #51): authored bearing and lintel, read back onto the
+    // opening's own Wallgraph_Construction pset below.
+    bearingMm: 150, lintel: { w: 89, d: 220 },
   };
   const window: Opening = {
     id: "gf-o-window", kind: "window", t: 1500, width: 1200,
@@ -84,17 +89,41 @@ function buildDoc(): PlanDoc {
       id: "gf-w1", a: "gf-n0", b: "gf-n4", thickness: 300, bulge: 0, openings: [door],
       loadBearing: true, fireRating: { kind: "wbdbo", minutes: 60 },
     },
-    { id: "gf-w2", a: "gf-n4", b: "gf-n1", thickness: 300, bulge: 0, openings: [] },
+    // A framed, insulated wall -- exercises Wallgraph_Construction's post
+    // centres, post width, nogging rows and insulated flag (BIM 10).
+    {
+      id: "gf-w2", a: "gf-n4", b: "gf-n1", thickness: 300, bulge: 0, openings: [],
+      material: "timber", postMm: 600, postWidthMm: 38, noggingRows: 1, insulated: true,
+    },
     { id: "gf-w3", a: "gf-n1", b: "gf-n2", thickness: 300, bulge: 0, openings: [window] },
-    { id: "gf-w4", a: "gf-n2", b: "gf-n5", thickness: 300, bulge: 0, openings: [] },
+    // Block format -- exercises Wallgraph_Construction's BlockLength/BlockHeight.
+    {
+      id: "gf-w4", a: "gf-n2", b: "gf-n5", thickness: 300, bulge: 0, openings: [],
+      material: "aerated", blockMm: { length: 600, height: 250 },
+    },
     // Bulged, same chord order as tests/ifc.test.ts's BIM4 block: endpoints
     // unmoved, bulge alone bows the wall.
     { id: "gf-w5", a: "gf-n5", b: "gf-n3", thickness: 300, bulge: bulgeFromSagitta(v(4000, 3000), v(0, 3000), 400), openings: [] },
-    { id: "gf-w6", a: "gf-n3", b: "gf-n0", thickness: 300, bulge: 0, openings: [] },
+    // Clad and panelled -- exercises Wallgraph_Construction's PanelWidth and
+    // the IFCMATERIALLAYERSET's physical left/right ordering (facadeSide
+    // "right": the facade layer must list AFTER Structure).
+    {
+      id: "gf-w6", a: "gf-n3", b: "gf-n0", thickness: 300, bulge: 0, openings: [],
+      material: "sandwich", panelMm: 1200, facadeMm: 100, facadeSide: "right",
+    },
     { id: "gf-w7", a: "gf-n4", b: "gf-n5", thickness: 150, bulge: 0, openings: [passage] }, // partition
   ];
 
   const vide: Vide = { id: "gf-vide1", x: 6000, y: 1500, rotation: 0, width: 1200, depth: 1200 };
+  // A raised deck (vliering) -- exercises BIM 10's IFCSLAB + IFCMEMBER export
+  // and Wallgraph_Loads (issue #51). Raised (topMm > 0) with a stated decking
+  // thickness, so deckSolids() draws its own decking prism rather than
+  // leaving the storey's own slab to stand for it (core/deck.ts).
+  const deck: Deck = {
+    id: "gf-deck1", x: 1200, y: 2300, rotation: 0, width: 1600, depth: 1200,
+    joistAxis: "x", joistMm: 400, joist: { w: 63, d: 145 }, deckingMm: 18,
+    topMm: 2400, loadG: 500, loadQ: 1750, label: "Vliering",
+  };
   const stair: Stair = {
     id: "gf-stair1", kind: "steektrap", x: 2000, y: 300, rotation: 0,
     width: 900, going: 220, treads: 15, rise: 2800,
@@ -123,7 +152,7 @@ function buildDoc(): PlanDoc {
   const ground: Floor = {
     id: "floor-gf", name: "Begane grond", height: 2600,
     nodes: groundNodes, walls: groundWalls, symbols,
-    stairs: [stair], vides: [vide], furnishings,
+    stairs: [stair], vides: [vide], furnishings, decks: [deck],
     roomNames: [{ id: "gf-rn1", x: 2000, y: 1500, name: "Woonkamer" }], // inside the left room only
   };
 
@@ -220,8 +249,13 @@ async function roundTrip(): Promise<void> {
   const allFurnishings = doc.floors.flatMap(f => furnishingsOf(f));
   const totalRooms = doc.floors.reduce((n, f) => n + detectRooms(f).length, 0);
   // Both floors are closed rectangles, so floorSolids() returns a slab for
-  // each — one IFCSLAB per floor.
-  const expectedSlabs = doc.floors.length;
+  // each — one IFCSLAB per floor — plus one more for the ground floor's own
+  // raised, decked deck (BIM 10: deckSolids() draws a decking prism only
+  // when topMm > 0 and deckingMm is stated, which gf-deck1 is).
+  const allDecks = doc.floors.flatMap(f => decksOf(f));
+  const expectedSlabs = doc.floors.length + allDecks.filter(d => (d.topMm ?? 0) > 0 && (d.deckingMm ?? 0) > 0).length;
+  // One IFCMEMBER per joist, at every deck's own set-out position.
+  const expectedJoists = allDecks.reduce((n, d) => n + deckJoistsLocal(d).length, 0);
   // FURNISHING_CLASSES maps cabinetry and loose furniture to IFCFURNITURE,
   // fixtures to IFCSANITARYTERMINAL and appliances to IFCELECTRICAPPLIANCE
   // (see io/ifc.ts), so the five pieces above split three ways.
@@ -242,8 +276,10 @@ async function roundTrip(): Promise<void> {
   check("IFCOPENINGELEMENT count matches openings + vides",
     countOfType(webifc.IFCOPENINGELEMENT) === allOpenings.length + allVides.length,
     String(countOfType(webifc.IFCOPENINGELEMENT)));
-  check("IFCSLAB count matches the closed floors", countOfType(webifc.IFCSLAB) === expectedSlabs,
-    String(countOfType(webifc.IFCSLAB)));
+  check("IFCSLAB count matches the closed floors plus the raised deck's decking",
+    countOfType(webifc.IFCSLAB) === expectedSlabs, String(countOfType(webifc.IFCSLAB)));
+  check("IFCMEMBER count matches the deck's joists", countOfType(webifc.IFCMEMBER) === expectedJoists,
+    `${countOfType(webifc.IFCMEMBER)} vs ${expectedJoists}`);
   check("IFCSTAIR count matches the document", countOfType(webifc.IFCSTAIR) === allStairs.length,
     String(countOfType(webifc.IFCSTAIR)));
   check("IFCSTAIRFLIGHT count matches the document (one flight per stair)",
@@ -362,6 +398,69 @@ async function roundTrip(): Promise<void> {
       const expectedFireLabel = fireLabel(doorWall.fireRating!);
       check("Pset_WallCommon.FireRating reads back the exact fireLabel text",
         psetValues.FireRating === expectedFireLabel, `${JSON.stringify(psetValues.FireRating)} vs ${expectedFireLabel}`);
+    }
+  }
+
+  // ── Wallgraph_Construction / Wallgraph_Loads round-trip (BIM 10) ─────────
+  //
+  // web-ifc parses a custom (non-Pset_*) IFCPROPERTYSET the same way as a
+  // standard one, so this exercises exactly what a receiving model would
+  // read: the authored construction facts on gf-w2's frame, and the deck's
+  // own loads on its slab -- not a derived figure in sight.
+
+  {
+    const framedWall = doc.floors[0]!.walls.find(w => w.id === "gf-w2")!;
+    const wallEid = Number(api.GetExpressIdFromGuid(modelID, ifcGuid(SEED, framedWall.id)));
+    const relDefines = api.GetLineIDsWithType(modelID, webifc.IFCRELDEFINESBYPROPERTIES);
+    let constructionValues: Record<string, unknown> | undefined;
+    for (let i = 0; i < relDefines.size(); i++) {
+      const rel = api.GetLine(modelID, relDefines.get(i));
+      const related: Array<{ value: number }> = Array.isArray(rel.RelatedObjects) ? rel.RelatedObjects : [rel.RelatedObjects];
+      if (!related.some(r => r.value === wallEid)) continue;
+      const def = api.GetLine(modelID, rel.RelatingPropertyDefinition.value as number);
+      if (def.type !== webifc.IFCPROPERTYSET || def.Name?.value !== "Wallgraph_Construction") continue;
+      constructionValues = {};
+      for (const pHandle of def.HasProperties as Array<{ value: number }>) {
+        const p = api.GetLine(modelID, pHandle.value);
+        constructionValues[p.Name?.value as string] = p.NominalValue?.value;
+      }
+    }
+    check("Wallgraph_Construction was found on the framed wall", constructionValues !== undefined);
+    if (constructionValues) {
+      check("PostCentres reads back the authored postMm", constructionValues.PostCentres === framedWall.postMm,
+        `${constructionValues.PostCentres} vs ${framedWall.postMm}`);
+      check("PostWidth reads back the authored postWidthMm", constructionValues.PostWidth === framedWall.postWidthMm,
+        `${constructionValues.PostWidth} vs ${framedWall.postWidthMm}`);
+      check("NoggingRows reads back the authored count", constructionValues.NoggingRows === framedWall.noggingRows,
+        `${constructionValues.NoggingRows} vs ${framedWall.noggingRows}`);
+      check("Insulated reads back true", constructionValues.Insulated === true, String(constructionValues.Insulated));
+    }
+  }
+
+  {
+    const deck = decksOf(doc.floors[0]!)[0]!;
+    const slabEid = Number(api.GetExpressIdFromGuid(modelID, ifcGuid(SEED, `${deck.id}:slab`)));
+    check("the deck's IFCSLAB resolves by its derived GlobalId", !Number.isNaN(slabEid));
+    const relDefines = api.GetLineIDsWithType(modelID, webifc.IFCRELDEFINESBYPROPERTIES);
+    let loadValues: Record<string, unknown> | undefined;
+    for (let i = 0; i < relDefines.size(); i++) {
+      const rel = api.GetLine(modelID, relDefines.get(i));
+      const related: Array<{ value: number }> = Array.isArray(rel.RelatedObjects) ? rel.RelatedObjects : [rel.RelatedObjects];
+      if (!related.some(r => r.value === slabEid)) continue;
+      const def = api.GetLine(modelID, rel.RelatingPropertyDefinition.value as number);
+      if (def.type !== webifc.IFCPROPERTYSET || def.Name?.value !== "Wallgraph_Loads") continue;
+      loadValues = {};
+      for (const pHandle of def.HasProperties as Array<{ value: number }>) {
+        const p = api.GetLine(modelID, pHandle.value);
+        loadValues[p.Name?.value as string] = p.NominalValue?.value;
+      }
+    }
+    check("Wallgraph_Loads was found on the deck's slab", loadValues !== undefined);
+    if (loadValues) {
+      check("PermanentLoad is the authored loadG converted to kN/m^2",
+        loadValues.PermanentLoad === deck.loadG! / 1000, `${loadValues.PermanentLoad} vs ${deck.loadG! / 1000}`);
+      check("VariableLoad is the authored loadQ converted to kN/m^2",
+        loadValues.VariableLoad === deck.loadQ! / 1000, `${loadValues.VariableLoad} vs ${deck.loadQ! / 1000}`);
     }
   }
 

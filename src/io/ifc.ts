@@ -62,8 +62,9 @@
 import {
   PlanDoc, Floor, Wall, projectOf, floorElevation, floorHeight, areaModeOf, dimModeOf, DimMode, Sash, sashSpecsOf,
   openingHeight, videsOf, stairsOf, structureOf, furnishingsOf, routesOf, SymbolInstance, fireLabel, WallMaterial,
-  wallPostMm, wallFacadeMm, wallLiningMm, liningSideOf,
+  wallPostMm, wallFacadeMm, wallLiningMm, liningSideOf, facadeSideOf, decksOf,
 } from "../model/doc";
+import { deckSolids } from "../core/deck";
 import { structureSolid, spanLength } from "../core/structure";
 import {
   Discipline, Route, routeDiameter, routeDuctDiameter, routeHeat, routeHeatDiameter,
@@ -1017,6 +1018,9 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
     const byBuild = new Map<string,
       {
         material?: WallMaterial; thickness: number; facadeMm?: number;
+        /** Which physical side facadeMm is on -- decides whether it lists
+         *  first (left skin) or last (right skin) in the layer set below. */
+        facadeSide?: "left" | "right";
         /** Lining on the left/right face, mm -- 0 where that face states none. */
         liningLeftMm: number; liningRightMm: number;
         elements: number[];
@@ -1083,10 +1087,38 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
       }
       attachPropertySet(wallEntity, `${wall.id}:pset`, "Pset_WallCommon", wallProps);
 
+      // ── Wallgraph_Construction ───────────────────────────────────────────
+      // Authored construction facts only, read straight off the document --
+      // never wallPostMm()/wallPostWidthMm(), which clamp and default for the
+      // drawing. A field the wall does not state is simply absent here, the
+      // same reading Pset_WallCommon gives every optional property above.
+      const constructionProps: IfcArg[] = [];
+      if (wall.postMm !== undefined && wall.postMm > 0) {
+        constructionProps.push(ref(propValue("PostCentres", typed("IFCPOSITIVELENGTHMEASURE", real(wall.postMm)))));
+      }
+      if (wall.postWidthMm !== undefined) {
+        constructionProps.push(ref(propValue("PostWidth", typed("IFCPOSITIVELENGTHMEASURE", real(wall.postWidthMm)))));
+      }
+      if (wall.noggingRows !== undefined) {
+        constructionProps.push(ref(propValue("NoggingRows", typed("IFCCOUNTMEASURE", int(wall.noggingRows)))));
+      }
+      if (wall.blockMm) {
+        constructionProps.push(ref(propValue("BlockLength", typed("IFCPOSITIVELENGTHMEASURE", real(wall.blockMm.length)))));
+        constructionProps.push(ref(propValue("BlockHeight", typed("IFCPOSITIVELENGTHMEASURE", real(wall.blockMm.height)))));
+      }
+      if (wall.panelMm !== undefined) {
+        constructionProps.push(ref(propValue("PanelWidth", typed("IFCPOSITIVELENGTHMEASURE", real(wall.panelMm)))));
+      }
+      if (wall.insulated !== undefined) {
+        constructionProps.push(ref(propValue("Insulated", boolValue(wall.insulated))));
+      }
+      attachPropertySet(wallEntity, `${wall.id}:construction`, "Wallgraph_Construction", constructionProps);
+
       // ── material ─────────────────────────────────────────────────────────
       // Absent means not stated, so nothing is associated rather than a guess
       // at masonry -- the same reading Pset_WallCommon gives loadBearing above.
       const facadeMm = wallFacadeMm(wall);
+      const facadeSide = facadeMm !== undefined ? facadeSideOf(wall) : undefined;
       const liningMm = wallLiningMm(wall);
       const liningLeftMm = liningMm > 0 && liningSideOf(wall, "left") ? liningMm : 0;
       const liningRightMm = liningMm > 0 && liningSideOf(wall, "right") ? liningMm : 0;
@@ -1094,12 +1126,14 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
         // Thickness is part of the key whenever the wall carries a layer set
         // (cladding or lining): it is a layer of the build-up there, and
         // irrelevant to a bare material association, which would otherwise
-        // split into one relation per thickness.
+        // split into one relation per thickness. facadeSide is part of it
+        // too -- two walls agreeing on everything else but clad on opposite
+        // sides are two different physical layer orders, not one relation.
         const key = facadeMm === undefined && liningLeftMm === 0 && liningRightMm === 0
           ? `${wall.material}|`
-          : `${wall.material ?? ""}|${wall.thickness}|${facadeMm ?? ""}|${liningLeftMm}|${liningRightMm}`;
+          : `${wall.material ?? ""}|${wall.thickness}|${facadeMm ?? ""}|${facadeSide ?? ""}|${liningLeftMm}|${liningRightMm}`;
         const bucket = byBuild.get(key)
-          ?? { material: wall.material, thickness: wall.thickness, facadeMm, liningLeftMm, liningRightMm, elements: [] };
+          ?? { material: wall.material, thickness: wall.thickness, facadeMm, facadeSide, liningLeftMm, liningRightMm, elements: [] };
         bucket.elements.push(wallEntity);
         byBuild.set(key, bucket);
       }
@@ -1131,6 +1165,25 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
         w.entity("IFCRELVOIDSELEMENT",
           [str(ifcGuid(seed, `${opening.id}:void`)), ref(ownerHistory), UNSET, UNSET,
             ref(wallEntity), ref(openingEntity)]);
+
+        // ── Wallgraph_Construction (opening) ────────────────────────────────
+        // On the void itself, not the door/window filler: a passage carries a
+        // lintel too, and only IFCOPENINGELEMENT exists for every kind. Raw
+        // opening.bearingMm/.lintel only -- never openingBearing()'s
+        // OPENING_BEARING_DEFAULT_MM fallback, which is a drawing convention,
+        // not an authored fact.
+        const openingConstructionProps: IfcArg[] = [];
+        if (opening.bearingMm !== undefined) {
+          openingConstructionProps.push(
+            ref(propValue("Bearing", typed("IFCPOSITIVELENGTHMEASURE", real(opening.bearingMm)))));
+        }
+        if (opening.lintel) {
+          openingConstructionProps.push(
+            ref(propValue("LintelWidth", typed("IFCPOSITIVELENGTHMEASURE", real(opening.lintel.w)))));
+          openingConstructionProps.push(
+            ref(propValue("LintelDepth", typed("IFCPOSITIVELENGTHMEASURE", real(opening.lintel.d)))));
+        }
+        attachPropertySet(openingEntity, `${opening.id}:construction`, "Wallgraph_Construction", openingConstructionProps);
 
         if (opening.kind === "door" || opening.kind === "window") {
           const fillerShape = bodyShape([extrudedSolid(fillerQuad(og.poly), og.z0, og.z1)]);
@@ -1243,18 +1296,19 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
       const relating = build.facadeMm === undefined && !hasLining
         ? materialEntity(IFC_MATERIAL_NAME[build.material!])
         : (() => {
-            // Facade and lining never share a face (liningSideOf excludes the
-            // facade side), so which of `liningLeftMm`/`liningRightMm` is lined
-            // says which face the facade is on. Where lining says nothing
-            // (none stated at all) the facade keeps the order this export has
-            // always given it: after the structure.
+            // Ordered physically -- left skin, structure, right skin -- so a
+            // clad wall lists its facade on the side it is actually drawn on
+            // rather than always after the structure. Facade and lining never
+            // share a face (liningSideOf excludes the facade side), so
+            // build.facadeSide alone decides the facade's slot; a lining on
+            // the OTHER face, where one is stated, takes the remaining slot.
             let left: number | undefined, right: number | undefined;
-            if (build.facadeMm !== undefined && build.liningRightMm > 0) {
-              left = facadeLayer(); right = liningLayer(build.liningRightMm);
-            } else if (build.facadeMm !== undefined && build.liningLeftMm > 0) {
-              left = liningLayer(build.liningLeftMm); right = facadeLayer();
-            } else if (build.facadeMm !== undefined) {
+            if (build.facadeMm !== undefined && build.facadeSide === "right") {
               right = facadeLayer();
+              if (build.liningLeftMm > 0) left = liningLayer(build.liningLeftMm);
+            } else if (build.facadeMm !== undefined) {
+              left = facadeLayer();
+              if (build.liningRightMm > 0) right = liningLayer(build.liningRightMm);
             } else {
               if (build.liningLeftMm > 0) left = liningLayer(build.liningLeftMm);
               if (build.liningRightMm > 0) right = liningLayer(build.liningRightMm);
@@ -1295,6 +1349,62 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
           [str(ifcGuid(seed, `${vide.id}:void`)), ref(ownerHistory), UNSET, UNSET,
             ref(slabEntity), ref(openingEntity)]);
       });
+    }
+
+    // ── decks: one IFCSLAB (decking) plus one IFCMEMBER per joist ───────────
+    //
+    // core/deck.ts's deckSolids() already draws no decking prism for a deck
+    // at floor level -- its platform coincides with the storey's own slab
+    // above, the same reason the 3D view skips it -- so only a raised deck
+    // (topMm > 0) with a stated decking thickness gets its own IFCSLAB here;
+    // its joists are still exported either way, whenever a section is
+    // stated. Loads are Wallgraph_Loads, the deck's own authored loadG/loadQ
+    // converted from the document's N/m^2 to IFC's more usual kN/m^2 --
+    // never a derived figure, so absent stays absent rather than reading as
+    // zero load.
+    for (const d of decksOf(floor)) {
+      const solids = deckSolids(d);
+      const deckingSolid = solids.find(s => s.part === "decking");
+      const joistSolids = solids.filter(s => s.part === "joist");
+
+      let slabEntity: number | undefined;
+      if (deckingSolid) {
+        const solidId = extrudedSolid(deckingSolid.poly, deckingSolid.z0, deckingSolid.z1);
+        if (solidId !== null) {
+          slabEntity = w.entity("IFCSLAB",
+            [str(ifcGuid(seed, `${d.id}:slab`)), ref(ownerHistory), str(d.label ?? "Deck"), UNSET, UNSET,
+              ref(levelPlacement), bodyShape([solidId]), UNSET, enumv("FLOOR")]);
+          attachPropertySet(slabEntity, `${d.id}:pset`, "Pset_SlabCommon",
+            [ref(propValue("LoadBearing", boolValue(true)))]);
+        }
+      }
+
+      const joistEntities: number[] = [];
+      for (let i = 0; i < joistSolids.length; i++) {
+        const js = joistSolids[i]!;
+        const solidId = extrudedSolid(js.poly, js.z0, js.z1);
+        if (solidId === null) continue;
+        joistEntities.push(w.entity("IFCMEMBER",
+          [str(ifcGuid(seed, `${d.id}:joist:${i}`)), ref(ownerHistory), str("Joist"), UNSET, UNSET,
+            ref(levelPlacement), bodyShape([solidId]), UNSET, enumv("NOTDEFINED")]));
+      }
+
+      if (slabEntity !== undefined) {
+        contained.push(slabEntity);
+        if (joistEntities.length > 0) {
+          w.entity("IFCRELAGGREGATES",
+            [str(ifcGuid(seed, `${d.id}:parts`)), ref(ownerHistory), UNSET, UNSET,
+              ref(slabEntity), list(...joistEntities.map(ref))]);
+        }
+      } else {
+        contained.push(...joistEntities);
+      }
+
+      const loadProps: IfcArg[] = [];
+      if (d.loadG !== undefined) loadProps.push(ref(propValue("PermanentLoad", typed("IFCREAL", real(d.loadG / 1000)))));
+      if (d.loadQ !== undefined) loadProps.push(ref(propValue("VariableLoad", typed("IFCREAL", real(d.loadQ / 1000)))));
+      const loadTarget = slabEntity !== undefined ? slabEntity : joistEntities;
+      attachPropertySet(loadTarget, `${d.id}:loads`, "Wallgraph_Loads", loadProps);
     }
 
     // ── roof: one IFCROOF aggregating one IFCSLAB (ROOF) per plane ──────────

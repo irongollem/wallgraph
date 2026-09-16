@@ -31,7 +31,7 @@ export type IconName =
   | "gridSnap" | "angleSnap" | "dimensions" | "view3d"
   | "undo" | "redo" | "dots" | "grip" | "chevron" | "plus" | "minus" | "close"
   | "trash" | "search" | "floors" | "backspace" | "confirm"
-  | "docNew" | "docDemo" | "docOpen" | "docSave" | "docPng" | "docDxf" | "docSvg" | "docCopy" | "docPaste";
+  | "docNew" | "docDemo" | "docOpen" | "docSave" | "docPng" | "docDxf" | "docSvg" | "docCsv" | "docCopy" | "docPaste";
 
 const ICONS: Record<IconName, Shape[]> = {
   select: [P("M5.5 3.2 L5.5 15.4 L8.7 12.4 L10.9 17 L13.2 16 L11 11.4 L15.2 11.2 Z")],
@@ -145,6 +145,12 @@ const ICONS: Record<IconName, Shape[]> = {
     P("M3 15.6 C3 7.6 15.6 12.4 15.6 4.4"),
     C(3, 15.6, 1.6, true),
     C(15.6, 4.4, 1.6, false),
+  ],
+  // A page fold like docNew's, with the rows and one divider of a spreadsheet
+  // rather than a blank sheet -- the materiaalstaat is a table, not a drawing.
+  docCsv: [
+    P("M5.2 3.4 H11.6 L14.8 6.6 V16.6 H5.2 Z M11.6 3.4 V6.6 H14.8"),
+    P("M5.2 10 H14.8 M5.2 13.4 H14.8 M9.4 10 V16.6"),
   ],
   docCopy: [
     R(7.4, 7.4, 9.2, 9.2, 1.4),
