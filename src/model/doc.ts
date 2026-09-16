@@ -115,6 +115,25 @@ export interface Opening {
    * the document's windowU/doorU default, but only within an envelope wall.
    */
   uValue?: number;
+  /**
+   * Bearing each end of a lintel takes beyond the opening, mm -- the lintel's
+   * checked span is the opening width plus twice this. Absent means
+   * OPENING_BEARING_DEFAULT_MM; read via openingBearing().
+   */
+  bearingMm?: number;
+  /**
+   * The lintel's section over this opening, mm. Absent means not stated: the
+   * preliminary check (core/checks.ts's lintelCheck()) reports incomplete
+   * with a proposed section.
+   */
+  lintel?: { w: number; d: number };
+  /**
+   * An additional line load on the lintel, kN/m -- a floor bearing on the
+   * wall above the opening, authored because the model does not yet say
+   * which wall carries which deck end (see issue #46's follow-ups). Added to
+   * the wall's own self-weight above the head; absent means none.
+   */
+  lintelLoadKNm?: number;
 }
 
 /**
@@ -920,6 +939,19 @@ export function openingHeight(o: Opening): number {
   return o.kind === "window" ? WINDOW_HEIGHT_DEFAULT
        : o.kind === "door" ? DOOR_HEIGHT_DEFAULT
        : PASSAGE_HEIGHT_DEFAULT;
+}
+
+/** Height of an opening's head above the floor, mm: sill plus height. What a
+ *  lintel stands on top of. */
+export function openingHead(o: Opening): number {
+  return openingSill(o) + openingHeight(o);
+}
+
+/** Bearing a lintel takes beyond the opening at each end, mm, for the
+ *  preliminary span check. Absent means OPENING_BEARING_DEFAULT_MM. */
+export const OPENING_BEARING_DEFAULT_MM = 150;
+export function openingBearing(o: Opening): number {
+  return o.bearingMm ?? OPENING_BEARING_DEFAULT_MM;
 }
 
 /**

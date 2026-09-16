@@ -89,6 +89,13 @@ export interface Beam extends StructuralBase {
    * carries the floor above: its top is at the storey height.
    */
   bottomMm?: number;
+  /**
+   * Authored line load for the preliminary span check (core/checks.ts's
+   * beamCheck()), kN/m. Treated wholly as a permanent load -- there is no
+   * separate authored variable component for a beam -- so it is factored by
+   * gammaG alone. Absent means incomplete rather than a plausible figure.
+   */
+  loadKNm?: number;
 }
 
 /**
@@ -129,27 +136,39 @@ export const RAILING_POST_DEFAULT = 1000;
  * profile height `depth`, mm. Picking one arms the tool's size and label; the
  * document stores the two figures and the designation, not the table row, so a
  * section edited afterwards is whatever its figures say.
+ *
+ * `wy`/`iy` are the elastic section modulus and second moment of area about
+ * the strong axis (y-y), cm³ and cm⁴ -- ordinary European rolled-section
+ * catalogue figures (the "Blue Book" HEA/HEB/IPE tables), added so
+ * core/checks.ts's beamCheck() can check a placed beam whose label matches
+ * one of these against its real stiffness rather than treating it as a
+ * rectangular timber section. Absent on a profile would mean "no catalogue
+ * figures known"; every profile below states both.
  */
-export interface SteelProfile { label: string; width: number; depth: number }
+export interface SteelProfile { label: string; width: number; depth: number; wy: number; iy: number }
 
-const series = (name: string, rows: readonly [number, number, number][]): SteelProfile[] =>
-  rows.map(([size, depth, width]) => ({ label: `${name} ${size}`, width, depth }));
+const series = (name: string, rows: readonly [number, number, number, number, number][]): SteelProfile[] =>
+  rows.map(([size, depth, width, wy, iy]) => ({ label: `${name} ${size}`, width, depth, wy, iy }));
 
 export const STEEL_PROFILES: readonly SteelProfile[] = [
   ...series("HEA", [
-    [100, 96, 100], [120, 114, 120], [140, 133, 140], [160, 152, 160], [180, 171, 180],
-    [200, 190, 200], [220, 210, 220], [240, 230, 240], [260, 250, 260], [280, 270, 280],
-    [300, 290, 300],
+    [100, 96, 100, 72.8, 349], [120, 114, 120, 106, 606], [140, 133, 140, 155, 1033],
+    [160, 152, 160, 220, 1673], [180, 171, 180, 294, 2510], [200, 190, 200, 389, 3692],
+    [220, 210, 220, 515, 5410], [240, 230, 240, 675, 7763], [260, 250, 260, 836, 10455],
+    [280, 270, 280, 1013, 13673], [300, 290, 300, 1260, 18263],
   ]),
   ...series("HEB", [
-    [100, 100, 100], [120, 120, 120], [140, 140, 140], [160, 160, 160], [180, 180, 180],
-    [200, 200, 200], [220, 220, 220], [240, 240, 240], [260, 260, 260], [280, 280, 280],
-    [300, 300, 300],
+    [100, 100, 100, 89.9, 449], [120, 120, 120, 144, 864], [140, 140, 140, 216, 1509],
+    [160, 160, 160, 311, 2492], [180, 180, 180, 426, 3831], [200, 200, 200, 570, 5696],
+    [220, 220, 220, 736, 8091], [240, 240, 240, 938, 11259], [260, 260, 260, 1148, 14920],
+    [280, 280, 280, 1376, 19270], [300, 300, 300, 1678, 25166],
   ]),
   ...series("IPE", [
-    [100, 100, 55], [120, 120, 64], [140, 140, 73], [160, 160, 82], [180, 180, 91],
-    [200, 200, 100], [220, 220, 110], [240, 240, 120], [270, 270, 135], [300, 300, 150],
-    [330, 330, 160], [360, 360, 170], [400, 400, 180],
+    [100, 100, 55, 34.2, 171], [120, 120, 64, 53.0, 318], [140, 140, 73, 77.3, 541],
+    [160, 160, 82, 109, 869], [180, 180, 91, 146, 1317], [200, 200, 100, 194, 1943],
+    [220, 220, 110, 252, 2772], [240, 240, 120, 324, 3892], [270, 270, 135, 429, 5790],
+    [300, 300, 150, 557, 8356], [330, 330, 160, 713, 11770], [360, 360, 170, 904, 16270],
+    [400, 400, 180, 1156, 23130],
   ]),
 ];
 

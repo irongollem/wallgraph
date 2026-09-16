@@ -128,9 +128,13 @@ export function planSchema(siteUrl: string): JsonSchema {
         type: "object",
         additionalProperties: false,
         description:
-          "Document-level assumptions for the wall material takeoff: stock lengths, saw " +
-          "kerf, waste allowance and lining sheet size. Absent means the trade defaults " +
-          "apply. All fields are indicative and reported, never enforced.",
+          "Document-level assumptions for the wall material takeoff and the preliminary " +
+          "structural checks: stock lengths, saw kerf, waste allowance, lining sheet size, " +
+          "timber and steel strength, partial factors, the deflection limit and the " +
+          "sections offered when proposing one. Absent means the indicative trade and " +
+          "engineering defaults apply. All fields are indicative and reported, never " +
+          "enforced; a structural check is a preliminary design check under a simply " +
+          "supported, single-span, uniformly distributed load, not a constructieberekening.",
         properties: {
           stockMm: {
             type: "array", items: { type: "integer", exclusiveMinimum: 0 },
@@ -154,6 +158,55 @@ export function planSchema(siteUrl: string): JsonSchema {
             properties: {
               width: { type: "integer", exclusiveMinimum: 0 },
               height: { type: "integer", exclusiveMinimum: 0 },
+            },
+          },
+          timber: {
+            type: "object", additionalProperties: false,
+            required: ["fmk", "fvk", "e0mean", "kmod", "gammaM", "kdef"],
+            description:
+              "Timber strength class and partial factors for the preliminary span checks. " +
+              "Absent means C24 with kmod 0.8, gammaM 1.3, kdef 0.6 -- indicative defaults, " +
+              "editable.",
+            properties: {
+              fmk: { type: "number", exclusiveMinimum: 0, description: "Characteristic bending strength, N/mm²." },
+              fvk: { type: "number", exclusiveMinimum: 0, description: "Characteristic shear strength, N/mm²." },
+              e0mean: { type: "number", exclusiveMinimum: 0, description: "Mean modulus of elasticity, N/mm²." },
+              kmod: { type: "number", exclusiveMinimum: 0, description: "Load-duration/service-class modification factor." },
+              gammaM: { type: "number", exclusiveMinimum: 0, description: "Material partial factor." },
+              kdef: { type: "number", minimum: 0, description: "Creep factor." },
+            },
+          },
+          steel: {
+            type: "object", additionalProperties: false,
+            required: ["fy"],
+            description: "Steel yield strength for a beam checked against a catalogue profile. Absent means 235 (S235).",
+            properties: {
+              fy: { type: "number", exclusiveMinimum: 0, description: "Yield strength, N/mm²." },
+            },
+          },
+          gammaG: {
+            type: "number", exclusiveMinimum: 0,
+            description: "Partial factor on permanent load for a structural check. Absent means 1.2.",
+          },
+          gammaQ: {
+            type: "number", exclusiveMinimum: 0,
+            description: "Partial factor on variable load for a structural check. Absent means 1.5.",
+          },
+          deflectionDiv: {
+            type: "number", exclusiveMinimum: 0,
+            description: "Deflection limit as a span fraction: 250 means L/250. Absent means 250.",
+          },
+          sectionsMm: {
+            type: "array",
+            description:
+              "Rectangular timber sections a structural check proposes from, mm, ascending " +
+              "by depth then width. Absent means the ordinary trade sizes.",
+            items: {
+              type: "object", additionalProperties: false, required: ["w", "d"],
+              properties: {
+                w: { type: "integer", exclusiveMinimum: 0 },
+                d: { type: "integer", exclusiveMinimum: 0 },
+              },
             },
           },
         },
@@ -474,6 +527,29 @@ export function planSchema(siteUrl: string): JsonSchema {
               "Absent means not stated; the document's energy.windowU or energy.doorU default " +
               "then applies, but only within a wall that states a facade.",
           },
+          bearingMm: {
+            type: "integer", exclusiveMinimum: 0,
+            description:
+              "Bearing a lintel takes beyond the opening at each end, mm, for the " +
+              "preliminary span check: the checked span is width + 2 × this. Absent means 150.",
+          },
+          lintel: {
+            type: "object", additionalProperties: false, required: ["w", "d"],
+            description:
+              "The lintel's section over this opening, mm. Absent means not stated: the " +
+              "preliminary check reports incomplete with a proposed section.",
+            properties: {
+              w: { type: "integer", exclusiveMinimum: 0 },
+              d: { type: "integer", exclusiveMinimum: 0 },
+            },
+          },
+          lintelLoadKNm: {
+            type: "number",
+            description:
+              "An additional line load on the lintel, kN/m -- a floor bearing on the wall " +
+              "above the opening. Added to the wall's own self-weight above the head. " +
+              "Absent means none.",
+          },
         },
       },
       profilePoint: {
@@ -534,7 +610,8 @@ export function planSchema(siteUrl: string): JsonSchema {
           "a height inside the storey. The anchor (x, y) is the centre of the platform; the " +
           "box is the clear span between the supports, and each joist bears `bearingMm` " +
           "beyond it at both ends. Joists are set out from both edges in equal bays no wider " +
-          "than `joistMm`. Loads are reported, never checked.",
+          "than `joistMm`. Loads feed the preliminary joist span check; reported, never " +
+          "enforced.",
         required: ["id", "x", "y", "rotation", "width", "depth", "joistAxis", "joistMm"],
         additionalProperties: false,
         properties: {
@@ -679,6 +756,12 @@ export function planSchema(siteUrl: string): JsonSchema {
           label: { type: "string", description: "Designation written on the drawing, e.g. \"HEA 200\". Absent means none." },
           color: { type: "string", pattern: "^#[0-9a-fA-F]{6}$", description: "Pen colour; absent means the plan's default ink." },
           material: { enum: [...WALL_MATERIALS], description: "Absent means not stated." },
+          loadKNm: {
+            type: "number",
+            description:
+              "Authored line load for the preliminary span check, kN/m, treated wholly as " +
+              "permanent. Absent means the check reports incomplete rather than a figure.",
+          },
         },
       },
       railing: {
