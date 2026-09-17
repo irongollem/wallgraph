@@ -219,7 +219,9 @@ export const FEATURES: Record<Lang, string[]> = {
       "aansluitstijlen uit de materiaalstaat, te downloaden als SVG",
     "Voorlopige constructiecontrole voor de balken van een balklaag, een geplaatste balk en de " +
       "latei van een sparing: belastinggraad per criterium, doorbuiging tegen haar grens en een " +
-      "voorgestelde doorsnede die voldoet",
+      "voorgestelde doorsnede die binnen die grenzen blijft",
+    "Pakket voor de constructeur: dekblad, uitgangspunten, materiaalstaat en het aanzicht van elke " +
+      "regel-, blok- en sandwichwand in één afdrukbare PDF",
     "Exporteren naar PNG, SVG en DXF op ware schaal",
     "Werkt offline, slaat lokaal op, geen account nodig",
   ],
@@ -248,7 +250,10 @@ export const FEATURES: Record<Lang, string[]> = {
     "Elevation of a framed wall at true scale, with studs, king studs, headers, noggings and " +
       "backing from the materials takeoff, downloadable as SVG",
     "Preliminary structural checks for a deck's joists, a placed beam and an opening's lintel: " +
-      "utilisation per criterion, deflection against its limit, and a proposed section that passes",
+      "utilisation per criterion, deflection against its limit, and a proposed section that stays " +
+      "within the stated limits",
+    "Engineer's package: cover, assumptions, materials takeoff and the elevation of every framed, " +
+      "block and sandwich wall in one printable PDF",
     "Export to PNG, SVG and DXF at true scale",
     "Works offline, saves locally, no account required",
   ],

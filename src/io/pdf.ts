@@ -124,10 +124,31 @@ function advance(ch: string, bold: boolean): number {
   return W_DEFAULT;
 }
 
+/**
+ * The core fonts' WinAnsi encoding has no Greek letters, and the structural
+ * figures are written with them (γ_M, k_def against σ). A letter the page
+ * cannot draw is spelled out rather than printed as "?", which on a sheet an
+ * engineer reads would lose which factor a figure is. Applied before a string
+ * is measured and before it is written, so a wrapped line still fits.
+ */
+const GREEK: Record<string, string> = {
+  "α": "alpha", "β": "beta", "γ": "gamma", "δ": "delta", "ε": "epsilon", "η": "eta",
+  "θ": "theta", "λ": "lambda", "μ": "mu", "ν": "nu", "ξ": "xi", "π": "pi", "ρ": "rho",
+  "σ": "sigma", "τ": "tau", "φ": "phi", "χ": "chi", "ψ": "psi", "ω": "omega",
+  "Γ": "Gamma", "Δ": "Delta", "Θ": "Theta", "Λ": "Lambda", "Σ": "Sigma", "Φ": "Phi",
+  "Ψ": "Psi", "Ω": "Omega",
+};
+
+export function pdfText(s: string): string {
+  let out = "";
+  for (const ch of s) out += GREEK[ch] ?? ch;
+  return out;
+}
+
 /** Width of a string in em, so a caller multiplies by the font size. */
 export function textWidth(s: string, bold: boolean): number {
   let w = 0;
-  for (const ch of s) w += advance(ch, bold);
+  for (const ch of pdfText(s)) w += advance(ch, bold);
   return w / 1000;
 }
 
@@ -144,7 +165,7 @@ const CP1252: Record<string, number> = {
 /** A string as a PDF literal, in the WinAnsi encoding the fonts declare. */
 function pdfString(s: string): string {
   let out = "(";
-  for (const ch of s) {
+  for (const ch of pdfText(s)) {
     const mapped = CP1252[ch];
     const code = ch.codePointAt(0) ?? 63;
     const b = mapped ?? ((code >= 32 && code <= 126) || (code >= 160 && code <= 255) ? code : 63);
@@ -311,32 +332,60 @@ class Painter {
 
 // ── the file ─────────────────────────────────────────────────────────────────
 
-/** Fixed object numbers; the ExtGStates follow `info`. */
-const OBJ = { regular: 5, bold: 6, info: 7 };
+/**
+ * One or several pages as a complete PDF file, as a Latin-1 string of bytes.
+ * A single page keeps exactly the object numbering the permit and
+ * uitgangspunten sheets have always produced (catalog 1, pages 2, the page
+ * itself 3, its content stream 4, the two fonts 5/6, info 7) -- the object
+ * numbers below are computed from the page count rather than hard-coded, but
+ * they land on the same numbers for N=1. Every page shares one font pair
+ * and one title (the document's own); each page carries its own content
+ * stream and its own ExtGState resources, numbered after the shared ones so
+ * a translucent stair on one page never shifts another page's objects.
+ *
+ * This is what lets the engineer's package (io/package.ts) be one PDF file
+ * rather than several concatenated ones: every sheet already builds a scene
+ * in paper millimetres, so the package only has to hand this function a list
+ * of them instead of writing a second PDF assembler.
+ */
+export function pdfDocument(pages: PdfPage | readonly PdfPage[], title?: string): string {
+  const list = Array.isArray(pages) ? pages : [pages];
+  const painters = list.map(p => { const painter = new Painter(); painter.page(p); return painter; });
 
-/** One page as a complete PDF file, as a Latin-1 string of bytes. */
-export function pdfDocument(page: PdfPage, title?: string): string {
-  const painter = new Painter();
-  painter.page(page);
-  const content = painter.ops.join("\n") + "\n";
+  const CATALOG = 1, PAGES = 2;
+  const pageObjNum = (i: number): number => 3 + i * 2;
+  const contentObjNum = (i: number): number => 4 + i * 2;
+  const FONT_REGULAR = 3 + list.length * 2;
+  const FONT_BOLD = FONT_REGULAR + 1;
+  const INFO = FONT_BOLD + 1;
 
-  const gsFirst = OBJ.info + 1;
-  const gsNames = painter.states
-    .map((_, i) => `/GS${i} ${gsFirst + i} 0 R`).join(" ");
-  const resources = `<< /Font << /F1 ${OBJ.regular} 0 R /F2 ${OBJ.bold} 0 R >>` +
-    (gsNames === "" ? "" : ` /ExtGState << ${gsNames} >>`) + ` >>`;
+  let nextGs = INFO + 1;
+  const gsObjNums: number[][] = painters.map(p => p.states.map(() => nextGs++));
 
-  const objs: string[] = [
-    `<< /Type /Catalog /Pages 2 0 R >>`,
-    `<< /Type /Pages /Kids [3 0 R] /Count 1 >>`,
-    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${n(page.widthMm * PT_PER_MM)} ${n(page.heightMm * PT_PER_MM)}]` +
-      ` /Resources ${resources} /Contents 4 0 R >>`,
-    `<< /Length ${content.length} >>\nstream\n${content}endstream`,
-    `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>`,
-    `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>`,
-    `<< /Producer (Wallgraph)${title === undefined || title === "" ? "" : ` /Title ${pdfTextString(title)}`} >>`,
-    ...painter.states.map(([f, s]) => `<< /Type /ExtGState /ca ${n(f)} /CA ${n(s)} >>`),
-  ];
+  const objs: string[] = new Array(nextGs - 1).fill("");
+  const set = (num: number, body: string): void => { objs[num - 1] = body; };
+
+  set(CATALOG, `<< /Type /Catalog /Pages ${PAGES} 0 R >>`);
+  set(PAGES, `<< /Type /Pages /Kids [${list.map((_, i) => `${pageObjNum(i)} 0 R`).join(" ")}] /Count ${list.length} >>`);
+
+  list.forEach((p, i) => {
+    const painter = painters[i]!;
+    const content = painter.ops.join("\n") + "\n";
+    const gsNames = painter.states.map((_, j) => `/GS${j} ${gsObjNums[i]![j]} 0 R`).join(" ");
+    const resources = `<< /Font << /F1 ${FONT_REGULAR} 0 R /F2 ${FONT_BOLD} 0 R >>` +
+      (gsNames === "" ? "" : ` /ExtGState << ${gsNames} >>`) + ` >>`;
+    set(pageObjNum(i), `<< /Type /Page /Parent ${PAGES} 0 R /MediaBox [0 0 ${n(p.widthMm * PT_PER_MM)} ${n(p.heightMm * PT_PER_MM)}]` +
+      ` /Resources ${resources} /Contents ${contentObjNum(i)} 0 R >>`);
+    set(contentObjNum(i), `<< /Length ${content.length} >>\nstream\n${content}endstream`);
+  });
+
+  set(FONT_REGULAR, `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>`);
+  set(FONT_BOLD, `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>`);
+  set(INFO, `<< /Producer (Wallgraph)${title === undefined || title === "" ? "" : ` /Title ${pdfTextString(title)}`} >>`);
+
+  painters.forEach((painter, i) => {
+    painter.states.forEach(([f, s], j) => set(gsObjNums[i]![j]!, `<< /Type /ExtGState /ca ${n(f)} /CA ${n(s)} >>`));
+  });
 
   // The header's second line is a comment of high bytes, which is how a
   // transfer that would mangle binary content is detected as text.
@@ -349,7 +398,7 @@ export function pdfDocument(page: PdfPage, title?: string): string {
   const startxref = out.length;
   out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
   for (const off of offsets) out += `${String(off).padStart(10, "0")} 00000 n \n`;
-  out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R /Info ${OBJ.info} 0 R >>\n`;
+  out += `trailer\n<< /Size ${objs.length + 1} /Root ${CATALOG} 0 R /Info ${INFO} 0 R >>\n`;
   out += `startxref\n${startxref}\n%%EOF\n`;
   return out;
 }

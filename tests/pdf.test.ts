@@ -7,7 +7,7 @@ import { seedDoc } from "../src/seed";
 import { emptyDoc, newId } from "../src/model/doc";
 import { permitLayout } from "../src/core/permit";
 import { permitPdf, permitSvg } from "../src/io/permit";
-import { pdfBytes, textWidth } from "../src/io/pdf";
+import { pdfBytes, pdfText, textWidth } from "../src/io/pdf";
 import { stairDefaults } from "../src/model/stair";
 
 let failures = 0;
@@ -162,6 +162,13 @@ check("an accented letter measures as its base letter",
     [...bytes.slice(0, 5)].join(",") === "37,80,68,70,45");
   // The header's binary comment is what marks the file as not plain text.
   check("the header carries high bytes", [...bytes.slice(10, 14)].every(b => b > 127));
+}
+
+{
+  // Greek factors are spelled out: the core fonts cannot draw them, and a "?"
+  // on a structural sheet would lose which factor a figure is.
+  check("gamma is spelled out for the PDF", pdfText("γ_M 1,3 · γG 1,2") === "gamma_M 1,3 · gammaG 1,2");
+  check("a spelled-out letter is measured as written", textWidth("γ", false) === textWidth("gamma", false));
 }
 
 console.log(failures === 0 ? "ALL PDF TESTS PASSED" : `${failures} FAILURES`);

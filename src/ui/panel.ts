@@ -17,6 +17,7 @@ import { exportMaterialsCsv } from "../io/materials";
 import { exportAssumptions } from "../io/assumptions";
 import { exportSvg } from "../io/svg";
 import { exportPermit, PermitFormat } from "../io/permit";
+import { exportEngineerPackage } from "../io/package";
 import { permitChecklist, PermitCheck } from "../core/permit";
 import { seedDoc } from "../seed";
 import {
@@ -208,6 +209,13 @@ export class Panel {
    *  pattern as derived() in main.ts. */
   private permitCacheRev = "";
   private permitCacheItems: PermitCheck[] = [];
+  /** The engineer's package's own include checkboxes (issue #78) -- export-time
+   *  choices rather than a drawing convention, so they stay panel state like
+   *  permitOpen above instead of living on the document (unlike areaMode/
+   *  dimMode, which the canvas itself reads). All three default on. */
+  private pkgAssumptions = true;
+  private pkgMaterials = true;
+  private pkgElevations = true;
   /** The Energie takeoff's container; repopulated in place while open. */
   private energyTakeoffEl: HTMLElement | null = null;
   /** envelopeTakeoff() cache, keyed on paneCacheKey() -- it resolves every
@@ -665,6 +673,19 @@ export class Panel {
     this.flash(t(result === "saved" ? `status.permitSaved${suffix}`
       : result === "empty" ? "status.permitEmpty"
       : "status.permitFailed"));
+  }
+
+  /**
+   * The engineer's package (issue #78): the permit sheet, the uitgangspunten
+   * sheet, the materiaalstaat table and every framed/block/sandwich wall's
+   * elevation, in one PDF -- the three checkboxes above the button
+   * (buildPermitSection()) say which of the optional three sections ride
+   * along; the permit sheet itself is never optional.
+   */
+  private async saveEngineerPackage(): Promise<void> {
+    const result = await exportEngineerPackage(this.store.doc, this.store.activeFloor,
+      { assumptions: this.pkgAssumptions, materials: this.pkgMaterials, elevations: this.pkgElevations });
+    this.flash(t(result === "saved" ? "package.saved" : result === "empty" ? "package.empty" : "package.failed"));
   }
 
   /** CAD export. Same shape as savePng: one flash, keys spelled out. */
@@ -1872,6 +1893,11 @@ export class Panel {
     noteRow(t("panel.permitEnergyNote"));
     btnRow(t("panel.permitExport"), () => { void this.savePermit("pdf"); });
     btnRow(t("panel.permitExportSvg"), () => { void this.savePermit("svg"); });
+
+    checkRow(t("package.optionAssumptions"), this.pkgAssumptions, on => { this.pkgAssumptions = on; });
+    checkRow(t("package.optionMaterials"), this.pkgMaterials, on => { this.pkgMaterials = on; });
+    checkRow(t("package.optionElevations"), this.pkgElevations, on => { this.pkgElevations = on; });
+    btnRow(t("package.export"), () => { void this.saveEngineerPackage(); });
 
     wrap.append(head, body);
     this.syncPermitChecks();

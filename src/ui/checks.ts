@@ -12,8 +12,8 @@ import type { PlanDoc } from "../model/doc";
 import { assumptionDrift, type AssumptionDrift } from "../model/materials";
 
 /** Within this of 1.0, utilisation reads to one decimal rather than a whole
- *  percentage -- a 1.004 reads "100.4%" beside "voldoet niet" rather than a
- *  rounded "100%" that reads as passing. */
+ *  percentage -- a 1.004 reads "100.4%" beside "buiten de gestelde grens"
+ *  rather than a rounded "100%" that reads as within it. */
 const PCT_DECIMAL_BAND = 0.05;
 
 /** Utilisation as a percentage; a non-finite figure (a zero section, division

@@ -36,6 +36,33 @@ const INCOMPLETE_FIELD_KEY: Record<WallTakeoff["incomplete"][number], string> = 
   boards: "panel.liningOn",
 };
 
+/**
+ * One materiaalstaat line item, in column order -- every field already
+ * formatted in the interface's own language (csvInt/csvArea below), but not
+ * yet CSV-escaped. This is the single row shape both `materialsCsv()` and
+ * the engineer's package's materiaalstaat table (io/package.ts) read: the
+ * table prints these fields directly, the CSV escapes and joins them, so the
+ * two cannot disagree about what a row says -- tests/package.test.ts checks
+ * exactly that agreement.
+ */
+export interface MaterialsRow {
+  storey: string;
+  system: string;
+  item: string;
+  section: string;
+  length: string;
+  count: string;
+  stock: string;
+  unit: string;
+  incomplete: string;
+  offcut: string;
+}
+
+const mkRow = (
+  storey: string, system: string, item: string, section: string, length: string,
+  count: string, stock: string, unit: string, incomplete: string, offcut: string,
+): MaterialsRow => ({ storey, system, item, section, length, count, stock, unit, incomplete, offcut });
+
 /** A field starting with `=`, `+`, `-`, `@`, tab or carriage return is a formula
  *  in a spreadsheet that opens this CSV -- prefixing it with an apostrophe
  *  (the conventional neutralisation) forces it to read as text, so a storey
@@ -47,6 +74,12 @@ function csvField(s: string): string {
 }
 function row(fields: readonly string[]): string {
   return fields.map(csvField).join(";");
+}
+
+/** One MaterialsRow as a CSV line -- the join every data row and the header
+ *  row both go through. */
+function csvLine(r: MaterialsRow): string {
+  return row([r.storey, r.system, r.item, r.section, r.length, r.count, r.stock, r.unit, r.incomplete, r.offcut]);
 }
 
 /** Whole millimetres/counts -- no thousands separator, these never run large
@@ -97,34 +130,34 @@ function systemIncompleteCounts(
  *  than in the general-purpose length column, its count in the count
  *  column, and the offcut that bar leaves in its own dedicated column --
  *  item rows leave that column blank. */
-function pushStockRows(out: string[], storey: string, system: string, nested: NestResult): void {
+function pushStockRows(out: MaterialsRow[], storey: string, system: string, nested: NestResult): void {
   for (const s of nested.stock) {
-    out.push(row([storey, system, t("materials.csv.stockItem"), "", "", csvInt(s.count),
-      csvInt(s.lengthMm), t("materials.csv.unit.length"), "", csvInt(s.offcutMm)]));
+    out.push(mkRow(storey, system, t("materials.csv.stockItem"), "", "", csvInt(s.count),
+      csvInt(s.lengthMm), t("materials.csv.unit.length"), "", csvInt(s.offcutMm)));
   }
   if (nested.wastePct > 0) {
-    out.push(row([storey, system, t("materials.csv.wasteItem"), "", "", csvInt(nested.wastePct), "",
-      t("materials.csv.unit.percent"), "", ""]));
+    out.push(mkRow(storey, system, t("materials.csv.wasteItem"), "", "", csvInt(nested.wastePct), "",
+      t("materials.csv.unit.percent"), "", ""));
   }
   if (nested.splices > 0) {
-    out.push(row([storey, system, t("materials.csv.splicesItem"), "", "", csvInt(nested.splices), "",
-      t("materials.csv.unit.piece"), "", ""]));
+    out.push(mkRow(storey, system, t("materials.csv.splicesItem"), "", "", csvInt(nested.splices), "",
+      t("materials.csv.unit.piece"), "", ""));
   }
   for (const u of nested.unfit) {
-    out.push(row([storey, system, memberLabel(u.name as MemberName), "", csvInt(u.lengthMm), csvInt(u.count), "",
-      t("materials.csv.unit.piece"), "x", ""]));
+    out.push(mkRow(storey, system, memberLabel(u.name as MemberName), "", csvInt(u.lengthMm), csvInt(u.count), "",
+      t("materials.csv.unit.piece"), "x", ""));
   }
 }
 
-function pushMemberRows(out: string[], storey: string, system: string, members: readonly Member[]): void {
+function pushMemberRows(out: MaterialsRow[], storey: string, system: string, members: readonly Member[]): void {
   for (const m of members) {
-    out.push(row([storey, system, memberLabel(m.name), `${m.sectionMm.w}x${m.sectionMm.d}`,
-      csvInt(m.lengthMm), csvInt(m.count), "", t("materials.csv.unit.piece"), "", ""]));
+    out.push(mkRow(storey, system, memberLabel(m.name), `${m.sectionMm.w}x${m.sectionMm.d}`,
+      csvInt(m.lengthMm), csvInt(m.count), "", t("materials.csv.unit.piece"), "", ""));
   }
 }
 
 function pushSystemRows(
-  out: string[], storey: string, system: WallSystem,
+  out: MaterialsRow[], storey: string, system: WallSystem,
   sys: FloorMaterials["bySystem"][number], walls: readonly WallTakeoff[],
 ): void {
   const name = systemLabel(system);
@@ -133,33 +166,33 @@ function pushSystemRows(
   pushMemberRows(out, storey, name, sys.members);
   const boardKindName = (kind: BoardKind): string => t("board.kind." + kind);
   for (const b of sys.boards) {
-    out.push(row([storey, name, t("materials.boardArea", { kind: boardKindName(b.kind) }), "", "",
-      csvArea(b.areaMm2), "", t("materials.csv.unit.area"), boardsIncomplete ? "x" : "", ""]));
+    out.push(mkRow(storey, name, t("materials.boardArea", { kind: boardKindName(b.kind) }), "", "",
+      csvArea(b.areaMm2), "", t("materials.csv.unit.area"), boardsIncomplete ? "x" : "", ""));
     if (b.sheets > 0) {
-      out.push(row([storey, name, t("materials.sheetsKind", { kind: boardKindName(b.kind) }), "", "",
-        csvInt(b.sheets), "", t("materials.csv.unit.sheet"), "", ""]));
+      out.push(mkRow(storey, name, t("materials.sheetsKind", { kind: boardKindName(b.kind) }), "", "",
+        csvInt(b.sheets), "", t("materials.csv.unit.sheet"), "", ""));
     }
   }
   if (sys.boards.length === 0 && boardsIncomplete) {
-    out.push(row([storey, name, t("panel.liningOn"), "", "", csvArea(0), "",
-      t("materials.csv.unit.area"), "x", ""]));
+    out.push(mkRow(storey, name, t("panel.liningOn"), "", "", csvArea(0), "",
+      t("materials.csv.unit.area"), "x", ""));
   }
   if (sys.insulationMm2 > 0) {
-    out.push(row([storey, name, t("materials.insulationArea"), "", "", csvArea(sys.insulationMm2), "",
-      t("materials.csv.unit.area"), "", ""]));
+    out.push(mkRow(storey, name, t("materials.insulationArea"), "", "", csvArea(sys.insulationMm2), "",
+      t("materials.csv.unit.area"), "", ""));
   }
   if (sys.blocks > 0 || incomplete.has("block")) {
-    out.push(row([storey, name, t("materials.blocks"), "", "", csvInt(sys.blocks), "",
-      t("materials.csv.unit.block"), incomplete.has("block") ? "x" : "", ""]));
+    out.push(mkRow(storey, name, t("materials.blocks"), "", "", csvInt(sys.blocks), "",
+      t("materials.csv.unit.block"), incomplete.has("block") ? "x" : "", ""));
   }
   if (sys.panels > 0 || incomplete.has("panel")) {
-    out.push(row([storey, name, t("materials.panels"), "", "", csvInt(sys.panels), "",
-      t("materials.csv.unit.panel"), incomplete.has("panel") ? "x" : "", ""]));
+    out.push(mkRow(storey, name, t("materials.panels"), "", "", csvInt(sys.panels), "",
+      t("materials.csv.unit.panel"), incomplete.has("panel") ? "x" : "", ""));
   }
   const postWidth = incomplete.get("postWidth");
   if (postWidth) {
-    out.push(row([storey, name, t(INCOMPLETE_FIELD_KEY.postWidth), "", "", csvInt(postWidth), "",
-      t("materials.csv.unit.wall"), "x", ""]));
+    out.push(mkRow(storey, name, t(INCOMPLETE_FIELD_KEY.postWidth), "", "", csvInt(postWidth), "",
+      t("materials.csv.unit.wall"), "x", ""));
   }
   pushStockRows(out, storey, name, sys.nested);
 }
@@ -172,33 +205,33 @@ function pushSystemRows(
  * section is flagged the same way an incomplete wall is, not left as a
  * silent zero.
  */
-function pushDeckRows(out: string[], storey: string, decks: FloorMaterials["decks"]): void {
+function pushDeckRows(out: MaterialsRow[], storey: string, decks: FloorMaterials["decks"]): void {
   const incompleteDecks = decks.perDeck.filter(d => d.incomplete.includes("joist")).length;
   const hasFigures = decks.members.length > 0 || decks.deckingMm2 > 0 || incompleteDecks > 0;
   if (!hasFigures) return;
   const name = t("materials.decksHead");
   pushMemberRows(out, storey, name, decks.members);
   if (decks.deckingMm2 > 0) {
-    out.push(row([storey, name, t("materials.deckingArea"), "", "", csvArea(decks.deckingMm2), "",
-      t("materials.csv.unit.area"), "", ""]));
+    out.push(mkRow(storey, name, t("materials.deckingArea"), "", "", csvArea(decks.deckingMm2), "",
+      t("materials.csv.unit.area"), "", ""));
   }
   if (decks.sheets > 0) {
-    out.push(row([storey, name, t("materials.sheets"), "", "", csvInt(decks.sheets), "",
-      t("materials.csv.unit.sheet"), "", ""]));
+    out.push(mkRow(storey, name, t("materials.sheets"), "", "", csvInt(decks.sheets), "",
+      t("materials.csv.unit.sheet"), "", ""));
   }
   if (incompleteDecks > 0) {
-    out.push(row([storey, name, t("panel.deckSectionOn"), "", "", csvInt(incompleteDecks), "",
-      t("materials.csv.unit.deck"), "x", ""]));
+    out.push(mkRow(storey, name, t("panel.deckSectionOn"), "", "", csvInt(incompleteDecks), "",
+      t("materials.csv.unit.deck"), "x", ""));
   }
   pushStockRows(out, storey, name, decks.nested);
 }
 
-function floorRows(doc: PlanDoc, f: Floor): string[] {
+function floorRows(doc: PlanDoc, f: Floor): MaterialsRow[] {
   const resolved = resolveFloor(f);
   const rooms = detectRooms(f);
   const surface = floorSurface(f, resolved, rooms);
   const takeoff = floorMaterials(doc, f, resolved, surface);
-  const out: string[] = [];
+  const out: MaterialsRow[] = [];
   for (const sys of takeoff.bySystem) {
     const incomplete = systemIncompleteCounts(takeoff.walls, sys.system);
     const hasFigures = sys.members.length > 0 || sys.boards.length > 0 || sys.insulationMm2 > 0
@@ -210,17 +243,37 @@ function floorRows(doc: PlanDoc, f: Floor): string[] {
   return out;
 }
 
-/** materialsCsv(doc): the whole materiaalstaat as one CSV string, BOM
- *  included -- see the file banner for the encoding and locale rules. */
-export function materialsCsv(doc: PlanDoc): string {
-  const header = row([
+/** The materiaalstaat header, as a MaterialsRow -- the column captions
+ *  rather than a data line, in the interface's own language like every other
+ *  field. Exported so the engineer's package's table (io/package.ts) prints
+ *  the same captions the CSV does, rather than a second set of labels. */
+export function materialsHeaderRow(): MaterialsRow {
+  return mkRow(
     t("materials.csv.header.storey"), t("materials.csv.header.system"), t("materials.csv.header.item"),
     t("materials.csv.header.section"), t("materials.csv.header.length"), t("materials.csv.header.count"),
     t("materials.csv.header.stock"), t("materials.csv.header.unit"), t("materials.csv.header.incomplete"),
     t("materials.csv.header.offcut"),
-  ]);
-  const lines = [header];
-  for (const f of doc.floors) lines.push(...floorRows(doc, f));
+  );
+}
+
+/** materialsRows(doc): every materiaalstaat line item, storey by storey, in
+ *  document order -- the same rows `materialsCsv()` writes as CSV lines and
+ *  the engineer's package prints as a table (io/package.ts). No header row:
+ *  see materialsHeaderRow() for that, read on its own because a table's
+ *  header is styled differently from its body. */
+export function materialsRows(doc: PlanDoc): MaterialsRow[] {
+  const out: MaterialsRow[] = [];
+  for (const f of doc.floors) out.push(...floorRows(doc, f));
+  return out;
+}
+
+/** materialsCsv(doc): the whole materiaalstaat as one CSV string, BOM
+ *  included -- see the file banner for the encoding and locale rules. Every
+ *  line is a MaterialsRow (materialsHeaderRow()/materialsRows()) read
+ *  through csvLine(), the same struct the engineer's package's table reads,
+ *  so the two cannot state a different figure for the same line item. */
+export function materialsCsv(doc: PlanDoc): string {
+  const lines = [csvLine(materialsHeaderRow()), ...materialsRows(doc).map(csvLine)];
   return "﻿" + lines.join("\r\n") + "\r\n";
 }
 

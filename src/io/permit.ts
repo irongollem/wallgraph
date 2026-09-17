@@ -43,7 +43,7 @@ const PAPER_WHITE = "#ffffff";
 const SHEET_FONT = "system-ui, sans-serif";
 
 /** The sheet as paper plus a scene in paper millimetres. */
-interface Sheet {
+export interface Sheet {
   widthMm: number;
   heightMm: number;
   title: string;
@@ -143,8 +143,11 @@ function cell(x: number, y: number, w: number, h: number,
   ];
 }
 
-/** The active storey as a permit sheet, or null for a plan with nothing drawn. */
-function permitSheet(doc: PlanDoc, floorIndex: number): Sheet | null {
+/** The active storey as a permit sheet, or null for a plan with nothing drawn.
+ *  Exported so io/package.ts can lay the same sheet into a multi-page PDF
+ *  rather than building a second one -- see pdfDocument()'s own multi-page
+ *  support in io/pdf.ts. */
+export function permitSheet(doc: PlanDoc, floorIndex: number): Sheet | null {
   const layout: PermitLayout | null = permitLayout(doc, floorIndex);
   const floor: Floor | undefined = doc.floors[floorIndex] ?? doc.floors[0];
   if (!layout || !floor) return null;

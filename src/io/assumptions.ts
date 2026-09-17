@@ -530,8 +530,10 @@ function addExcluded(cursor: Cursor): void {
 }
 
 /** The sheet as one scene, in paper millimetres -- page width fixed at A4,
- *  height grown to whatever the content needs. */
-function buildScene(model: SheetModel): { widthMm: number; heightMm: number; scene: Item[]; title: string } {
+ *  height grown to whatever the content needs. Exported so io/package.ts can
+ *  lay the same sheet into a multi-page PDF -- see pdfDocument()'s own
+ *  multi-page support in io/pdf.ts. */
+export function buildScene(model: SheetModel): { widthMm: number; heightMm: number; scene: Item[]; title: string } {
   const cursor = new Cursor(MARGIN_MM);
 
   cursor.heading(t("assumptions.title"), 6.5);

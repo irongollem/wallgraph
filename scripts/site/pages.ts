@@ -461,7 +461,7 @@ hoogte een breuk elke stijl weer zou laten passen.</p>
 <p>Een geselecteerde balklaag, balk of sparing toont een kopje <b>Constructie</b>: de overspanning, de
 belasting met haar opbouw — permanent en veranderlijk, en bij een latei het eigen gewicht van de muur erboven
 — de doorsnede, de belastinggraad per criterium (buiging, afschuiving, doorbuiging, met het maatgevende
-criterium gemerkt), de doorbuiging tegen haar grens, en of de doorsnede voldoet. Het is één rekenmodel op
+criterium gemerkt), de doorbuiging tegen haar grens, en of de doorsnede binnen de gestelde grenzen blijft. Het is één rekenmodel op
 drie plekken toegepast: de balken van een balklaag over hun overspanning en h.o.h.-afstand, een geplaatste
 balk over zijn eigen opgegeven belasting, en de latei boven een sparing over de muur die erboven staat, gelezen
 op de hoogte van het dak of de vloer erboven zodat een latei in een puntgevel niet wordt belast met muurwerk
@@ -469,13 +469,13 @@ dat er niet staat. Een balk waarvan het opschrift een geprofileerde staalmaat (H
 tegen die doorsnede getoetst in plaats van als rechthoekig hout; elke andere doorsnede — de balken van een
 balklaag, een balk zonder herkend profiel, elke latei — wordt als rechthoekig hout getoetst.</p>
 <p>Ontbreekt een gegeven, dan meldt het paneel welk gegeven en in welke rij dat hierboven staat; een latei
-zonder muurmateriaal wijst naar het materiaal van de muur zelf, in haar eigen paneel. Voldoet de opgegeven
-doorsnede niet, dan biedt een knop de kleinste doorsnede uit de doorsnedelijst die wel voldoet, en schrijft
-die met één klik in de balklaag, de balk of de latei; voldoet geen van de opgegeven doorsnedes, dan meldt het
-paneel dat in plaats van een knop te tonen.</p>
+zonder muurmateriaal wijst naar het materiaal van de muur zelf, in haar eigen paneel. Blijft de opgegeven
+doorsnede buiten de gestelde grens, dan biedt een knop de kleinste doorsnede uit de doorsnedelijst die wel
+binnen de grens blijft, en schrijft die met één klik in de balklaag, de balk of de latei; blijft geen van de
+opgegeven doorsnedes binnen de gestelde grenzen, dan meldt het paneel dat in plaats van een knop te tonen.</p>
 <p>De toets is een voorlopige maatvoering van één vrij opgelegde overspanning onder een gelijkmatig verdeelde
 belasting: M = qL²/8, V = qL/2, met buiging en afschuiving tegen een sterkte die kmod, de materiaalfactor en
-(bij hout) de kruipfactor verrekent, en een doorbuiging tegen L/limiet. Puntlasten, doorlopende of
+(bij hout) de kruipfactor verrekent, en een doorbuiging tegen L/limiet. Een wisselbalk naast een sparing krijgt daarbij de kopbalken als puntlast. Andere puntlasten, doorlopende of
 uitkragende overspanningen, kipstabiliteit, trillingen, insnijdingen, opleggingsdruk, verbindingen en
 brandwerendheid vallen erbuiten. Onder <b>Materialen</b> staan de aannames die de toets gebruikt: de
 houtsterkteklasse — een voorinstelling die alleen de sterktecijfers invult, net als de isolatieklasse onder
@@ -485,14 +485,14 @@ indicatieve tabelwaarden. Zoals overal hier: gemeld, geen constructieberekening 
 gekwalificeerde constructeur.</p>
 <p>Een balklaag toont bij haar Constructie ook twee comfortcijfers naast de sterktetoets: de
 eigenfrequentie van de overspanning en de doorbuiging onder een puntlast van 1 kN, elk tegen een
-indicatieve grens — 8 Hz en 1 mm, onder Materialen te wijzigen. Een balklaag die voldoet aan buiging,
-afschuiving en doorbuiging kan nog steeds merkbaar meeveren; deze twee cijfers zijn gewone
+indicatieve grens — 8 Hz en 1 mm, onder Materialen te wijzigen. Een balklaag waarvan buiging,
+afschuiving en doorbuiging binnen de gestelde grenzen blijven kan nog steeds merkbaar meeveren; deze twee cijfers zijn gewone
 rekenformules zoals de sterktetoets zelf, geen tabel uit een norm. Ze gaan uit van de eigen massa van
 de balken en de vloerplaat plus de opgegeven permanente belasting, niet de veranderlijke belasting, en
 van de opgegeven balkdoorsnede; ontbreekt de permanente belasting of de doorsnede, dan wordt geen
 cijfer getoond. Ze zeggen niets over een zware afwerking, een lange of doorlopende overspanning, of een
-vloer die machines draagt — die vragen een eigen beoordeling. Voldoet een balklaag niet, dan noemt het
-paneel een vaste lijst met wat het cijfer verhoogt: een dikkere balk, een kleinere hart-op-hart
+vloer die machines draagt — die vragen een eigen beoordeling. Blijft een balklaag buiten de gestelde grens,
+dan noemt het paneel een vaste lijst met wat het cijfer verhoogt: een dikkere balk, een kleinere hart-op-hart
 afstand, doorschietende regels of een strongback tussen de balken, of een vloerplaat die zowel gelijmd
 als geschroefd is.</p>
 <p>De knop <b>Uitgangspunten exporteren</b> — in het documentmenu en onderaan Materialen — legt deze
@@ -995,7 +995,7 @@ materials takeoff also states the height a break would let it fit at.</p>
 <p>A selected deck, beam or opening shows a <b>Structure</b> head: the span, the load with its make-up —
 permanent and variable, and for a lintel the self-weight of the wall above it — the section, the utilisation
 per criterion (bending, shear, deflection, with the governing one marked), the deflection against its limit,
-and whether the section passes. One calculation is applied three ways: a deck's joists over their own span
+and whether the section stays within the stated limits. One calculation is applied three ways: a deck's joists over their own span
 and centres, a placed beam over its own authored load, and an opening's lintel over the wall standing above
 it, read at the height of the roof or the deck above so that a lintel in a gable is not loaded with wall that
 is not there. A beam whose label names a rolled steel size (HEA, HEB, IPE) is checked against that catalogue
@@ -1003,12 +1003,12 @@ section rather than as rectangular timber; every other section — a deck's jois
 profile, every lintel — is checked as rectangular timber.</p>
 <p>Where a fact is missing, the panel states which one and, where it names a row, which row above carries it;
 a lintel with no stated wall material points at the wall's own material, in its own panel. Where the stated
-section does not pass, a button offers the smallest section from the sections list that does, and writes it
-into the deck, beam or opening in one click; where none of the stated sections passes, the panel says so
-instead of showing a button.</p>
+section stays outside the stated limit, a button offers the smallest section from the sections list that
+stays within it, and writes it into the deck, beam or opening in one click; where none of the stated
+sections stays within the stated limits, the panel says so instead of showing a button.</p>
 <p>The check is a preliminary sizing of one simply supported span under a uniformly distributed load: M =
 qL²/8, V = qL/2, bending and shear against a strength that accounts for kmod, the material factor and (for
-timber) the creep factor, and a deflection against L/limit. Point loads, continuous or cantilevered spans,
+timber) the creep factor, and a deflection against L/limit. A trimmer beside an opening also carries its headers as point loads. Other point loads, continuous or cantilevered spans,
 lateral-torsional stability, vibration, notches, bearing stress, connections and fire fall outside it. Under
 <b>Materials</b> are the assumptions the check reads: the timber strength class — a preset that only fills
 the strength figures, the same way the insulation class does under Energy — the partial factors on permanent
@@ -1017,12 +1017,12 @@ from. Without a stated figure, indicative table values apply. As everywhere here
 constructieberekening (structural calculation) — that requires a qualified structural engineer.</p>
 <p>A deck's Structure head also shows two comfort figures beside the strength check: the span's
 fundamental frequency and its deflection under a 1 kN point load, each against an indicative limit — 8
-Hz and 1 mm, editable under Materials. A deck that passes bending, shear and deflection can still feel
-noticeably lively; these two figures are ordinary engineering formulas the same way the strength check
-itself is, not a table from a standard. They read the joists' and decking's own mass plus the stated
-permanent load, not the variable load, and the stated joist section; without a stated permanent load or
-section, no figure is shown. They say nothing about a heavy finish, a long or continuous span, or a
-floor carrying machinery — those need their own assessment. Where a deck fails, the panel names a fixed
+Hz and 1 mm, editable under Materials. A deck whose bending, shear and deflection stay within the stated
+limits can still feel noticeably lively; these two figures are ordinary engineering formulas the same way
+the strength check itself is, not a table from a standard. They read the joists' and decking's own mass plus
+the stated permanent load, not the variable load, and the stated joist section; without a stated permanent
+load or section, no figure is shown. They say nothing about a heavy finish, a long or continuous span, or a
+floor carrying machinery — those need their own assessment. Where a deck stays outside the stated limit, the panel names a fixed
 list of what raises the figure: a deeper joist, closer centres, blocking or a strongback between the
 joists, or a deck glued as well as screwed.</p>
 <p>The <b>Export assumptions sheet</b> button — in the document menu and at the foot of Materials —
