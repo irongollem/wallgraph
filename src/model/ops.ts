@@ -32,7 +32,12 @@ export function splitWall(f: Floor, w: Wall, tMm: number): PlanNode | null {
   const a = f.nodes.find(n => n.id === w.a)!;
   const b = f.nodes.find(n => n.id === w.b)!;
   const L = wallLength(f, w);
-  const tt = Math.max(1, Math.min(L - 1, tMm));
+  // Rounded ONCE, here -- every figure this function derives from the split
+  // position (the moved/kept opening and profile `t`s, a "grid" layout's
+  // postOffsetMm) is stored as an integer (invariant 1), and reads them off
+  // this same `tt` rather than the caller's possibly-fractional `tMm`, so
+  // they cannot individually pick up a fraction of a mm the others don't.
+  const tt = Math.round(Math.max(1, Math.min(L - 1, tMm)));
   if (!openingsFitCuts(w, L, [tt])) return null;
   // Split point on the centerline (arc-aware).
   const frac = tt / L;

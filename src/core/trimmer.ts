@@ -259,7 +259,6 @@ function computeTrim(f: Floor, deck: Deck): TrimResult {
 
     if (!nearEdge) {
       const stubMm = (spanLo - (-spanHalf)) + bearing;
-      cutJoistLengths.set(stubMm, (cutJoistLengths.get(stubMm) ?? 0) + cutIdx.length);
       // Each cut joist is itself simply supported between the header and its
       // own wall bearing: reaction at each end = (line load * length)/2.
       // The header, in turn, is simply supported on the two trimmers: its
@@ -274,7 +273,6 @@ function computeTrim(f: Floor, deck: Deck): TrimResult {
     }
     if (!farEdge) {
       const stubMm = (spanHalf - spanHi) + bearing;
-      cutJoistLengths.set(stubMm, (cutJoistLengths.get(stubMm) ?? 0) + cutIdx.length);
       const reactionG = (cutIdx.length * gLinePerJoistNmm * stubMm) / 4;
       const reactionQ = (cutIdx.length * qLinePerJoistNmm * stubMm) / 4;
       headers.push({ spanMm: headerSpanMm, carriesJoists: cutIdx.length, reactionG, reactionQ });
@@ -307,7 +305,17 @@ function computeTrim(f: Floor, deck: Deck): TrimResult {
       full.push(mkSpanSeg(fs, fe, acrossPos));
       return;
     }
-    for (const [s, e] of clipAndExtend(spanHalf, bearing, holes)) cut.push(mkSpanSeg(s, e, acrossPos));
+    // The takeoff's own stub lengths are read off these SAME clipped-and-
+    // extended pieces, not recomputed from each hole in isolation (that
+    // measured a stub between two holes on one joist all the way out to the
+    // deck's own far edge, as if the far hole were not there, and double-
+    // counted it against the matching wrong figure the far hole produced
+    // measuring back the other way) -- see the module header.
+    for (const [s, e] of clipAndExtend(spanHalf, bearing, holes)) {
+      cut.push(mkSpanSeg(s, e, acrossPos));
+      const lengthMm = e - s;
+      cutJoistLengths.set(lengthMm, (cutJoistLengths.get(lengthMm) ?? 0) + 1);
+    }
   });
 
   const cutJoists = [...cutJoistLengths.entries()].map(([lengthMm, count]) => ({ lengthMm, count }));

@@ -6,7 +6,7 @@ import type { Floor, Id } from "../model/doc";
 import { liningSideOf, wallLiningMm } from "../model/doc";
 import { Vec, v, add, scale, norm, perp, distToSeg } from "../geometry/vec";
 import { boxCorners, boxHit, worldPoint, type LocalBox } from "./placed";
-import type { DeckJoistLayout, JoistSegment } from "./trimmer";
+import type { DeckJoistLayout, DeckOpening, JoistSegment } from "./trimmer";
 
 /** Local bounds. The anchor is the centre, so the box is symmetric both ways. */
 export function deckBox(d: Deck): LocalBox {
@@ -180,6 +180,62 @@ function offsetAcross(seg: JoistSegment, amount: number): JoistSegment {
     : { a: { x: seg.a.x + amount, y: seg.a.y }, b: { x: seg.b.x + amount, y: seg.b.y } };
 }
 
+interface LocalRect { x0: number; y0: number; x1: number; y1: number }
+
+/**
+ * A trimmed opening's own local box, in the deck's (x0,y0,x1,y1) frame --
+ * DeckOpening states it as "along the joists"/"across them" (`from`/`to`,
+ * `left`/`right`), the same axis-relative shape computeTrim() builds every
+ * other opening figure from; this is the one place that turns it back into
+ * plain x/y for a rectangle subtraction.
+ */
+function openingRect(axisIsX: boolean, o: DeckOpening): LocalRect {
+  return axisIsX
+    ? { x0: o.from, y0: o.left, x1: o.to, y1: o.right }
+    : { x0: o.left, y0: o.from, x1: o.right, y1: o.to };
+}
+
+/**
+ * `r` minus `h`, as 0-4 axis-aligned rectangles that exactly tile what is
+ * left -- the standard "top/bottom/middle-left/middle-right strip" split, so
+ * repeated subtraction (one call per hole) always leaves a set of disjoint
+ * rectangles covering r minus every hole subtracted so far, with no need for
+ * a general polygon-with-holes representation (see deckSolids()'s own note
+ * on why that is not available to every consumer here).
+ */
+function subtractRect(r: LocalRect, h: LocalRect): LocalRect[] {
+  const hx0 = Math.max(h.x0, r.x0), hx1 = Math.min(h.x1, r.x1);
+  const hy0 = Math.max(h.y0, r.y0), hy1 = Math.min(h.y1, r.y1);
+  if (hx1 <= hx0 || hy1 <= hy0) return [r]; // no overlap
+  const out: LocalRect[] = [];
+  if (hy0 > r.y0) out.push({ x0: r.x0, y0: r.y0, x1: r.x1, y1: hy0 });
+  if (hy1 < r.y1) out.push({ x0: r.x0, y0: hy1, x1: r.x1, y1: r.y1 });
+  if (hx0 > r.x0) out.push({ x0: r.x0, y0: hy0, x1: hx0, y1: hy1 });
+  if (hx1 < r.x1) out.push({ x0: hx1, y0: hy0, x1: r.x1, y1: hy1 });
+  return out;
+}
+
+/**
+ * The deck's own box minus every TRIMMED opening in `layout` (an opening the
+ * joists were actually cut for -- `complete`; an opening only partly over the
+ * deck cuts no joist either, per computeTrim(), and is left to whatever deck
+ * IS fully under it). Returns the whole box unchanged with no layout or no
+ * complete opening, so the ordinary, hole-free deck still gets exactly one
+ * rectangle.
+ */
+function deckingRects(d: Deck, layout: DeckJoistLayout | undefined): LocalRect[] {
+  const b = deckBox(d);
+  let rects: LocalRect[] = [{ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 }];
+  if (!layout) return rects;
+  const axisIsX = d.joistAxis === "x";
+  for (const o of layout.openings) {
+    if (!o.complete) continue;
+    const hole = openingRect(axisIsX, o);
+    rects = rects.flatMap(r => subtractRect(r, hole));
+  }
+  return rects;
+}
+
 /**
  * The prisms the deck is built from: the decking sheet over the joists where a
  * thickness is stated, and one prism per joist at its section, running the
@@ -191,17 +247,23 @@ function offsetAcross(seg: JoistSegment, amount: number): JoistSegment {
  * plain joist set-out with the shortened joists either side of a hole, the
  * header across it, and the doubled trimmers -- as two ADJACENT single-width
  * prisms, not a single double-width one, matching the pair of real members
- * the materials takeoff (core/materials.ts's deckTakeoffOf()) counts.
- * Undefined draws every joist full length, unaware of any hole -- the
- * pre-#64 behaviour, used where no floor is at hand to check for one.
+ * the materials takeoff (core/materials.ts's deckTakeoffOf()) counts. The
+ * same `layout` keeps the decking itself off a trimmed opening -- one
+ * rectangle per surviving strip around the hole (deckingRects()) rather than
+ * one slab over the whole platform, so 3D and the IFC export (both read this
+ * function) do not show the hole closed. Undefined draws every joist full
+ * length and the decking as one whole-platform rectangle, unaware of any
+ * hole -- the pre-#64 behaviour, used where no floor is at hand to check for
+ * one.
  */
 export function deckSolids(d: Deck, layout?: DeckJoistLayout): DeckSolid[] {
   const out: DeckSolid[] = [];
   const top = deckTop(d);
   const decking = d.deckingMm ?? 0;
-  const b = deckBox(d);
   if (decking > 0 && top > 0) {
-    out.push({ part: "decking", poly: localQuad(d, b.x0, b.y0, b.x1, b.y1), z0: top - decking, z1: top });
+    for (const r of deckingRects(d, layout)) {
+      out.push({ part: "decking", poly: localQuad(d, r.x0, r.y0, r.x1, r.y1), z0: top - decking, z1: top });
+    }
   }
   if (!d.joist) return out;
   const z1 = top - decking, z0 = z1 - d.joist.d;

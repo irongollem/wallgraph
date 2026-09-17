@@ -269,7 +269,7 @@ export function headerCheck(doc: PlanDoc, deck: Deck, header: DeckHeader): Check
 
   const gLineNmm = header.spanMm > 0 ? (2 * header.reactionG) / header.spanMm : 0;
   const qLineNmm = header.spanMm > 0 ? (2 * header.reactionQ) / header.spanMm : 0;
-  const base = header.spanMm > 0 ? timberBase(doc, header.spanMm, gLineNmm, qLineNmm) : null;
+  const base = header.spanMm > 0 && hasLoad ? timberBase(doc, header.spanMm, gLineNmm, qLineNmm) : null;
   const loadBreakdown = { gLineKNm: gLineNmm, qLineKNm: qLineNmm };
   const sections = sectionsMmOf(doc);
 

@@ -264,5 +264,51 @@ function segmentSpanAcross(axisIsX: boolean, seg: JoistSegment): { spanLo: numbe
   }
 }
 
+// ---- headerCheck must refuse over an incomplete load, like joistCheck() and
+// trimmerCheck() already do (bug: headerCheck() read "ok" with nothing in
+// `missing` when loadQ was absent, because its own `base` ignored `hasLoad`) -
+{
+  const { f, d } = docWithDeck({ loadQ: undefined });
+  f.vides = [vide({ x: d.x, y: d.y, width: 1000, depth: 2400 })];
+  const trimmed = trimDeck(f, d);
+  const doc = emptyDoc();
+  doc.materials = { timber: { ...TIMBER_DEFAULT } };
+
+  const hResult = headerCheck(doc, d, trimmed.headers[0]!);
+  check("headerCheck is incomplete when loadQ is missing, like joistCheck/trimmerCheck",
+    hResult.status === "incomplete", JSON.stringify(hResult));
+  check("headerCheck names a missing load",
+    hResult.missing.includes("load") || hResult.missing.includes("loadQ"), JSON.stringify(hResult.missing));
+}
+
+// ---- two holes cutting one joist: the takeoff must count the SAME cut
+// segments deckJoistLayout() draws, not each hole's stub measured from the
+// deck's own edge as if it were the only hole (bug: a middle stub between two
+// holes was instead measured all the way out to the far deck edge, and
+// double-counted with the matching wrong figure from the other hole) --------
+{
+  const { f, d } = docWithDeck({ depth: 6000 });
+  f.vides = [
+    vide({ x: d.x, y: d.y - 1500, width: 1000, depth: 1000 }),
+    vide({ x: d.x, y: d.y + 1500, width: 1000, depth: 1000 }),
+  ];
+  const trimmed = trimDeck(f, d);
+  const layout = deckJoistLayout(f, d);
+  const axisIsX = d.joistAxis === "x";
+
+  const layoutLengths = layout.cut
+    .map(seg => { const { spanLo, spanHi } = segmentSpanAcross(axisIsX, seg); return Math.round(spanHi - spanLo); })
+    .sort((a, b) => a - b);
+  check("two holes cut each of the 2 affected joists into three pieces, 1100/2000/1100",
+    JSON.stringify(layoutLengths) === JSON.stringify([1100, 1100, 1100, 1100, 2000, 2000]),
+    JSON.stringify(layoutLengths));
+
+  const takeoffLengths = trimmed.cutJoists
+    .flatMap(c => Array(c.count).fill(Math.round(c.lengthMm)))
+    .sort((a: number, b: number) => a - b);
+  check("the takeoff's cut-joist pieces match the layout's own cut segments exactly",
+    JSON.stringify(takeoffLengths) === JSON.stringify(layoutLengths), JSON.stringify(trimmed.cutJoists));
+}
+
 console.log(failures === 0 ? "ok" : `FAIL (${failures} failures)`);
 process.exit(failures === 0 ? 0 : 1);

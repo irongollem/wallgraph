@@ -2105,5 +2105,34 @@ function rectFloor(wallTh = 100) {
   check("every wall is still standing", tee2.walls.length === 3, String(tee2.walls.length));
 }
 
+// ---- splitWall() rounds the split position ONCE, so every figure it -------
+// derives from it -- the moved/kept profile points, and a "grid" layout's
+// postOffsetMm -- stays integer mm, even when the caller hands it a
+// fractional split point (bug: `tt` was used unrounded throughout).
+{
+  const f = emptyDoc().floors[0]!;
+  const na = nodeAt(f, v(0, 0)).id, nb = nodeAt(f, v(3001, 0)).id;
+  const w: Wall = {
+    id: newId("w"), a: na, b: nb, thickness: 100, bulge: 0, openings: [],
+    material: "timber", postMm: 600, postWidthMm: 38,
+    profile: [{ t: 1000, height: 3000 }, { t: 2500, height: 3600 }],
+  };
+  f.walls.push(w);
+
+  const mid = splitWall(f, w, 1500.5)!;
+  check("split succeeded", mid !== null);
+  const w2 = f.walls.find(x => x.id !== w.id)!;
+
+  const allT = [...(w.profile ?? []).map(p => p.t), ...(w2.profile ?? []).map(p => p.t)];
+  check("every profile t after splitting a 3001 mm wall at a fractional position is an integer",
+    allT.every(t => Number.isInteger(t)), JSON.stringify(allT));
+
+  check("postOffsetMm on either half (if stated) is an integer",
+    (w.postOffsetMm === undefined || Number.isInteger(w.postOffsetMm))
+    && (w2.postOffsetMm === undefined || Number.isInteger(w2.postOffsetMm)),
+    `${w.postOffsetMm} ${w2.postOffsetMm}`);
+  check("the far half is still a grid wall", postLayoutOf(w2) === "grid");
+}
+
 console.log(failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

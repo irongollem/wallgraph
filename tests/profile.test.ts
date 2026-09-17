@@ -381,5 +381,39 @@ function corner(): { f: Floor; w1: Wall; w2: Wall; mid: string } {
   }
 }
 
+// ---- a stated end point on a fractional-length wall must still read as ----
+// that end (bug: clampProfile() floors L when storing, so a point stated at
+// s = L landed one mm short after rounding; breakpoints() then saw it as an
+// ordinary interior point and pushed its OWN implied end point beside it,
+// falling back to wallHeight() exactly at s = L).
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  const a = newId("n"), b = newId("n");
+  f.nodes.push({ id: a, x: 0, y: 0 }, { id: b, x: 3000, y: 1000 });
+  const w: Wall = { id: newId("w"), a, b, thickness: 100, bulge: 0, openings: [] };
+  f.walls.push(w);
+  const L = wallLength(f, w);
+  check("this wall's own length is not a whole mm", !Number.isInteger(L), String(L));
+
+  const h = floorHeight(f);
+  w.profile = leanToProfile(f, w, L);
+  clampProfile(f, w);
+  check("the high end still reads its stated height at s = L",
+    wallTopAt(f, w, L) === h + 1000, `${wallTopAt(f, w, L)} L=${L}`);
+
+  // A neighbour meeting at b, stating the same height there, must not be
+  // flagged: the false gap only shows up once the lean-to's own high end
+  // reads back correctly.
+  const c = newId("n");
+  f.nodes.push({ id: c, x: 3000, y: 4000 });
+  const w2: Wall = { id: newId("w"), a: b, b: c, thickness: 100, bulge: 0, openings: [] };
+  w2.profile = [{ t: 0, height: h + 1000 }];
+  f.walls.push(w2);
+  const mism = topMismatches(f).filter(m => m.nodeId === b);
+  check("topMismatches reports no false gap against a matching neighbour",
+    mism.length === 0, JSON.stringify(mism));
+}
+
 console.log(failures === 0 ? "ALL PROFILE TESTS PASSED" : `${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

@@ -1403,16 +1403,18 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
     };
     for (const d of decksOf(floor)) {
       const solids = deckSolids(d, deckJoistLayout(floor, d));
-      const deckingSolid = solids.find(s => s.part === "decking");
+      // A trimmed opening splits the decking into several rectangles; they are
+      // one slab with one body item each, so no part of the floor is dropped.
+      const deckingSolids = solids.filter(s => s.part === "decking");
       const memberSolids = solids.filter(s => s.part !== "decking");
 
       let slabEntity: number | undefined;
-      if (deckingSolid) {
-        const solidId = extrudedSolid(deckingSolid.poly, deckingSolid.z0, deckingSolid.z1);
-        if (solidId !== null) {
+      if (deckingSolids.length > 0) {
+        const solidIds = deckingSolids.map(s => extrudedSolid(s.poly, s.z0, s.z1));
+        if (solidIds.some(id => id !== null)) {
           slabEntity = w.entity("IFCSLAB",
             [str(ifcGuid(seed, `${d.id}:slab`)), ref(ownerHistory), str(d.label ?? "Deck"), UNSET, UNSET,
-              ref(levelPlacement), bodyShape([solidId]), UNSET, enumv("FLOOR")]);
+              ref(levelPlacement), bodyShape(solidIds), UNSET, enumv("FLOOR")]);
           attachPropertySet(slabEntity, `${d.id}:pset`, "Pset_SlabCommon",
             [ref(propValue("LoadBearing", boolValue(true)))]);
         }

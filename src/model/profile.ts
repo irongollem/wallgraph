@@ -19,6 +19,19 @@ import { wallLength } from "./ops";
 interface Breakpoint { t: number; h: number }
 
 /**
+ * A stated point within this many mm of an end counts AS that end, rather
+ * than getting an implied end point of its own beside it. `clampProfile()`
+ * floors a fractional wall length (a diagonal or arc-length wall's `L` is
+ * rarely a whole mm) when it stores a point's `t`, so a point genuinely
+ * stated at s = L is read back at L minus a fraction of a mm. Without this
+ * tolerance, breakpoints() saw that point as an ordinary interior one and
+ * pushed its own implied end point past it, back at wallHeight() -- silently
+ * discarding the stated height exactly at the end a caller like wallTopAt()
+ * or topMismatches() actually queries.
+ */
+const END_TOL_MM = 1;
+
+/**
  * The wall's top as breakpoints over [0, L]: the stated points, sorted and
  * deduplicated by `t` (last write at a given `t` wins), with an implied point
  * at 0 and/or at L holding `wallHeight()` wherever the profile does not state
@@ -43,8 +56,8 @@ function breakpoints(f: Floor, w: Wall, L: number): Breakpoint[] {
   stated.sort((a, b) => a.t - b.t);
   if (stated.length === 0) return [{ t: 0, h: wallHeight(f, w) }, { t: L, h: wallHeight(f, w) }];
   const pts = [...stated];
-  if (pts[0]!.t > 0) pts.unshift({ t: 0, h: wallHeight(f, w) });
-  if (pts[pts.length - 1]!.t < L) pts.push({ t: L, h: wallHeight(f, w) });
+  if (pts[0]!.t > END_TOL_MM) pts.unshift({ t: 0, h: wallHeight(f, w) });
+  if (pts[pts.length - 1]!.t < L - END_TOL_MM) pts.push({ t: L, h: wallHeight(f, w) });
   return pts;
 }
 

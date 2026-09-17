@@ -8,6 +8,7 @@ import {
   deckBox, deckCorners, deckHit, deckLabelAt, deckJoists, deckJoistsLocal, deckSpanMm,
   deckTop, deckBottom, deckSolids,
 } from "../src/core/deck";
+import { deckJoistLayout } from "../src/core/trimmer";
 import { deckPrims } from "../src/io/deck";
 import { Prim } from "../src/io/record";
 import { Vec, v } from "../src/geometry/vec";
@@ -113,6 +114,63 @@ function points(prims: Prim[]): Vec[] {
   check("a balklaag at floor level draws no slab of its own",
     floorLevel.every(s => s.part === "joist") && floorLevel.every(s => s.z1 <= 0));
   check("without a section there are no joists to extrude", deckSolids(mk()).length === 0);
+}
+
+// ---- decking around a hole (issue #64) -------------------------------------
+//
+// deckSolids() must not draw the decking slab over a vide that trims the
+// joists: a hole in the floor has no platform over it, in 3D or in the IFC
+// export (both read this same function -- see core/deck.ts's own header).
+{
+  function polygonArea(poly: Vec[]): number {
+    let a = 0;
+    for (let i = 0; i < poly.length; i++) {
+      const p0 = poly[i]!, p1 = poly[(i + 1) % poly.length]!;
+      a += p0.x * p1.y - p1.x * p0.y;
+    }
+    return Math.abs(a) / 2;
+  }
+  function pointInPoly(p: Vec, poly: Vec[]): boolean {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const pi = poly[i]!, pj = poly[j]!;
+      const crosses = (pi.y > p.y) !== (pj.y > p.y)
+        && p.x < ((pj.x - pi.x) * (p.y - pi.y)) / (pj.y - pi.y) + pi.x;
+      if (crosses) inside = !inside;
+    }
+    return inside;
+  }
+
+  const dk = mk({
+    x: 0, y: 0, width: 4200, depth: 3600, joistAxis: "y", joistMm: 600,
+    joist: { w: 44, d: 195 }, deckingMm: 18, topMm: 2200, loadG: 500, loadQ: 1750,
+  });
+  const doc = emptyDoc();
+  const floor = doc.floors[0]!;
+  floor.decks = [dk];
+  floor.vides = [{ id: "vd1", x: dk.x, y: dk.y, rotation: 0, width: 1000, depth: 2400 }];
+
+  const layout = deckJoistLayout(floor, dk);
+  const solids = deckSolids(dk, layout);
+  const decking = solids.filter(s => s.part === "decking");
+  check("a deck with a vide still carries decking", decking.length > 0, String(decking.length));
+
+  const centre = v(dk.x, dk.y);
+  check("no decking solid covers the vide's centre",
+    !decking.some(s => pointInPoly(centre, s.poly)), JSON.stringify(decking.map(s => s.poly)));
+
+  const totalArea = decking.reduce((sum, s) => sum + polygonArea(s.poly), 0);
+  const holeAreaMm2 = 1000 * 2400;
+  check("the decking area is the platform minus the hole, nothing more or less",
+    Math.abs(totalArea - (dk.width * dk.depth - holeAreaMm2)) < 1,
+    `${totalArea} vs ${dk.width * dk.depth - holeAreaMm2}`);
+
+  // Without a layout (the pre-#64 call some paths still make), decking still
+  // covers the whole platform -- the caller has offered no hole to cut.
+  const noLayout = deckSolids(dk).filter(s => s.part === "decking");
+  check("without a layout, decking still covers the whole platform (unaware of any hole)",
+    noLayout.length === 1 && Math.abs(polygonArea(noLayout[0]!.poly) - dk.width * dk.depth) < 1,
+    JSON.stringify(noLayout));
 }
 
 {

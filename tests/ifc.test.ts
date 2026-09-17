@@ -1640,6 +1640,26 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
   }
   check("a deck stating no loads carries no Wallgraph_Loads pset at all -- never a derived zero",
     psetLineB(`${floorDeck.id}:loads`) === undefined);
+
+  // A vide inside a raised deck splits its decking into several rectangles;
+  // the slab's body carries every one of them, not only the first.
+  {
+    const doc10c = structuredClone(doc10);
+    const f10c = doc10c.floors[0]!;
+    const holed: Deck = { ...raisedDeck, id: "dk-holed", width: 3000, depth: 2400, x: 2000, y: 1500 };
+    f10c.decks = [holed];
+    f10c.vides = [{ id: "v-holed", x: 2000, y: 1500, rotation: 0, width: 800, depth: 800 }];
+    const ents = toIfc(doc10c).split("\n").filter(l => l.startsWith("#"));
+    const lineOf = (id: number): string | undefined => ents.find(l => l.startsWith(`#${id}=`));
+    const refs = (line: string): number[] => [...line.slice(line.indexOf("=") + 1).matchAll(/#(\d+)/g)].map(m => Number(m[1]));
+    const slab = ents.find(l => l.includes(`=IFCSLAB('${ifcGuid(seed10, "dk-holed:slab")}'`));
+    // slab -> IFCPRODUCTDEFINITIONSHAPE -> IFCSHAPEREPRESENTATION -> its body items
+    const pds = slab ? lineOf(refs(slab).find(id => lineOf(id)?.includes("=IFCPRODUCTDEFINITIONSHAPE(")) ?? -1) : undefined;
+    const rep = pds ? lineOf(refs(pds)[0] ?? -1) : undefined;
+    const items = rep ? refs(rep).map(lineOf).filter(l => l?.includes("=IFCEXTRUDEDAREASOLID(")) : [];
+    check("a raised deck with a vide in it exports every decking rectangle in its slab's body",
+      slab !== undefined && items.length > 1, `${items.length} body items`);
+  }
 }
 
 console.log(failures === 0 ? "ALL IFC TESTS PASSED" : `${failures} FAILURES`);
