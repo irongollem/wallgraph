@@ -26,8 +26,8 @@ import {
   doorKindOf, DOOR_KINDS, widthsFor, DOOR_WIDTHS_DOUBLE, FIRE_KINDS, FIRE_MINUTES,
   FIRE_MINUTES_DEFAULT, routesOf, furnishingsOf, decksOf, WALL_MATERIALS, POST_WIDTH_DEFAULT,
   FACADE_DEFAULT_MM, facadeSideOf, wallPostMm, postDefaultsFor, postLayoutOf,
-  isBlockMaterial, LINING_DEFAULT, BLOCK_DEFAULT_MM, PANEL_DEFAULT_MM,
-  clampLiningBoard, clampLiningLayers, clampBlockLength, clampBlockHeight, clampNoggingRows, clampPanel,
+  isBlockMaterial, BLOCK_DEFAULT_MM, PANEL_DEFAULT_MM, buildUpOf, setFaceBuildUp,
+  clampBlockLength, clampBlockHeight, clampNoggingRows, clampPanel,
   openingBearing, OPENING_BEARING_DEFAULT_MM, clampOpeningBearing, clampLintelSection, clampLintelLoad,
   type AreaMode, type DimMode, type Sash, type HingeEdge, type Opening, type Wall, type Floor, type FireKind,
   type ProjectMeta, type Id, type WallMaterial, type PlanDoc,
@@ -43,6 +43,7 @@ import { Palette } from "./palette";
 import { categoriesIn, getSymbol, type SymbolCategory } from "../render/symbols";
 import { LAYER_KEYS, LAYER_OF_CATEGORY, type LayerKey } from "../render/layers";
 import { renderStairTool, renderStairProps, renderStairBulk, type PaneRows } from "./stairs";
+import { renderFaceBuildUp, wallHasBuildUp } from "./buildup";
 import { routeTakesSymbol } from "../core/attach";
 import { incompleteDevices } from "../core/port";
 import { renderFurnishingTool, renderFurnishingProps } from "./furnishing";
@@ -2272,18 +2273,12 @@ export class Panel {
         { mixed: isMixed(walls, w => facadeSideOf(w)) });
       rows.noteRow(t("panel.facadeHelp"));
     }
-    const liningMixed = isMixed(walls, w => w.lining !== undefined);
-    rows.checkRow(t("panel.liningOn"), first.lining !== undefined, on => mutAll(w => {
-      if (on) w.lining = { ...LINING_DEFAULT }; else delete w.lining;
-    }), { mixed: liningMixed });
-    if (!liningMixed && first.lining !== undefined) {
-      rows.numRow(t("panel.liningBoard"), first.lining.boardMm, n => mutAll(w => {
-        if (w.lining) w.lining.boardMm = clampLiningBoard(n);
-      }), 1, { mixed: isMixed(walls, w => w.lining?.boardMm) });
-      rows.numRow(t("panel.liningLayers"), first.lining.layers, n => mutAll(w => {
-        if (w.lining) w.lining.layers = clampLiningLayers(n);
-      }), 1, { mixed: isMixed(walls, w => w.lining?.layers) });
-      rows.noteRow(t("panel.liningHelp"));
+    for (const side of ["left", "right"] as const) {
+      const label = side === "left" ? t("panel.facadeLeft") : t("panel.facadeRight");
+      const facadeHere = walls.every(w => w.facadeMm !== undefined && facadeSideOf(w) === side);
+      const mixed = isMixed(walls, w => JSON.stringify(buildUpOf(w, side) ?? null));
+      renderFaceBuildUp(rows, label, facadeHere, buildUpOf(first, side),
+        fu => mutAll(w => setFaceBuildUp(w, side, fu)), { mixed });
     }
     if (walls.every(w => isBlockMaterial(w.material))) {
       const blockMixed = isMixed(walls, w => w.blockMm !== undefined);
@@ -2829,7 +2824,7 @@ export class Panel {
       // warnings that follow from it. Placed beside the height row it
       // relabels and before the surface figure that reads openingsAbove off it.
       this.renderWallProfile(rows, w, sel.id, hasProfile, surface);
-      if (surface) renderWallSurface(rows, surface, w.lining !== undefined);
+      if (surface) renderWallSurface(rows, surface, wallHasBuildUp(w));
       // Own members and figures -- computed here, alongside the surface
       // figure above, but rendered at the end of this pane (see below),
       // after the build-up fields it summarises rather than above them.
@@ -2969,24 +2964,15 @@ export class Panel {
           noteRow(t("panel.rcPlan", { rc: this.store.doc.energy.wallRc.toFixed(2) }));
         }
       }
-      // Board lining on the interior faces, outside the structural thickness
-      // like the facade. Set/unset, because an unlined wall states nothing
-      // rather than a lining of zero.
-      checkRow(t("panel.liningOn"), w.lining !== undefined, on => this.store.mutate(d => {
-        const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
-        if (!wall) return;
-        if (on) wall.lining = { ...LINING_DEFAULT }; else delete wall.lining;
-      }));
-      if (w.lining !== undefined) {
-        numRow(t("panel.liningBoard"), w.lining.boardMm, n => this.store.mutate(d => {
+      // Board build-up on each face, outside the structural thickness like
+      // the facade -- the face carrying the facade shows a note instead.
+      for (const side of ["left", "right"] as const) {
+        const label = side === "left" ? t("panel.facadeLeft") : t("panel.facadeRight");
+        const facadeHere = w.facadeMm !== undefined && facadeSideOf(w) === side;
+        renderFaceBuildUp(rows, label, facadeHere, buildUpOf(w, side), fu => this.store.mutate(d => {
           const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
-          if (wall?.lining) wall.lining.boardMm = clampLiningBoard(n);
+          if (wall) setFaceBuildUp(wall, side, fu);
         }));
-        numRow(t("panel.liningLayers"), w.lining.layers, n => this.store.mutate(d => {
-          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
-          if (wall?.lining) wall.lining.layers = clampLiningLayers(n);
-        }), 1);
-        noteRow(t("panel.liningHelp"));
       }
       // Block format, only meaningful on a block-built material.
       if (isBlockMaterial(w.material)) {

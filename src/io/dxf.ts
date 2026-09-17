@@ -68,11 +68,14 @@ const LAYER = {
    */
   facade: "FACADE",
   /**
-   * Board lining on a wall's interior face. Its own layer for the same reason
+   * Board build-up on a wall's face. Its own layer for the same reason
    * FACADE is: a different trade (a timmerman, not a metselaar) works to it,
-   * and the net area is measured to it.
+   * and the net area is measured to it. One layer for the whole stack rather
+   * than one per board kind: DXF colour is per-layer, and a build-up's boards
+   * already show as separate outlines on it (see the per-band polyline below),
+   * which is what a CAD reader needs to tell them apart.
    */
-  lining: "LINING",
+  boards: "BOARDS",
   /**
    * Roof planes. Above the section plane like DECKS-OVERHEAD and
    * CABINETS-OVERHEAD, but with no cut/overhead split to carry -- a roof
@@ -371,7 +374,9 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
       for (const piece of rw.pieces) w.polyline(bodyLayer(rw.wall), piece.poly, true);
       emitPrims(w, LAYER.posts, postMarks(rw));
       for (const band of rw.facade) w.polyline(LAYER.facade, band.poly, true);
-      for (const band of [...rw.lining[0], ...rw.lining[1]]) w.polyline(LAYER.lining, band.poly, true);
+      for (const band of [...rw.boards[0], ...rw.boards[1]]) {
+        for (const piece of band.pieces) w.polyline(LAYER.boards, piece.poly, true);
+      }
     }
     // A wedge belongs to no one wall, so it follows what its neighbours agree
     // on -- the same rule the canvas and the SVG use (junctionPen in draw.ts).

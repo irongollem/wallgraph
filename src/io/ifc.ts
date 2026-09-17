@@ -62,7 +62,7 @@
 import {
   PlanDoc, Floor, Wall, projectOf, floorElevation, floorHeight, areaModeOf, dimModeOf, DimMode, Sash, sashSpecsOf,
   openingHeight, videsOf, stairsOf, structureOf, furnishingsOf, routesOf, SymbolInstance, fireLabel, WallMaterial,
-  wallPostMm, wallFacadeMm, wallLiningMm, liningSideOf, facadeSideOf, decksOf,
+  wallPostMm, wallFacadeMm, buildUpOf, facadeSideOf, decksOf, type Board, type BoardKind,
 } from "../model/doc";
 import { deckSolids, type DeckPart } from "../core/deck";
 import { deckJoistLayout } from "../core/trimmer";
@@ -464,9 +464,11 @@ const IFC_MATERIAL_NAME: Record<WallMaterial, string> = {
   sandwich: "SandwichPanel", aerated: "AeratedConcrete", calciumsilicate: "CalciumSilicate",
 };
 
-/** Board lining material name. The document does not distinguish board products
- *  (gypsum, cement board, ...), so every lining layer is named this one thing. */
-const LINING_MATERIAL_NAME = "Gypsum board";
+/** Board material name per kind (Wall.buildUp), in IFC's own English vocabulary. */
+const BOARD_MATERIAL_NAME: Record<BoardKind, string> = {
+  gypsum: "Gypsum board", gypsumFibre: "Gypsum fibre board",
+  osb: "OSB", plywood: "Plywood", cement: "Cement board",
+};
 
 /* ── services ───────────────────────────────────────────────────────────────
  * A route's IFC4 occurrence class, nominal cross-section and system identity.
@@ -1038,8 +1040,10 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
         /** Which physical side facadeMm is on -- decides whether it lists
          *  first (left skin) or last (right skin) in the layer set below. */
         facadeSide?: "left" | "right";
-        /** Lining on the left/right face, mm -- 0 where that face states none. */
-        liningLeftMm: number; liningRightMm: number;
+        /** The board stack on the left/right face, innermost first (see
+         *  Wall.buildUp) -- empty where that face states none, and always
+         *  empty on whichever face carries the facade (buildUpOf excludes it). */
+        leftBoards: readonly Board[]; rightBoards: readonly Board[];
         elements: number[];
       }>();
 
@@ -1136,21 +1140,24 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
       // at masonry -- the same reading Pset_WallCommon gives loadBearing above.
       const facadeMm = wallFacadeMm(wall);
       const facadeSide = facadeMm !== undefined ? facadeSideOf(wall) : undefined;
-      const liningMm = wallLiningMm(wall);
-      const liningLeftMm = liningMm > 0 && liningSideOf(wall, "left") ? liningMm : 0;
-      const liningRightMm = liningMm > 0 && liningSideOf(wall, "right") ? liningMm : 0;
-      if (wall.material !== undefined || facadeMm !== undefined || liningLeftMm > 0 || liningRightMm > 0) {
+      const leftBoards = buildUpOf(wall, "left")?.boards ?? [];
+      const rightBoards = buildUpOf(wall, "right")?.boards ?? [];
+      const boardKey = (boards: readonly Board[]): string => boards.map(b => `${b.kind}:${b.mm}`).join(",");
+      if (wall.material !== undefined || facadeMm !== undefined || leftBoards.length > 0 || rightBoards.length > 0) {
         // Thickness is part of the key whenever the wall carries a layer set
-        // (cladding or lining): it is a layer of the build-up there, and
+        // (cladding or a build-up): it is a layer of the build-up there, and
         // irrelevant to a bare material association, which would otherwise
         // split into one relation per thickness. facadeSide is part of it
         // too -- two walls agreeing on everything else but clad on opposite
         // sides are two different physical layer orders, not one relation.
-        const key = facadeMm === undefined && liningLeftMm === 0 && liningRightMm === 0
+        // Both stacks enter the key in full (kind and mm, in order): two
+        // walls whose stacks agree in depth but differ in kind, or in how
+        // many boards make up that depth, are different physical build-ups.
+        const key = facadeMm === undefined && leftBoards.length === 0 && rightBoards.length === 0
           ? `${wall.material}|`
-          : `${wall.material ?? ""}|${wall.thickness}|${facadeMm ?? ""}|${facadeSide ?? ""}|${liningLeftMm}|${liningRightMm}`;
+          : `${wall.material ?? ""}|${wall.thickness}|${facadeMm ?? ""}|${facadeSide ?? ""}|${boardKey(leftBoards)}|${boardKey(rightBoards)}`;
         const bucket = byBuild.get(key)
-          ?? { material: wall.material, thickness: wall.thickness, facadeMm, facadeSide, liningLeftMm, liningRightMm, elements: [] };
+          ?? { material: wall.material, thickness: wall.thickness, facadeMm, facadeSide, leftBoards, rightBoards, elements: [] };
         bucket.elements.push(wallEntity);
         byBuild.set(key, bucket);
       }
@@ -1296,7 +1303,7 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
       if (el.material !== undefined) {
         const key = `${el.material}|`;
         const bucket = byBuild.get(key)
-          ?? { material: el.material, thickness: 0, liningLeftMm: 0, liningRightMm: 0, elements: [] };
+          ?? { material: el.material, thickness: 0, leftBoards: [], rightBoards: [], elements: [] };
         bucket.elements.push(entity);
         byBuild.set(key, bucket);
       }
@@ -1309,43 +1316,48 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
     // the same statement once for every wall. The GlobalId is keyed on the
     // storey and the material name, both stable, so a re-export keeps it.
     for (const [key, build] of byBuild) {
-      // A clad or lined wall is a build-up, and IFC says so with a layer set:
-      // the structure and its skins as ordered layers, physically across the
-      // wall. The facade layer names no material because the document stores
-      // only its thickness -- IfcMaterialLayer.Material is optional in IFC4
-      // precisely for this; a lining layer names LINING_MATERIAL_NAME because
-      // the document states what it is, just not which product. A bare wall
-      // keeps the plain IFCMATERIAL association it had.
-      const hasLining = build.liningLeftMm > 0 || build.liningRightMm > 0;
+      // A clad or built-up wall is a layer stack, and IFC says so with a layer
+      // set: the structure and its skins as ordered layers, physically across
+      // the wall. The facade layer names no material because the document
+      // stores only its thickness -- IfcMaterialLayer.Material is optional in
+      // IFC4 precisely for this; a board layer names BOARD_MATERIAL_NAME[kind]
+      // because the document states which product. A bare wall keeps the
+      // plain IFCMATERIAL association it had.
+      const hasBoards = build.leftBoards.length > 0 || build.rightBoards.length > 0;
       const structureLayer = (): number => w.entity("IFCMATERIALLAYER", [
         build.material !== undefined ? ref(materialEntity(IFC_MATERIAL_NAME[build.material])) : UNSET,
         real(build.thickness), UNSET, str("Structure"), UNSET, UNSET, UNSET]);
       const facadeLayer = (): number => w.entity("IFCMATERIALLAYER", [
         UNSET, real(build.facadeMm!), UNSET, str("Facade"), UNSET, UNSET, UNSET]);
-      const liningLayer = (mm: number): number => w.entity("IFCMATERIALLAYER", [
-        ref(materialEntity(LINING_MATERIAL_NAME)), real(mm), UNSET, str("Lining"), UNSET, UNSET, UNSET]);
-      const relating = build.facadeMm === undefined && !hasLining
+      const boardLayer = (b: Board): number => w.entity("IFCMATERIALLAYER", [
+        ref(materialEntity(BOARD_MATERIAL_NAME[b.kind])), real(b.mm), UNSET, str("Board"), UNSET, UNSET, UNSET]);
+      const relating = build.facadeMm === undefined && !hasBoards
         ? materialEntity(IFC_MATERIAL_NAME[build.material!])
         : (() => {
-            // Ordered physically -- left skin, structure, right skin -- so a
-            // clad wall lists its facade on the side it is actually drawn on
-            // rather than always after the structure. Facade and lining never
-            // share a face (liningSideOf excludes the facade side), so
-            // build.facadeSide alone decides the facade's slot; a lining on
-            // the OTHER face, where one is stated, takes the remaining slot.
-            let left: number | undefined, right: number | undefined;
+            // Ordered physically -- left skin(s), structure, right skin(s) --
+            // so a clad or built-up wall lists its layers on the side they are
+            // actually drawn on rather than always after the structure. A
+            // facade and a build-up never share a face (buildUpOf excludes
+            // the facade side), so build.facadeSide alone decides the
+            // facade's slot; a build-up on the OTHER face, where one is
+            // stated, fills the remaining slot instead. A stack is stored
+            // innermost first (Wall.buildUp) -- outward into the room -- so
+            // the LEFT stack (room to the left) reverses to read outermost
+            // first, matching the physical left-to-right order across the
+            // wall; the right stack already reads innermost-to-outermost in
+            // that same left-to-right direction and needs no reversal.
+            let left: number[], right: number[];
             if (build.facadeMm !== undefined && build.facadeSide === "right") {
-              right = facadeLayer();
-              if (build.liningLeftMm > 0) left = liningLayer(build.liningLeftMm);
+              right = [facadeLayer()];
+              left = build.leftBoards.slice().reverse().map(boardLayer);
             } else if (build.facadeMm !== undefined) {
-              left = facadeLayer();
-              if (build.liningRightMm > 0) right = liningLayer(build.liningRightMm);
+              left = [facadeLayer()];
+              right = build.rightBoards.map(boardLayer);
             } else {
-              if (build.liningLeftMm > 0) left = liningLayer(build.liningLeftMm);
-              if (build.liningRightMm > 0) right = liningLayer(build.liningRightMm);
+              left = build.leftBoards.slice().reverse().map(boardLayer);
+              right = build.rightBoards.map(boardLayer);
             }
-            const layers = [left, structureLayer(), right]
-              .filter((id): id is number => id !== undefined).map(ref);
+            const layers = [...left, structureLayer(), ...right].map(ref);
             return w.entity("IFCMATERIALLAYERSET", [list(...layers), str("Wall"), UNSET]);
           })();
       w.entity("IFCRELASSOCIATESMATERIAL",

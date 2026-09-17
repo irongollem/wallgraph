@@ -32,6 +32,13 @@ export function planBounds(floor: Floor, resolved: Resolved): Bounds | null {
   for (const rw of resolved.walls.values()) {
     for (const band of rw.facade) for (const p of band.poly) b.add(p.x, p.y);
   }
+  // A board build-up sits outside the structural outline too, on whichever
+  // face states it.
+  for (const rw of resolved.walls.values()) {
+    for (const faceBands of rw.boards) for (const band of faceBands) {
+      for (const piece of band.pieces) for (const p of piece.poly) b.add(p.x, p.y);
+    }
+  }
   for (const n of floor.nodes) b.add(n.x, n.y);
   for (const s of floor.symbols) {
     const def = getSymbol(s.type);

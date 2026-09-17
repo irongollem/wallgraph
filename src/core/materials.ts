@@ -6,15 +6,15 @@
 // recomputed so a caller already holding revision-cached geometry does not
 // derive the floor twice. Reported, never enforced: nothing here decides what
 // gets built, only what the drawn construction implies.
-import type { Floor, Id, PlanDoc, Wall } from "../model/doc";
+import type { Floor, Id, PlanDoc, Wall, BoardKind } from "../model/doc";
 import {
-  isBlockMaterial, isFramedMaterial, liningSideOf, wallPostMm, decksOf,
+  isBlockMaterial, isFramedMaterial, buildUpOf, BOARD_KINDS, wallPostMm, decksOf,
 } from "../model/doc";
 import { wallTopRange } from "../model/profile";
 import { type Deck, bearingOf } from "../model/deck";
 import { deckAcrossMm, deckSpanMm } from "./deck";
 import { trimDeck } from "./trimmer";
-import { kerfMm, sheetMm, stockLengths, wastePct } from "../model/materials";
+import { kerfMm, sheetOf, stockLengths, wastePct } from "../model/materials";
 import type { Resolved, ResolvedWall } from "./resolve";
 import type { FloorSurface } from "./surface";
 import { nest, type NestResult, type Piece } from "./stock";
@@ -72,16 +72,19 @@ export interface WallTakeoff {
    *  only where the current frame already orders a stud, king or backing
    *  stud too long for the document's longest stock length. */
   suggestedBreaksMm?: number[];
-  /** Lining board area over both lined faces (see liningSideOf), waste
-   *  included only in `sheets`. */
-  boardMm2: number;
-  sheets: number;
+  /**
+   * Build-up board area, one entry per kind present on either face (see
+   * buildUpOf()): a kind on both faces, or twice in one face's own stack,
+   * sums into that one entry. Waste is not included here -- only in the
+   * aggregate `sheets` count below, the same split boardMm2/sheets used.
+   */
+  boards: { kind: BoardKind; areaMm2: number }[];
   insulationMm2: number;
   blocks: number;
   blockMm2: number;
   panels: number;
   /** What could not be counted and why. */
-  incomplete: ("postWidth" | "block" | "panel" | "lining")[];
+  incomplete: ("postWidth" | "block" | "panel" | "boards")[];
 }
 
 export interface DeckTakeoff {
@@ -111,8 +114,10 @@ export interface FloorMaterials {
     walls: number;
     members: Member[];
     nested: NestResult;
-    boardMm2: number;
-    sheets: number;
+    /** Summed from every wall's own `boards`, one entry per kind present in
+     *  the system, with `sheets` nested at that kind's own sheet size --
+     *  offcuts carry between walls, so this is not the per-wall counts summed. */
+    boards: { kind: BoardKind; areaMm2: number; sheets: number }[];
     insulationMm2: number;
     blocks: number;
     panels: number;
@@ -161,7 +166,7 @@ function framedMembers(
 }
 
 function wallTakeoffOf(
-  f: Floor, w: Wall, rw: ResolvedWall, surface: FloorSurface, waste: number, sheetArea: number,
+  f: Floor, w: Wall, rw: ResolvedWall, surface: FloorSurface, waste: number,
   backing: ReadonlyMap<Id, WallBacking>, maxStockMm: number,
 ): WallTakeoff {
   const system = systemOf(w);
@@ -203,18 +208,24 @@ function wallTakeoffOf(
     else incomplete.push("panel");
   }
 
-  let boardMm2 = 0, sheets = 0;
-  const linedLeft = liningSideOf(w, "left"), linedRight = liningSideOf(w, "right");
-  if (linedLeft || linedRight) {
-    if (!wsurf) {
-      incomplete.push("lining");
-    } else {
-      const layers = w.lining!.layers;
-      if (linedLeft) boardMm2 += wsurf.faces[0].netMm2 * layers;
-      if (linedRight) boardMm2 += wsurf.faces[1].netMm2 * layers;
-      sheets = boardMm2 > 0 ? Math.ceil((boardMm2 * (1 + waste)) / sheetArea) : 0;
-    }
+  // One entry per kind present on either face: a board's own area is the
+  // FACE's net area it stands on (see floorSurface()), regardless of the
+  // board's own thickness, so a kind stacked twice on one face -- or once on
+  // each -- counts twice. #71 moves this to each board's own face; today
+  // every board on a face shares that face's one structural-face figure.
+  const boardAreas = new Map<BoardKind, number>();
+  let boardsIncomplete = false;
+  for (const side of ["left", "right"] as const) {
+    const fu = buildUpOf(w, side);
+    if (!fu) continue;
+    if (!wsurf) { boardsIncomplete = true; continue; }
+    const area = wsurf.faces[side === "left" ? 0 : 1].netMm2;
+    for (const b of fu.boards) boardAreas.set(b.kind, (boardAreas.get(b.kind) ?? 0) + area);
   }
+  if (boardsIncomplete) incomplete.push("boards");
+  const boards = BOARD_KINDS
+    .filter(kind => boardAreas.has(kind))
+    .map(kind => ({ kind, areaMm2: boardAreas.get(kind)! }));
 
   // The cavity's own area: one face's net area, the smaller of the two for
   // the same reason the block body reads one face -- see above.
@@ -222,7 +233,7 @@ function wallTakeoffOf(
 
   return {
     wallId: w.id, system, lengthMm, heightMm, members, suggestedBreaksMm: framed.suggestedBreaksMm,
-    boardMm2, sheets, insulationMm2, blocks, blockMm2, panels, incomplete,
+    boards, insulationMm2, blocks, blockMm2, panels, incomplete,
   };
 }
 
@@ -273,8 +284,6 @@ export function deckTakeoffOf(f: Floor, d: Deck, waste: number, sheetArea: numbe
 
 export function floorMaterials(doc: PlanDoc, f: Floor, resolved: Resolved, surface: FloorSurface): FloorMaterials {
   const waste = wastePct(doc) / 100;
-  const sheet = sheetMm(doc);
-  const sheetArea = sheet.width * sheet.height;
   const stockList = stockLengths(doc);
   const maxStockMm = stockList.length > 0 ? stockList[stockList.length - 1]! : Infinity;
 
@@ -283,11 +292,11 @@ export function floorMaterials(doc: PlanDoc, f: Floor, resolved: Resolved, surfa
   for (const w of f.walls) {
     const rw = resolved.walls.get(w.id);
     if (!rw) continue;
-    walls.push(wallTakeoffOf(f, w, rw, surface, waste, sheetArea, backing, maxStockMm));
+    walls.push(wallTakeoffOf(f, w, rw, surface, waste, backing, maxStockMm));
   }
 
   interface SystemEntry {
-    walls: number; members: Member[]; boardMm2: number;
+    walls: number; members: Member[]; boards: Map<BoardKind, number>;
     insulationMm2: number; blocks: number; panels: number;
   }
   const bySystemMap = new Map<WallSystem, SystemEntry>();
@@ -295,12 +304,12 @@ export function floorMaterials(doc: PlanDoc, f: Floor, resolved: Resolved, surfa
   for (const wt of walls) {
     let entry = bySystemMap.get(wt.system);
     if (!entry) {
-      entry = { walls: 0, members: [], boardMm2: 0, insulationMm2: 0, blocks: 0, panels: 0 };
+      entry = { walls: 0, members: [], boards: new Map(), insulationMm2: 0, blocks: 0, panels: 0 };
       bySystemMap.set(wt.system, entry);
       order.push(wt.system);
     }
     entry.walls++;
-    entry.boardMm2 += wt.boardMm2;
+    for (const b of wt.boards) entry.boards.set(b.kind, (entry.boards.get(b.kind) ?? 0) + b.areaMm2);
     entry.insulationMm2 += wt.insulationMm2;
     entry.blocks += wt.blocks;
     entry.panels += wt.panels;
@@ -313,16 +322,27 @@ export function floorMaterials(doc: PlanDoc, f: Floor, resolved: Resolved, surfa
     const pieces: Piece[] = entry.members.map(m => (
       { name: m.name, lengthMm: m.lengthMm, count: m.count, spliceable: m.spliceable }
     ));
+    // From the summed area per kind, not the per-wall sheet counts: offcuts
+    // carry between walls, and each kind nests against its own sheet size.
+    const boards = BOARD_KINDS
+      .filter(kind => entry.boards.has(kind))
+      .map(kind => {
+        const areaMm2 = entry.boards.get(kind)!;
+        const sheet = sheetOf(doc, kind);
+        return { kind, areaMm2, sheets: Math.ceil((areaMm2 * (1 + waste)) / (sheet.width * sheet.height)) };
+      });
     return {
       system, walls: entry.walls, members: entry.members, nested: nest(pieces, stockList, kerf),
-      // From the summed board, not the per-wall sheet counts: offcuts carry between walls.
-      boardMm2: entry.boardMm2, sheets: entry.boardMm2 > 0 ? Math.ceil((entry.boardMm2 * (1 + waste)) / sheetArea) : 0,
-      insulationMm2: entry.insulationMm2,
+      boards, insulationMm2: entry.insulationMm2,
       blocks: entry.blocks, panels: entry.panels,
     };
   });
 
-  const perDeck = decksOf(f).map(d => deckTakeoffOf(f, d, waste, sheetArea));
+  // Decking carries no board kind of its own (Deck states no `kind` field),
+  // so it nests against OSB's own sheet size -- the ordinary decking board.
+  const deckSheet = sheetOf(doc, "osb");
+  const deckSheetArea = deckSheet.width * deckSheet.height;
+  const perDeck = decksOf(f).map(d => deckTakeoffOf(f, d, waste, deckSheetArea));
   const deckMembers: Member[] = [];
   let deckingMm2 = 0;
   for (const dt of perDeck) { mergeMembers(deckMembers, dt.members); deckingMm2 += dt.deckingMm2; }
@@ -330,7 +350,7 @@ export function floorMaterials(doc: PlanDoc, f: Floor, resolved: Resolved, surfa
     perDeck, members: deckMembers,
     nested: nest(deckMembers.map(m => ({ name: m.name, lengthMm: m.lengthMm, count: m.count, spliceable: m.spliceable })), stockList, kerf),
     deckingMm2,
-    sheets: deckingMm2 > 0 ? Math.ceil((deckingMm2 * (1 + waste)) / sheetArea) : 0,
+    sheets: deckingMm2 > 0 ? Math.ceil((deckingMm2 * (1 + waste)) / deckSheetArea) : 0,
   };
 
   return { walls, bySystem, decks };

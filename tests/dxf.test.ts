@@ -90,21 +90,36 @@ check("an empty document produces nothing", toDxf(emptyDoc(), 0) === null);
   check("a plain wall puts nothing on GLAZING, PANELS, POSTS or FACADE",
     ["GLAZING", "PANELS", "POSTS", "FACADE"].every(l => onLayer(solidOut, l) === 1));  // table only
 
-  // Board lining is a different trade from the cladding it stands beside, so
-  // it gets its own layer for the same reason FACADE does.
+  // A board build-up is a different trade from the cladding it stands beside,
+  // so it gets its own layer for the same reason FACADE does.
   const linedDoc = emptyDoc();
   const lf = linedDoc.floors[0]!;
   lf.nodes.push({ id: "ln0", x: 0, y: 0 }, { id: "ln1", x: 6000, y: 0 });
   lf.walls.push({
     id: "lw", a: "ln0", b: "ln1", thickness: 100, bulge: 0, openings: [],
-    material: "timber", lining: { boardMm: 12, layers: 1 },
+    material: "timber", buildUp: { left: { boards: [{ kind: "gypsum", mm: 12 }] },
+      right: { boards: [{ kind: "gypsum", mm: 12 }] } },
   });
   const linedOut = toDxf(linedDoc, 0) ?? "";
-  check("LINING is declared as a layer", linedOut.includes("\r\nLINING\r\n"));
-  // Unclad, so both faces are lined: table + one band per face.
-  check("the lining bands land on LINING", onLayer(linedOut, "LINING") === 3,
-    String(onLayer(linedOut, "LINING")));
-  check("a wall stating no lining puts nothing on LINING", onLayer(solidOut, "LINING") === 1);
+  check("BOARDS is declared as a layer", linedOut.includes("\r\nBOARDS\r\n"));
+  // No facade, so both faces carry the build-up: table + one band per face.
+  check("the board bands land on BOARDS", onLayer(linedOut, "BOARDS") === 3,
+    String(onLayer(linedOut, "BOARDS")));
+  check("a wall stating no build-up puts nothing on BOARDS", onLayer(solidOut, "BOARDS") === 1);
+
+  // A two-board stack on one face puts one closed outline per board on the
+  // layer, so a CAD reader sees the line between them.
+  const stackedDoc = emptyDoc();
+  const sf = stackedDoc.floors[0]!;
+  sf.nodes.push({ id: "sn0", x: 0, y: 0 }, { id: "sn1", x: 6000, y: 0 });
+  sf.walls.push({
+    id: "sw", a: "sn0", b: "sn1", thickness: 100, bulge: 0, openings: [],
+    material: "timber",
+    buildUp: { left: { boards: [{ kind: "osb", mm: 18 }, { kind: "gypsum", mm: 12 }] } },
+  });
+  const stackedOut = toDxf(stackedDoc, 0) ?? "";
+  check("a two-board stack puts two outlines on BOARDS", onLayer(stackedOut, "BOARDS") === 3,
+    String(onLayer(stackedOut, "BOARDS")));
 }
 
 const lines = (dxf ?? "").split("\r\n").filter(l => l !== "");

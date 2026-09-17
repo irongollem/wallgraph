@@ -13,7 +13,7 @@
 // The drawing itself is assembled as a scene (io/scene.ts) rather than as
 // markup, because io/pdf.ts renders the same scene onto the permit sheet.
 // This module is the SVG renderer for it plus the scene the plan makes.
-import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, stairsOf, videsOf, decksOf, furnishingsOf, structureOf, roomNamesOf } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, stairsOf, videsOf, decksOf, furnishingsOf, structureOf, roomNamesOf, BOARD_KINDS, type BoardKind } from "../model/doc";
 import { deckJoistLayout } from "../core/trimmer";
 import { Vec, add, sub, scale, perp, norm, polygonCentroid } from "../geometry/vec";
 import { arcPointAt } from "../geometry/arc";
@@ -150,7 +150,16 @@ export function primSvg(p: Prim, look: Look = STANDALONE): string {
       ` dominant-baseline="${look.baseline === "central" ? "central" : "auto"}"` +
       ` fill="${textInk(look)}" stroke="none"${rot}>${esc(p.text)}</text>`;
   }
-  return `<path d="${primPath(p)}"/>`;
+  return `<path d="${primPath(p)}"${dataAttrs(p)}/>`;
+}
+
+/** A poly's own `data-*` attributes (see Prim in io/record.ts) -- empty for
+ *  every other primitive kind and for a poly that carries none. */
+function dataAttrs(p: Prim): string {
+  if (p.kind !== "poly" || !p.data) return "";
+  let a = "";
+  for (const [k, val] of Object.entries(p.data)) a += ` data-${k}="${esc(val)}"`;
+  return a;
 }
 
 /** A group's own attributes: what it states, not what it inherited. */
@@ -259,16 +268,35 @@ export function planScene(doc: PlanDoc, floor: Floor, resolved: ReturnType<typeo
     out.push(group(facades,
       { fill: COLORS.bg, ink: COLORS.wallStroke, width: W_WALL }, "facade"));
 
-  // Lining, same drawing approach as the cladding band above.
-  const linings: Item[] = [];
+  // Build-up boards, same drawing approach as the cladding band above, but
+  // bucketed by kind so each stands out with its own fill (COLORS.board):
+  // a wall's own stroke wraps its own pieces, and a kind's fill wraps every
+  // wall's pieces of that kind, so nesting order is kind -> wall -> piece.
+  // Each piece keeps its own `data-kind` regardless of the wrapping, so a
+  // consumer of the SVG can pick out one board's pieces without relying on
+  // which group happens to contain it.
+  const boardsByKind = new Map<BoardKind, Item[]>();
   for (const rw of resolved.walls.values()) {
-    if (rw.lining[0].length === 0 && rw.lining[1].length === 0) continue;
-    linings.push(group([...rw.lining[0], ...rw.lining[1]].map(band => poly(band.poly, true)),
-      { ink: wallPen(rw.wall).stroke }));
+    const perKind = new Map<BoardKind, Item[]>();
+    for (const band of [...rw.boards[0], ...rw.boards[1]]) {
+      if (band.pieces.length === 0) continue;
+      const items = perKind.get(band.kind) ?? [];
+      for (const piece of band.pieces) items.push(poly(piece.poly, true, { kind: band.kind }));
+      perKind.set(band.kind, items);
+    }
+    const ink = wallPen(rw.wall).stroke;
+    for (const [kind, items] of perKind) {
+      const arr = boardsByKind.get(kind) ?? [];
+      arr.push(group(items, { ink }));
+      boardsByKind.set(kind, arr);
+    }
   }
-  if (linings.length > 0)
-    out.push(group(linings,
-      { fill: COLORS.bg, ink: COLORS.wallStroke, width: W_WALL }, "lining"));
+  if (boardsByKind.size > 0) {
+    const kindGroups = BOARD_KINDS
+      .filter(kind => boardsByKind.has(kind))
+      .map(kind => group(boardsByKind.get(kind)!, { fill: COLORS.board[kind] }));
+    out.push(group(kindGroups, { ink: COLORS.wallStroke, width: W_WALL }, "boards"));
+  }
 
   const posts: Item[] = [];
   for (const rw of resolved.walls.values()) {

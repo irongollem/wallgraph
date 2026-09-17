@@ -59,7 +59,8 @@ export const place = (k: number, tx: number, ty: number): Placement => ({ kind: 
 export const turn = (deg: number, cx: number, cy: number): Turn => ({ kind: "turn", deg, cx, cy });
 
 export const line = (a: Vec, b: Vec): Prim => ({ kind: "line", a, b });
-export const poly = (pts: Vec[], closed = true): Prim => ({ kind: "poly", pts, closed });
+export const poly = (pts: Vec[], closed = true, data?: Record<string, string>): Prim =>
+  data ? { kind: "poly", pts, closed, data } : { kind: "poly", pts, closed };
 export const text = (at: Vec, size: number, body: string): Prim => ({ kind: "text", at, size, text: body });
 /** A full circle as one arc; both renderers split a sweep past a half turn. */
 export const circle = (c: Vec, r: number): Prim => ({ kind: "arc", c, r, start: 0, sweep: 360 });

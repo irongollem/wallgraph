@@ -206,8 +206,8 @@ export const FEATURES: Record<Lang, string[]> = {
     "Meerdere verdiepingen met de laag eronder als onderlegger",
     "BENG-invoer: verliesoppervlak, gebruiksoppervlak, compactheid en glas per oriëntatie uit de " +
       "tekening, met een indicatief transmissieverlies",
-    "Muuropbouw per muur vastgelegd voor de materiaalstaat: beplating, blokformaat, klossen, " +
-      "spouwisolatie en paneelbreedte",
+    "Muuropbouw per muur en per wandzijde vastgelegd voor de materiaalstaat: platen (gips, " +
+      "gipsvezel, OSB, multiplex, cement), blokformaat, klossen, spouwisolatie en paneelbreedte",
     "Hellende muren met een bovenprofiel per muur: puntgevel- en lessenaarvorm, wandoppervlak over " +
       "het profiel en een melding waar buurmuren een andere hoogte opgeven",
     "Dakvlakken per verdieping: voorgesteld uit de getekende muren of als plat of zadeldak gezet, met " +
@@ -234,8 +234,9 @@ export const FEATURES: Record<Lang, string[]> = {
     "Multiple storeys with the one below as a tracing underlay",
     "BENG input: envelope area, usable area, compactness and glazing per orientation from the " +
       "drawing, with an indicative transmission loss",
-    "Wall build-up recorded per wall for the materials takeoff: board lining, block format, " +
-      "nogging rows, cavity insulation and panel width",
+    "Wall build-up recorded per wall and per face for the materials takeoff: board stacks " +
+      "(gypsum, gypsum fibre, OSB, plywood, cement), block format, nogging rows, cavity " +
+      "insulation and panel width",
     "Sloped walls with a top profile per wall: gable and lean-to shapes, wall surface measured over " +
       "the profile, and a report where neighbouring walls state a different height",
     "Roof planes per storey: suggested from the drawn walls or set as a flat or gable roof, with " +

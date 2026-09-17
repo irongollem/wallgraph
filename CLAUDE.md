@@ -214,17 +214,20 @@ the storey height finishes nothing extra and reads as absent (`storeyCeiling()`)
 ceiling inside the slab. The per-room one rides on the name for the reason `RoomName.use` does:
 there is no stored room to hang it on, so an unnamed room falls back to the storey's.
 
-**A lining is a skin, like the facade: outside the structural faces, drawn, and measured only by the
-net area.** `Wall.lining` (board thickness × layers) lies on every face that does not carry the facade,
-so `thickness` stays the frame or block depth, and the wall graph, room detection and the centerline and
-bvo areas do not see it. `resolveFloor()` builds it with the same corner pass as the facade band
-(`skinFor()`), so two lined walls miter their boards and a lined wall teeing into another stops at that
-wall's board face; the canvas, SVG and DXF draw it as a paper-coloured band the way they draw the facade.
-`detectRooms()` insets the net boundary by half the thickness plus the lining on a lined face, so the
-`net` area mode measures to the finished face and a plan does not show more room than there is.
-`floorSurface()` keeps measuring the structural face; the pane says so where a lining is stated. A wall
-stating no facade is lined on both faces, outside included, because the document does not then say
-which side is out. Verified by [tests/core.test.ts](tests/core.test.ts).
+**A build-up is a skin, like the facade: outside the structural faces, drawn, and measured only by the
+net area.** `Wall.buildUp` is a board stack per face (`FaceBuildUp.boards`, ordered from the wall outward
+into the room), absent on whichever face carries the facade, so `thickness` stays the frame or block
+depth and the wall graph, room detection and the centerline and bvo areas do not see it. `resolveFloor()`
+builds one band per board: a corner pass per distinct cumulative depth needed anywhere on the wall, so
+neighbouring stacks miter board line against board line rather than only at the stack's outer face; the
+canvas, SVG and DXF draw the bands as paper-coloured, the way they draw the facade. `detectRooms()` insets
+the net boundary by half the thickness plus `buildUpMm()` on a face carrying one, so the `net` area mode
+measures to the outermost board and a plan does not show more room than there is. `floorSurface()` keeps
+measuring the structural face regardless — moving it to the finished face per board is #71 — and the pane
+says so where a face carries a build-up. Unlike the facade side, a build-up is not inferred from which
+face is "outside": a wall stating no facade carries a build-up on exactly the faces the document states
+one for, independently, because nothing there says which side is out. Verified by
+[tests/core.test.ts](tests/core.test.ts).
 
 **A sloped wall states its top; nothing derives it.** `Wall.profile` is heights at points along the
 centerline, `t` in mm from node `a` like an opening's, so moving, splitting, flipping and merging a wall
@@ -664,8 +667,8 @@ sells commercial exceptions. Consequences for changes here:
 Deliberate cuts, not oversights — check the [roadmap issues](https://github.com/irongollem/wallgraph/issues)
 before changing one:
 
-- Varying-thickness walls; a wall is one thickness, not a material build-up. A facade and a
-  lining are skins outside that thickness, not layers within it.
+- Varying-thickness walls; a wall is one thickness, not a layered cross-section. A facade and a
+  face build-up (board stacks) are skins outside that thickness, not layers within it.
 - A wall's top profile is read by the wall surface, 3D, IFC, energy, the frame and the materials
   takeoff. A roof plane over it is a separate statement: a wall that pierces the roof's underside, or
   states a profile that disagrees with it, is reported (`roofWallMismatches()`) and never repaired; a
@@ -696,7 +699,7 @@ before changing one:
   none carries a position on the plan. Header sizing is not engineered — a header is two post widths of
   the frame section, on edge, whatever the span — and every frame member, backing included, shares the
   post's own section rather than one chosen for its span. Blocking behind a fixture and an extra stud at
-  a lining board joint are not counted, nor are mortar, adhesive, fixings, or floor, roof and finish
+  a build-up board joint are not counted, nor are mortar, adhesive, fixings, or floor, roof and finish
   materials. The takeoff checks no member; the span checks below do, preliminarily.
 - Wall surface counts the two faces of a wall plus the reveals through it. A reveal is measured over
   the structural thickness only — cladding makes it deeper, but that is facade work — and a floor

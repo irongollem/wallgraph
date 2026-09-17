@@ -13,7 +13,7 @@
 // interface's own language -- a comma under nl, a point under en. A sheet
 // written in English and read with a comma would be read as hundreds of
 // square metres by a spreadsheet in an English locale.
-import type { Floor, PlanDoc } from "../model/doc";
+import type { Floor, PlanDoc, BoardKind } from "../model/doc";
 import { projectOf } from "../model/doc";
 import { resolveFloor } from "../core/resolve";
 import { detectRooms } from "../core/rooms";
@@ -33,7 +33,7 @@ const INCOMPLETE_FIELD_KEY: Record<WallTakeoff["incomplete"][number], string> = 
   postWidth: "panel.postWidthOn",
   block: "panel.blockOn",
   panel: "panel.panelWidthOn",
-  lining: "panel.liningOn",
+  boards: "panel.liningOn",
 };
 
 /** A field starting with `=`, `+`, `-`, `@`, tab or carriage return is a formula
@@ -129,14 +129,20 @@ function pushSystemRows(
 ): void {
   const name = systemLabel(system);
   const incomplete = systemIncompleteCounts(walls, system);
+  const boardsIncomplete = incomplete.has("boards");
   pushMemberRows(out, storey, name, sys.members);
-  if (sys.boardMm2 > 0 || incomplete.has("lining")) {
-    out.push(row([storey, name, t("materials.boardArea"), "", "", csvArea(sys.boardMm2), "",
-      t("materials.csv.unit.area"), incomplete.has("lining") ? "x" : "", ""]));
+  const boardKindName = (kind: BoardKind): string => t("board.kind." + kind);
+  for (const b of sys.boards) {
+    out.push(row([storey, name, t("materials.boardArea", { kind: boardKindName(b.kind) }), "", "",
+      csvArea(b.areaMm2), "", t("materials.csv.unit.area"), boardsIncomplete ? "x" : "", ""]));
+    if (b.sheets > 0) {
+      out.push(row([storey, name, t("materials.sheetsKind", { kind: boardKindName(b.kind) }), "", "",
+        csvInt(b.sheets), "", t("materials.csv.unit.sheet"), "", ""]));
+    }
   }
-  if (sys.sheets > 0) {
-    out.push(row([storey, name, t("materials.sheets"), "", "", csvInt(sys.sheets), "",
-      t("materials.csv.unit.sheet"), "", ""]));
+  if (sys.boards.length === 0 && boardsIncomplete) {
+    out.push(row([storey, name, t("panel.liningOn"), "", "", csvArea(0), "",
+      t("materials.csv.unit.area"), "x", ""]));
   }
   if (sys.insulationMm2 > 0) {
     out.push(row([storey, name, t("materials.insulationArea"), "", "", csvArea(sys.insulationMm2), "",
@@ -195,7 +201,7 @@ function floorRows(doc: PlanDoc, f: Floor): string[] {
   const out: string[] = [];
   for (const sys of takeoff.bySystem) {
     const incomplete = systemIncompleteCounts(takeoff.walls, sys.system);
-    const hasFigures = sys.members.length > 0 || sys.boardMm2 > 0 || sys.insulationMm2 > 0
+    const hasFigures = sys.members.length > 0 || sys.boards.length > 0 || sys.insulationMm2 > 0
       || sys.blocks > 0 || sys.panels > 0 || incomplete.size > 0;
     if (!hasFigures) continue;
     pushSystemRows(out, f.name, sys.system, sys, takeoff.walls);

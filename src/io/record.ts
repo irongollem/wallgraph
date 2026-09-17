@@ -14,7 +14,9 @@ import { Vec } from "../geometry/vec";
 
 export type Prim =
   | { kind: "line"; a: Vec; b: Vec }
-  | { kind: "poly"; pts: Vec[]; closed: boolean }
+  /** `data` carries plain markup attributes (e.g. a board's kind for the SVG
+   *  export) through renderers that support them; absent everywhere else. */
+  | { kind: "poly"; pts: Vec[]; closed: boolean; data?: Record<string, string> }
   | { kind: "text"; at: Vec; size: number; text: string }
   /** Angles in degrees, document (y-down) space; sweep is signed and short-way. */
   | { kind: "arc"; c: Vec; r: number; start: number; sweep: number };

@@ -9,8 +9,8 @@
 // other. Arc offsets use the tangent-line approximation at the endpoint, which
 // is exact in the limit and visually correct at wall scale.
 import {
-  Floor, Wall, Opening, Id, wallPostMm, wallPostWidthMm, wallFacadeMm, facadeSideOf,
-  wallLiningMm, liningSideOf, postLayoutOf, postFromOf, canonPostOffset,
+  Floor, Wall, Opening, Id, BoardKind, wallPostMm, wallPostWidthMm, wallFacadeMm, facadeSideOf,
+  buildUpOf, buildUpMm, postLayoutOf, postFromOf, canonPostOffset,
 } from "../model/doc";
 import {
   Vec, add, sub, scale, norm, perp, dist, v, angleOf, lineIntersect,
@@ -95,14 +95,21 @@ export interface ResolvedWall {
    */
   facade: SolidPiece[];
   /**
-   * The lining band on each lined face, left then right, empty where that face
-   * states no lining (see Wall.lining, wallLiningMm(), liningSideOf()). Built by
-   * the same corner-miter pass as `facade` — see skinFor() — so two lined walls
-   * meeting at a corner miter their linings, and a lined wall teeing into
-   * another stops at that wall's lining face rather than overlapping it.
+   * The build-up on each face, left then right, empty where that face states
+   * none (see Wall.buildUp, buildUpOf(), buildUpMm()). One band per board,
+   * innermost (against the structural face) first, each built by the same
+   * corner-miter pass as `facade` — see skinBandFor() — generalised to run at
+   * every board boundary a wall states so neighbouring stacks miter board
+   * line against board line; a wall teeing into one with no build-up stops at
+   * that wall's own face rather than overlapping it.
    */
-  lining: [SolidPiece[], SolidPiece[]];
+  boards: [BoardBand[], BoardBand[]];
 }
+
+/** One board of a face's build-up, resolved: its own kind and thickness
+ *  (see Wall.buildUp) and the polygons it draws as, split by the same
+ *  openings `pieces` is. */
+export interface BoardBand { kind: BoardKind; mm: number; pieces: SolidPiece[] }
 
 export interface Resolved {
   walls: Map<Id, ResolvedWall>;
@@ -155,7 +162,7 @@ export function resolveFloor(f: Floor): Resolved {
   }
 
   /** The same ends with each face pushed out by whatever skin it carries
-   *  (facade or lining — see skinMmOf). */
+   *  (facade or build-up — see skinMmOf). */
   const outerEnds = new Map<Id, End[]>();
   for (const [nid, ends] of byNode) {
     outerEnds.set(nid, ends.map(e => {
@@ -169,9 +176,10 @@ export function resolveFloor(f: Floor): Resolved {
   }
 
   // Resolve corners per node, twice: once for the structural body and once for
-  // the outer face of whatever skin (facade or lining) each wall-end carries.
-  // `wedges` is filled only by the structural pass -- a junction is masonry
-  // geometry, and a skin wraps a face rather than filling the middle of a T.
+  // the outer face of whatever skin (facade or build-up) each wall-end
+  // carries. `wedges` is filled only by the structural pass -- a junction is
+  // masonry geometry, and a skin wraps a face rather than filling the middle
+  // of a T.
   const solveCorners = (
     byNodeEnds: Map<Id, End[]>, wedges: Junction[] | null,
   ): Map<string, WallEndCorners> => {
@@ -214,6 +222,43 @@ export function resolveFloor(f: Floor): Resolved {
   const junctions: Junction[] = [];
   const corners = solveCorners(byNode, junctions);
   const outerCorners = solveCorners(outerEnds, null);
+
+  /**
+   * A corner pass per distinct cumulative board depth needed anywhere on the
+   * floor, generalising the single `outerEnds` pass above to every
+   * intermediate board boundary a build-up states -- what lets two
+   * neighbouring stacks miter board line against board line rather than only
+   * at their outer faces. Interpolating along the existing single miter is
+   * NOT exact once two stacks differ (in depth or in board count), so each
+   * boundary gets its own real corner solve.
+   *
+   * At target depth `d`, each wall-end pushes out by its own skin depth
+   * capped at `d` (skinMmOf(), the same total the outer pass above uses) --
+   * a wall whose own stack is shallower than `d` simply stops contributing
+   * past its own face, the way an unskinned neighbour already does at the
+   * single-depth pass. That is exactly what mitering "board line against
+   * board line" means where the stacks agree, and "stop at this wall's own
+   * face" where they do not.
+   */
+  const boardDepths = new Set<number>();
+  for (const w of f.walls) {
+    for (const side of ["left", "right"] as const) {
+      let acc = 0;
+      for (const b of buildUpOf(w, side)?.boards ?? []) { acc += b.mm; boardDepths.add(acc); }
+    }
+  }
+  const cornersAtDepth = new Map<number, Map<string, WallEndCorners>>();
+  for (const d of boardDepths) {
+    const endsAtD = new Map<Id, End[]>();
+    for (const [nid, ends] of byNode) {
+      endsAtD.set(nid, ends.map(e => {
+        const leftMax = skinMmOf(e.wall, "left"), rightMax = skinMmOf(e.wall, "right");
+        const [lMax, rMax] = e.end === "a" ? [leftMax, rightMax] : [rightMax, leftMax];
+        return { ...e, halfL: e.half + Math.min(lMax, d), halfR: e.half + Math.min(rMax, d) };
+      }));
+    }
+    cornersAtDepth.set(d, solveCorners(endsAtD, null));
+  }
 
   // Build wall outlines.
   const walls = new Map<Id, ResolvedWall>();
@@ -285,11 +330,9 @@ export function resolveFloor(f: Floor): Resolved {
       facade: fm === undefined ? [] : skinFor(
         facadeSideOf(w), fm, w, A, B, L, half, flat, params, intervals, ca, cb, oa, ob,
       ),
-      lining: [
-        skinFor("left", liningSideOf(w, "left") ? wallLiningMm(w) : 0,
-          w, A, B, L, half, flat, params, intervals, ca, cb, oa, ob),
-        skinFor("right", liningSideOf(w, "right") ? wallLiningMm(w) : 0,
-          w, A, B, L, half, flat, params, intervals, ca, cb, oa, ob),
+      boards: [
+        boardBandsFor("left", w, A, B, L, half, flat, params, intervals, ca, cb, cornersAtDepth),
+        boardBandsFor("right", w, A, B, L, half, flat, params, intervals, ca, cb, cornersAtDepth),
       ],
     });
   }
@@ -427,32 +470,67 @@ function postsFor(
 
 /**
  * The skin depth a wall states on one of its own faces, mm: the facade where
- * that face carries it, the lining where it carries that instead (the two
- * cannot both sit on one face — see liningSideOf()), 0 otherwise. Shared by
- * the outer corner pass and by skinFor() so a facade and a neighbouring wall's
- * lining miter against each other by the same rule a facade meeting a facade
- * does.
+ * that face carries it, the build-up where it carries that instead (the two
+ * cannot both sit on one face — see buildUpOf()), 0 otherwise. Shared by the
+ * outer corner pass, the per-board-depth passes and skinFor()/skinBandFor()
+ * so a facade and a neighbouring wall's build-up miter against each other by
+ * the same rule a facade meeting a facade does.
  */
 function skinMmOf(w: Wall, side: "left" | "right"): number {
   const fm = wallFacadeMm(w);
   if (fm !== undefined && facadeSideOf(w) === side) return fm;
-  return liningSideOf(w, side) ? wallLiningMm(w) : 0;
+  return buildUpMm(w, side);
 }
 
 /**
- * The band on one face of one wall, outside the structural body: between the
- * structural face and the same centerline offset by half + mm. Used for both
- * the facade (mm = facadeMm, side = facadeSideOf(w)) and a lining band
- * (mm = wallLiningMm(w), one call per lined side) — the two differ only in
- * which face and how deep, not in how the band is built.
+ * The band on one face of one wall, between two centerline offsets:
+ * half + innerMm and half + outerMm. The general form both the single-band
+ * facade (innerMm = 0, via skinFor()) and a multi-board build-up (one call
+ * per board, innerMm/outerMm its cumulative depth before/after) are built
+ * from — the two differ only in how many bands and how deep, not in how one
+ * band is built.
  *
- * The inner edge reuses the structural corners the body is already built from,
- * so the band cannot part company with the wall it skins; the outer edge uses
- * the second corner pass (built from skinMmOf() over both facade and lining),
- * so two skinned walls miter at a corner while an unskinned wall teeing into
- * one leaves the skin to run straight past. Split by the same `intervals` the
- * pieces are: an opening goes through a skin as well as the structure.
+ * The inner and outer edges each reuse a corner pass already solved at that
+ * exact depth (the structural pass for innerMm = 0, cornersAtDepth otherwise
+ * — see resolveFloor()), so a band cannot part company with the wall it
+ * skins and two stacks miter board line against board line where their
+ * boundaries agree. Split by the same `intervals` the pieces are: an opening
+ * goes through a skin as well as the structure.
  */
+function skinBandFor(
+  side: "left" | "right", innerMm: number, outerMm: number,
+  w: Wall, A: Vec, B: Vec, L: number, half: number,
+  flat: Vec[], params: number[],
+  intervals: ReadonlyArray<{ from: number; to: number }>,
+  innerA: WallEndCorners, innerB: WallEndCorners,
+  outerA: WallEndCorners, outerB: WallEndCorners,
+): SolidPiece[] {
+  const left = side === "left";
+  const sgn = left ? 1 : -1;
+  // Traversal-left runs A->B, and end-b corners are relative to the reversed
+  // tangent there, so the wall's left face is *A.left -> *B.right.
+  const innerStart = left ? innerA.left : innerA.right;
+  const innerEnd = left ? innerB.right : innerB.left;
+  const outerStart = left ? outerA.left : outerA.right;
+  const outerEnd = left ? outerB.right : outerB.left;
+
+  const out: SolidPiece[] = [];
+  for (const iv of intervals) {
+    const isStart = iv.from <= 1, isEnd = iv.to >= L - 1;
+    const sub = subFlat(flat, params, iv.from, iv.to, A, B, w);
+    const subParams = cumulative(sub, iv.to - iv.from);
+    const inner = offsetPolyline(sub, subParams, sgn * (half + innerMm));
+    const outer = offsetPolyline(sub, subParams, sgn * (half + outerMm));
+    if (isStart) { inner[0] = innerStart; outer[0] = outerStart; }
+    if (isEnd) { inner[inner.length - 1] = innerEnd; outer[outer.length - 1] = outerEnd; }
+    out.push({ poly: [...inner, ...outer.slice().reverse()] });
+  }
+  return out;
+}
+
+/** The facade band: a single skinBandFor() call from the structural face
+ *  (innerMm = 0) to `mm`, empty where the wall states no facade or the outer
+ *  corner pass could not be built. */
 function skinFor(
   side: "left" | "right", mm: number,
   w: Wall, A: Vec, B: Vec, L: number, half: number,
@@ -462,25 +540,40 @@ function skinFor(
   oa: WallEndCorners | undefined, ob: WallEndCorners | undefined,
 ): SolidPiece[] {
   if (mm <= 0 || !oa || !ob) return [];
-  const left = side === "left";
-  const sgn = left ? 1 : -1;
-  // Traversal-left runs A->B, and end-b corners are relative to the reversed
-  // tangent there, so the wall's left face is ca.left -> cb.right.
-  const innerStart = left ? ca.left : ca.right;
-  const innerEnd = left ? cb.right : cb.left;
-  const outerStart = left ? oa.left : oa.right;
-  const outerEnd = left ? ob.right : ob.left;
+  return skinBandFor(side, 0, mm, w, A, B, L, half, flat, params, intervals, ca, cb, oa, ob);
+}
 
-  const out: SolidPiece[] = [];
-  for (const iv of intervals) {
-    const isStart = iv.from <= 1, isEnd = iv.to >= L - 1;
-    const sub = subFlat(flat, params, iv.from, iv.to, A, B, w);
-    const subParams = cumulative(sub, iv.to - iv.from);
-    const inner = offsetPolyline(sub, subParams, sgn * half);
-    const outer = offsetPolyline(sub, subParams, sgn * (half + mm));
-    if (isStart) { inner[0] = innerStart; outer[0] = outerStart; }
-    if (isEnd) { inner[inner.length - 1] = innerEnd; outer[outer.length - 1] = outerEnd; }
-    out.push({ poly: [...inner, ...outer.slice().reverse()] });
+/**
+ * One face's board bands: one skinBandFor() call per board in
+ * buildUpOf(w, side), from the previous board's own outer boundary (or the
+ * structural face for the first board) to this board's own, each corner pass
+ * read from `cornersAtDepth` at that exact cumulative depth (see
+ * resolveFloor()). Empty where the face carries no build-up.
+ */
+function boardBandsFor(
+  side: "left" | "right",
+  w: Wall, A: Vec, B: Vec, L: number, half: number,
+  flat: Vec[], params: number[],
+  intervals: ReadonlyArray<{ from: number; to: number }>,
+  ca: WallEndCorners, cb: WallEndCorners,
+  cornersAtDepth: ReadonlyMap<number, Map<string, WallEndCorners>>,
+): BoardBand[] {
+  const fu = buildUpOf(w, side);
+  if (!fu || fu.boards.length === 0) return [];
+  const cornersAt = (mm: number): { a: WallEndCorners; b: WallEndCorners } =>
+    mm === 0
+      ? { a: ca, b: cb }
+      : { a: cornersAtDepth.get(mm)!.get(w.id + ":a")!, b: cornersAtDepth.get(mm)!.get(w.id + ":b")! };
+  const out: BoardBand[] = [];
+  let prevMm = 0;
+  for (const board of fu.boards) {
+    const mm = prevMm + board.mm;
+    const inner = cornersAt(prevMm), outer = cornersAt(mm);
+    const pieces = skinBandFor(
+      side, prevMm, mm, w, A, B, L, half, flat, params, intervals, inner.a, inner.b, outer.a, outer.b,
+    );
+    out.push({ kind: board.kind, mm: board.mm, pieces });
+    prevMm = mm;
   }
   return out;
 }

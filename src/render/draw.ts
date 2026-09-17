@@ -2,7 +2,7 @@
 // this scale render in well under a frame). Layers: grid, rooms, walls,
 // opening decorations, routes, furnishings, symbols, stairs, selection, labels
 // (labels in screen space).
-import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, videsOf, decksOf, furnishingsOf, structureOf, fireLabel, Underlay, Wall, Id, wallInfill } from "../model/doc";
+import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, videsOf, decksOf, furnishingsOf, structureOf, fireLabel, Underlay, Wall, Id, wallInfill, BoardKind } from "../model/doc";
 import { belowCutPlane } from "../model/structure";
 import { Resolved, OpeningGeom, Junction, ResolvedWall } from "../core/resolve";
 import { Room, roomSize, sizeLabel, looseRoomNames, roomArea } from "../core/rooms";
@@ -64,6 +64,20 @@ export const COLORS = {
   panelFill: "#e7e1d3",
   /** The facings and posts of a panelled wall. */
   panelStroke: "#8a8065",
+  /**
+   * A build-up board's fill, per kind (Wall.buildUp) -- paper-like so a stack
+   * still reads as the room's finished face rather than as a second poché, but
+   * distinguishable from each other and from COLORS.bg at 1:50: gypsum is the
+   * plan's own paper colour (the ordinary case, so it stays invisible against
+   * it), the rest step away from it in turn.
+   */
+  board: {
+    gypsum: "#f4f2ec",
+    gypsumFibre: "#e4e7e6",
+    osb: "#eadfae",
+    plywood: "#e3c9a0",
+    cement: "#dcdcda",
+  } satisfies Record<BoardKind, string>,
   opening: "#3d4148",
   symbol: "#4a5568",
   select: "#e05d2d",
@@ -519,21 +533,26 @@ export function drawScene(
     }
   }
 
-  // Lining, drawn the same way as the cladding band and for the same reason:
-  // the board sits outside the structural body, so the finished face has to
-  // read as the room's edge rather than as a second layer of poché.
+  // Build-up boards, drawn the same way as the cladding band and for the same
+  // reason: a board sits outside the structural body, so the finished face
+  // has to read as the room's edge rather than as a second layer of poché.
+  // Each board fills with its own kind's colour, with a thin ink edge along
+  // every band's own outline so a stack of boards reads as separate layers
+  // rather than one thick skin.
   for (const rw of resolved.walls.values()) {
-    if (rw.lining[0].length === 0 && rw.lining[1].length === 0) continue;
+    if (rw.boards[0].length === 0 && rw.boards[1].length === 0) continue;
     const pen = wallPen(rw.wall);
     const line = isSel("wall", rw.wall.id) ? COLORS.select : pen.stroke;
-    for (const band of [...rw.lining[0], ...rw.lining[1]]) {
-      ctx.beginPath();
-      tracePoly(ctx, band.poly);
-      ctx.fillStyle = COLORS.bg;
-      ctx.fill();
-      ctx.strokeStyle = line;
-      ctx.lineWidth = px;
-      ctx.stroke();
+    for (const band of [...rw.boards[0], ...rw.boards[1]]) {
+      for (const piece of band.pieces) {
+        ctx.beginPath();
+        tracePoly(ctx, piece.poly);
+        ctx.fillStyle = COLORS.board[band.kind];
+        ctx.fill();
+        ctx.strokeStyle = line;
+        ctx.lineWidth = px;
+        ctx.stroke();
+      }
     }
   }
 

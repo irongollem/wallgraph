@@ -68,7 +68,8 @@ const full: PlanDoc = {
     walls: [{
       id: "w1", a: "n1", b: "n2", thickness: 300, bulge: 0.25,
       material: "aerated", blockMm: { length: 600, height: 250 },
-      lining: { boardMm: 12, layers: 1 }, panelMm: 1000,
+      buildUp: { left: { boards: [{ kind: "osb", mm: 18 }, { kind: "gypsum", mm: 12 }] }, right: { boards: [{ kind: "gypsum", mm: 12 }] } },
+      panelMm: 1000,
       profile: [{ t: 2000, height: 3800 }],
       openings: [{
         id: "o1", kind: "door", t: 2000, width: 1800,
@@ -107,6 +108,11 @@ rejects("rejects an opening without sashes", d => {
 rejects("rejects removed opening shorthand", d => {
   (d.floors[0]!.walls[0]!.openings[0]! as Opening & { windowType: string }).windowType = "fixed";
 });
+rejects("rejects a build-up with more than six boards", d => {
+  d.floors[0]!.walls[0]!.buildUp = {
+    left: { boards: Array.from({ length: 7 }, () => ({ kind: "gypsum" as const, mm: 12 })) },
+  };
+});
 rejects("rejects an unknown symbol type", d => { d.floors[0]!.symbols[0]!.type = "teleporter"; });
 rejects("rejects a bad colour", d => { d.floors[0]!.symbols[0]!.color = "red"; });
 rejects("rejects an unknown sash action", d => { d.floors[0]!.walls[0]!.openings[0]!.sashes[0]!.action = "wobble" as never; });
@@ -124,6 +130,18 @@ rejects("rejects version 2", d => { (d as unknown as Record<string, unknown>).ve
   const badEnergy = JSON.parse(JSON.stringify(seedDoc())) as PlanDoc;
   (badEnergy as unknown as { energy: Record<string, unknown> }).energy = { bogus: 1 };
   ck("rejects an unknown energy property", validate(schema, badEnergy).length > 0);
+}
+
+// Per-kind board sheet sizes (materials.sheets replaces the single document-wide sheetMm).
+{
+  const withSheets = JSON.parse(JSON.stringify(seedDoc())) as PlanDoc;
+  withSheets.materials = { sheets: { osb: { width: 1250, height: 2500 }, gypsum: { width: 1200, height: 2600 } } };
+  ck("validates seedDoc with per-kind sheet sizes",
+    validate(schema, withSheets).length === 0, validate(schema, withSheets).join(" | "));
+
+  const badSheets = JSON.parse(JSON.stringify(seedDoc())) as PlanDoc;
+  (badSheets as unknown as { materials: Record<string, unknown> }).materials = { sheets: { osb: { width: 1250 } } };
+  ck("rejects a sheet size missing height", validate(schema, badSheets).length > 0);
 }
 
 // Keep schema enums aligned with runtime opening and symbol definitions.

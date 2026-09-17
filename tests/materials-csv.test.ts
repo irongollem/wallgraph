@@ -105,6 +105,56 @@ if (blocksRow) {
   void blockMissing; // the wall responsible for the flag above
 }
 
+// ── build-up boards: one boardArea/sheets row per kind present ──────────
+//
+// A framed wall with OSB 18 + gypsum 12 on one face and gypsum 12 on the
+// other: OSB counts one face's area, gypsum counts both faces', and each
+// kind nests against its own sheet size (core/materials.ts; see
+// tests/materials.test.ts for the figures themselves). This only checks the
+// CSV shaping: one row per kind, named with its translated kind, under the
+// same "Houten regelwerk" system the stud row above already carries.
+{
+  const boardDoc = emptyDoc();
+  const bf = boardDoc.floors[0]!;
+  bf.name = "Begane grond";
+  const n1 = newId("n"), n2 = newId("n");
+  bf.nodes = [{ id: n1, x: 0, y: 0 }, { id: n2, x: 4000, y: 0 }];
+  bf.walls = [{
+    id: newId("w"), a: n1, b: n2, thickness: 89, bulge: 0, openings: [],
+    material: "timber", postMm: 600, postWidthMm: 38,
+    buildUp: {
+      left: { boards: [{ kind: "osb", mm: 18 }, { kind: "gypsum", mm: 12 }] },
+      right: { boards: [{ kind: "gypsum", mm: 12 }] },
+    },
+  }];
+  const boardRows = materialsCsv(boardDoc).slice(1).split("\r\n").filter(l => l.length > 0)
+    .slice(1).map(l => l.split(";"));
+
+  const osbAreaRow = boardRows.find(r => r[2] === "OSB oppervlak");
+  check("an OSB board area row, named with its translated kind", osbAreaRow !== undefined,
+    JSON.stringify(boardRows.map(r => r[2])));
+  if (osbAreaRow) {
+    check("its system is \"Houten regelwerk\"", osbAreaRow[1] === "Houten regelwerk", osbAreaRow[1]);
+    check("its unit is m²", osbAreaRow[7] === "m²", osbAreaRow[7]);
+    check("it carries no incomplete flag", osbAreaRow[8] === "", osbAreaRow[8]);
+  }
+  const gypsumAreaRow = boardRows.find(r => r[2] === "Gipsplaat oppervlak");
+  check("a gypsum board area row, distinct from the OSB one", gypsumAreaRow !== undefined);
+  if (gypsumAreaRow && osbAreaRow) {
+    // Gypsum stands on both faces, OSB on one: twice the area at the same
+    // face size.
+    const gypsumM2 = Number(gypsumAreaRow[5]!.replace(",", "."));
+    const osbM2 = Number(osbAreaRow[5]!.replace(",", "."));
+    check("gypsum's area is twice OSB's (both faces vs. one)",
+      Math.abs(gypsumM2 - 2 * osbM2) < 1e-6, `${gypsumM2} vs ${osbM2}`);
+  }
+  const osbSheetsRow = boardRows.find(r => r[2] === "OSB platen");
+  check("an OSB sheets row, named with its translated kind", osbSheetsRow !== undefined);
+  if (osbSheetsRow) check("its count is a plain integer", /^\d+$/.test(osbSheetsRow[5]!), osbSheetsRow[5]);
+  const gypsumSheetsRow = boardRows.find(r => r[2] === "Gipsplaat platen");
+  check("a gypsum sheets row, distinct from the OSB one", gypsumSheetsRow !== undefined);
+}
+
 // ── decks: joists, rim boards and the decking area ──────────────────────
 
 const deckJoistRow = rows.find(r => r[1] === "Balklagen" && r[2] === "Balk");

@@ -14,7 +14,7 @@
 // per-object facts core/checks.ts reads (a joist's section, a beam's load, a
 // wall's material) -- see CLAUDE.md's "missing input yields incomplete"
 // policy, which is about those facts, not about a safety-factor convention.
-import type { PlanDoc, WallMaterial } from "./doc";
+import type { BoardKind, PlanDoc, WallMaterial } from "./doc";
 
 export interface MaterialAssumptions {
   /** Stock lengths timber is bought in, mm, ascending. */
@@ -23,8 +23,9 @@ export interface MaterialAssumptions {
   kerfMm?: number;
   /** Waste allowance on sheet and block quantities, percent. */
   wastePct?: number;
-  /** Board sheet the lining is cut from, mm. */
-  sheetMm?: { width: number; height: number };
+  /** Board sheet each kind is cut from, mm. A kind absent here falls back to
+   *  SHEET_DEFAULTS; read via sheetOf(). */
+  sheets?: Partial<Record<BoardKind, { width: number; height: number }>>;
   /**
    * Timber strength class for the preliminary span checks. Absent means the
    * default class applies (see TIMBER_DEFAULT); read via timberOf(). Bundled
@@ -235,8 +236,8 @@ export function sectionsMmOf(d: PlanDoc): readonly { w: number; d: number }[] {
  * Indicative self-weight densities for a lintel's wall load, kg/m³ -- the
  * masonry-type materials a wall states. A framed wall (timber or steel post
  * frame) does not carry a density: its self-weight is FRAMED_WALL_FACE_LOAD_KNM2
- * per m² of face instead, since a stud wall's weight comes from its lining and
- * insulation, not from the frame's own bulk. "glass" and "sandwich" carry
+ * per m² of face instead, since a stud wall's weight comes from its board
+ * build-up and insulation, not from the frame's own bulk. "glass" and "sandwich" carry
  * neither -- a lintelCheck() over one of those reports "material" missing.
  */
 export const WALL_DENSITY_KG_M3: Partial<Record<WallMaterial, number>> = {
@@ -282,8 +283,14 @@ export const STOCK_PRESETS: readonly StockPreset[] = [
 export const KERF_MM_DEFAULT = 3;
 /** An ordinary trade waste allowance on sheet and block quantities, percent. */
 export const WASTE_PCT_DEFAULT = 10;
-/** An ordinary plasterboard/OSB sheet size, mm. */
-export const SHEET_MM_DEFAULT: { width: number; height: number } = { width: 1200, height: 2600 };
+/** Ordinary sheet sizes per board kind, mm -- indicative trade defaults. */
+export const SHEET_DEFAULTS: Readonly<Record<BoardKind, { width: number; height: number }>> = {
+  gypsum: { width: 1200, height: 2600 },
+  gypsumFibre: { width: 1250, height: 2600 },
+  osb: { width: 1250, height: 2500 },
+  plywood: { width: 1220, height: 2500 },
+  cement: { width: 1200, height: 2400 },
+};
 
 /**
  * Stock lengths to nest against: the document's own list, cleaned to positive
@@ -323,10 +330,12 @@ export function wastePct(d: PlanDoc): number {
   return w !== undefined && isFinite(w) && w >= 0 ? w : WASTE_PCT_DEFAULT;
 }
 
-/** Sheet size the lining is cut from, mm. */
-export function sheetMm(d: PlanDoc): { width: number; height: number } {
-  const s = d.materials?.sheetMm;
-  return s && s.width > 0 && s.height > 0 ? s : SHEET_MM_DEFAULT;
+/** Sheet size a board kind is cut from, mm: the document's own figure for
+ *  that kind when stated and positive/finite, else SHEET_DEFAULTS. */
+export function sheetOf(d: PlanDoc, kind: BoardKind): { width: number; height: number } {
+  const s = d.materials?.sheets?.[kind];
+  return s && isFinite(s.width) && s.width > 0 && isFinite(s.height) && s.height > 0
+    ? s : SHEET_DEFAULTS[kind];
 }
 
 /**

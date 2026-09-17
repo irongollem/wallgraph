@@ -4,7 +4,7 @@ import { SYMBOL_TYPES } from "../../src/render/symbols";
 import { STAIR_KINDS, STAIR_USES } from "../../src/model/stair";
 import { STAIR_FIGURES } from "../../src/core/stair";
 import { COLUMN_SHAPES, STRUCTURE_LIMITS } from "../../src/model/structure";
-import { WALL_MATERIALS } from "../../src/model/doc";
+import { WALL_MATERIALS, BOARD_KINDS, MAX_BOARDS } from "../../src/model/doc";
 import {
   DISCIPLINES, ROUTE_KINDS, ROUTE_WATERS, ROUTE_HEATS, ROUTE_VENTS, ROUTE_INSTALLATIONS,
 } from "../../src/model/route";
@@ -129,7 +129,7 @@ export function planSchema(siteUrl: string): JsonSchema {
         additionalProperties: false,
         description:
           "Document-level assumptions for the wall material takeoff and the preliminary " +
-          "structural checks: stock lengths, saw kerf, waste allowance, lining sheet size, " +
+          "structural checks: stock lengths, saw kerf, waste allowance, board sheet sizes, " +
           "timber and steel strength, partial factors, the deflection limit and the " +
           "sections offered when proposing one. Absent means the indicative trade and " +
           "engineering defaults apply. All fields are indicative and reported, never " +
@@ -151,14 +151,19 @@ export function planSchema(siteUrl: string): JsonSchema {
             type: "number", minimum: 0,
             description: "Waste allowance applied to sheet and block quantities, percent.",
           },
-          sheetMm: {
+          sheets: {
             type: "object", additionalProperties: false,
-            required: ["width", "height"],
-            description: "Board sheet the lining is cut from, mm.",
-            properties: {
-              width: { type: "integer", exclusiveMinimum: 0 },
-              height: { type: "integer", exclusiveMinimum: 0 },
-            },
+            description:
+              "Board sheet size a wall's build-up is cut from, per board kind. Absent, or " +
+              "a kind left out, means the indicative default for that kind applies.",
+            properties: Object.fromEntries(BOARD_KINDS.map(kind => [kind, {
+              type: "object", additionalProperties: false,
+              required: ["width", "height"],
+              properties: {
+                width: { type: "integer", exclusiveMinimum: 0 },
+                height: { type: "integer", exclusiveMinimum: 0 },
+              },
+            }])),
           },
           timber: {
             type: "object", additionalProperties: false,
@@ -451,16 +456,16 @@ export function planSchema(siteUrl: string): JsonSchema {
               "stated; the document's energy.wallRc default then applies, but only to a wall " +
               "that states a facade.",
           },
-          lining: {
+          buildUp: {
             type: "object",
             description:
-              "Board lining on the wall's interior faces, outside the structural faces like " +
-              "facadeMm. Absent means unlined; a face carrying the facade is never lined.",
-            required: ["boardMm", "layers"],
+              "A board stack per face, outside the structural faces like facadeMm and " +
+              "ordered from the wall outward into the room. Absent, or a side left out, " +
+              "means that face is bare; a face carrying the facade never carries a build-up.",
             additionalProperties: false,
             properties: {
-              boardMm: { type: "integer", minimum: 6, maximum: 30, description: "One board's thickness, mm." },
-              layers: { type: "integer", minimum: 1, maximum: 3, description: "Layers of board." },
+              left: { $ref: "#/$defs/faceBuildUp" },
+              right: { $ref: "#/$defs/faceBuildUp" },
             },
           },
           blockMm: {
@@ -574,6 +579,29 @@ export function planSchema(siteUrl: string): JsonSchema {
         properties: {
           t: mm("Distance from node a along the centerline, mm."),
           height: mm("mm above this storey's floor."),
+        },
+      },
+      buildUpBoard: {
+        type: "object",
+        description: "One board in a face build-up.",
+        required: ["kind", "mm"],
+        additionalProperties: false,
+        properties: {
+          kind: { enum: [...BOARD_KINDS] },
+          mm: { type: "integer", minimum: 6, maximum: 30, description: "Board thickness, mm." },
+        },
+      },
+      faceBuildUp: {
+        type: "object",
+        description:
+          "One face's board stack, ordered from the wall outward into the room.",
+        required: ["boards"],
+        additionalProperties: false,
+        properties: {
+          boards: {
+            type: "array", items: { $ref: "#/$defs/buildUpBoard" },
+            minItems: 1, maxItems: MAX_BOARDS,
+          },
         },
       },
       sash: {
@@ -1300,6 +1328,9 @@ function check(schema: JsonSchema, value: unknown, path: string, ctx: Ctx, out: 
   if (Array.isArray(value)) {
     if (typeof schema.minItems === "number" && value.length < schema.minItems) {
       bad(`needs at least ${schema.minItems} item(s)`);
+    }
+    if (typeof schema.maxItems === "number" && value.length > schema.maxItems) {
+      bad(`allows at most ${schema.maxItems} item(s)`);
     }
     if (schema.items) value.forEach((v, i) => check(schema.items as JsonSchema, v, `${path}[${i}]`, ctx, out));
   }

@@ -9,7 +9,7 @@ import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
 import { sqm } from "./walls";
 import {
-  stockLengths, stockPresetOf, STOCK_PRESETS, kerfMm, wastePct, sheetMm,
+  stockLengths, stockPresetOf, STOCK_PRESETS, kerfMm, wastePct, sheetOf,
   timberOf, timberClassOf, applyTimberClass, TIMBER_CLASSES, TIMBER_DEFAULT,
   gammaGOf, gammaQOf, deflectionDivOf, sectionsMmOf, assumptionDrift,
   MIN_HZ_DEFAULT, MAX_POINT_MM_DEFAULT,
@@ -18,7 +18,7 @@ import {
 import type { StockPreset } from "../model/materials";
 import { driftValue } from "./checks";
 import type { Member, MemberName, WallSystem, WallTakeoff, DeckTakeoff, FloorMaterials } from "../core/materials";
-import { decksOf } from "../model/doc";
+import { decksOf, BOARD_KINDS, type BoardKind } from "../model/doc";
 import type { NestResult } from "../core/stock";
 
 /** materials.system.* key for each WallSystem id -- the id itself carries a
@@ -37,7 +37,7 @@ const INCOMPLETE_FIELD_KEY: Record<WallTakeoff["incomplete"][number], string> = 
   postWidth: "panel.postWidthOn",
   block: "panel.blockOn",
   panel: "panel.panelWidthOn",
-  lining: "panel.liningOn",
+  boards: "panel.buildUpPreset",
 };
 
 const DECK_INCOMPLETE_KEY: Record<DeckTakeoff["incomplete"][number], string> = {
@@ -101,7 +101,7 @@ function parseSectionsList(text: string): Array<{ w: number; d: number }> | null
 
 /**
  * Stock lengths, saw kerf, waste allowance and sheet size. Plain fields, not
- * gated behind a set/unset toggle the way lining or posts are -- there is no
+ * gated behind a set/unset toggle the way a board build-up or posts are -- there is no
  * "no assumption" state to represent, only the document's own figure or the
  * trade default -- so a commit always writes through, and only the stock
  * list's empty-input gesture clears anything back to absent.
@@ -157,15 +157,22 @@ export function renderMaterialAssumptions(
     dd.materials ??= {};
     dd.materials.wastePct = Math.max(0, Math.round(n));
   }));
-  const sheet = sheetMm(d);
-  rows.numRow(t("materials.sheetWidth"), sheet.width, n => store.mutate(dd => {
-    dd.materials ??= {};
-    dd.materials.sheetMm = { ...sheetMm(dd), width: Math.max(1, Math.round(n)) };
-  }), 50);
-  rows.numRow(t("materials.sheetHeight"), sheet.height, n => store.mutate(dd => {
-    dd.materials ??= {};
-    dd.materials.sheetMm = { ...sheetMm(dd), height: Math.max(1, Math.round(n)) };
-  }), 50);
+  // One width/height pair per board kind -- each kind nests against its own
+  // sheet size (see sheetOf()), rather than one document-wide sheet.
+  for (const kind of BOARD_KINDS) {
+    const kindLabel = t("board.kind." + kind);
+    const sheet = sheetOf(d, kind);
+    rows.numRow(t("materials.sheetWidth", { kind: kindLabel }), sheet.width, n => store.mutate(dd => {
+      dd.materials ??= {};
+      dd.materials.sheets ??= {};
+      dd.materials.sheets[kind] = { ...sheetOf(dd, kind), width: Math.max(1, Math.round(n)) };
+    }), 50);
+    rows.numRow(t("materials.sheetHeight", { kind: kindLabel }), sheet.height, n => store.mutate(dd => {
+      dd.materials ??= {};
+      dd.materials.sheets ??= {};
+      dd.materials.sheets[kind] = { ...sheetOf(dd, kind), height: Math.max(1, Math.round(n)) };
+    }), 50);
+  }
 }
 
 /**
@@ -296,14 +303,28 @@ function nestRows(rows: Pick<PaneRows, "noteRow">, nested: NestResult): void {
   if (nested.splices > 0) rows.noteRow(t("materials.splices", { n: nested.splices }));
 }
 
+/** One area row per board kind present, plus a sheet count where the caller
+ *  knows one (the system aggregate; a single wall does not nest its own
+ *  stock -- see WallTakeoff.boards vs the system aggregate's own `boards`). */
+function boardRows(
+  rows: Pick<PaneRows, "infoRow">,
+  boards: readonly { kind: BoardKind; areaMm2: number; sheets?: number }[],
+): void {
+  for (const b of boards) {
+    const kind = t("board.kind." + b.kind);
+    rows.infoRow(t("materials.boardArea", { kind }), sqm(b.areaMm2));
+    if (b.sheets !== undefined) rows.infoRow(t("materials.sheetsKind", { kind }), String(b.sheets));
+  }
+}
+
 function figureRows(
   rows: Pick<PaneRows, "infoRow">,
-  s: { boardMm2: number; sheets: number; insulationMm2: number; blocks: number; panels: number },
+  s: {
+    boards: readonly { kind: BoardKind; areaMm2: number; sheets?: number }[];
+    insulationMm2: number; blocks: number; panels: number;
+  },
 ): void {
-  if (s.boardMm2 > 0) {
-    rows.infoRow(t("materials.boardArea"), sqm(s.boardMm2));
-    rows.infoRow(t("materials.sheets"), String(s.sheets));
-  }
+  boardRows(rows, s.boards);
   if (s.insulationMm2 > 0) rows.infoRow(t("materials.insulationArea"), sqm(s.insulationMm2));
   if (s.blocks > 0) rows.infoRow(t("materials.blocks"), String(s.blocks));
   if (s.panels > 0) rows.infoRow(t("materials.panels"), String(s.panels));
@@ -356,10 +377,10 @@ export function renderMaterialTakeoff(
 
   let shown = false;
   for (const sys of takeoff.bySystem) {
-    // "other" walls carry no member shapes and, absent lining or insulation
-    // of their own, nothing else this takeoff counts -- a header over
-    // nothing would report a system that has, in fact, reported nothing.
-    const hasFigures = sys.members.length > 0 || sys.boardMm2 > 0 || sys.insulationMm2 > 0
+    // "other" walls carry no member shapes and, absent a board build-up or
+    // insulation of their own, nothing else this takeoff counts -- a header
+    // over nothing would report a system that has, in fact, reported nothing.
+    const hasFigures = sys.members.length > 0 || sys.boards.length > 0 || sys.insulationMm2 > 0
       || sys.blocks > 0 || sys.panels > 0;
     if (!hasFigures) continue;
     shown = true;
@@ -441,7 +462,7 @@ export function renderWallMaterial(
   wt: WallTakeoff | undefined,
 ): void {
   if (!wt) return;
-  const hasFigures = wt.members.length > 0 || wt.boardMm2 > 0 || wt.insulationMm2 > 0
+  const hasFigures = wt.members.length > 0 || wt.boards.length > 0 || wt.insulationMm2 > 0
     || wt.blocks > 0 || wt.panels > 0 || wt.incomplete.length > 0;
   if (!hasFigures) return;
 

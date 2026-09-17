@@ -3,7 +3,7 @@
 // follow from the anchor, the rotation and the figures in model/deck.ts.
 import { Deck, bearingOf } from "../model/deck";
 import type { Floor, Id } from "../model/doc";
-import { liningSideOf, wallLiningMm } from "../model/doc";
+import { buildUpMm } from "../model/doc";
 import { Vec, v, add, scale, norm, perp, distToSeg } from "../geometry/vec";
 import { boxCorners, boxHit, worldPoint, type LocalBox } from "./placed";
 import type { DeckJoistLayout, DeckOpening, JoistSegment } from "./trimmer";
@@ -53,8 +53,8 @@ const WALL_FACE_SNAP_TOL_MM = 40;
 
 /**
  * The nearest point on a wall's own FACE -- half its thickness off the
- * centerline, plus a stated lining (the lined face is where a floor bears,
- * per CLAUDE.md's "A lining is a skin ... measured only by the net area") --
+ * centerline, plus a stated build-up (a floor bears on the finished face,
+ * per CLAUDE.md's "A build-up is a skin ... measured only by the net area") --
  * within `tolMm`, or null. Read by the deck/vide resize handle (issue #65) to
  * let an edge dragged toward a wall land on it instead of stopping a
  * millimetre short, the same reason deckMeetsWall() reads a tolerance rather
@@ -75,7 +75,7 @@ export function nearestWallFace(f: Floor, p: Vec, tolMm = WALL_FACE_SNAP_TOL_MM)
     if (dir.x === 0 && dir.y === 0) continue;
     const nrm = perp(dir);
     for (const side of ["left", "right"] as const) {
-      const off = w.thickness / 2 + (liningSideOf(w, side) ? wallLiningMm(w) : 0);
+      const off = w.thickness / 2 + buildUpMm(w, side);
       const faceDir = side === "left" ? nrm : scale(nrm, -1);
       const A2 = add(A, scale(faceDir, off)), B2 = add(B, scale(faceDir, off));
       const { d, t } = distToSeg(p, A2, B2);

@@ -172,6 +172,22 @@ export const isBlockMaterial = (m: WallMaterial | undefined): boolean =>
 export const isFramedMaterial = (m: WallMaterial | undefined): boolean =>
   m === "timber" || m === "steel";
 
+/** A board kind a face build-up may be stacked from. */
+export type BoardKind = "gypsum" | "gypsumFibre" | "osb" | "plywood" | "cement";
+
+export const BOARD_KINDS: readonly BoardKind[] = ["gypsum", "gypsumFibre", "osb", "plywood", "cement"];
+
+/** One board of a face build-up, integer mm (invariant 1). */
+export interface Board { kind: BoardKind; mm: number }
+
+/**
+ * A wall face's build-up: a stack of boards, ordered from the wall outward
+ * into the room. `frame` (a voorzetwand) is not modelled yet -- see
+ * Wall.buildUp -- and is added by a later issue; this shape is written so
+ * that addition is a new optional field, not a restructuring.
+ */
+export interface FaceBuildUp { boards: Board[] }
+
 export interface Wall {
   id: Id;
   a: Id;
@@ -298,13 +314,16 @@ export interface Wall {
    */
   color?: string;
   /**
-   * Board lining on the wall's interior faces: one board thickness and how many
-   * layers of it, per face. Absent means unlined. A face carrying the facade is
-   * never lined. Lies OUTSIDE the structural faces like `facadeMm`: `thickness`
-   * stays the frame or block depth. Read via wallLiningMm() for the skin depth
-   * per face.
+   * Board build-up on the wall's faces: a stack of boards per face, ordered
+   * from the wall outward into the room. Absent, or a face with no `boards`,
+   * means none on that face. A face carrying the facade never carries a
+   * build-up. Lies OUTSIDE the structural faces like `facadeMm`: `thickness`
+   * stays the frame or block depth. Read via buildUpOf()/buildUpMm() rather
+   * than directly -- an empty `boards` array is never stored (see
+   * setFaceBuildUp()), so a reader that trusts the field's mere presence
+   * would count a face that carries nothing.
    */
-  lining?: { boardMm: number; layers: number };
+  buildUp?: { left?: FaceBuildUp; right?: FaceBuildUp };
   /**
    * Block format of a block-built body (cellenbeton, kalkzandsteen): the
    * block's length and height, mm; its depth is the wall's `thickness`. Only
@@ -485,23 +504,73 @@ export function postDefaultsFor(material: WallMaterial | undefined): { postMm: n
     : { postMm: POST_DEFAULT_MM };
 }
 
-/** The lining's skin depth on one face, mm. 0 when the wall states no lining. */
-export function wallLiningMm(w: Wall): number {
-  return w.lining ? w.lining.boardMm * w.lining.layers : 0;
+/**
+ * The build-up on one face, or undefined where that face carries nothing —
+ * either the wall states no build-up on it, or that side carries the facade
+ * instead (cladding and a build-up cannot both sit on one face). Replaces
+ * liningSideOf(): where that returned a bool, this returns the stack itself.
+ */
+export function buildUpOf(w: Wall, side: "left" | "right"): FaceBuildUp | undefined {
+  const fu = w.buildUp?.[side];
+  if (!fu || fu.boards.length === 0) return undefined;
+  if (wallFacadeMm(w) !== undefined && facadeSideOf(w) === side) return undefined;
+  return fu;
+}
+
+/** The build-up's skin depth on one face, mm. 0 where that face carries none. */
+export function buildUpMm(w: Wall, side: "left" | "right"): number {
+  const fu = buildUpOf(w, side);
+  return fu ? fu.boards.reduce((sum, b) => sum + b.mm, 0) : 0;
+}
+
+/** A board's stated thickness is always a whole mm (invariant 1); 6..30
+ *  covers everything from a thin cement board to a doubled 15 mm layer. */
+export const clampBoardMm = (n: number): number => clampInt(n, 6, 30);
+/** A face stacks at most this many boards -- generous for any real build-up,
+ *  and a bound the UI's add-board control reads rather than growing forever. */
+export const MAX_BOARDS = 6;
+
+/**
+ * A named board stack a face is often set out from rather than built by hand,
+ * ordered from the wall outward like Wall.buildUp itself. `id` doubles as the
+ * i18n key under `board.preset.*`.
+ */
+export interface BoardPreset { id: string; boards: readonly Board[] }
+
+export const BOARD_PRESETS: readonly BoardPreset[] = [
+  { id: "gypsum", boards: [{ kind: "gypsum", mm: 12 }] },
+  { id: "gypsum2", boards: [{ kind: "gypsum", mm: 12 }, { kind: "gypsum", mm: 12 }] },
+  { id: "osbGypsum", boards: [{ kind: "osb", mm: 18 }, { kind: "gypsum", mm: 12 }] },
+  { id: "gypsumFibre", boards: [{ kind: "gypsumFibre", mm: 12 }] },
+  { id: "cement", boards: [{ kind: "cement", mm: 12 }] },
+];
+
+/** The BOARD_PRESETS entry a stack exactly matches (kind and mm, in order),
+ *  or "custom" for a stack no preset states. */
+export function boardPresetOf(boards: readonly Board[]): string {
+  const hit = BOARD_PRESETS.find(p =>
+    p.boards.length === boards.length && p.boards.every((b, i) => b.kind === boards[i]!.kind && b.mm === boards[i]!.mm));
+  return hit?.id ?? "custom";
 }
 
 /**
- * A face is lined when the wall states a lining AND that face is not the one
- * carrying the facade — cladding and interior lining cannot both sit on the
- * same face.
+ * Write a face's build-up, deleting what an empty stack means "none": the
+ * face itself when `fu` is undefined or carries no boards, and `Wall.buildUp`
+ * entirely once neither face is left. For use inside store.mutate() by the
+ * UI, the way clampOpening() and its neighbours are.
  */
-export function liningSideOf(w: Wall, side: "left" | "right"): boolean {
-  if (!w.lining) return false;
-  return !(wallFacadeMm(w) !== undefined && facadeSideOf(w) === side);
+export function setFaceBuildUp(w: Wall, side: "left" | "right", fu: FaceBuildUp | undefined): void {
+  const empty = !fu || fu.boards.length === 0;
+  if (empty) {
+    if (w.buildUp) {
+      delete w.buildUp[side];
+      if (w.buildUp.left === undefined && w.buildUp.right === undefined) delete w.buildUp;
+    }
+    return;
+  }
+  w.buildUp = { ...w.buildUp, [side]: fu };
 }
 
-/** 12.5 mm board rounds to the document's whole mm; a single layer. */
-export const LINING_DEFAULT = { boardMm: 12, layers: 1 };
 /** An ordinary cellenbeton/kalkzandsteen block, mm. */
 export const BLOCK_DEFAULT_MM = { length: 600, height: 250 };
 /** An ordinary sandwich panel width along the wall, mm. */
@@ -511,8 +580,6 @@ function clampInt(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, Math.round(isFinite(n) ? n : lo)));
 }
 
-export const clampLiningBoard = (n: number): number => clampInt(n, 6, 30);
-export const clampLiningLayers = (n: number): number => clampInt(n, 1, 3);
 export const clampBlockLength = (n: number): number => clampInt(n, 100, 1000);
 export const clampBlockHeight = (n: number): number => clampInt(n, 50, 600);
 export const clampNoggingRows = (n: number): number => clampInt(n, 0, 5);

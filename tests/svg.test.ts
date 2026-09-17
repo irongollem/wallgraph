@@ -130,23 +130,31 @@ for (const id of ["rooms", "walls", "openings", "symbols", "labels"])
   pf.walls.push({ id: "pw", a: "pn0", b: "pn1", thickness: 300, bulge: 0, openings: [] });
   const plain = toSvg(plainDoc, 0) ?? "";
   check("a plan of plain walls emits no posts group", !plain.includes('id="posts"'));
-  check("and no lining group", !plain.includes('id="lining"'));
+  check("and no boards group", !plain.includes('id="boards"'));
 }
 
-// A lined wall's board skin draws the same way the cladding band does: a
-// group of its own, filled the paper colour, beside "facade".
+// A build-up wall's board skin draws the same way the cladding band does: a
+// group of its own, beside "facade" -- but one path per board piece, tagged
+// with its kind and filled from COLORS.board rather than uniformly.
 {
   const doc = emptyDoc();
   const f = doc.floors[0]!;
   f.nodes.push({ id: "ln0", x: 0, y: 0 }, { id: "ln1", x: 4000, y: 0 });
   f.walls.push({
     id: "lw", a: "ln0", b: "ln1", thickness: 100, bulge: 0, openings: [],
-    material: "timber", lining: { boardMm: 12, layers: 1 },
+    material: "timber",
+    buildUp: { left: { boards: [{ kind: "osb", mm: 18 }, { kind: "gypsum", mm: 12 }] } },
   });
   const out = toSvg(doc, 0) ?? "";
-  check("a lining group is emitted for a lined wall", out.includes('id="lining"'));
-  check("the lining band fills with the paper colour", out.includes(COLORS.bg));
-  check("no NaN reaches a lined wall's paths", !out.includes("NaN"));
+  check("a boards group is emitted for a build-up wall", out.includes('id="boards"'));
+  check("each board kind gets its own tagged path", out.includes('data-kind="osb"') && out.includes('data-kind="gypsum"'));
+  check("the OSB band fills from COLORS.board.osb", out.includes(COLORS.board.osb));
+  check("the gypsum band fills from COLORS.board.gypsum", out.includes(COLORS.board.gypsum));
+  // One tagged path per band piece: a straight, unopened wall is one piece
+  // per board, so a two-board stack tags exactly two paths.
+  const dataKindCount = (out.match(/data-kind="/g) ?? []).length;
+  check("two tagged board paths for a two-board stack", dataKindCount === 2, String(dataKindCount));
+  check("no NaN reaches a build-up wall's paths", !out.includes("NaN"));
 }
 
 console.log(failures === 0 ? "ALL SVG TESTS PASSED" : `${failures} FAILURES`);

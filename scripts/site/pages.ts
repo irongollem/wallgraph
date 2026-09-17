@@ -302,11 +302,14 @@ begrenzende muur er een heeft, en tot de hartlijn waar dat niet zo is — precie
 gedeelde bouwmuur zegt. Naar IFC gaat een beklede muur als <code>IfcMaterialLayerSet</code>: constructie
 en bekleding als geordende lagen.</p>
 
-<p>Los daarvan is <b>beplating</b> op te geven: een plaatdikte en een aantal lagen, op
-de kant van de muur die geen gevel draagt. Net als de gevelbekleding tekent die als een witte band buiten
-het constructieve muurlichaam, en bij oppervlaktemaat <b>netto</b> wordt de ruimtegrens gemeten tot deze
-afgewerkte kant, niet tot de constructie. Het wandoppervlak (stucwerk, verf, behang) blijft hoe dan ook
-gemeten over het constructieve vlak; het paneel meldt dat apart waar een muur beplating draagt. Voor
+<p>Los daarvan kan elke wandzijde een eigen <b>platenopbouw</b> dragen: een stapel van ten hoogste zes
+platen — gips, gipsvezel, OSB, multiplex of cement, elk met een eigen dikte — van de muur naar de ruimte
+toe geordend, op de kant die geen gevel draagt. Net als de gevelbekleding tekent die als een witte band
+buiten het constructieve muurlichaam, met één band per plaat zodat de stapel op ware dikte leesbaar is,
+en bij oppervlaktemaat <b>netto</b> wordt de ruimtegrens gemeten tot de buitenste plaat, niet tot de
+constructie. Twee naastliggende platenopbouwen versnijden plaat op plaat in een hoek, zoals de
+gevelbekleding dat doet. Het wandoppervlak (stucwerk, verf, behang) blijft hoe dan ook gemeten over het
+constructieve vlak; het paneel meldt dat apart waar een wandzijde een platenopbouw draagt. Voor
 een blokopbouw (cellenbeton, kalkzandsteen) is het blokformaat vast te leggen; op een spant het aantal
 rijen klossen en of de spouw is geïsoleerd; op een sandwichwand de paneelbreedte. Blokformaat, klossen,
 isolatie en paneelbreedte veranderen niets aan de tekening — ze worden vastgelegd voor de
@@ -407,7 +410,7 @@ niet getoetst.</p>
 
 <h2 id="materialen">Materialen</h2>
 <p>Onder <b>Materialen</b> staat de materiaalstaat van de verdieping: wat de getekende muren aan
-staafhout, staal, beplating, isolatie en blokken vragen, geteld uit de stijlafstand, het blokformaat, het
+staafhout, staal, platen, isolatie en blokken vragen, geteld uit de stijlafstand, het blokformaat, het
 aantal rijen klossen en de spouwisolatie die bij elke muur zijn opgegeven, en versneden op de vlaklengte
 uit <b>Wandoppervlak</b>. Een regelwand levert een onder- en een bovenregel op de volledige lengte en telt
 stijlen op elke getekende stijlpositie, aan beide wandeinden (tenzij een sparing daar tot op een
@@ -419,12 +422,13 @@ verdubbeld op de kant, gedragen door een onderstijl aan elke kant, met een onder
 kortstijlen tussen de latei of de onderdorpel en de regel. Een stalen spant levert dezelfde stijlen —
 kozijnstijl en aansluitstijl inbegrepen — onder de namen regel en stijl, maar zonder klossen, latei of
 onderstijl: een deurkozijn is daar een eigen bouwdeel. Een blokopbouw levert een aantal blokken uit het
-blokformaat; een sandwichwand een aantal panelen uit de paneelbreedte. Beplating en spouwisolatie leveren
-platen en vierkante meters op, over de kant van de muur die geen gevel draagt. De staat is per bouwsysteem
+blokformaat; een sandwichwand een aantal panelen uit de paneelbreedte. Een platenopbouw levert, per plaat
+en per platensoort, vierkante meters en platen op tegen de plaatmaat van die soort, over de kant van de
+muur die geen gevel draagt; spouwisolatie levert vierkante meters op dezelfde kant. De staat is per bouwsysteem
 gegroepeerd. Onder <b>Balklagen</b> staan per balklaag het aantal balken op de overspanning plus de
 oplegging aan beide einden, de twee randbalken en de vloerplaten; een balk wordt nooit gelast, een
 randbalk wel. Een balklaag zonder balkdoorsnede telt alleen de vloerplaat.</p>
-<p>De aannames erboven — de standaardstaflengtes, de zaagsnede, de afschrijving en de plaatmaat — zijn
+<p>De aannames erboven — de standaardstaflengtes, de zaagsnede, de afschrijving en de plaatmaten — zijn
 per document te wijzigen en gelden voor de hele materiaalstaat; zonder eigen opgave gelden de
 gebruikelijke waarden. Regels en platen worden op de staflengtes genest: eerst de langste stukken, in de
 eerste voorraadlengte met nog ruimte, elke snede met de zaagsnede erbij; een regel langer dan de langste
@@ -838,13 +842,16 @@ the facade where a bounding wall has one and to the centreline where it does not
 says about a shared party wall. A clad wall exports to IFC as an <code>IfcMaterialLayerSet</code>:
 structure and cladding as ordered layers.</p>
 
-<p>Separate from that again, a wall can carry a <b>board lining</b>: a board thickness and a number of
-layers, on the face that carries no facade. Like the cladding it draws as a white band outside the
-structural body, and under the <b>net</b> area mode the room boundary is measured to this finished face
-rather than to the structure. Wall surface (stucco, paint, wallpaper) stays measured over the structural
-face regardless; the pane notes this separately wherever a wall carries a lining. On a block-built body
-(aerated concrete, calcium silicate) the block format can be stated; on a frame the number of nogging rows
-and whether the cavity is insulated; on a sandwich wall the panel width. None of the block format, nogging
+<p>Separate from that again, each face of a wall can carry its own <b>build-up</b>: a stack of up to six
+boards — gypsum, gypsum fibre, OSB, plywood or cement, each with its own thickness — ordered from the
+wall outward into the room, on the side that carries no facade. Like the cladding it draws as a white
+band outside the structural body, one band per board so the stack reads at its true thickness, and
+under the <b>net</b> area mode the room boundary is measured to the outermost board rather than to the
+structure. Two neighbouring build-ups miter board line against board line, the way the cladding miters
+at a corner. Wall surface (stucco, paint, wallpaper) stays measured over the structural face regardless;
+the pane notes this separately wherever a face carries a build-up. On a block-built body (aerated
+concrete, calcium silicate) the block format can be stated; on a frame the number of nogging rows and
+whether the cavity is insulated; on a sandwich wall the panel width. None of the block format, nogging
 rows, insulation or panel width change the drawing — they are recorded for the materials takeoff.</p>
 
 <p><b>Wall surface</b> states the face area the storey's walls present — the quantity stucco, paint and
@@ -940,7 +947,7 @@ the 3D view and the IFC export, each plane is a slab at its own thickness, group
 
 <h2 id="materials">Materials</h2>
 <p><b>Materials</b> states the storey's materials takeoff: what the drawn walls ask for in timber,
-steel, board lining, insulation and blocks, counted from the post centres, the block format, the number
+steel, board build-ups, insulation and blocks, counted from the post centres, the block format, the number
 of nogging rows and the cavity insulation stated on each wall, and cut to the face length from
 <b>Wall surface</b>. A framed wall yields a bottom and a top plate at the full frame length and counts a
 stud at every drawn post position, at both wall ends (unless an opening's jamb already stands within one
@@ -951,12 +958,13 @@ Under an opening a header carries two post widths extra, doubled on edge, carrie
 side, with a sill under a window and cripples between the header or the sill and the plate. A steel frame
 yields the same studs — king and backing included — under the names rail and stud, but no noggings, header
 or jack stud: a door frame is its own element there. A block wall yields a number of blocks from the block
-format; a sandwich wall a number of panels from the panel width. Board lining and cavity insulation yield
-sheets and square metres, over the side of the wall that carries no facade. The takeoff is grouped by
+format; a sandwich wall a number of panels from the panel width. A build-up yields, per board and per
+board kind, square metres and sheets at that kind's own sheet size, over the side of the wall that
+carries no facade; cavity insulation yields square metres on the same side. The takeoff is grouped by
 construction system. Under <b>Decks</b> each deck lists its joists at the clear span plus the bearing at
 both ends, its two rim boards and its decking sheets; a joist is never spliced, a rim board may be. A deck
 without a joist section counts its decking only.</p>
-<p>The assumptions above it — the stock lengths, the saw kerf, the waste allowance and the sheet size —
+<p>The assumptions above it — the stock lengths, the saw kerf, the waste allowance and the sheet sizes —
 can be changed per document and apply to the whole takeoff; without a stated value the ordinary figures
 apply. Plates and rails are nested onto the stock lengths: longest pieces first, into the first stock
 length that still has room, each cut charged the saw kerf; a plate longer than the longest stock length is

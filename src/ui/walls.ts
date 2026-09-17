@@ -11,8 +11,8 @@ import {
 } from "../model/shape";
 import {
   WALL_MATERIALS, POST_WIDTH_DEFAULT, isBlockMaterial, postLayoutOf,
-  LINING_DEFAULT, BLOCK_DEFAULT_MM, PANEL_DEFAULT_MM,
-  clampLiningBoard, clampLiningLayers, clampBlockLength, clampBlockHeight, clampNoggingRows, clampPanel,
+  BLOCK_DEFAULT_MM, PANEL_DEFAULT_MM,
+  clampBlockLength, clampBlockHeight, clampNoggingRows, clampPanel,
   POST_LAYOUT_PRESETS,
   type WallMaterial,
 } from "../model/doc";
@@ -25,6 +25,7 @@ import { foldOut } from "./foldout";
 import { icon, type IconName } from "./icons";
 import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
+import { renderFaceBuildUp, withFaceBuildUp, wallHasBuildUp } from "./buildup";
 
 /** Thicknesses a plan is ordinarily drawn at, mm. Anything else is typed. */
 const THICKNESSES: readonly number[] = [70, 100, 150, 200, 300];
@@ -119,14 +120,14 @@ export function renderWallTool(
     }
     rows.noteRow(t("panel.postsHelp"));
   }
-  rows.checkRow(t("panel.liningOn"), tools.wallLining !== null,
-    on => tools.setWallPen({ wallLining: on ? { ...LINING_DEFAULT } : null }));
-  if (tools.wallLining !== null) {
-    rows.numRow(t("panel.liningBoard"), tools.wallLining.boardMm,
-      n => tools.setWallPen({ wallLining: { ...tools.wallLining!, boardMm: clampLiningBoard(n) } }));
-    rows.numRow(t("panel.liningLayers"), tools.wallLining.layers,
-      n => tools.setWallPen({ wallLining: { ...tools.wallLining!, layers: clampLiningLayers(n) } }), 1);
-    rows.noteRow(t("panel.liningHelp"));
+  // Board build-up for the next wall struck out, per face. The pen carries no
+  // facade of its own -- cladding is set on a placed wall, never armed ahead
+  // of one -- so neither face can yet carry it, and the note branch never
+  // fires here.
+  for (const side of ["left", "right"] as const) {
+    const label = side === "left" ? t("panel.facadeLeft") : t("panel.facadeRight");
+    renderFaceBuildUp(rows, label, false, tools.wallBuildUp?.[side],
+      fu => tools.setWallPen({ wallBuildUp: withFaceBuildUp(tools.wallBuildUp, side, fu) }));
   }
   if (isBlockMaterial(tools.wallMaterial ?? undefined)) {
     rows.checkRow(t("panel.blockOn"), tools.wallBlockMm !== null,
@@ -178,8 +179,8 @@ export function renderWallTool(
   // One takeoff for both readers below: the storey total, and the per-wall
   // figure each row of the wall list carries.
   const surface = floorSurface(store.floor, tools.resolvedFloor(), tools.rooms());
-  const lined = store.floor.walls.some(w => w.lining !== undefined);
-  renderStoreySurface(rows, surface, lined);
+  const hasBuildUp = store.floor.walls.some(wallHasBuildUp);
+  renderStoreySurface(rows, surface, hasBuildUp);
   renderTopMismatches(rows, store);
   renderWallList(host, store, tools, surface);
 }
@@ -257,7 +258,7 @@ function surfaceRows(
  * sides of a wall between a badkamer and a slaapkamer are then not the same
  * area, and the row naming the room says which is which.
  */
-export function renderWallSurface(rows: PaneRows, s: WallSurface, lined = false): void {
+export function renderWallSurface(rows: PaneRows, s: WallSurface, hasBuildUp = false): void {
   const clad = s.faces.some(x => x.clad);
   surfaceRows(rows, s, clad);
   const lowered = s.faces.some(x => x.heightMm < s.heightMm);
@@ -270,7 +271,7 @@ export function renderWallSurface(rows: PaneRows, s: WallSurface, lined = false)
   rows.noteRow(lowered ? t("panel.wallSurfaceCeilingNote") : t("panel.wallSurfaceNote"));
   if (s.revealsMm2 > 0) rows.noteRow(t("panel.wallSurfaceRevealNote"));
   if (clad) rows.noteRow(t("panel.wallSurfaceCladNote"));
-  if (lined) rows.noteRow(t("panel.wallSurfaceLiningNote"));
+  if (hasBuildUp) rows.noteRow(t("panel.wallSurfaceBuildUpNote"));
 }
 
 /** What to call one face: the room it looks into, named or not, or the outside
@@ -284,9 +285,9 @@ function faceLabel(face: WallSurface["faces"][number]): string {
 
 /** The storey's total wall face area: what an order for stucwerk, verf or
  *  behang is placed against. Reported, never checked against anything.
- *  `lined` marks that some wall on the storey carries a board lining, which
- *  this figure does not include -- see wallLiningMm() in model/doc.ts. */
-function renderStoreySurface(rows: PaneRows, total: FloorSurface, lined: boolean): void {
+ *  `hasBuildUp` marks that some wall on the storey carries a board build-up,
+ *  which this figure does not include -- see buildUpMm() in model/doc.ts. */
+function renderStoreySurface(rows: PaneRows, total: FloorSurface, hasBuildUp: boolean): void {
   if (total.walls.length === 0) return;
   rows.secHead(t("panel.wallSurface"), { later: true });
   surfaceRows(rows, total, total.cladFaces > 0);
@@ -302,7 +303,7 @@ function renderStoreySurface(rows: PaneRows, total: FloorSurface, lined: boolean
   rows.noteRow(lowered ? t("panel.wallSurfaceCeilingNote") : t("panel.wallSurfaceNote"));
   if (total.revealsMm2 > 0) rows.noteRow(t("panel.wallSurfaceRevealNote"));
   if (total.cladFaces > 0) rows.noteRow(t("panel.wallSurfaceCladNote"));
-  if (lined) rows.noteRow(t("panel.wallSurfaceLiningNote"));
+  if (hasBuildUp) rows.noteRow(t("panel.wallSurfaceBuildUpNote"));
 }
 
 /**

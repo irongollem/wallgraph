@@ -18,6 +18,16 @@ export function wallLength(f: Floor, w: Wall): number {
   return arcLength(v(a.x, a.y), v(b.x, b.y), w.bulge);
 }
 
+/** A deep copy of a wall's build-up: fresh Board objects in fresh arrays, so
+ *  splitWall()'s two halves never share a boards array with each other. */
+function cloneBuildUp(bu: Wall["buildUp"]): Wall["buildUp"] {
+  if (!bu) return undefined;
+  const out: NonNullable<Wall["buildUp"]> = {};
+  if (bu.left) out.left = { boards: bu.left.boards.map(b => ({ ...b })) };
+  if (bu.right) out.right = { boards: bu.right.boards.map(b => ({ ...b })) };
+  return out;
+}
+
 /** Get or create a node at p (mm, rounded to integers). Reuses a node within tol. */
 export function nodeAt(f: Floor, p: Vec, tol = NODE_MERGE_TOL): PlanNode {
   const x = Math.round(p.x), y = Math.round(p.y);
@@ -67,7 +77,16 @@ export function splitWall(f: Floor, w: Wall, tMm: number): PlanNode | null {
     // way it edits a profile point), and the spread above would otherwise
     // leave both halves pointing at the one array.
     ...(w.frameBreaksMm ? { frameBreaksMm: [...w.frameBreaksMm] } : {}),
+    // Both halves carry the same build-up unchanged, cloned rather than
+    // shared: the panel edits a board's mm or a stack's length in place, and
+    // the spread above would otherwise leave both halves' boards arrays
+    // pointing at the one object.
+    ...(w.buildUp ? { buildUp: cloneBuildUp(w.buildUp) } : {}),
   };
+  // `w` keeps its own build-up (untouched by the spread above, which built
+  // w2), but still points at the pre-split arrays -- reclone so `w` and `w2`
+  // hold two independent copies rather than one shared between them.
+  if (w.buildUp) w.buildUp = cloneBuildUp(w.buildUp);
   // A "grid" postLayout is set out from one end (Wall.postFrom). Whichever
   // half keeps THAT end as its own unmoved 'a' or 'b' needs no correction at
   // all -- w2 already carries it via the spread above, and stays right when
@@ -261,6 +280,18 @@ export function flipWall(f: Floor, w: Wall): void {
     // L - t fractional and possibly out of order; clampProfile() rounds and
     // re-sorts, the same pass any other geometry change runs afterwards.
     clampProfile(f, w);
+  }
+  // A build-up is stated per PHYSICAL side, not per letter -- see Wall.buildUp
+  // -- so reversing a->b swaps which of the wall's own fields names which
+  // face. Left/right absence is preserved rather than normalised into an
+  // empty object either side.
+  if (w.buildUp) {
+    const { left, right } = w.buildUp;
+    const swapped: NonNullable<Wall["buildUp"]> = {};
+    if (right !== undefined) swapped.left = right;
+    if (left !== undefined) swapped.right = left;
+    if (swapped.left === undefined && swapped.right === undefined) delete w.buildUp;
+    else w.buildUp = swapped;
   }
 }
 

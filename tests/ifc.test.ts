@@ -1295,47 +1295,100 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
   check("a wall stating no material is associated with none",
     !plain.includes("=IFCMATERIAL(") && !plain.includes("=IFCRELASSOCIATESMATERIAL("));
 
-  // A lined wall's board skin gets its own layer in the set, beside Structure
-  // and Facade -- see Wall.lining and wallLiningMm() in model/doc.ts.
-  const unlinedOut = plain;
-  check("a wall stating no lining carries no Lining layer", !unlinedOut.includes("'Lining'"));
+  // A build-up wall's boards get their own layer in the set, beside Structure
+  // and Facade -- see Wall.buildUp and buildUpOf() in model/doc.ts. Every
+  // board layer's own Name is "Board" (see BOARD_MATERIAL_NAME/boardLayer()
+  // in io/ifc.ts) since IFC's layer Name is not where the document's per-kind
+  // fact lives -- the material reference is, so telling two board layers
+  // apart means resolving each to the IFCMATERIAL it names.
+  const unbuiltOut = plain;
+  check("a wall stating no build-up carries no Board layer", !unbuiltOut.includes("'Board'"));
 
-  // Unclad: no face carries the facade, so both are lined and the layer set
-  // carries two Lining layers.
-  const linedDoc = emptyDoc();
-  const lf = linedDoc.floors[0]!;
-  const l0 = nodeAt(lf, v(0, 0)).id, l1 = nodeAt(lf, v(4000, 0)).id;
-  lf.walls.push({
-    id: newId("w"), a: l0, b: l1, thickness: 100, bulge: 0, openings: [],
-    material: "timber", lining: { boardMm: 12, layers: 1 },
+  /**
+   * The physical order of one wall's layer set, as labels: a board's own
+   * material name, or "Structure"/"Facade" for those roles (their own Name
+   * field, unlike a board layer's uniform "Board"). Assumes the document
+   * carries exactly one IFCMATERIALLAYERSET, true of every doc built below.
+   */
+  function layerOrderOf(out: string): string[] {
+    const set = /=IFCMATERIALLAYERSET\(\(([^)]*)\)/.exec(out)!;
+    const ids = set[1]!.split(",").map(s => s.trim().replace("#", ""));
+    return ids.map(id => {
+      const layer = new RegExp(`#${id}=IFCMATERIALLAYER\\(([^;]*)\\);`).exec(out)!;
+      const args = layer[1]!;
+      const role = /'(Structure|Facade|Board)'/.exec(args)![1]!;
+      if (role !== "Board") return role;
+      const matId = /^(#\d+),/.exec(args)![1]!.replace("#", "");
+      return new RegExp(`#${matId}=IFCMATERIAL\\('([^']*)'`).exec(out)![1]!;
+    });
+  }
+
+  // Unclad, both faces built up: no face carries the facade, so both get a
+  // Board layer and the layer set carries no Facade layer.
+  const bothDoc = emptyDoc();
+  const bf = bothDoc.floors[0]!;
+  const b0 = nodeAt(bf, v(0, 0)).id, b1 = nodeAt(bf, v(4000, 0)).id;
+  bf.walls.push({
+    id: newId("w"), a: b0, b: b1, thickness: 100, bulge: 0, openings: [],
+    material: "timber",
+    buildUp: {
+      left: { boards: [{ kind: "osb", mm: 18 }, { kind: "gypsum", mm: 12 }] },
+      right: { boards: [{ kind: "gypsum", mm: 12 }] },
+    },
   });
-  const linedOut = toIfc(linedDoc);
-  check("an unclad lined wall gets a material layer set", linedOut.includes("=IFCMATERIALLAYERSET("));
-  check("naming its lining material", linedOut.includes("IFCMATERIAL('Gypsum board'"));
-  check("two Lining layers for an unclad wall",
-    (linedOut.match(/'Lining'/g) ?? []).length === 2,
-    String((linedOut.match(/'Lining'/g) ?? []).length));
-  check("each Lining layer carries the board*layers thickness", linedOut.includes("12.,$,'Lining'"));
-  check("the Structure layer is still there", linedOut.includes("'Structure'"));
-  check("no Facade layer on a wall stating no facade", !linedOut.includes("'Facade'"));
+  const bothOut = toIfc(bothDoc);
+  check("a wall built up on both faces gets a material layer set", bothOut.includes("=IFCMATERIALLAYERSET("));
+  check("naming its board materials", bothOut.includes("IFCMATERIAL('Gypsum board'") && bothOut.includes("IFCMATERIAL('OSB'"));
+  check("three Board layers (two-board left stack, one-board right stack)",
+    (bothOut.match(/'Board'/g) ?? []).length === 3, String((bothOut.match(/'Board'/g) ?? []).length));
+  check("the Structure layer is still there", bothOut.includes("'Structure'"));
+  check("no Facade layer on a wall stating no facade", !bothOut.includes("'Facade'"));
+  check("left reversed (outermost first), then structure, then right in order",
+    JSON.stringify(layerOrderOf(bothOut)) === JSON.stringify(["Gypsum board", "OSB", "Structure", "Gypsum board"]),
+    JSON.stringify(layerOrderOf(bothOut)));
 
-  // Clad: the facade side is never lined (liningSideOf), so exactly one
-  // Lining layer remains beside Structure and Facade.
-  const linedCladDoc = emptyDoc();
-  const lcf = linedCladDoc.floors[0]!;
-  const lc0 = nodeAt(lcf, v(0, 0)).id, lc1 = nodeAt(lcf, v(4000, 0)).id;
-  lcf.walls.push({
-    id: newId("w"), a: lc0, b: lc1, thickness: 100, bulge: 0, openings: [],
+  // Clad on the right, built up on the left: the facade takes the right slot
+  // outright (buildUpOf excludes that face), and the left stack still
+  // reverses to outermost first.
+  const cladBuildDoc = emptyDoc();
+  const cbf = cladBuildDoc.floors[0]!;
+  const cb0 = nodeAt(cbf, v(0, 0)).id, cb1 = nodeAt(cbf, v(4000, 0)).id;
+  cbf.walls.push({
+    id: newId("w"), a: cb0, b: cb1, thickness: 100, bulge: 0, openings: [],
     material: "masonry", facadeMm: 100, facadeSide: "right",
-    lining: { boardMm: 12, layers: 1 },
+    buildUp: { left: { boards: [{ kind: "osb", mm: 18 }, { kind: "gypsum", mm: 12 }] } },
   });
-  const linedCladOut = toIfc(linedCladDoc);
-  check("a clad, lined wall still gets a layer set", linedCladOut.includes("=IFCMATERIALLAYERSET("));
-  check("one Lining layer for a clad wall (the facade face is never lined)",
-    (linedCladOut.match(/'Lining'/g) ?? []).length === 1,
-    String((linedCladOut.match(/'Lining'/g) ?? []).length));
-  check("its Facade layer is still there", linedCladOut.includes("'Facade'"));
-  check("its Structure layer is still there", linedCladOut.includes("'Structure'"));
+  const cladBuildOut = toIfc(cladBuildDoc);
+  check("a clad, built-up wall still gets a layer set", cladBuildOut.includes("=IFCMATERIALLAYERSET("));
+  check("one Facade layer (the facade face carries no board stack)",
+    (cladBuildOut.match(/'Facade'/g) ?? []).length === 1);
+  check("two Board layers for the left stack", (cladBuildOut.match(/'Board'/g) ?? []).length === 2);
+  check("gypsum, OSB, structure, facade -- outermost-left to outermost-right",
+    JSON.stringify(layerOrderOf(cladBuildOut)) === JSON.stringify(["Gypsum board", "OSB", "Structure", "Facade"]),
+    JSON.stringify(layerOrderOf(cladBuildOut)));
+
+  // Two walls agreeing on material, thickness and build-up share one layer
+  // set; a third whose stack differs (even by one board's kind) is a
+  // different physical build-up and gets its own.
+  const shareDoc = emptyDoc();
+  const sf2 = shareDoc.floors[0]!;
+  const s0 = nodeAt(sf2, v(0, 0)).id, s1 = nodeAt(sf2, v(4000, 0)).id, s2 = nodeAt(sf2, v(4000, 3000)).id;
+  for (const [a, b] of [[s0, s1], [s1, s2]] as Array<[string, string]>) {
+    sf2.walls.push({
+      id: newId("w"), a, b, thickness: 100, bulge: 0, openings: [],
+      material: "timber", buildUp: { left: { boards: [{ kind: "gypsum", mm: 12 }] } },
+    });
+  }
+  check("two walls with identical stacks share one layer set",
+    (toIfc(shareDoc).match(/=IFCMATERIALLAYERSET\(/g) ?? []).length === 1);
+  sf2.walls.push({
+    id: newId("w"), a: s2, b: s0, thickness: 100, bulge: 0, openings: [],
+    material: "timber", buildUp: { left: { boards: [{ kind: "osb", mm: 18 }] } },
+  });
+  const diffOut = toIfc(shareDoc);
+  check("a wall with a differing stack gets its own layer set",
+    (diffOut.match(/=IFCMATERIALLAYERSET\(/g) ?? []).length === 2,
+    String((diffOut.match(/=IFCMATERIALLAYERSET\(/g) ?? []).length));
 }
 
 // ── sloped walls (issue #55): clipping representation ──────────────────────

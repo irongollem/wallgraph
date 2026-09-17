@@ -28,6 +28,7 @@ import {
   POST_DEFAULT_MM, POST_WIDTH_DEFAULT, FRAME_POST_DEFAULT_MM, postDefaultsFor, postLayoutOf,
   postLayoutPresetOf, type WallMaterial,
 } from "../src/model/doc";
+import { buildUpMm, boardPresetOf, BOARD_PRESETS, type Board } from "../src/model/doc";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ""): void {
@@ -1499,92 +1500,135 @@ function rectFloor(wallTh = 100) {
   check("an unclad party wall carries no band", tee.facade.length === 0);
 }
 
-// --- lining: a board skin inside the structure ---
+// --- build-up: a per-face board stack outside the structure ---
 {
-  // A 5000 mm wall, thickness 100, boarded with one 12 mm layer. No facade is
-  // stated, so liningSideOf() allows both faces.
-  const wall = (opts: { boardMm?: number; layers?: number; facade?: boolean } = {}) => {
+  const gypsum12: Board[] = [{ kind: "gypsum", mm: 12 }];
+  const osb18gypsum12: Board[] = [{ kind: "osb", mm: 18 }, { kind: "gypsum", mm: 12 }];
+
+  // A 5000 mm wall, thickness 100, stacked with one 12 mm gypsum board. No
+  // facade is stated, so buildUpOf() allows both faces.
+  const wall = (opts: { boards?: Board[]; facade?: boolean } = {}) => {
     const f = emptyDoc().floors[0]!;
     f.walls.push({
       id: newId("w"), a: nodeAt(f, v(0, 0)).id, b: nodeAt(f, v(5000, 0)).id,
       thickness: 100, bulge: 0, openings: [], material: "timber",
-      ...(opts.boardMm !== undefined
-        ? { lining: { boardMm: opts.boardMm, layers: opts.layers ?? 1 } } : {}),
+      ...(opts.boards ? { buildUp: { left: { boards: opts.boards }, right: { boards: opts.boards } } } : {}),
       ...(opts.facade ? { facadeMm: 100, facadeSide: "right" as const } : {}),
     });
     return f;
   };
 
-  const rw = [...resolveFloor(wall({ boardMm: 12 })).walls.values()][0]!;
-  check("a lined wall carries a band on both faces",
-    rw.lining[0].length === 1 && rw.lining[1].length === 1);
-  check("an unlined wall carries none",
-    [...resolveFloor(wall()).walls.values()][0]!.lining.every(bands => bands.length === 0));
+  const rw = [...resolveFloor(wall({ boards: gypsum12 })).walls.values()][0]!;
+  check("a stacked wall carries a band on both faces",
+    rw.boards[0].length === 1 && rw.boards[1].length === 1);
+  check("a bare wall carries none",
+    [...resolveFloor(wall()).walls.values()][0]!.boards.every(bands => bands.length === 0));
+  check("the band carries its own kind and thickness",
+    rw.boards[0][0]!.kind === "gypsum" && rw.boards[0][0]!.mm === 12);
 
   // Structural faces sit at y = +-50 for a 100 mm wall; the board lies 12 mm
   // outside each: left (+perp side) runs 50..62, right runs -62..-50.
-  const leftYs = rw.lining[0][0]!.poly.map(pt => pt.y);
-  const rightYs = rw.lining[1][0]!.poly.map(pt => pt.y);
+  const leftYs = rw.boards[0][0]!.pieces[0]!.poly.map(pt => pt.y);
+  const rightYs = rw.boards[1][0]!.pieces[0]!.poly.map(pt => pt.y);
   check("the left band spans the structural face to the board face",
     near(Math.min(...leftYs), 50, 0.6) && near(Math.max(...leftYs), 62, 0.6), JSON.stringify(leftYs));
   check("the right band spans the structural face to the board face",
     near(Math.min(...rightYs), -62, 0.6) && near(Math.max(...rightYs), -50, 0.6), JSON.stringify(rightYs));
 
-  // A facade on the right leaves that face unlined (cladding and lining cannot
-  // share a face) but the other face lines as normal.
-  const faced = [...resolveFloor(wall({ boardMm: 12, facade: true })).walls.values()][0]!;
-  check("a facade wall has no lining on the clad side", faced.lining[1].length === 0);
-  check("but still lines the other side", faced.lining[0].length === 1);
+  // A facade on the right leaves that face bare (cladding and a build-up
+  // cannot share a face) but the other face stacks as normal.
+  const faced = [...resolveFloor(wall({ boards: gypsum12, facade: true })).walls.values()][0]!;
+  check("a facade wall carries no build-up on the clad side", faced.boards[1].length === 0);
+  check("but still stacks the other side", faced.boards[0].length === 1);
 
-  // Two lined walls at an L corner miter their boards, the way two facades do.
-  // Reuses the closed-quad shape: no facade stated, so every face lines, and
-  // the "right" face of a clockwise ring is its outside.
-  const quad = () => {
+  // A two-board stack: two bands, innermost (against the structure) first.
+  const twoBoard = [...resolveFloor(wall({ boards: osb18gypsum12 })).walls.values()][0]!;
+  check("a two-board stack resolves to two bands, innermost first",
+    twoBoard.boards[0].length === 2
+    && twoBoard.boards[0][0]!.kind === "osb" && twoBoard.boards[0][1]!.kind === "gypsum");
+  const innerYs = twoBoard.boards[0][0]!.pieces[0]!.poly.map(pt => pt.y);
+  const outerYs = twoBoard.boards[0][1]!.pieces[0]!.poly.map(pt => pt.y);
+  check("the osb band runs from the structural face to 18 mm out",
+    near(Math.min(...innerYs), 50, 0.6) && near(Math.max(...innerYs), 68, 0.6), JSON.stringify(innerYs));
+  check("the gypsum band continues from there to 30 mm out",
+    near(Math.min(...outerYs), 68, 0.6) && near(Math.max(...outerYs), 80, 0.6), JSON.stringify(outerYs));
+
+  // Two stacked walls at an L corner miter their boards, the way two facades
+  // do. Reuses the closed-quad shape: no facade stated, so every face stacks,
+  // and the "right" face of a clockwise ring is its outside.
+  const quad = (boards: readonly (readonly Board[])[]) => {
     const f = emptyDoc().floors[0]!;
     const ids = [v(0, 0), v(7975, 0), v(7975, 6225), v(0, 6225)].map(p => nodeAt(f, p).id);
     for (let i = 0; i < 4; i++) {
       f.walls.push({
         id: newId("w"), a: ids[i]!, b: ids[(i + 1) % 4]!, thickness: 100, bulge: 0, openings: [],
-        material: "timber", lining: { boardMm: 12, layers: 1 },
+        material: "timber", buildUp: { left: { boards: [...boards[i]!] }, right: { boards: [...boards[i]!] } },
       });
     }
     return f;
   };
-  const top = [...resolveFloor(quad()).walls.values()][0]!;
-  const cornerL = top.lining[1][0]!.poly.reduce((best, pt) =>
+  const uniform = [...resolveFloor(quad([gypsum12, gypsum12, gypsum12, gypsum12])).walls.values()][0]!;
+  const cornerL = uniform.boards[1][0]!.pieces[0]!.poly.reduce((best, pt) =>
     (pt.x < best.x || pt.y < best.y) && pt.x <= 0.5 ? pt : best, { x: 1e9, y: 1e9 });
-  check("two lined walls miter their boards at a corner",
+  check("two single-board stacks miter their boards at a corner",
     near(cornerL.x, -62, 1) && near(cornerL.y, -62, 1), JSON.stringify(cornerL));
 
-  // An opening goes through the lining as well as the structure.
-  const holed = wall({ boardMm: 12 });
+  // A two-board stack (wall 0, osb18+gypsum12) meeting a shallower one-board
+  // stack (wall 3, gypsum12 only) at the corner they share: wall 3's own
+  // stack runs out at 12 mm, so wall 0's first board boundary (its own outer
+  // face, at 18 mm) miters against wall 3's FROZEN face rather than a second
+  // board it does not have -- the corner sits on wall 0's own 18 mm offset
+  // line (half + 18 = 68 out from its centerline) and on wall 3's own 12 mm
+  // offset line (half + 12 = 62 out from ITS centerline), not at some
+  // interpolated point between the two walls' depths.
+  const mixed = [...resolveFloor(quad([osb18gypsum12, gypsum12, gypsum12, gypsum12])).walls.values()];
+  const w0 = mixed.find(rw => near(rw.a.x, 0, 1) && near(rw.a.y, 0, 1) && near(rw.b.x, 7975, 1))!;
+  const innerBoundary = w0.boards[1][0]!.pieces[0]!.poly.at(-1)!;
+  check("the osb/gypsum boundary miters against the neighbour's own (shallower) face",
+    near(innerBoundary.x, -62, 1) && near(innerBoundary.y, -68, 1), JSON.stringify(innerBoundary));
+
+  // An opening goes through every band, the way it goes through the facade.
+  const holed = wall({ boards: osb18gypsum12 });
   holed.walls[0]!.openings.push({ id: newId("o"), kind: "door", t: 2500, width: 900, sashes: [] });
   const hrw = [...resolveFloor(holed).walls.values()][0]!;
-  check("an opening splits the lining band the way it splits the wall",
-    hrw.lining[0].length === 2 && hrw.lining[1].length === 2);
+  check("an opening splits every board's band the way it splits the wall",
+    hrw.boards[0].every(band => band.pieces.length === 2) && hrw.boards[1].every(band => band.pieces.length === 2));
 
-  // A closed 4000x3000 room (centerline) with 100 mm walls lined all round by
-  // one 12 mm layer: net area is measured to the board face, but centerline
-  // and gross are structural facts the lining does not touch.
-  const room = (linedAllRound: boolean) => {
+  // A closed 4000x3000 room (centerline) with 100 mm walls stacked all round
+  // with one 12 mm gypsum board: net area is measured to the board face, but
+  // centerline and gross are structural facts the build-up does not touch.
+  const room = (stackedAllRound: boolean) => {
     const f = emptyDoc().floors[0]!;
     const ids = [v(0, 0), v(4000, 0), v(4000, 3000), v(0, 3000)].map(p => nodeAt(f, p).id);
     for (let i = 0; i < 4; i++) {
       f.walls.push({
         id: newId("w"), a: ids[i]!, b: ids[(i + 1) % 4]!, thickness: 100, bulge: 0, openings: [],
-        ...(linedAllRound ? { lining: { boardMm: 12, layers: 1 } } : {}),
+        ...(stackedAllRound ? { buildUp: { left: { boards: gypsum12 }, right: { boards: gypsum12 } } } : {}),
       });
     }
     return f;
   };
   const bare = detectRooms(room(false))[0]!, dressed = detectRooms(room(true))[0]!;
-  check("lining measures net area to the board face",
+  check("a build-up measures net area to the board face",
     near(dressed.netAreaMm2, (4000 - 100 - 24) * (3000 - 100 - 24), 4),
     String(dressed.netAreaMm2));
-  check("centerline area is unchanged by lining",
+  check("centerline area is unchanged by a build-up",
     near(dressed.areaMm2, bare.areaMm2, 1), `${dressed.areaMm2} vs ${bare.areaMm2}`);
-  check("gross area is unchanged by lining",
+  check("gross area is unchanged by a build-up",
     near(dressed.bvoAreaMm2, bare.bvoAreaMm2, 1), `${dressed.bvoAreaMm2} vs ${bare.bvoAreaMm2}`);
+
+  // planBounds() has to reach a board band the way it reaches the facade.
+  const plainBounds = planBounds(room(false), resolveFloor(room(false)))!;
+  const stackedBounds = planBounds(room(true), resolveFloor(room(true)))!;
+  check("planBounds grows to include a board band",
+    stackedBounds.min.x < plainBounds.min.x && stackedBounds.min.y < plainBounds.min.y,
+    JSON.stringify({ plainBounds, stackedBounds }));
+
+  // BOARD_PRESETS round-trip through boardPresetOf().
+  check("every preset is recognised by boardPresetOf()",
+    BOARD_PRESETS.every(p => boardPresetOf(p.boards) === p.id));
+  check("a stack matching no preset reads as custom",
+    boardPresetOf([{ kind: "cement", mm: 20 }]) === "custom");
 }
 
 // --- joining two walls that nearly meet ---
@@ -1678,7 +1722,8 @@ function rectFloor(wallTh = 100) {
     f.walls.push({
       id: "w", a: nodeAt(f, v(0, 0)).id, b: nodeAt(f, v(4000, 0)).id,
       thickness: 100, bulge: 0, material: "glass", postMm: 1200,
-      facadeMm: 100, facadeSide: "left", lining: { boardMm: 12, layers: 1 },
+      facadeMm: 100, facadeSide: "left",
+      buildUp: { right: { boards: [{ kind: "gypsum", mm: 12 }] } },
       openings: [{
         id: "o", kind: "door", t: 1200, width: 1800,
         sashes: [{ action: "turn", hinge: "a", outward: true },
@@ -1698,21 +1743,21 @@ function rectFloor(wallTh = 100) {
         return `line ${p} ${q}`;
       }).sort());
 
-  // Lining carries no side field of its own -- flipWall() only turns
-  // facadeSide -- so the world-space bands must land in the same place either
-  // way, the same invariant openingMarks() checks for the door. Reversing the
-  // wall also reverses which of its own "left"/"right" the band is filed
-  // under and the order its polygon is wound in, so the comparison is of the
-  // rounded point SET, not the raw polygon array.
-  const liningOf = (f: ReturnType<typeof withDoor>): string =>
-    JSON.stringify([...resolveFloor(f).walls.values()][0]!.lining
-      .flatMap(bands => bands.flatMap(b => b.poly))
+  // flipWall() swaps buildUp.left/right, so the world-space bands must land
+  // in the same place either way, the same invariant openingMarks() checks
+  // for the door. Reversing the wall also reverses which of its own
+  // "left"/"right" the band is filed under and the order its polygon is
+  // wound in, so the comparison is of the rounded point SET, not the raw
+  // polygon array.
+  const boardsOf = (f: ReturnType<typeof withDoor>): string =>
+    JSON.stringify([...resolveFloor(f).walls.values()][0]!.boards
+      .flatMap(bands => bands.flatMap(b => b.pieces.flatMap(p => p.poly)))
       .map(p => `${Math.round(p.x)},${Math.round(p.y)}`)
       .sort());
 
   const flipped = withDoor();
   const before = marksOf(flipped);
-  const beforeLining = liningOf(flipped);
+  const beforeBoards = boardsOf(flipped);
   // An absent `outward` is written out as false on the way round, which states
   // the same thing, so the comparison reads it rather than the raw bytes. Taken
   // off THIS document: a freshly built one has different node ids.
@@ -1730,15 +1775,15 @@ function rectFloor(wallTh = 100) {
     String(flipped.walls[0]!.openings[0]!.t));
   check("and turned the facade to the same world side",
     flipped.walls[0]!.facadeSide === "right");
-  check("lining is stored unchanged (it carries no side of its own)",
-    JSON.stringify(flipped.walls[0]!.lining) === JSON.stringify({ boardMm: 12, layers: 1 }));
+  check("the build-up moved from right to left with the flip",
+    JSON.stringify(flipped.walls[0]!.buildUp) === JSON.stringify({ left: { boards: [{ kind: "gypsum", mm: 12 }] } }));
   check("and its resolved band stays on the same world side",
-    liningOf(flipped) === beforeLining);
+    boardsOf(flipped) === beforeBoards);
 
   flipWall(flipped, flipped.walls[0]!);
   check("flipping twice restores the wall", canon(flipped.walls[0]!) === original);
   check("and the drawing is unchanged throughout", marksOf(flipped) === before);
-  check("and the lining band is unchanged throughout", liningOf(flipped) === beforeLining);
+  check("and the board band is unchanged throughout", boardsOf(flipped) === beforeBoards);
 }
 
 // --- a door's swing side is stated by `outward`, not by which jamb hinges ---
@@ -1901,6 +1946,57 @@ function rectFloor(wallTh = 100) {
     thickness: 100, bulge: 0, openings: [] });
   check("a junction of three walls is refused",
     (planNodeDissolve(tee, tm.id) as { reason?: string }).reason === "degree");
+
+  // Splitting carries the build-up to both halves, cloned rather than
+  // shared: editing one half's stack must not reach into the other's.
+  const stackedStraight = () => {
+    const f = straight();
+    f.walls[0]!.buildUp = { left: { boards: [{ kind: "gypsum", mm: 12 }] } };
+    return f;
+  };
+  const sf = stackedStraight();
+  const sMid = splitWall(sf, sf.walls[0]!, 2000)!;
+  check("splitting carries the build-up to both halves",
+    JSON.stringify(sf.walls[0]!.buildUp) === JSON.stringify({ left: { boards: [{ kind: "gypsum", mm: 12 }] } })
+    && JSON.stringify(sf.walls[1]!.buildUp) === JSON.stringify({ left: { boards: [{ kind: "gypsum", mm: 12 }] } }));
+  sf.walls[0]!.buildUp!.left!.boards[0]!.mm = 18;
+  check("the two halves' boards arrays are not the same array",
+    sf.walls[1]!.buildUp!.left!.boards[0]!.mm === 12);
+  void sMid;
+
+  // A merge is compared by WORLD side: an ordinary straight split (the two
+  // halves continue the same direction) refuses a differing stack on the
+  // same side just like a differing thickness.
+  const gypsum12: Board[] = [{ kind: "gypsum", mm: 12 }];
+  const osb18gypsum12: Board[] = [{ kind: "osb", mm: 18 }, { kind: "gypsum", mm: 12 }];
+  const mismatched = stackedStraight();
+  const mmBU = splitWall(mismatched, mismatched.walls[0]!, 2000)!;
+  mismatched.walls[1]!.buildUp = { left: { boards: osb18gypsum12 } };
+  check("a merge refuses walls whose build-ups differ",
+    (planNodeDissolve(mismatched, mmBU.id) as { reason?: string }).reason === "differs");
+
+  // Two walls drawn TOWARD each other (the "opposed" shape above) run
+  // opposite directions through the shared node, so an ACCEPTED merge needs
+  // w1's left to match w2's RIGHT and vice versa -- mirrored, not equal.
+  const opposedBU = emptyDoc().floors[0]!;
+  const sharedBU = nodeAt(opposedBU, v(2000, 0)).id;
+  opposedBU.walls.push({
+    id: "ob1", a: nodeAt(opposedBU, v(0, 0)).id, b: sharedBU, thickness: 100, bulge: 0, openings: [],
+    buildUp: { left: { boards: gypsum12 }, right: { boards: osb18gypsum12 } },
+  });
+  opposedBU.walls.push({
+    id: "ob2", a: nodeAt(opposedBU, v(4000, 0)).id, b: sharedBU, thickness: 100, bulge: 0, openings: [],
+    buildUp: { left: { boards: osb18gypsum12 }, right: { boards: gypsum12 } },
+  });
+  const obPlan = planNodeDissolve(opposedBU, sharedBU);
+  check("a merge accepts reversed walls with mirrored build-ups", isDissolvePlan(obPlan));
+  if (isDissolvePlan(obPlan)) {
+    applyNodeDissolve(opposedBU, obPlan);
+    const merged = opposedBU.walls[0]!;
+    check("the merged wall keeps a physically consistent build-up",
+      buildUpMm(merged, "left") === 30 && buildUpMm(merged, "right") === 12,
+      JSON.stringify(merged.buildUp));
+  }
 }
 
 // --- insertWall welds an end rather than cutting a stub off it ---

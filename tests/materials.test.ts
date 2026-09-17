@@ -1,5 +1,5 @@
 // Wall material takeoff: stud/plate counts off the drawn posts, a door's
-// header and cripples, lining sheets and block counts off the mitered face
+// header and cripples, board and block counts off the mitered face
 // areas core/surface.ts already reports, and the incomplete markers a
 // missing construction fact produces. floorMaterials() is a pure function of
 // its arguments -- no cache to invalidate -- so "revision" is exercised by
@@ -32,8 +32,8 @@ const POST_MM = 600, POST_WIDTH = 38, FRAME_TH = 89;
 
 /**
  * A 4000x3000 rectangle. top: bare timber frame (stud/plate). right: timber
- * frame with a door (header/cripples). bottom: lined. left: cellenbeton
- * block.
+ * frame with a door (header/cripples). bottom: board build-up (osb18+gypsum12
+ * on the left face, gypsum12 alone on the right). left: cellenbeton block.
  */
 function buildDoc(): {
   doc: PlanDoc; f: Floor; top: Wall; right: Wall; bottom: Wall; left: Wall; door: Opening;
@@ -55,7 +55,10 @@ function buildDoc(): {
   };
   const bottom: Wall = {
     id: newId("w"), a: ids[2]!, b: ids[3]!, thickness: 100, bulge: 0, openings: [],
-    lining: { boardMm: 12, layers: 2 },
+    buildUp: {
+      left: { boards: [{ kind: "osb", mm: 18 }, { kind: "gypsum", mm: 12 }] },
+      right: { boards: [{ kind: "gypsum", mm: 12 }] },
+    },
   };
   const left: Wall = {
     id: newId("w"), a: ids[3]!, b: ids[0]!, thickness: 240, bulge: 0, openings: [],
@@ -204,7 +207,7 @@ const materialsOf = (doc: PlanDoc, f: Floor) => {
   check("both above and below cripples exist for a window", cripples.length === 2, String(cripples.length));
 }
 
-// ---- lining sheets on a 4000x3000 room ---------------------------------------
+// ---- board areas and sheets on a 4000x3000 room ------------------------------
 
 {
   const { doc, f, bottom } = buildDoc();
@@ -212,18 +215,35 @@ const materialsOf = (doc: PlanDoc, f: Floor) => {
   const wt = m.walls.find(x => x.wallId === bottom.id)!;
   const wsurf = surface.walls.find(x => x.wallId === bottom.id)!;
 
-  // No facade stated: both faces are lined.
-  const expectedBoard = (wsurf.faces[0].netMm2 + wsurf.faces[1].netMm2) * bottom.lining!.layers;
-  check("boardMm2 is both faces' net area times the layer count",
-    near(wt.boardMm2, expectedBoard, 1), `${wt.boardMm2} vs ${expectedBoard}`);
+  // OSB 18 + gypsum 12 on the left face (faces[0]), gypsum 12 alone on the
+  // right (faces[1]): osb's area is the left face alone; gypsum's is both
+  // faces summed, since it stands on each once.
+  const expectedOsb = wsurf.faces[0].netMm2;
+  const expectedGypsum = wsurf.faces[0].netMm2 + wsurf.faces[1].netMm2;
+  const gypsum = wt.boards.find(b => b.kind === "gypsum");
+  const osb = wt.boards.find(b => b.kind === "osb");
+  check("gypsum area is both faces' net area summed",
+    gypsum !== undefined && near(gypsum.areaMm2, expectedGypsum, 1), JSON.stringify(gypsum));
+  check("osb area is the left face's net area alone",
+    osb !== undefined && near(osb.areaMm2, expectedOsb, 1), JSON.stringify(osb));
+  check("boards are ordered by BOARD_KINDS (gypsum before osb)",
+    wt.boards.findIndex(b => b.kind === "gypsum") < wt.boards.findIndex(b => b.kind === "osb"));
+  check("a build-up produces no members (not a frame)", wt.members.length === 0);
+  check("no boards incomplete marker when the surface is present",
+    !wt.incomplete.includes("boards"));
 
-  const waste = 0.10, sheetArea = 1200 * 2600; // document defaults
-  const expectedSheets = Math.ceil((expectedBoard * (1 + waste)) / sheetArea);
-  check("sheets is the board area with waste over the default sheet size",
-    wt.sheets === expectedSheets, `${wt.sheets} vs ${expectedSheets}`);
-  check("lining produces no members (not a frame)", wt.members.length === 0);
-  check("no lining incomplete marker when the surface is present",
-    !wt.incomplete.includes("lining"));
+  // Sheets nest per kind at that kind's own sheet size. "bottom" is the only
+  // wall with no material at all, so it is the sole member of the "other"
+  // system and the aggregate is its own figures.
+  const bySystem = m.bySystem.find(s => s.system === "other")!;
+  const waste = 0.10;
+  const osbSheetArea = 1250 * 2500, gypsumSheetArea = 1200 * 2600; // document defaults
+  const sysOsb = bySystem.boards.find(b => b.kind === "osb")!;
+  const sysGypsum = bySystem.boards.find(b => b.kind === "gypsum")!;
+  check("osb sheets nest at osb's own sheet size",
+    sysOsb.sheets === Math.ceil((sysOsb.areaMm2 * (1 + waste)) / osbSheetArea), JSON.stringify(sysOsb));
+  check("gypsum sheets nest at gypsum's own sheet size",
+    sysGypsum.sheets === Math.ceil((sysGypsum.areaMm2 * (1 + waste)) / gypsumSheetArea), JSON.stringify(sysGypsum));
 }
 
 // ---- block count for a cellenbeton wall ---------------------------------------
@@ -420,27 +440,27 @@ function backingCountOf(walls: WallTakeoff[]): number {
 }
 
 {
-  // A wall stating a lining whose surface entry is missing (a mismatched
+  // A wall stating a build-up whose surface entry is missing (a mismatched
   // FloorSurface, as if the caller passed one from a different derivation).
   const doc = emptyDoc();
   const f = doc.floors[0]!;
   const n1 = newId("n"), n2 = newId("n");
   f.nodes = [{ id: n1, x: 0, y: 0 }, { id: n2, x: 4000, y: 0 }];
-  const linedWall: Wall = {
+  const stackedWall: Wall = {
     id: newId("w"), a: n1, b: n2, thickness: 100, bulge: 0, openings: [],
-    lining: { boardMm: 12, layers: 1 },
+    buildUp: { left: { boards: [{ kind: "gypsum", mm: 12 }] } },
   };
-  f.walls = [linedWall];
+  f.walls = [stackedWall];
   const resolved = resolveFloor(f);
   const emptySurface: FloorSurface = {
     walls: [], rooms: [], grossMm2: 0, openingsMm2: 0, netMm2: 0, revealsMm2: 0,
     finishMm2: 0, innerMm2: 0, unroomedMm2: 0, cladFaces: 0,
   };
   const m = floorMaterials(doc, f, resolved, emptySurface);
-  const wt = m.walls.find(x => x.wallId === linedWall.id)!;
-  check("a stated lining with no surface entry is incomplete",
-    wt.incomplete.includes("lining"));
-  check("boardMm2 is 0 when the surface entry is missing", wt.boardMm2 === 0);
+  const wt = m.walls.find(x => x.wallId === stackedWall.id)!;
+  check("a stated build-up with no surface entry is incomplete",
+    wt.incomplete.includes("boards"));
+  check("boards is empty when the surface entry is missing", wt.boards.length === 0);
 }
 
 // ---- bySystem nests members through the document's stock lengths ------------

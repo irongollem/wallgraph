@@ -270,10 +270,12 @@ export class Tools {
   wallPostLayout: "even" | "grid" | null = null;
   /** The end a "grid" wallPostLayout is set out from; null means "a". */
   wallPostFrom: "a" | "b" | null = null;
-  /** Board lining, block format, nogging rows, cavity insulation and sandwich
-   *  panel width for the next wall struck out -- armed the same way, so a run
-   *  drawn to one construction does not need each wall corrected afterwards. */
-  wallLining: NonNullable<Wall["lining"]> | null = null;
+  /** Board build-up, block format, nogging rows, cavity insulation and
+   *  sandwich panel width for the next wall struck out -- armed the same way,
+   *  so a run drawn to one construction does not need each wall corrected
+   *  afterwards. `null` means neither face carries one; per-face, like
+   *  Wall.buildUp itself. */
+  wallBuildUp: Wall["buildUp"] | null = null;
   wallBlockMm: NonNullable<Wall["blockMm"]> | null = null;
   wallNoggingRows: number | null = null;
   wallInsulated = false;
@@ -872,7 +874,11 @@ export class Tools {
       if (this.wallPostMm && this.wallPostWidthMm) w.postWidthMm = this.wallPostWidthMm;
       if (this.wallPostMm && this.wallPostLayout) w.postLayout = this.wallPostLayout;
       if (this.wallPostMm && this.wallPostLayout === "grid" && this.wallPostFrom) w.postFrom = this.wallPostFrom;
-      if (this.wallLining) w.lining = { ...this.wallLining };
+      if (this.wallBuildUp) {
+        w.buildUp = {};
+        if (this.wallBuildUp.left) w.buildUp.left = { boards: this.wallBuildUp.left.boards.map(b => ({ ...b })) };
+        if (this.wallBuildUp.right) w.buildUp.right = { boards: this.wallBuildUp.right.boards.map(b => ({ ...b })) };
+      }
       if (this.wallBlockMm) w.blockMm = { ...this.wallBlockMm };
       if (this.wallPostMm && this.wallNoggingRows) w.noggingRows = this.wallNoggingRows;
       if (this.wallInsulated) w.insulated = true;
@@ -885,7 +891,7 @@ export class Tools {
     patch: Partial<Pick<Tools,
       | "wallColor" | "wallMaterial" | "wallPostMm" | "wallPostWidthMm"
       | "wallPostLayout" | "wallPostFrom"
-      | "wallLining" | "wallBlockMm" | "wallNoggingRows" | "wallInsulated" | "wallPanelMm"
+      | "wallBuildUp" | "wallBlockMm" | "wallNoggingRows" | "wallInsulated" | "wallPanelMm"
     >>,
   ): void {
     Object.assign(this, patch);
@@ -3610,8 +3616,9 @@ export class Tools {
       const placed = { x: orig.x, y: orig.y, rotation: orig.rotation };
       // Snap first to the grid, then to a nearby wall FACE, which wins when
       // both apply (issue #65) -- the structural face, half the wall's own
-      // thickness off the centerline, plus a stated lining: the lined face is
-      // where a floor bears (see core/deck.ts's nearestWallFace()).
+      // thickness off the centerline, plus a stated board build-up: the
+      // outer board face is where a floor bears (see core/deck.ts's
+      // nearestWallFace()).
       const gridded = v(Math.round(w.x / g) * g, Math.round(w.y / g) * g);
       const face = nearestWallFace(this.floor, w);
       const local = localPoint(placed, face ? face.p : gridded);

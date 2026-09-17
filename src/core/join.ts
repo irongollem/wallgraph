@@ -10,7 +10,7 @@
 // node. That handles a gap and an overlap with the same arithmetic, because the
 // intersection is behind one end and beyond the other in the overlap case.
 import {
-  Floor, Wall, Id, wallFacadeMm, facadeSideOf,
+  Floor, Wall, Id, wallFacadeMm, facadeSideOf, buildUpOf,
   postLayoutOf, postFromOf, wallPostMm, flipGridOffset, canonPostOffset,
 } from "../model/doc";
 import { Vec, v, add, sub, scale, dist, norm, perp, lineIntersect } from "../geometry/vec";
@@ -220,6 +220,22 @@ export function planNodeDissolve(f: Floor, nodeId: Id): NodeDissolveResult | nul
   const n1 = facadeNormal(w1), n2 = facadeNormal(w2);
   const sameFacadeSide = (n1 === null && n2 === null)
     || (n1 !== null && n2 !== null && n1.x * n2.x + n1.y * n2.y > 0.99);
+  // A build-up is compared the same WORLD-side way: w1.a->b and w2.a->b run
+  // the same physical direction exactly when one wall ends at the node and
+  // the other starts there (the ordinary, no-flip merge below) -- then left
+  // means the same side on both. The other pairing (both start, or both end,
+  // at the node) runs them opposite ways, so w1's left is w2's right.
+  const sameDirection = (w1.b === nodeId && w2.a === nodeId) || (w2.b === nodeId && w1.a === nodeId);
+  const buildUpEq = (a: ReturnType<typeof buildUpOf>, b: ReturnType<typeof buildUpOf>): boolean => {
+    if (!a && !b) return true;
+    if (!a || !b) return false;
+    return a.boards.length === b.boards.length
+      && a.boards.every((x, i) => x.kind === b.boards[i]!.kind && x.mm === b.boards[i]!.mm);
+  };
+  const [w2Left, w2Right] = sameDirection
+    ? [buildUpOf(w2, "left"), buildUpOf(w2, "right")]
+    : [buildUpOf(w2, "right"), buildUpOf(w2, "left")];
+  const sameBuildUp = buildUpEq(buildUpOf(w1, "left"), w2Left) && buildUpEq(buildUpOf(w1, "right"), w2Right);
   // A "grid" postLayout is a physical set-out, not just a spacing: merging
   // keeps only ONE wall's postFrom/postOffsetMm (see mergeThrough()), so the
   // merge is refused unless the two walls' grids already land on the same
@@ -248,6 +264,7 @@ export function planNodeDissolve(f: Floor, nodeId: Id): NodeDissolveResult | nul
     && w1.postWidthMm === w2.postWidthMm
     && w1.facadeMm === w2.facadeMm
     && sameFacadeSide
+    && sameBuildUp
     && w1.fireRating?.kind === w2.fireRating?.kind
     && w1.fireRating?.minutes === w2.fireRating?.minutes
     && gridPhaseMatches();
