@@ -33,7 +33,7 @@ const INCOMPLETE_FIELD_KEY: Record<WallTakeoff["incomplete"][number], string> = 
   postWidth: "panel.postWidthOn",
   block: "panel.blockOn",
   panel: "panel.panelWidthOn",
-  boards: "panel.liningOn",
+  boards: "panel.buildUpPreset",
 };
 
 /**
@@ -174,7 +174,7 @@ function pushSystemRows(
     }
   }
   if (sys.boards.length === 0 && boardsIncomplete) {
-    out.push(mkRow(storey, name, t("panel.liningOn"), "", "", csvArea(0), "",
+    out.push(mkRow(storey, name, t("panel.buildUpPreset"), "", "", csvArea(0), "",
       t("materials.csv.unit.area"), "x", ""));
   }
   if (sys.insulationMm2 > 0) {
