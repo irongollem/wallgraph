@@ -22,6 +22,7 @@ import { Vec } from "../geometry/vec";
 import { roofPlanesOf } from "../model/roof";
 import { roofRidges } from "../core/roof";
 import { resolveFloor } from "../core/resolve";
+import { resolveLeaves } from "../core/leaf";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames, roomArea } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
 import { mountMarkOf } from "../core/mount";
@@ -76,6 +77,18 @@ const LAYER = {
    * which is what a CAD reader needs to tell them apart.
    */
   boards: "BOARDS",
+  /**
+   * A voorzetwand's own zone -- the stand-off and the band the studs stand
+   * in (see ResolvedWall.frame in core/resolve.ts) -- AND the studs
+   * themselves (see the ENTITIES section below, which draws them through
+   * the same postMarks() builder POSTS uses). One layer for both rather
+   * than putting the studs on POSTS: a voorzetwand is built by a different
+   * trade from the wall's own frame, the same reasoning that gives FACADE
+   * and BOARDS their own layers, and a drawing that put a voorzetwand's
+   * studs on the wall's own POSTS layer could not be handed to either
+   * trade on its own.
+   */
+  frames: "FRAMES",
   /**
    * Roof planes. Above the section plane like DECKS-OVERHEAD and
    * CABINETS-OVERHEAD, but with no cut/overhead split to carry -- a roof
@@ -178,7 +191,7 @@ const ROUTE_HEAT_RETOUR_LAYER = "ROUTES-HEATING-RETOUR";
 
 /** ACI colour indices — 7 is "by background", i.e. black on white paper. */
 const LAYER_COLOR: Record<string, number> = {
-  WALLS: 7, GLAZING: 4, PANELS: 8, POSTS: 7, FACADE: 8, LINING: 8, ROOF: 8, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, DECKS: 3, "DECKS-OVERHEAD": 3, ROOMS: 8,
+  WALLS: 7, GLAZING: 4, PANELS: 8, POSTS: 7, FACADE: 8, LINING: 8, FRAMES: 8, ROOF: 8, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, DECKS: 3, "DECKS-OVERHEAD": 3, ROOMS: 8,
   COLUMNS: 7, BEAMS: 7, RAILINGS: 8,
   CABINETS: 6, "CABINETS-OVERHEAD": 6,
   "ROUTES-ELECTRICAL": 1, "ROUTES-WATER": 5, "ROUTES-VENT": 2, "ROUTES-GAS": 2,
@@ -353,6 +366,7 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
   const hasRetour = routesOf(floor).some(r => r.discipline === "heating" && routeHeat(r) === "retour");
   const hasVentAfvoer = routesOf(floor).some(r => r.discipline === "vent" && routeVent(r) === "afvoer");
   const resolved = resolveFloor(floor);
+  const leaves = resolveLeaves(floor, resolved);
   const w = new DxfWriter();
   w.header();
   w.tables([
@@ -374,10 +388,16 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
       for (const piece of rw.pieces) w.polyline(bodyLayer(rw.wall), piece.poly, true);
       emitPrims(w, LAYER.posts, postMarks(rw));
       for (const band of rw.facade) w.polyline(LAYER.facade, band.poly, true);
+      for (const band of [...rw.frame[0], ...rw.frame[1]]) w.polyline(LAYER.frames, band.poly, true);
       for (const band of [...rw.boards[0], ...rw.boards[1]]) {
         for (const piece of band.pieces) w.polyline(LAYER.boards, piece.poly, true);
       }
     }
+    // A voorzetwand's own studs, from the leaf floor's own resolve
+    // (core/leaf.ts) -- FRAMES, alongside the zone they stand in, not POSTS:
+    // see the LAYER.frames doc comment above. The same postMarks() builder
+    // draws a leaf's studs and a host wall's own.
+    for (const lw of leaves.resolved.walls.values()) emitPrims(w, LAYER.frames, postMarks(lw));
     // A wedge belongs to no one wall, so it follows what its neighbours agree
     // on -- the same rule the canvas and the SVG use (junctionPen in draw.ts).
     // Where they agree it is an infill wall, the wedge takes that body's layer.

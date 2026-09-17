@@ -4,7 +4,8 @@
 // (labels in screen space).
 import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, videsOf, decksOf, furnishingsOf, structureOf, fireLabel, Underlay, Wall, Id, wallInfill, BoardKind } from "../model/doc";
 import { belowCutPlane } from "../model/structure";
-import { Resolved, OpeningGeom, Junction, ResolvedWall } from "../core/resolve";
+import { Resolved, OpeningGeom, Junction, ResolvedWall, PostMark } from "../core/resolve";
+import type { Leaves } from "../core/leaf";
 import { Room, roomSize, sizeLabel, looseRoomNames, roomArea } from "../core/rooms";
 import { roofPlanesOf } from "../model/roof";
 import { roofRidges } from "../core/roof";
@@ -429,7 +430,7 @@ function drawUnderlayImage(ctx: CanvasRenderingContext2D, vp: Viewport, u: Under
 
 export function drawScene(
   ctx: CanvasRenderingContext2D, vp: Viewport, canvasW: number, canvasH: number,
-  floor: Floor, resolved: Resolved, rooms: Room[], sel: Selection | null,
+  floor: Floor, resolved: Resolved, leaves: Leaves, rooms: Room[], sel: Selection | null,
   extras: DrawExtras, gridMm: number, areaMode: AreaMode, dimMode: DimMode,
   mountMarks: boolean,
 ): void {
@@ -533,6 +534,26 @@ export function drawScene(
     }
   }
 
+  // Voorzetwand frame zone, between the facade and the boards -- see
+  // ResolvedWall.frame's doc comment in core/resolve.ts. The stand-off before
+  // it carries no material, so this paper-coloured band is the first thing
+  // drawn at that depth; the studs standing in it are drawn separately, from
+  // the leaf floor's own resolve, below.
+  for (const rw of resolved.walls.values()) {
+    if (rw.frame[0].length === 0 && rw.frame[1].length === 0) continue;
+    const pen = wallPen(rw.wall);
+    const line = isSel("wall", rw.wall.id) ? COLORS.select : pen.stroke;
+    for (const band of [...rw.frame[0], ...rw.frame[1]]) {
+      ctx.beginPath();
+      tracePoly(ctx, band.poly);
+      ctx.fillStyle = COLORS.bg;
+      ctx.fill();
+      ctx.strokeStyle = line;
+      ctx.lineWidth = px;
+      ctx.stroke();
+    }
+  }
+
   // Build-up boards, drawn the same way as the cladding band and for the same
   // reason: a board sits outside the structural body, so the finished face
   // has to read as the room's edge rather than as a second layer of poché.
@@ -576,25 +597,26 @@ export function drawScene(
     // saying the centres are known and the section is not.
     if (rw.posts.length > 0) {
       const postInk = wallSel ? COLORS.select : pen.mark;
-      ctx.beginPath();
-      for (const m of rw.posts) if (!m.poly) { ctx.moveTo(m.a.x, m.a.y); ctx.lineTo(m.b.x, m.b.y); }
-      ctx.strokeStyle = postInk;
-      ctx.lineWidth = px;
-      ctx.stroke();
-      for (const m of rw.posts) {
-        if (!m.poly) continue;
-        ctx.beginPath();
-        tracePoly(ctx, m.poly);
-        ctx.fillStyle = postInk;
-        ctx.fill();
-        ctx.strokeStyle = postInk;
-        ctx.lineWidth = px;
-        ctx.stroke();
-      }
+      drawPostMarks(ctx, rw.posts, postInk, px);
     }
     // An opening states the same work its wall does, so it draws in the wall's
     // pen: a new door in a new wall is red throughout, not red with a black door.
     for (const og of rw.openings) drawOpening(ctx, og, px, isSel("opening", og.opening.id), pen.mark);
+  }
+
+  // The voorzetwand's own studs: leaves.resolved carries them exactly as an
+  // ordinary framed wall carries its own (ResolvedWall.posts -- core/leaf.ts),
+  // so the same post-drawing code above applies unchanged. A leaf is derived
+  // and cannot be selected on its own -- the wall hit-test in input/tools.ts
+  // resolves a click in rw.frame to the host instead -- so selection here
+  // follows the HOST wall.
+  for (const [leafId, lw] of leaves.resolved.walls) {
+    if (lw.posts.length === 0) continue;
+    const host = leaves.leaf.hostOf.get(leafId);
+    const hostWall = host && resolved.walls.get(host.wallId);
+    if (!hostWall) continue;
+    const postInk = isSel("wall", hostWall.wall.id) ? COLORS.select : wallPen(hostWall.wall).mark;
+    drawPostMarks(ctx, lw.posts, postInk, px);
   }
 
   // Junction fill goes on top of the wall pieces: it closes the wedge a T-shaped
@@ -836,6 +858,30 @@ function tracePoly(ctx: CanvasRenderingContext2D, poly: Vec[]): void {
   ctx.moveTo(poly[0]!.x, poly[0]!.y);
   for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i]!.x, poly[i]!.y);
   ctx.closePath();
+}
+
+/**
+ * One wall's posts (a host wall's own, or a voorzetwand's studs read off the
+ * leaf floor's resolve): a stated profile width fills at the size the member
+ * is built to, and one without draws as a hairline. Shared so a host wall and
+ * the leaf derived from one of its faces draw their studs identically.
+ */
+function drawPostMarks(ctx: CanvasRenderingContext2D, posts: readonly PostMark[], ink: string, px: number): void {
+  ctx.beginPath();
+  for (const m of posts) if (!m.poly) { ctx.moveTo(m.a.x, m.a.y); ctx.lineTo(m.b.x, m.b.y); }
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = px;
+  ctx.stroke();
+  for (const m of posts) {
+    if (!m.poly) continue;
+    ctx.beginPath();
+    tracePoly(ctx, m.poly);
+    ctx.fillStyle = ink;
+    ctx.fill();
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = px;
+    ctx.stroke();
+  }
 }
 
 function drawGrid(ctx: CanvasRenderingContext2D, vp: Viewport, w: number, h: number, gridMm: number): GridSteps {

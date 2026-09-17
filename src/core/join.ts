@@ -10,7 +10,7 @@
 // node. That handles a gap and an overlap with the same arithmetic, because the
 // intersection is behind one end and beyond the other in the overlap case.
 import {
-  Floor, Wall, Id, wallFacadeMm, facadeSideOf, buildUpOf,
+  Floor, Wall, Id, wallFacadeMm, facadeSideOf, buildUpOf, type FaceFrame,
   postLayoutOf, postFromOf, wallPostMm, flipGridOffset, canonPostOffset,
 } from "../model/doc";
 import { Vec, v, add, sub, scale, dist, norm, perp, lineIntersect } from "../geometry/vec";
@@ -226,10 +226,24 @@ export function planNodeDissolve(f: Floor, nodeId: Id): NodeDissolveResult | nul
   // means the same side on both. The other pairing (both start, or both end,
   // at the node) runs them opposite ways, so w1's left is w2's right.
   const sameDirection = (w1.b === nodeId && w2.a === nodeId) || (w2.b === nodeId && w1.a === nodeId);
+  // A frame states no phase of its own to disagree about -- FaceFrame carries
+  // no postFrom/postOffsetMm the way a wall's own "grid" postLayout does,
+  // because a leaf's grid is always set out from its own `a` end at phase 0
+  // (see FaceFrame in model/doc.ts). Field-by-field equality is therefore the
+  // whole rule, the same shape gridPhaseMatches() below applies to the
+  // wall's own posts.
+  const sameFrame = (a: FaceFrame | undefined, b: FaceFrame | undefined): boolean => {
+    if (!a && !b) return true;
+    if (!a || !b) return false;
+    return a.gapMm === b.gapMm && a.depthMm === b.depthMm && a.material === b.material
+      && a.postMm === b.postMm && a.postLayout === b.postLayout && a.postWidthMm === b.postWidthMm
+      && a.noggingRows === b.noggingRows && a.insulated === b.insulated && a.heightMm === b.heightMm;
+  };
   const buildUpEq = (a: ReturnType<typeof buildUpOf>, b: ReturnType<typeof buildUpOf>): boolean => {
     if (!a && !b) return true;
     if (!a || !b) return false;
-    return a.boards.length === b.boards.length
+    return sameFrame(a.frame, b.frame)
+      && a.boards.length === b.boards.length
       && a.boards.every((x, i) => x.kind === b.boards[i]!.kind && x.mm === b.boards[i]!.mm);
   };
   const [w2Left, w2Right] = sameDirection

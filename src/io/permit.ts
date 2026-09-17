@@ -17,9 +17,12 @@
 // carries no services. This falls out of composition rather than a filter --
 // the plan group below is built from planScene() alone, and routes are emitted
 // only by the separate routeScene() in io/svg.ts, which nothing here imports.
-// See tests/route.test.ts for the assertion.
+// See tests/route.test.ts for the assertion. A voorzetwand (core/leaf.ts) is
+// bouwkundig rather than a service, so unlike routes it IS drawn here, through
+// the same planScene() the plain SVG export uses.
 import { PlanDoc, Floor, projectOf, areaModeOf, dimModeOf } from "../model/doc";
 import { resolveFloor } from "../core/resolve";
+import { resolveLeaves } from "../core/leaf";
 import { permitLayout, PermitLayout, CHAIN_OVERALL_MM, CHAIN_LIFT_MM } from "../core/permit";
 import { DimChain } from "../core/dimensions";
 import { planScene, sceneSvg } from "./svg";
@@ -152,6 +155,7 @@ export function permitSheet(doc: PlanDoc, floorIndex: number): Sheet | null {
   const floor: Floor | undefined = doc.floors[floorIndex] ?? doc.floors[0];
   if (!layout || !floor) return null;
   const resolved = resolveFloor(floor);
+  const leaves = resolveLeaves(floor, resolved);
   const meta = projectOf(doc);
   const { pageW, pageH, scale, frame, drawing, strip, extent } = layout;
   const scene: Item[] = [];
@@ -169,7 +173,7 @@ export function permitSheet(doc: PlanDoc, floorIndex: number): Sheet | null {
   for (const c of layout.chains.centerline)
     chains.push(chainItems(c, both ? CHAIN_LIFT_MM : 0, both ? t("hint.dimTagCenterline") : "", scale));
   scene.push(group([
-    ...planScene(doc, floor, resolved),
+    ...planScene(doc, floor, resolved, leaves),
     group(chains, undefined, "dimensions"),
   ], undefined, "plan", place(k,
     drawing.x + drawing.w / 2 - (extent.minX + extent.w / 2) * k,

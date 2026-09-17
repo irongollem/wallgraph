@@ -3,7 +3,7 @@
 // floor mutably; callers wrap them in store.mutate().
 import {
   Floor, PlanNode, Wall, Opening, ProfilePoint, Id, newId, roomNamesOf, routesOf, Underlay, wallHeight,
-  postLayoutOf, postFromOf, wallPostMm, flipGridOffset, canonPostOffset,
+  postLayoutOf, postFromOf, wallPostMm, flipGridOffset, canonPostOffset, cloneFaceBuildUp,
 } from "./doc";
 import { routeInstallation } from "./route";
 import { clampProfile } from "./profile";
@@ -18,13 +18,13 @@ export function wallLength(f: Floor, w: Wall): number {
   return arcLength(v(a.x, a.y), v(b.x, b.y), w.bulge);
 }
 
-/** A deep copy of a wall's build-up: fresh Board objects in fresh arrays, so
- *  splitWall()'s two halves never share a boards array with each other. */
+/** A deep copy of a wall's build-up: fresh frame and Board objects on each
+ *  face, so splitWall()'s two halves never share one with each other. */
 function cloneBuildUp(bu: Wall["buildUp"]): Wall["buildUp"] {
   if (!bu) return undefined;
   const out: NonNullable<Wall["buildUp"]> = {};
-  if (bu.left) out.left = { boards: bu.left.boards.map(b => ({ ...b })) };
-  if (bu.right) out.right = { boards: bu.right.boards.map(b => ({ ...b })) };
+  if (bu.left) out.left = cloneFaceBuildUp(bu.left);
+  if (bu.right) out.right = cloneFaceBuildUp(bu.right);
   return out;
 }
 
@@ -284,7 +284,10 @@ export function flipWall(f: Floor, w: Wall): void {
   // A build-up is stated per PHYSICAL side, not per letter -- see Wall.buildUp
   // -- so reversing a->b swaps which of the wall's own fields names which
   // face. Left/right absence is preserved rather than normalised into an
-  // empty object either side.
+  // empty object either side. A face's `frame` swaps whole with the rest of
+  // its FaceBuildUp and needs no re-expression of its own: unlike a "grid"
+  // postLayout, a FaceFrame states no side-relative field (no postFrom/
+  // postOffsetMm of its own -- a leaf's grid is set out from its own end).
   if (w.buildUp) {
     const { left, right } = w.buildUp;
     const swapped: NonNullable<Wall["buildUp"]> = {};

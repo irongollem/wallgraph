@@ -229,6 +229,27 @@ face is "outside": a wall stating no facade carries a build-up on exactly the fa
 one for, independently, because nothing there says which side is out. Verified by
 [tests/core.test.ts](tests/core.test.ts).
 
+**A voorzetwand is a derived wall.** `FaceBuildUp.frame` states a stud frame standing in front of a
+face at a stand-off — `gapMm` to its back, `depthMm` of stud, timber or steel, with its own post
+centres, width, layout, noggings, insulation and an optional flat height cap — and `buildUpMm()`
+becomes gap + depth + boards, so the boards stack from the front of the studs and the net room
+boundary insets past the whole thing without `rooms.ts` changing. Where it stands is not stored:
+`resolveFloor()` builds the frame zone as one more skin band between `half + gap` and
+`half + gap + depth` (`ResolvedWall.frame`) and, out of the same corner passes, the centerline ends
+that frame would have (`ResolvedWall.frameLine`); [leaf.ts](src/core/leaf.ts) turns those into real
+`Wall` records on a `Floor` that is never stored, because `frameLayout()` and `computeBacking()` read
+walls and floors, not bands. A leaf's id is `${hostId}~left` / `~right`, the one id derived from
+another rather than minted: a leaf is addressed by the face it belongs to and rebuilt whole on every
+revision, so it needs a stable name, not a unique one. Leaf ends within 1 mm are one node, which is
+what lets two leaves miter at a corner and `computeBacking()` see an L or a T between them; a host
+short enough that its own two miters meet yields no leaf rather than a self-loop. Openings and the top
+profile map onto the leaf by one rule — shifted by the leaf's own start along the host, scaled by the
+ratio of the two lengths, which is 1 on a straight wall and the radius ratio on an arc — and
+`FaceFrame.heightMm` caps the result. The canvas, the SVG's `frames` group and the DXF's `FRAMES`
+layer draw the zone and the leaf's own posts, the stand-off staying empty; a click in the zone selects
+the HOST, since a leaf cannot be selected or edited. The frame's own takeoff is #69. Verified by
+[tests/leaf.test.ts](tests/leaf.test.ts) and [tests/core.test.ts](tests/core.test.ts).
+
 **A sloped wall states its top; nothing derives it.** `Wall.profile` is heights at points along the
 centerline, `t` in mm from node `a` like an opening's, so moving, splitting, flipping and merging a wall
 carry it the way they carry openings. A wall end with no point of its own stands at `wallHeight()`, which
@@ -668,7 +689,13 @@ Deliberate cuts, not oversights — check the [roadmap issues](https://github.co
 before changing one:
 
 - Varying-thickness walls; a wall is one thickness, not a layered cross-section. A facade and a
-  face build-up (board stacks) are skins outside that thickness, not layers within it.
+  face build-up (board stacks, and the voorzetwand they hang on) are skins outside that thickness,
+  not layers within it.
+- A voorzetwand is drawn, measured into the net room area and selected through its host, and nothing
+  more yet: its own studs, plates and noggings are not in the materials takeoff or the elevation
+  (#69), no service runs on or inside it (#72), and it has no body in 3D or IFC (#73). Wall surface
+  still measures the structural face under it (#71). A column protruding into one is not reported
+  (#70), and a frame runs the whole face — it cannot stop short or box a column in (#74).
 - A wall's top profile is read by the wall surface, 3D, IFC, energy, the frame and the materials
   takeoff. A roof plane over it is a separate statement: a wall that pierces the roof's underside, or
   states a profile that disagrees with it, is reported (`roofWallMismatches()`) and never repaired; a

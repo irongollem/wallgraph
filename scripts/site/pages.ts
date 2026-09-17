@@ -315,6 +315,22 @@ rijen klossen en of de spouw is geïsoleerd; op een sandwichwand de paneelbreedt
 isolatie en paneelbreedte veranderen niets aan de tekening — ze worden vastgelegd voor de
 materiaalstaat.</p>
 
+<p>Op zo'n wandzijde is ook een <b>voorzetwand</b> te zetten: stijlen op een tussenruimte vóór het
+constructieve vlak, die de platen van die zijde dragen. Vastgelegd worden de tussenruimte, de
+stijldiepte, hout of metalstud, desgewenst een eigen hart-op-hart-maat en stijlbreedte, het aantal
+rijen klossen en de spouwisolatie; zonder eigen hoogte volgt de voorzetwand de bovenkant van de muur
+zelf. De positie wordt nooit opgeslagen: hartlijn, einden en hoeken volgen bij elke wijziging opnieuw
+uit de muur en haar buren, zodat verplaatsen, splitsen, spiegelen of samenvoegen de voorzetwand
+vanzelf meeneemt — de muurgraaf, de vlakkenwandeling van de ruimtedetectie, het oppervlak op de
+hartlijn en het bruto (BVO) oppervlak zien er niets van, en <code>thickness</code> blijft de constructie. Op tekening staat de
+tussenruimte leeg binnen een band buiten het constructieve vlak, met de eigen stijlen van de
+voorzetwand daarin op hun eigen hart-op-hart-maat; de platen stapelen vanaf de voorkant van de
+voorzetwand verder naar de ruimte toe. Bij oppervlaktemaat <b>netto</b> wordt gemeten tot de buitenste
+plaat van de hele opbouw — tussenruimte, voorzetwand en platen samen. Voorkeuzen zijn er voor
+metalstud 50, metalstud 75, hout 45×70 en hout 45×95, elk met een platenpakket; alle velden blijven
+daarna vrij te wijzigen. De eigen stijlen, regels en klossen van de voorzetwand tellen nog niet mee in
+de materiaalstaat.</p>
+
 <p>Onder <b>Wandoppervlak</b> staat wat de muren van de verdieping aan vlak bieden — de maat waarop
 stucwerk, verf en behang worden besteld. Per muur staat het netto oppervlak in de muurlijst en in het
 paneel van de geselecteerde muur; per ruimte staat het onder haar regel in de ruimtelijst; de verdieping
@@ -853,6 +869,21 @@ the pane notes this separately wherever a face carries a build-up. On a block-bu
 concrete, calcium silicate) the block format can be stated; on a frame the number of nogging rows and
 whether the cavity is insulated; on a sandwich wall the panel width. None of the block format, nogging
 rows, insulation or panel width change the drawing — they are recorded for the materials takeoff.</p>
+
+<p>That same face can also carry a <b>lining wall</b>: studs standing at a stand-off in front of the
+structural face, carrying that face's boards. What is recorded is the stand-off, the stud depth,
+timber or metal stud, an optional post spacing and post width of its own, the number of nogging rows
+and the cavity insulation; without a stated height the lining wall follows the top of the wall itself.
+Its position is never stored: the centreline, its ends and its corners are recomputed from the wall
+and its neighbours on every change, so moving, splitting, flipping or merging the wall carries the
+lining wall with it — the wall graph, room detection's own face walk, the centreline area and the
+gross (BVO) area see none of it, and <code>thickness</code> stays the structure. On the drawing the stand-off sits empty
+inside a band outside the structural face, with the lining wall's own studs drawn inside it at their
+own centres; the boards then stack outward from the front of the lining wall. Under the <b>net</b> area
+mode, measurement runs to the outermost board of the whole build-up — past the stand-off, the lining
+wall and the boards. Presets exist for metal stud 50, metal stud 75, timber 45×70 and timber 45×95,
+each with a board stack; every field stays editable afterwards. The lining wall's own studs, plates and
+noggings are not yet counted in the materials takeoff.</p>
 
 <p><b>Wall surface</b> states the face area the storey's walls present — the quantity stucco, paint and
 wallpaper are ordered against. Each wall's net area appears in the wall list and in the pane of the

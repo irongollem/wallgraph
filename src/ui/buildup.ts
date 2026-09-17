@@ -4,32 +4,38 @@
 // or wording for the same fact.
 import {
   BOARD_KINDS, BOARD_PRESETS, MAX_BOARDS, boardPresetOf, clampBoardMm,
-  type Board, type BoardKind, type FaceBuildUp, type Wall,
+  FRAME_PRESETS, FLOOR_HEIGHT_DEFAULT, clampFrameGapMm, clampFrameDepthMm, clampFrameHeightMm,
+  clampNoggingRows, framePresetOf,
+  type Board, type BoardKind, type FaceBuildUp, type FaceFrame, type Wall,
 } from "../model/doc";
 import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
 
-/** Whether a wall carries a board build-up on either face -- the flag
- *  renderWallSurface()/renderStoreySurface() take to say a face area is
- *  measured to the structure rather than to a finished board face. */
+/** Whether a wall carries a build-up on either face -- a board stack, a
+ *  voorzetwand, or both -- the flag renderWallSurface()/renderStoreySurface()
+ *  take to say a face area is measured to the structure rather than to a
+ *  finished board face. */
 export function wallHasBuildUp(w: Wall): boolean {
   return w.buildUp?.left !== undefined || w.buildUp?.right !== undefined;
 }
 
 /**
  * One face's editor: a heading (the same left/right wording the facade-side
- * control uses, since both name a side of the same wall), a preset select
- * (including "none"), and -- unless the face carries the facade instead --
- * one row per board with its kind, its thickness and a remove button, plus
- * an add-board row while under MAX_BOARDS.
+ * control uses, since both name a side of the same wall), the voorzetwand
+ * (a preset select, "none" included, and -- once a frame stands -- its own
+ * fields), then the board stack on top of it the same way -- a preset select
+ * plus one row per board with its kind, its thickness and a remove button,
+ * plus an add-board row while under MAX_BOARDS. The frame comes first: it is
+ * what the boards are hung on, between the structural face and the room.
  *
  * `onChange` is handed the face's next state as a whole (`undefined` meaning
  * "no build-up here"); the caller decides how to write it -- a single
  * store.mutate() for one wall, a mutAll() across a bulk selection, or the
- * wall pen's own patch. `opts.mixed` renders the preset select indeterminate
- * and stops there, the way every other bulk field with disagreeing members
- * does -- a per-board list has nothing to show when the selection does not
- * even agree on how many boards there are.
+ * wall pen's own patch. `opts.mixed` renders both preset selects
+ * indeterminate and stops there, the way every other bulk field with
+ * disagreeing members does -- neither a frame's fields nor a per-board list
+ * has anything to show when the selection does not even agree on what stands
+ * on this face.
  */
 export function renderFaceBuildUp(
   rows: PaneRows,
@@ -45,6 +51,78 @@ export function renderFaceBuildUp(
     return;
   }
   const boards = fu?.boards ?? [];
+  const frame = fu?.frame;
+
+  // The voorzetwand: a preset writes a whole FaceFrame plus its own board
+  // stack in one go, since a set-out and what is hung on it are chosen
+  // together in practice. "none" removes the frame and leaves whatever
+  // boards are already stacked exactly where they are -- a voorzetwand taken
+  // down does not take the finish with it in this editor; the finish is a
+  // separate choice below.
+  const framePresetId = frame ? framePresetOf({ frame, boards }) : "none";
+  const frameOptions: Array<[string, string]> = [
+    ["none", t("frame.preset.none")],
+    ...FRAME_PRESETS.map(p => [p.id, t("frame.preset." + p.id)] as [string, string]),
+  ];
+  if (framePresetId === "custom") frameOptions.push(["custom", t("frame.preset.custom")]);
+  rows.selRow(t("panel.buildUpFramePreset"), framePresetId, frameOptions, value => {
+    if (value === "custom") return; // reached only by editing the frame directly, not by picking it
+    if (value === "none") { if (frame) onChange(boards.length > 0 ? { boards } : undefined); return; }
+    const preset = FRAME_PRESETS.find(p => p.id === value);
+    if (preset) onChange({ frame: { ...preset.frame }, boards: preset.boards.map(b => ({ ...b })) });
+  }, { mixed: opts.mixed });
+  if (opts.mixed) return;
+
+  if (frame) {
+    const withFrame = (next: FaceFrame): void => onChange({ frame: next, boards });
+    rows.numRow(t("panel.buildUpFrameGap"), frame.gapMm,
+      n => withFrame({ ...frame, gapMm: clampFrameGapMm(n) }), 10);
+    rows.numRow(t("panel.buildUpFrameDepth"), frame.depthMm,
+      n => withFrame({ ...frame, depthMm: clampFrameDepthMm(n) }), 5);
+    rows.selRow(t("panel.buildUpFrameMaterial"), frame.material,
+      [["timber", t("panel.material_timber")], ["steel", t("panel.material_steel")]],
+      v => withFrame({ ...frame, material: v === "steel" ? "steel" : "timber" }));
+    rows.numRow(t("panel.buildUpFramePostMm"), frame.postMm ?? 600,
+      n => withFrame({ ...frame, postMm: Math.max(100, Math.round(n)) }), 25);
+    rows.selRow(t("panel.buildUpFramePostLayout"), frame.postLayout ?? "grid",
+      [["even", t("panel.postLayout_even")], ["grid", t("panel.postLayout_grid")]],
+      v => withFrame({ ...frame, postLayout: v === "even" ? "even" : "grid" }));
+    rows.numRow(t("panel.buildUpFramePostWidth"), frame.postWidthMm ?? frame.depthMm,
+      n => withFrame({ ...frame, postWidthMm: Math.max(10, Math.round(n)) }), 5);
+    rows.numRow(t("panel.buildUpFrameNoggings"), frame.noggingRows ?? 0, n => {
+      const rowsCount = clampNoggingRows(n);
+      const next = { ...frame };
+      if (rowsCount > 0) next.noggingRows = rowsCount; else delete next.noggingRows;
+      withFrame(next);
+    }, 1);
+    rows.checkRow(t("panel.buildUpFrameInsulated"), frame.insulated === true, on => {
+      const next = { ...frame };
+      if (on) next.insulated = true; else delete next.insulated;
+      withFrame(next);
+    });
+    // Absent means the frame stands to the host wall's own top -- a real
+    // answer, not a height of zero, so it is set/unset the way the wall's
+    // own height is (panel.wallOwnHeight) rather than defaulted to a number.
+    // Absent means the frame stands to the host wall's own top, so turning a
+    // height on starts at the storey default rather than at zero.
+    rows.checkRow(t("panel.wallOwnHeight"), frame.heightMm !== undefined, on => {
+      const next = { ...frame };
+      if (on) next.heightMm = clampFrameHeightMm(FLOOR_HEIGHT_DEFAULT); else delete next.heightMm;
+      withFrame(next);
+    });
+    if (frame.heightMm !== undefined) {
+      rows.numRow(t("panel.buildUpFrameHeight"), frame.heightMm,
+        n => withFrame({ ...frame, heightMm: clampFrameHeightMm(n) }), 50);
+    }
+    rows.noteRow(t("panel.buildUpFrameHelp"));
+  }
+
+  // A frame standing on this face survives every board edit below, including
+  // one that empties the stack -- a voorzetwand with nothing hung on it yet
+  // is a legitimate state (see FaceBuildUp), not "no build-up here".
+  const withBoards = (next: Board[]): FaceBuildUp | undefined =>
+    frame ? { frame, boards: next } : next.length > 0 ? { boards: next } : undefined;
+
   const presetId = boards.length === 0 ? "none" : boardPresetOf(boards);
   const options: Array<[string, string]> = [
     ["none", t("board.preset.none")],
@@ -53,29 +131,26 @@ export function renderFaceBuildUp(
   if (presetId === "custom") options.push(["custom", t("board.preset.custom")]);
   rows.selRow(t("panel.buildUpPreset"), presetId, options, value => {
     if (value === "custom") return; // reached only by editing the stack directly, not by picking it
-    if (value === "none") { onChange(undefined); return; }
+    if (value === "none") { onChange(withBoards([])); return; }
     const preset = BOARD_PRESETS.find(p => p.id === value);
-    if (preset) onChange({ boards: preset.boards.map(b => ({ ...b })) });
+    if (preset) onChange(withBoards(preset.boards.map(b => ({ ...b }))));
   }, { mixed: opts.mixed });
   if (opts.mixed) return;
 
   boards.forEach((board, index) => {
     const setBoard = (patch: Partial<Board>): void =>
-      onChange({ boards: boards.map((b, i) => (i === index ? { ...b, ...patch } : b)) });
+      onChange(withBoards(boards.map((b, i) => (i === index ? { ...b, ...patch } : b))));
     rows.selRow(t("panel.buildUpBoardKind"), board.kind,
       BOARD_KINDS.map(k => [k, t("board.kind." + k)] as [string, string]),
       kind => setBoard({ kind: kind as BoardKind }));
     rows.numRow(t("panel.buildUpBoardMm"), board.mm, n => setBoard({ mm: clampBoardMm(n) }), 1);
-    rows.btnRow(t("panel.buildUpBoardRemove"), () => {
-      const next = boards.filter((_, i) => i !== index);
-      onChange(next.length > 0 ? { boards: next } : undefined);
-    });
+    rows.btnRow(t("panel.buildUpBoardRemove"), () => onChange(withBoards(boards.filter((_, i) => i !== index))));
   });
   if (boards.length > 0) rows.noteRow(t("panel.buildUpHelp"));
   // New boards land at the end -- the outer, room-facing side of the stack,
   // since `boards` runs from the wall outward into the room (Wall.buildUp).
   if (boards.length < MAX_BOARDS) {
-    rows.btnRow(t("panel.buildUpAdd"), () => onChange({ boards: [...boards, { kind: "gypsum", mm: 12 }] }));
+    rows.btnRow(t("panel.buildUpAdd"), () => onChange(withBoards([...boards, { kind: "gypsum", mm: 12 }])));
   }
 }
 
@@ -90,6 +165,6 @@ export function withFaceBuildUp(
   fu: FaceBuildUp | undefined,
 ): Wall["buildUp"] | null {
   const next: NonNullable<Wall["buildUp"]> = { ...buildUp };
-  if (fu && fu.boards.length > 0) next[side] = fu; else delete next[side];
+  if (fu && (fu.boards.length > 0 || fu.frame !== undefined)) next[side] = fu; else delete next[side];
   return next.left === undefined && next.right === undefined ? null : next;
 }

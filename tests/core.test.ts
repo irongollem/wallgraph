@@ -28,7 +28,10 @@ import {
   POST_DEFAULT_MM, POST_WIDTH_DEFAULT, FRAME_POST_DEFAULT_MM, postDefaultsFor, postLayoutOf,
   postLayoutPresetOf, type WallMaterial,
 } from "../src/model/doc";
-import { buildUpMm, boardPresetOf, BOARD_PRESETS, type Board } from "../src/model/doc";
+import {
+  buildUpMm, boardPresetOf, BOARD_PRESETS, type Board,
+  frameOf, frameZoneOf, boardsStartMm, setFaceBuildUp, type FaceFrame,
+} from "../src/model/doc";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ""): void {
@@ -2228,6 +2231,146 @@ function rectFloor(wallTh = 100) {
     && (w2.postOffsetMm === undefined || Number.isInteger(w2.postOffsetMm)),
     `${w.postOffsetMm} ${w2.postOffsetMm}`);
   check("the far half is still a grid wall", postLayoutOf(w2) === "grid");
+}
+
+// ---- a voorzetwand's own accessors: buildUpMm, boardsStartMm, frameZoneOf --
+{
+  const f = emptyDoc().floors[0]!;
+  const w: Wall = {
+    id: newId("w"), a: nodeAt(f, v(0, 0)).id, b: nodeAt(f, v(4000, 0)).id,
+    thickness: 100, bulge: 0, openings: [], material: "steel",
+    buildUp: {
+      left: {
+        frame: { gapMm: 20, depthMm: 50, material: "steel" },
+        boards: [{ kind: "gypsum", mm: 12 }, { kind: "gypsum", mm: 12 }],
+      },
+    },
+  };
+  check("boardsStartMm is gap + depth, where the boards start stacking",
+    boardsStartMm(w, "left") === 70, String(boardsStartMm(w, "left")));
+  check("buildUpMm is gap + depth + every board on top of it",
+    buildUpMm(w, "left") === 94, String(buildUpMm(w, "left")));
+  check("frameZoneOf reports [gapMm, gapMm + depthMm]",
+    JSON.stringify(frameZoneOf(w, "left")) === JSON.stringify({ from: 20, to: 70 }));
+  check("a face with no frame reports no zone, and boardsStartMm falls back to the structural face",
+    frameZoneOf(w, "right") === undefined && boardsStartMm(w, "right") === 0);
+}
+
+// ---- setFaceBuildUp: stores a frame-only face, deletes an empty one -------
+{
+  const f = emptyDoc().floors[0]!;
+  const w: Wall = {
+    id: newId("w"), a: nodeAt(f, v(0, 0)).id, b: nodeAt(f, v(4000, 0)).id,
+    thickness: 100, bulge: 0, openings: [],
+  };
+  const fr: FaceFrame = { gapMm: 20, depthMm: 50, material: "timber" };
+
+  setFaceBuildUp(w, "left", { frame: fr, boards: [] });
+  check("a frame with an empty board stack is stored -- a voorzetwand with nothing hung on it yet",
+    JSON.stringify(w.buildUp) === JSON.stringify({ left: { frame: fr, boards: [] } }));
+  check("frameOf reads it back", frameOf(w, "left") !== undefined);
+
+  setFaceBuildUp(w, "left", { boards: [] }); // neither a frame nor boards
+  check("a face stating neither boards nor a frame is deleted, not stored empty",
+    w.buildUp === undefined);
+
+  setFaceBuildUp(w, "left", { frame: fr, boards: [] });
+  setFaceBuildUp(w, "right", { frame: fr, boards: [] });
+  setFaceBuildUp(w, "left", undefined);
+  check("clearing one face leaves the other and Wall.buildUp itself standing",
+    w.buildUp?.left === undefined && w.buildUp?.right !== undefined);
+  setFaceBuildUp(w, "right", undefined);
+  check("clearing the last face deletes Wall.buildUp entirely", w.buildUp === undefined);
+}
+
+// ---- splitWall() carries the frame to both halves, as independent copies --
+{
+  const straight = () => {
+    const f = emptyDoc().floors[0]!;
+    f.walls.push({
+      id: "w", a: nodeAt(f, v(0, 0)).id, b: nodeAt(f, v(4000, 0)).id,
+      thickness: 100, bulge: 0, openings: [],
+      buildUp: { left: { frame: { gapMm: 20, depthMm: 50, material: "timber" }, boards: [] } },
+    });
+    return f;
+  };
+  const f = straight();
+  splitWall(f, f.walls[0]!, 2000);
+  const [w1, w2] = f.walls as [Wall, Wall];
+  check("both halves carry the frame", JSON.stringify(w1.buildUp) === JSON.stringify(w2.buildUp));
+  check("but not the same frame object", w1.buildUp!.left!.frame !== w2.buildUp!.left!.frame);
+  w1.buildUp!.left!.frame!.depthMm = 95;
+  check("mutating one half's frame leaves the other's untouched",
+    w2.buildUp!.left!.frame!.depthMm === 50, String(w2.buildUp!.left!.frame!.depthMm));
+}
+
+// ---- flipWall() moves a frame to the other face ----------------------------
+{
+  const f = emptyDoc().floors[0]!;
+  const fr: FaceFrame = { gapMm: 15, depthMm: 45, material: "timber" };
+  f.walls.push({
+    id: "w", a: nodeAt(f, v(0, 0)).id, b: nodeAt(f, v(4000, 0)).id,
+    thickness: 100, bulge: 0, openings: [],
+    buildUp: { left: { frame: fr, boards: [] } },
+  });
+  const w = f.walls[0]!;
+  flipWall(f, w);
+  check("flipping moves the frame from left to right",
+    frameOf(w, "right") !== undefined && frameOf(w, "left") === undefined);
+  check("the frame itself is unchanged by the flip",
+    JSON.stringify(frameOf(w, "right")) === JSON.stringify(fr));
+}
+
+// ---- planNodeDissolve(): "differs" where the two frames disagree, merges --
+// ---- where they match ------------------------------------------------------
+{
+  const straight = () => {
+    const f = emptyDoc().floors[0]!;
+    f.walls.push({
+      id: "w", a: nodeAt(f, v(0, 0)).id, b: nodeAt(f, v(4000, 0)).id,
+      thickness: 100, bulge: 0, openings: [],
+      buildUp: { left: { frame: { gapMm: 20, depthMm: 50, material: "timber" }, boards: [] } },
+    });
+    return f;
+  };
+
+  const f = straight();
+  const mid = splitWall(f, f.walls[0]!, 2000)!;
+  f.walls[1]!.buildUp!.left!.frame!.depthMm = 70; // now disagrees with the near half
+  check("a merge refuses two walls whose frames differ",
+    (planNodeDissolve(f, mid.id) as { reason?: string }).reason === "differs");
+
+  const g = straight();
+  const gMid = splitWall(g, g.walls[0]!, 2000)!;
+  const plan = planNodeDissolve(g, gMid.id);
+  check("identical frames on both halves are free to merge", isDissolvePlan(plan));
+  if (isDissolvePlan(plan)) {
+    applyNodeDissolve(g, plan);
+    check("and the merged wall keeps the frame",
+      frameOf(g.walls[0]!, "left")?.depthMm === 50, JSON.stringify(frameOf(g.walls[0]!, "left")));
+  }
+}
+
+// ---- planBounds() grows to include a wall's own frame zone -----------------
+{
+  const rect = () => {
+    const f = emptyDoc().floors[0]!;
+    const ids = [v(0, 0), v(4000, 0), v(4000, 3000), v(0, 3000)].map(p => nodeAt(f, p).id);
+    for (let i = 0; i < 4; i++) {
+      f.walls.push({ id: newId("w"), a: ids[i]!, b: ids[(i + 1) % 4]!, thickness: 100, bulge: 0, openings: [] });
+    }
+    return f;
+  };
+  // "right" on the top wall (0,0)->(4000,0) is -y, outward of the rectangle
+  // (invariant 2's clockwise side), the same side the facade/board-band bounds
+  // tests above push out on.
+  const framed = rect();
+  framed.walls[0]!.buildUp = { right: { frame: { gapMm: 20, depthMm: 50, material: "timber" }, boards: [] } };
+
+  const plainBounds = planBounds(rect(), resolveFloor(rect()))!;
+  const framedBounds = planBounds(framed, resolveFloor(framed))!;
+  check("planBounds grows outward to include a wall's own frame zone",
+    framedBounds.min.y < plainBounds.min.y, JSON.stringify({ plainBounds, framedBounds }));
 }
 
 console.log(failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURES`);

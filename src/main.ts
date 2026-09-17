@@ -2,6 +2,7 @@
 // Standalone page entry is src/boot.ts; frameworks call mountWallgraph directly.
 import { Store } from "./model/store";
 import { resolveFloor, Resolved } from "./core/resolve";
+import { resolveLeaves, Leaves } from "./core/leaf";
 import { detectRooms, Room } from "./core/rooms";
 import { Viewport } from "./render/viewport";
 import { drawScene, COLORS, type GhostFloor, PULSE_MS } from "./render/draw";
@@ -69,15 +70,21 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
   let cachedResolved: Resolved = { walls: new Map(), junctions: [] };
   let cachedRooms: Room[] = [];
   let cachedGhost: GhostFloor | null = null;
-  function derived(): { resolved: Resolved; rooms: Room[]; ghost: GhostFloor | null } {
+  // The leaf floor (voorzetwanden as walls of their own -- see core/leaf.ts)
+  // is derived FROM `cachedResolved`, so it lives in the same revision-guarded
+  // block and comes back from the same call: a consumer can never get a leaf
+  // floor that disagrees with the resolve it was built from.
+  let cachedLeaves: Leaves = resolveLeaves(store.floor, cachedResolved);
+  function derived(): { resolved: Resolved; rooms: Room[]; ghost: GhostFloor | null; leaves: Leaves } {
     if (store.revision !== cachedRev) {
       cachedRev = store.revision;
       cachedResolved = resolveFloor(store.floor);
       cachedRooms = detectRooms(store.floor);
       const below = store.floorBelow;
       cachedGhost = below ? { floor: below, resolved: resolveFloor(below) } : null;
+      cachedLeaves = resolveLeaves(store.floor, cachedResolved);
     }
-    return { resolved: cachedResolved, rooms: cachedRooms, ghost: cachedGhost };
+    return { resolved: cachedResolved, rooms: cachedRooms, ghost: cachedGhost, leaves: cachedLeaves };
   }
 
   let renderQueued = false;
@@ -146,9 +153,9 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
       canvas.style.height = rect.height + "px";
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const { resolved, rooms, ghost } = derived();
+    const { resolved, rooms, ghost, leaves } = derived();
     const pulsing = incomplete();
-    drawScene(ctx, vp, rect.width, rect.height, store.floor, resolved, rooms, store.sel, {
+    drawScene(ctx, vp, rect.width, rect.height, store.floor, resolved, leaves, rooms, store.sel, {
       hoverSnap: tools.getSnap(),
       ghost,
       selMore: store.selMore,
@@ -162,7 +169,7 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
       selectMode: tools.selectModeBadge(),
       preview: (c, viewport) => tools.drawPreview(c, viewport),
     }, store.doc.gridMm, areaModeOf(store.doc), dimModeOf(store.doc), mountMarksOn(store.doc));
-    renderLoupe(rect, dpr, resolved, rooms, ghost);
+    renderLoupe(rect, dpr, resolved, leaves, rooms, ghost);
     // A pulse is the one thing here that changes without a mutation, so it is
     // the one thing that asks for the next frame itself. Nothing incomplete,
     // or the check switched off, and the editor goes back to redrawing only
@@ -184,7 +191,7 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
    * the plan at the zoom the finger is already covering.
    */
   function renderLoupe(
-    rect: DOMRect, dpr: number, resolved: Resolved, rooms: Room[], ghost: GhostFloor | null,
+    rect: DOMRect, dpr: number, resolved: Resolved, leaves: Leaves, rooms: Room[], ghost: GhostFloor | null,
   ): void {
     const at = tools.loupeAt();
     if (!at) { loupe.hidden = true; return; }
@@ -208,7 +215,7 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
 
     const lctx = loupe.getContext("2d")!;
     lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    drawScene(lctx, lens, LOUPE_PX, LOUPE_PX, store.floor, resolved, rooms, store.sel, {
+    drawScene(lctx, lens, LOUPE_PX, LOUPE_PX, store.floor, resolved, leaves, rooms, store.sel, {
       hoverSnap: tools.getSnap(),
       ghost,
       selMore: store.selMore,

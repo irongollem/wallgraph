@@ -90,11 +90,13 @@ export const resources = {
         copy: "JSON kopiëren",
         copyTitle: "Plattegrond-JSON naar klembord kopiëren",
         png: "Exporteren als PNG",
-        pngTitle: "floorplan.png opslaan — afbeelding van de plattegrond met schaalbalk",
+        pngTitle:
+          "floorplan.png opslaan — afbeelding van de plattegrond met schaalbalk",
         svg: "Exporteren als SVG",
         svgTitle: "floorplan.svg opslaan — vectortekening op ware grootte",
         dxf: "Exporteren als DXF",
-        dxfTitle: "floorplan.dxf opslaan — CAD-tekening op ware grootte, per laag",
+        dxfTitle:
+          "floorplan.dxf opslaan — CAD-tekening op ware grootte, per laag",
         ifc: "Exporteren als IFC",
         csv: "Materiaalstaat exporteren",
         assumptions: "Uitgangspunten exporteren",
@@ -125,7 +127,8 @@ export const resources = {
         newOpeningDoor: "Nieuwe deur",
         newOpeningWindow: "Nieuw raam",
         newOpeningPassage: "Nieuwe doorgang",
-        newOpeningNote: "geldt voor de volgende plaatsing \u2014 maten zijn dagmaten van het kozijn",
+        newOpeningNote:
+          "geldt voor de volgende plaatsing \u2014 maten zijn dagmaten van het kozijn",
         furnishing: "{{kind}}",
         furnishingCustom: "op maat",
         newFurnishing: "Inrichting toevoegen",
@@ -136,8 +139,10 @@ export const resources = {
         furnishingLabel: "Opschrift",
         furnishingFootprint: "Maat",
         furnishingBasins: "Aantal bakken",
-        furnishingNote: "klikt vast tegen een muur en tegen het element ernaast \u00b7 bovenkasten en afzuigkappen staan gestreept",
-        furnishingNoteLoose: "staat vrij in de ruimte \u00b7 R draait een kwartslag, M spiegelt",
+        furnishingNote:
+          "klikt vast tegen een muur en tegen het element ernaast \u00b7 bovenkasten en afzuigkappen staan gestreept",
+        furnishingNoteLoose:
+          "staat vrij in de ruimte \u00b7 R draait een kwartslag, M spiegelt",
         cabinetKind: "Hoogteklasse",
         cabinetFront: "Front",
         cabinetHinge: "Draaizijde",
@@ -161,12 +166,14 @@ export const resources = {
         zoomZones: "Ruimtes",
         zoomUnnamed: "naamloos",
         zoomUnattached: "los label",
-        zoomNote: "klik een ruimte om die in beeld te brengen \u00b7 de knop ernaast geeft een naam \u00b7 sleep een kader om in te zoomen",
+        zoomNote:
+          "klik een ruimte om die in beeld te brengen \u00b7 de knop ernaast geeft een naam \u00b7 sleep een kader om in te zoomen",
         videWidth: "Breedte (mm)",
         videDepth: "Diepte (mm)",
         videLabel: "Opschrift",
         videArea: "Oppervlakte",
-        videWidthHelp: "een trapgat boven een steektrap is ongeveer {{w}} \u00d7 {{d}} mm",
+        videWidthHelp:
+          "een trapgat boven een steektrap is ongeveer {{w}} \u00d7 {{d}} mm",
         videNote: "opening in de vloer, open naar de verdieping eronder",
         // Constructie: de tool die kolommen, balken, leuningen en vides plaatst.
         newStructure: "Nieuwe constructie",
@@ -190,7 +197,8 @@ export const resources = {
         deckDeckingHelp: "0 telt geen vloerplaat",
         deckRaised: "Op hoogte",
         deckTop: "Bovenkant boven vloer (mm)",
-        deckTopHelp: "zonder hoogte is de balklaag de vloer van deze verdieping · een vliering of entresol ligt op hoogte",
+        deckTopHelp:
+          "zonder hoogte is de balklaag de vloer van deze verdieping · een vliering of entresol ligt op hoogte",
         deckUse: "Gebruik",
         deckUseNone: "niet opgegeven",
         deckUseCustom: "aangepast",
@@ -201,15 +209,18 @@ export const resources = {
         deckArea: "Oppervlakte",
         deckSpan: "Overspanning",
         deckJoists: "Balken",
-        deckNote: "houten vloer tussen de opleggingen · op hoogte gestreept: boven het snijvlak · R kwartslag",
+        deckNote:
+          "houten vloer tussen de opleggingen · op hoogte gestreept: boven het snijvlak · R kwartslag",
         deckHoles: "Uitsparingen",
         deckHoleOpening: "Opening",
-        deckHoleIncomplete: "ligt niet volledig binnen de balklaag — niet doorgerekend",
+        deckHoleIncomplete:
+          "ligt niet volledig binnen de balklaag — niet doorgerekend",
         deckHoleHeader: "Kopbalk",
         deckHoleTrimmer: "Wisselbalk (dubbel)",
         deckHoleCarries: "Gedragen balken",
         deckHolePointAt: "Puntlast op",
-        deckHoleNote: "een balk die door een trapgat of vide wordt gesneden, wordt ingekort en steunt op een kopbalk; de balken ernaast worden verdubbeld (wisselbalk) om de kopbalk te dragen · balkdragers en verbindingen worden niet getoetst",
+        deckHoleNote:
+          "een balk die door een trapgat of vide wordt gesneden, wordt ingekort en steunt op een kopbalk; de balken ernaast worden verdubbeld (wisselbalk) om de kopbalk te dragen · balkdragers en verbindingen worden niet getoetst",
         structureLabel: "Opschrift",
         columnShape: "Doorsnede",
         columnShape_rect: "rechthoek",
@@ -220,22 +231,27 @@ export const resources = {
         columnDiameter: "Diameter (mm)",
         columnOwnHeight: "Eigen hoogte",
         columnHeight: "Hoogte boven vloer (mm)",
-        columnHeightHelp: "zonder eigen hoogte draagt de kolom de vloer erboven \u00b7 een kolom onder een vide stopt op de hoogte van de vloerrand",
-        columnNote: "gearceerd: de kolom wordt door het snijvlak gesneden \u00b7 klikt vast op hoekpunten en muren \u00b7 R kwartslag",
+        columnHeightHelp:
+          "zonder eigen hoogte draagt de kolom de vloer erboven \u00b7 een kolom onder een vide stopt op de hoogte van de vloerrand",
+        columnNote:
+          "gearceerd: de kolom wordt door het snijvlak gesneden \u00b7 klikt vast op hoekpunten en muren \u00b7 R kwartslag",
         beamProfile: "Profiel",
         beamProfileCustom: "eigen maat",
         beamWidth: "Breedte flens (mm)",
         beamDepth: "Hoogte profiel (mm)",
         beamOwnBottom: "Eigen onderkant",
         beamBottom: "Onderkant boven vloer (mm)",
-        beamBottomHelp: "zonder eigen onderkant ligt de bovenkant op de verdiepingshoogte",
-        beamNote: "gestreept: de balk ligt boven het snijvlak \u00b7 tussen twee punten, klik of sleep \u00b7 O zet de hoek vast",
+        beamBottomHelp:
+          "zonder eigen onderkant ligt de bovenkant op de verdiepingshoogte",
+        beamNote:
+          "gestreept: de balk ligt boven het snijvlak \u00b7 tussen twee punten, klik of sleep \u00b7 O zet de hoek vast",
         beamLoadOn: "Belasting op balk",
         beamLoad: "Belasting (kN/m)",
         railingWidth: "Breedte leuning (mm)",
         railingHeight: "Hoogte (mm)",
         railingPost: "Balusters h.o.h. (mm)",
-        railingNote: "in omtrek: de leuning staat onder het snijvlak \u00b7 tussen twee punten \u00b7 0 tekent geen balusters",
+        railingNote:
+          "in omtrek: de leuning staat onder het snijvlak \u00b7 tussen twee punten \u00b7 0 tekent geen balusters",
         spanLength: "Lengte",
         route: "Leiding",
         newRoute: "Nieuwe leiding",
@@ -275,21 +291,27 @@ export const resources = {
         routeTotalLength: "Totaal incl. aftakkingen (mm)",
         routeDropUnstated: "{{n}} aangesloten apparaten zonder montagehoogte",
         routeIssues: "Controle doorvoeren",
-        routeIssueDangling: "doorvoer verwijst naar een punt dat niet meer bestaat",
+        routeIssueDangling:
+          "doorvoer verwijst naar een punt dat niet meer bestaat",
         routeIssueSameFloor: "doorvoer verbindt punten op dezelfde verdieping",
-        routeIssueDiscipline: "doorvoer verbindt verschillende disciplines ({{values}})",
-        routeIssueMetadata: "doorvoer verbindt leidingen met verschillende gegevens",
+        routeIssueDiscipline:
+          "doorvoer verbindt verschillende disciplines ({{values}})",
+        routeIssueMetadata:
+          "doorvoer verbindt leidingen met verschillende gegevens",
         storeyServices: "Doorvoeren op deze verdieping",
-        storeyServicesValue: "{{in}} omhoog in \u00b7 {{out}} omhoog uit \u00b7 {{through}} doorgaand",
+        storeyServicesValue:
+          "{{in}} omhoog in \u00b7 {{out}} omhoog uit \u00b7 {{through}} doorgaand",
         storeyVerticalLength: "Verticale lengte vanaf deze verdieping",
         routeAuto: "Automatisch langs muren",
         routeOffset: "Afstand tot hart muur (mm)",
-        routeAutoNote: "elk stuk volgt de kortste weg langs de muren \u00b7 het resultaat is een gewoon trac\u00e9 dat je daarna zelf aanpast",
+        routeAutoNote:
+          "elk stuk volgt de kortste weg langs de muren \u00b7 het resultaat is een gewoon trac\u00e9 dat je daarna zelf aanpast",
         deviceConnected: "Aangesloten op",
         deviceDisconnect: "Losmaken van de leiding",
         deviceConnectTo: "Aansluiten op {{run}}",
         deviceConnectHere: "Hier aansluiten op {{run}}",
-        deviceConnectPick: "dit apparaat staat op meerdere leidingen \u2014 kies waarop het aansluit",
+        deviceConnectPick:
+          "dit apparaat staat op meerdere leidingen \u2014 kies waarop het aansluit",
         deviceIncomplete: "Nog aan te sluiten: {{services}}",
         board: "Groepenkast",
         boardName: "Kastnaam / nummer",
@@ -300,12 +322,15 @@ export const resources = {
         boardGroupEmpty: "nog niets",
         boardGroupAdd: "Groep toevoegen",
         boardGroupRemove: "Groep {{name}} verwijderen",
-        boardNote: "voeg groepen toe \u2014 elke groep krijgt een aansluitpunt om een leiding aan te haken",
-        routeGroupFromBoard: "groep komt van de kast waar deze leiding op is aangesloten",
+        boardNote:
+          "voeg groepen toe \u2014 elke groep krijgt een aansluitpunt om een leiding aan te haken",
+        routeGroupFromBoard:
+          "groep komt van de kast waar deze leiding op is aangesloten",
         routeEndpointRemove: "Eindpunt verwijderen",
         routeEndpointLink: "Koppelen aan {{device}}",
         routeMerge: "{{n}} trac\u00e9s samenvoegen",
-        routeMergeNote: "samenvoegen kan alleen bij dezelfde discipline en trac\u00e9s die elkaar raken",
+        routeMergeNote:
+          "samenvoegen kan alleen bij dezelfde discipline en trac\u00e9s die elkaar raken",
         routeMergeMixed: "verschillende disciplines geselecteerd",
         routeMergeApart: "de trac\u00e9s raken elkaar niet",
         symbolOwnHeight: "Eigen montagehoogte",
@@ -315,8 +340,10 @@ export const resources = {
         showHeights: "Montagehoogtes tonen",
         requireComplete: "Aansluitingen controleren",
         requireCompleteOpen: "{{n}} apparaten wachten nog op een aansluiting",
-        requireCompleteDone: "alles wat een aansluiting nodig heeft, heeft er een",
-        routeNote: "klik om punten te plaatsen \u00b7 een apparaat op een gekozen leiding wordt een aftakking \u00b7 Esc of dubbelklik sluit het traject af",
+        requireCompleteDone:
+          "alles wat een aansluiting nodig heeft, heeft er een",
+        routeNote:
+          "klik om punten te plaatsen \u00b7 een apparaat op een gekozen leiding wordt een aftakking \u00b7 Esc of dubbelklik sluit het traject af",
         routeKind: "Type",
         routeKindPower: "Stroom",
         routeKindUtp: "UTP",
@@ -333,7 +360,8 @@ export const resources = {
         routeVentToevoer: "Toevoer",
         routeVentAfvoer: "Afvoer",
         routeFlow: "Ontwerpdebiet (m\u00b3/h)",
-        routeMaterialsNote: "materiaallijst \u00b7 gerapporteerd, niet getoetst",
+        routeMaterialsNote:
+          "materiaallijst \u00b7 gerapporteerd, niet getoetst",
         routeMaterialsGroup: "Groep {{group}}",
         routeMaterialsGroupValue: "{{length}} mm \u00b7 {{n}} toestellen",
         routeMaterialsKindVeins: "{{kind}}, {{veins}} aders",
@@ -360,7 +388,8 @@ export const resources = {
         stairFollowStorey: "Verdiepingshoogte volgen",
         stairWidthHelp: "vrije breedte; gebruikelijk ten minste {{min}} mm",
         stairGoingHelp: "aantrede; gebruikelijk ten minste {{min}} mm",
-        stairTreadsHelp: "samen met de hoogte bepaalt dit de optrede; gebruikelijk ten hoogste {{max}} mm",
+        stairTreadsHelp:
+          "samen met de hoogte bepaalt dit de optrede; gebruikelijk ten hoogste {{max}} mm",
         stairWellHelp: "gat tussen de trapbomen, of de straal van de spil",
         stairWell: "Trapgat (mm)",
         stairTurn: "Draairichting",
@@ -370,12 +399,14 @@ export const resources = {
         turnCw: "rechtsom",
         stairRiser: "Optreden",
         stairWalkRule: "Loopvergelijking",
-        stairWalkRuleHelp: "2×optrede + aantrede; gebruikelijk {{min}}–{{max}} mm",
+        stairWalkRuleHelp:
+          "2×optrede + aantrede; gebruikelijk {{min}}–{{max}} mm",
         stairSlope: "Helling",
         stairFootprint: "Ruimtebeslag",
         stairRoofClearance: "Vrije hoogte onder dak",
         floorHeight: "Verdiepingshoogte (mm)",
-        floorHeightHelp: "vloer tot vloer; trappen op deze verdieping volgen deze hoogte",
+        floorHeightHelp:
+          "vloer tot vloer; trappen op deze verdieping volgen deze hoogte",
         groundMm: "Peil (mm)",
         groundMmHelp: "hoogte van de begane grond boven peil",
         wallOwnHeight: "Eigen hoogte",
@@ -400,26 +431,43 @@ export const resources = {
         postLayout_plasterboard: "Gipsplaat 600 (gebruikelijk)",
         postLayout_osb: "OSB 625",
         postLayout_even: "Gelijk verdeeld",
+        postLayout_grid: "Raster",
         postLayout_custom: "Eigen raster",
         postFrom: "Raster vanaf",
         postFromA: "begin (a)",
         postFromB: "eind (b)",
         postWidthOn: "Stijlbreedte opgeven",
         postWidth: "Stijlbreedte (mm)",
-        postsHelp: "maximale vakbreedte \u00b7 elk vlak tussen de sparingen wordt gelijk verdeeld \u00b7 zonder breedte staat een stijl als lijn",
-        postLayoutHelp: "gelijk verdeeld: elk vlak tussen de sparingen in gelijke vakken \u00b7 raster: vaste h.o.h.-maat vanaf een uiteinde, doorlopend over sparingen en lagen, met een kortere laatste maat",
+        postsHelp:
+          "maximale vakbreedte \u00b7 elk vlak tussen de sparingen wordt gelijk verdeeld \u00b7 zonder breedte staat een stijl als lijn",
+        postLayoutHelp:
+          "gelijk verdeeld: elk vlak tussen de sparingen in gelijke vakken \u00b7 raster: vaste h.o.h.-maat vanaf een uiteinde, doorlopend over sparingen en lagen, met een kortere laatste maat",
         facadeOn: "Gevelbekleding",
         facade: "Geveldikte (mm)",
         facadeSide: "Gevelzijde",
         facadeLeft: "links van a\u2192b",
         facadeRight: "rechts van a\u2192b",
-        facadeHelp: "buiten het constructieve muurlichaam \u00b7 dikte blijft de constructie \u00b7 het BVO wordt hierover gemeten",
+        facadeHelp:
+          "buiten het constructieve muurlichaam \u00b7 dikte blijft de constructie \u00b7 het BVO wordt hierover gemeten",
+        buildUpFramePreset: "Voorzetwand",
+        buildUpFrameGap: "Tussenruimte (mm)",
+        buildUpFrameDepth: "Stijldiepte (mm)",
+        buildUpFrameMaterial: "Stijlmateriaal",
+        buildUpFramePostMm: "Stijlafstand h.o.h. (mm)",
+        buildUpFramePostLayout: "Stijlverdeling",
+        buildUpFramePostWidth: "Stijlbreedte (mm)",
+        buildUpFrameNoggings: "Klossen (rijen)",
+        buildUpFrameInsulated: "Spouwisolatie",
+        buildUpFrameHeight: "Hoogte voorzetwand (mm)",
+        buildUpFrameHelp:
+          "de positie van de voorzetwand volgt uit de muur en de belendende vlakken en wordt niet opgeslagen · de stijlen zitten nog niet in de materiaalstaat",
         buildUpPreset: "Platen",
         buildUpBoardKind: "Soort plaat",
         buildUpBoardMm: "Plaatdikte (mm)",
         buildUpBoardRemove: "Verwijderen",
         buildUpAdd: "Plaat toevoegen",
-        buildUpHelp: "platen op dit vlak, van de muur naar buiten toe de kamer in \u00b7 ligt buiten de muurdikte \u00b7 het netto oppervlak wordt gemeten tot de buitenste plaat",
+        buildUpHelp:
+          "platen op dit vlak, van de muur naar buiten toe de kamer in \u00b7 ligt buiten de muurdikte \u00b7 het netto oppervlak wordt gemeten tot de buitenste plaat",
         buildUpFacadeNote: "Deze zijde draagt de gevel.",
         blockOn: "Blokformaat opgeven",
         blockLength: "Bloklengte (mm)",
@@ -429,26 +477,38 @@ export const resources = {
         panelWidthOn: "Paneelbreedte opgeven",
         panelWidth: "Paneelbreedte (mm)",
         wallJoin: "Muren verbinden",
-        wallJoinTitle: "trek beide muren door tot hun snijpunt en las de uiteinden samen",
+        wallJoinTitle:
+          "trek beide muren door tot hun snijpunt en las de uiteinden samen",
         wallJoinWeld: "Uiteinden samenvoegen",
-        wallJoinWeldTitle: "de muren lopen evenwijdig \u00b7 de uiteinden komen samen op hun midden",
+        wallJoinWeldTitle:
+          "de muren lopen evenwijdig \u00b7 de uiteinden komen samen op hun midden",
         wallJoinAlready: "deze muren delen al een knoop",
         wallJoinBusy: "een van de uiteinden zit al aan een andere muur vast",
         wallJoinApart: "de muren reiken niet tot elkaar",
         wallAddNode: "Knoop toevoegen",
-        wallAddNodeTitle: "splitst de muur in het midden \u00b7 de nieuwe knoop is daarna op maat te zetten",
+        wallAddNodeTitle:
+          "splitst de muur in het midden \u00b7 de nieuwe knoop is daarna op maat te zetten",
         wallMerge: "Muren samenvoegen",
-        wallMergeTitle: "maakt van de twee muursecties \u00e9\u00e9n muur en verwijdert de knoop ertussen",
+        wallMergeTitle:
+          "maakt van de twee muursecties \u00e9\u00e9n muur en verwijdert de knoop ertussen",
         nodeDissolve: "Knoop verwijderen",
         nodeDissolveTitle: "voegt de twee muren samen tot \u00e9\u00e9n",
-        nodeRemoveCutTitle: "de knoop is een muuruiteinde \u00b7 die ene muur gaat mee",
-        nodeRemoveJunction: "hier komen drie of meer muren samen \u00b7 die knoop is niet weg te halen zonder losse einden achter te laten",
-        routePointRemoveTitle: "haalt dit punt uit de leiding \u00b7 de buren worden weer verbonden",
-        nodeDissolveDegree: "alleen een knoop tussen precies twee muren kan weg",
-        nodeDissolveCurved: "een gebogen muur kan hier niet worden samengevoegd",
-        nodeDissolveBent: "de muren lopen niet in \u00e9\u00e9n lijn \u00b7 de knoop is een hoek",
-        nodeDissolveDiffers: "de muren verschillen \u00b7 samenvoegen zou van \u00e9\u00e9n de gegevens weggooien",
-        nodeDissolveOpposed: "de muren zijn tegen elkaar in getekend en dragen allebei een schuifdeur \u00b7 die legt niet vast naar welke kant hij schuift",
+        nodeRemoveCutTitle:
+          "de knoop is een muuruiteinde \u00b7 die ene muur gaat mee",
+        nodeRemoveJunction:
+          "hier komen drie of meer muren samen \u00b7 die knoop is niet weg te halen zonder losse einden achter te laten",
+        routePointRemoveTitle:
+          "haalt dit punt uit de leiding \u00b7 de buren worden weer verbonden",
+        nodeDissolveDegree:
+          "alleen een knoop tussen precies twee muren kan weg",
+        nodeDissolveCurved:
+          "een gebogen muur kan hier niet worden samengevoegd",
+        nodeDissolveBent:
+          "de muren lopen niet in \u00e9\u00e9n lijn \u00b7 de knoop is een hoek",
+        nodeDissolveDiffers:
+          "de muren verschillen \u00b7 samenvoegen zou van \u00e9\u00e9n de gegevens weggooien",
+        nodeDissolveOpposed:
+          "de muren zijn tegen elkaar in getekend en dragen allebei een schuifdeur \u00b7 die legt niet vast naar welke kant hij schuift",
         wallColorHelp: "zwart is bestaand, rood te bouwen, geel te slopen",
         sillHeight: "Borstwering (mm)",
         openingHeight: "Hoogte (mm)",
@@ -459,8 +519,10 @@ export const resources = {
         lintelDepth: "Lateihoogte (mm)",
         lintelLoadOn: "Extra belasting op latei",
         lintelLoad: "Extra belasting (kN/m)",
-        lintelLoadHelp: "bijvoorbeeld een balklaag die op deze muur oplegt; telt mee als veranderlijke belasting (γQ), los van het eigen gewicht van de muur",
-        stairNote: "de pijl wijst van beneden naar boven · Wallgraph toetst geen regelgeving",
+        lintelLoadHelp:
+          "bijvoorbeeld een balklaag die op deze muur oplegt; telt mee als veranderlijke belasting (γQ), los van het eigen gewicht van de muur",
+        stairNote:
+          "de pijl wijst van beneden naar boven · Wallgraph toetst geen regelgeving",
         close: "Selectie loslaten",
         grid: "Raster (mm)",
         length: "Lengte h.o.h. (mm)",
@@ -525,7 +587,8 @@ export const resources = {
         fire_wbdbo: "WBDBO",
         fire_wbd: "WBD",
         fire_wrd: "WRD",
-        fireHelp: "WBDBO = brand- én rookoverslag · WBD = branddoorslag · WRD = rookdoorgang",
+        fireHelp:
+          "WBDBO = brand- én rookoverslag · WBD = branddoorslag · WRD = rookdoorgang",
         fireMinutes: "Minuten",
         winVast: "vast raam",
         winDraai: "draairaam",
@@ -564,7 +627,8 @@ export const resources = {
         deleteWithWalls: "Verwijderen met muren",
         mirror: "Spiegelen",
         mirrorTitle: "Spiegelen (M)",
-        furnishingBulk: "{{n}} elementen geselecteerd · verplaatsen, draaien, spiegelen en verwijderen gelden voor alle",
+        furnishingBulk:
+          "{{n}} elementen geselecteerd · verplaatsen, draaien, spiegelen en verwijderen gelden voor alle",
         selectionHeader: "{{n}} × {{label}}",
         selectModeDone: "Klaar ({{n}})",
         snapWall: "Uitlijnen op muren",
@@ -579,7 +643,8 @@ export const resources = {
         floorRename: "Naam verdieping",
         floorDelete: "Verdieping verwijderen",
         floorDrag: "Verdieping verslepen",
-        floorListNote: "hoogste boven · sleep de greep om de stapel te herschikken · klik de greep om die verdieping te tonen",
+        floorListNote:
+          "hoogste boven · sleep de greep om de stapel te herschikken · klik de greep om die verdieping te tonen",
         floor3d: "{{name}} in 3D",
         floorNewName: "Verdieping {{n}}",
         floorGhost: "onderliggende verdieping als onderlegger",
@@ -603,13 +668,15 @@ export const resources = {
         square: "Vierkant",
         sides: "Zijden",
         sidesHelp: "{{min}} tot {{max}} zijden",
-        wallWeldNote: "een nieuwe muur splitst wat hij kruist, maar last een uiteinde vast dat te dicht bij de kruising ligt om nog een muur over te houden; een gedeelde muur wordt niet dubbel getekend",
+        wallWeldNote:
+          "een nieuwe muur splitst wat hij kruist, maar last een uiteinde vast dat te dicht bij de kruising ligt om nog een muur over te houden; een gedeelde muur wordt niet dubbel getekend",
         wallList: "Muren op deze verdieping",
         wallListLength: "{{mm}} mm",
         wallListThickness: "dik {{mm}} mm",
         wallListMeta: "dik {{mm}} mm · {{area}}",
         wallListStub: "korter dan de muur dik is — vrijwel zeker een restant",
-        wallListNote: "kortste eerst · klik een muur om die in beeld te brengen en te selecteren · de bak verwijdert hem",
+        wallListNote:
+          "kortste eerst · klik een muur om die in beeld te brengen en te selecteren · de bak verwijdert hem",
         wallSurface: "Wandoppervlak",
         wallSurfaceGross: "Bruto",
         wallSurfaceOpenings: "Sparingen",
@@ -617,19 +684,26 @@ export const resources = {
         wallSurfaceReveals: "Dagkanten",
         wallSurfaceFinish: "Af te werken",
         wallSurfaceInner: "Binnenzijden",
-        wallSurfaceNote: "vlaklengte × hoogte van de muur, beide zijden, sparingen op ware grootte afgetrokken · geen verlaagd plafond opgegeven, dus vloer tot vloer · dagkanten tellen niet mee",
-        wallSurfaceCeilingNote: "vlaklengte × hoogte, beide zijden, sparingen op ware grootte afgetrokken · elk vlak wordt gemeten tot het plafond van de ruimte waarin het staat · dagkanten tellen niet mee",
-        wallSurfaceCladNote: "binnenzijden laat de zijde met gevelblad weg · een muur die geen gevelblad opgeeft telt met beide zijden mee",
-        wallSurfaceRevealNote: "dagkanten zijn twee neggen en een bovendorpel op de dikte van de muur, geen onderdorpel: onder een deur ligt de vloer en onder een raam komt een vensterbank · één dagkant wordt door de twee zijden gedeeld, elk de helft · gevelbekleding maakt de dag dieper, maar dat is gevelwerk",
-        wallSurfaceBuildUpNote: "gemeten tot het constructieve vlak · een opgegeven platenopbouw ligt hier buiten",
+        wallSurfaceNote:
+          "vlaklengte × hoogte van de muur, beide zijden, sparingen op ware grootte afgetrokken · geen verlaagd plafond opgegeven, dus vloer tot vloer · dagkanten tellen niet mee",
+        wallSurfaceCeilingNote:
+          "vlaklengte × hoogte, beide zijden, sparingen op ware grootte afgetrokken · elk vlak wordt gemeten tot het plafond van de ruimte waarin het staat · dagkanten tellen niet mee",
+        wallSurfaceCladNote:
+          "binnenzijden laat de zijde met gevelblad weg · een muur die geen gevelblad opgeeft telt met beide zijden mee",
+        wallSurfaceRevealNote:
+          "dagkanten zijn twee neggen en een bovendorpel op de dikte van de muur, geen onderdorpel: onder een deur ligt de vloer en onder een raam komt een vensterbank · één dagkant wordt door de twee zijden gedeeld, elk de helft · gevelbekleding maakt de dag dieper, maar dat is gevelwerk",
+        wallSurfaceBuildUpNote:
+          "gemeten tot het constructieve vlak · een opgegeven platenopbouw ligt hier buiten",
         wallSurfaceRooms: "In ruimtes",
         wallSurfaceFaceValue: "{{area}} tot {{mm}} mm",
         wallSurfaceFaceOutside: "Buitenzijde",
         wallSurfaceFaceUnnamed: "Naamloze ruimte",
         ceilingOn: "Verlaagd plafond",
         ceiling: "Plafondhoogte (mm)",
-        ceilingHelp: "afwerkhoogte onder de vloer erboven · verandert alleen het wandoppervlak, niet de verdiepingshoogte, de trappen of de oppervlaktes · een ruimte kan in de ruimtelijst haar eigen plafond opgeven",
-        ceilingAboveStorey: "hoger dan de verdiepingshoogte, dus telt niet: een vlak is al tot de vloer erboven afgewerkt",
+        ceilingHelp:
+          "afwerkhoogte onder de vloer erboven · verandert alleen het wandoppervlak, niet de verdiepingshoogte, de trappen of de oppervlaktes · een ruimte kan in de ruimtelijst haar eigen plafond opgeven",
+        ceilingAboveStorey:
+          "hoger dan de verdiepingshoogte, dus telt niet: een vlak is al tot de vloer erboven afgewerkt",
         roomCeiling: "Plafond (mm)",
         roomWallSurface: "wandoppervlak {{area}}",
         roomWallReveals: "+ dagkanten {{area}} = {{total}}",
@@ -651,14 +725,18 @@ export const resources = {
         permitNorthDeg: "Noord (graden met de klok mee)",
         permitExport: "Blad exporteren (PDF)",
         permitExportSvg: "Blad exporteren (SVG)",
-        permitNote: "de controle rapporteert wat het blad draagt; exporteren kan altijd",
-        permitEnergyNote: "Een omgevingsvergunning voor nieuwbouw vraagt een BENG-berekening (NTA 8800) door een gecertificeerd adviseur; de geometrische invoer daarvoor staat onder Energie.",
+        permitNote:
+          "de controle rapporteert wat het blad draagt; exporteren kan altijd",
+        permitEnergyNote:
+          "Een omgevingsvergunning voor nieuwbouw vraagt een BENG-berekening (NTA 8800) door een gecertificeerd adviseur; de geometrische invoer daarvoor staat onder Energie.",
         underlay: "Onderlegger",
         underlayLoad: "Afbeelding laden…",
-        underlayPasteHint: "of plak een afbeelding vanaf het klembord (Ctrl+V) terwijl dit paneel openstaat",
+        underlayPasteHint:
+          "of plak een afbeelding vanaf het klembord (Ctrl+V) terwijl dit paneel openstaat",
         underlayCalibrate: "Schaal kalibreren",
         underlayCalibrateCancel: "Kalibratie annuleren",
-        underlayCalibrateNote: "klik twee punten met een bekende afstand op de onderlegger, typ daarna de echte afstand",
+        underlayCalibrateNote:
+          "klik twee punten met een bekende afstand op de onderlegger, typ daarna de echte afstand",
         underlayOpacity: "Doorzichtigheid (%)",
         underlayShow: "Onderlegger tonen",
         underlayRemove: "Onderlegger verwijderen",
@@ -699,10 +777,13 @@ export const resources = {
         addPoint: "Punt toevoegen",
         gable: "Puntgevel",
         leanTo: "Lessenaar",
-        openingAbove: "{{kind}} op {{mm}} mm steekt boven de bovenkant uit; alleen het deel eronder wordt afgetrokken",
-        mismatch: "Bovenkant wijkt hier af van de muur van {{length}} mm: {{hereMm}} mm hier tegenover {{otherMm}} mm daar",
+        openingAbove:
+          "{{kind}} op {{mm}} mm steekt boven de bovenkant uit; alleen het deel eronder wordt afgetrokken",
+        mismatch:
+          "Bovenkant wijkt hier af van de muur van {{length}} mm: {{hereMm}} mm hier tegenover {{otherMm}} mm daar",
         mismatches: "Afwijkende bovenkanten",
-        mismatchPair: "Muur van {{lengthA}} mm op {{heightA}} mm, tegenover muur van {{lengthB}} mm op {{heightB}} mm",
+        mismatchPair:
+          "Muur van {{lengthA}} mm op {{heightA}} mm, tegenover muur van {{lengthB}} mm op {{heightB}} mm",
       },
       check: {
         paper: "plattegrond past op A4/A3 op standaardschaal",
@@ -742,12 +823,18 @@ export const resources = {
         compactness: "Compactheid Als/Ag",
         volume: "Bruto inhoud",
         glazingOrientation: "Glas {{dir}}",
-        northMissing: "de noordrichting is niet opgegeven; in te stellen bij {{permit}}",
-        unstatedExterior: "{{n}} muren grenzen aan geen ruimte maar hebben geen gevel; alleen een muur met gevel telt in de schil",
-        inwardFacades: "{{n}} gevels wijzen naar binnen: de beklede zijde grenst aan een ruimte en de andere aan niets; wissel de gevelzijde",
-        overhang: "een verdieping steekt buiten de onderliggende; het overstek is niet als schil gemeten",
-        overlappingRoof: "twee dakvlakken overlappen elkaar in het grondvlak; het gedeelde oppervlak telt twee keer mee in het dakoppervlak",
-        uncoveredRoof: "{{area}} van de bovenste plaat ligt onder geen enkel dakvlak en telt niet mee in de schil",
+        northMissing:
+          "de noordrichting is niet opgegeven; in te stellen bij {{permit}}",
+        unstatedExterior:
+          "{{n}} muren grenzen aan geen ruimte maar hebben geen gevel; alleen een muur met gevel telt in de schil",
+        inwardFacades:
+          "{{n}} gevels wijzen naar binnen: de beklede zijde grenst aan een ruimte en de andere aan niets; wissel de gevelzijde",
+        overhang:
+          "een verdieping steekt buiten de onderliggende; het overstek is niet als schil gemeten",
+        overlappingRoof:
+          "twee dakvlakken overlappen elkaar in het grondvlak; het gedeelde oppervlak telt twee keer mee in het dakoppervlak",
+        uncoveredRoof:
+          "{{area}} van de bovenste plaat ligt onder geen enkel dakvlak en telt niet mee in de schil",
         heatLossTotal: "Transmissieverlies H_T",
         meanU: "Gemiddelde U",
         heatYear: "Warmteverlies",
@@ -755,18 +842,23 @@ export const resources = {
         kwhYear: "{{kwh}} kWh/jaar",
         kwhM2Year: "{{kwh}} kWh/m²·jaar",
         unstatedParts: "{{n}} onderdelen zonder Rc of U zijn niet meegeteld",
-        indicativeNote: "Indicatief: alleen transmissieverlies bij {{hdd}} graaddagen (basis 18 °C); zonder ventilatie, infiltratie, zonwinst, koudebruggen en installaties. Geen NTA 8800-berekening; een BENG-berekening vereist geattesteerde software en een gecertificeerd adviseur (BRL 9500).",
-        closingNote: "Gemeten aan de gevelzijde van de constructie, per verdieping van vloer tot vloer; het dak volgens de opgegeven dakvlakken, en zonder die als het bovenste vloerveld. Gemeld, niet getoetst.",
+        indicativeNote:
+          "Indicatief: alleen transmissieverlies bij {{hdd}} graaddagen (basis 18 °C); zonder ventilatie, infiltratie, zonwinst, koudebruggen en installaties. Geen NTA 8800-berekening; een BENG-berekening vereist geattesteerde software en een gecertificeerd adviseur (BRL 9500).",
+        closingNote:
+          "Gemeten aan de gevelzijde van de constructie, per verdieping van vloer tot vloer; het dak volgens de opgegeven dakvlakken, en zonder die als het bovenste vloerveld. Gemeld, niet getoetst.",
       },
       roof: {
         title: "Dak",
         suggest: "Voorstel uit muren",
         suggestSummary: "{{n}} dakvlakken, {{pitch}}°, dakrand {{eave}} mm",
         suggestSummaryOne: "1 dakvlak, {{pitch}}°, dakrand {{eave}} mm",
-        noteGableDisagree: "De puntgevels komen niet overeen: verschillende nokhoogtes, of ze staan niet tegenover elkaar. Voorstel is een plat dak.",
-        suggestSummaryMixed: "{{n}} dakvlakken, elk met een eigen hoek of dakrand",
+        noteGableDisagree:
+          "De puntgevels komen niet overeen: verschillende nokhoogtes, of ze staan niet tegenover elkaar. Voorstel is een plat dak.",
+        suggestSummaryMixed:
+          "{{n}} dakvlakken, elk met een eigen hoek of dakrand",
         accept: "Overnemen",
-        suggestNone: "Uit de getekende muren volgt geen dakvlak; de verdieping heeft geen gesloten omtrek.",
+        suggestNone:
+          "Uit de getekende muren volgt geen dakvlak; de verdieping heeft geen gesloten omtrek.",
         presetFlat: "Plat dak",
         presetGable: "Zadeldak 45°",
         plane: "Vlak {{n}}",
@@ -779,31 +871,37 @@ export const resources = {
         deletePlane: "Vlak verwijderen",
         removeAll: "Alle dakvlakken verwijderen",
         mismatchHead: "Afwijkingen van muur en dak",
-        mismatch: "muur van {{length}} mm wijkt {{gap}} mm af van het dak erboven",
+        mismatch:
+          "muur van {{length}} mm wijkt {{gap}} mm af van het dak erboven",
         followRoof: "Volg dak",
         clashHead: "Dak steekt door de vloer erboven",
         clash: "Dakvlak {{n}} steekt {{over}} mm door de vloer van {{floor}}",
         headroomHead: "Lage ruimte (NEN 2580)",
         headroomTotal: "Lager dan 1500 mm",
         headroomUsableTotal: "Gebruiksoppervlak",
-        headroomNote: "NEN 2580 telt vloeroppervlak onder 1500 mm niet mee in het gebruiksoppervlak; per ruimte staat het bij Zoomen in de ruimtelijst.",
-        closingNote: "Gemeld, niet getoetst; het bovenprofiel van een muur blijft zijn eigen opgave.",
+        headroomNote:
+          "NEN 2580 telt vloeroppervlak onder 1500 mm niet mee in het gebruiksoppervlak; per ruimte staat het bij Zoomen in de ruimtelijst.",
+        closingNote:
+          "Gemeld, niet getoetst; het bovenprofiel van een muur blijft zijn eigen opgave.",
       },
       materials: {
         title: "Materialen",
         stock: "Standaardlengtes (mm)",
-        stockHelp: "kommagescheiden, mm, oplopend · leeg voor de standaardlijst",
+        stockHelp:
+          "kommagescheiden, mm, oplopend · leeg voor de standaardlijst",
         stockPreset: "Voorinstelling: {{preset}}",
         stockPreset_diy: "Bouwmarkt",
         stockPreset_merchant: "Houthandel",
         custom: "aangepast",
-        sheetNote: "Plaatmateriaal zoals gipsplaat is meestal 1200 × 2600 mm; dat staat bij plaatmaat.",
+        sheetNote:
+          "Plaatmateriaal zoals gipsplaat is meestal 1200 × 2600 mm; dat staat bij plaatmaat.",
         kerf: "Zaagsnede (mm)",
         waste: "Afschrijving (%)",
         sheetWidth: "Plaatbreedte {{kind}} (mm)",
         sheetHeight: "Plaathoogte {{kind}} (mm)",
         noWalls: "Geen muren of balklagen op deze verdieping.",
-        nothing: "Niets te melden: geen enkele muur op deze verdieping draagt regelwerk, blokformaat, platen, isolatie of paneelbreedte.",
+        nothing:
+          "Niets te melden: geen enkele muur op deze verdieping draagt regelwerk, blokformaat, platen, isolatie of paneelbreedte.",
         system: {
           framedTimber: "Houten regelwerk",
           framedSteel: "Stalen regelwerk",
@@ -827,7 +925,8 @@ export const resources = {
           deckHeader: "Kopbalk",
           trimmer: "Wisselbalk",
         },
-        studsNote: "Stijlen tellen ook de wandeinden, beide zijden van elke sparing, de stijlen onder elke latei en de hoek- en aansluitstijlen mee; het aantal ligt dus hoger dan de getekende stijlposities.",
+        studsNote:
+          "Stijlen tellen ook de wandeinden, beide zijden van elke sparing, de stijlen onder elke latei en de hoek- en aansluitstijlen mee; het aantal ligt dus hoger dan de getekende stijlposities.",
         wallLabel: "muur {{mm}} mm",
         decksHead: "Balklagen",
         deckLabel: "{{label}} {{w}} × {{d}} mm",
@@ -841,13 +940,18 @@ export const resources = {
         stockEntry: "{{length}} mm × {{count}}",
         wasteSuffix: "afschrijving {{pct}} %",
         splices: "{{n}} lasverbindingen",
-        unfit: "{{wall}}: {{member}} {{length}} mm past op geen standaardlengte",
-        incomplete: "{{wall}}: {{field}} niet opgegeven — materiaal niet meegeteld",
+        unfit:
+          "{{wall}}: {{member}} {{length}} mm past op geen standaardlengte",
+        incomplete:
+          "{{wall}}: {{field}} niet opgegeven — materiaal niet meegeteld",
         incompleteField: "{{field}} niet opgegeven — materiaal niet meegeteld",
-        suggestBreak: "{{wall}}: stijlen van {{length}} mm passen op geen standaardlengte; een framebreuk op {{at}} zou ze laten passen",
-        suggestBreakField: "stijlen van {{length}} mm passen op geen standaardlengte; een framebreuk op {{at}} zou ze laten passen",
+        suggestBreak:
+          "{{wall}}: stijlen van {{length}} mm passen op geen standaardlengte; een framebreuk op {{at}} zou ze laten passen",
+        suggestBreakField:
+          "stijlen van {{length}} mm passen op geen standaardlengte; een framebreuk op {{at}} zou ze laten passen",
         wallHead: "Materiaal",
-        closingNote: "Een schatting uit de getekende constructie, op basis van de opgegeven aannames. Gemeld, geen bestellijst.",
+        closingNote:
+          "Een schatting uit de getekende constructie, op basis van de opgegeven aannames. Gemeld, geen bestellijst.",
         timberClass: "Houtsterkteklasse",
         timberClass_C18: "C18 — naaldhout",
         timberClass_C24: "C24 — naaldhout (gebruikelijk)",
@@ -858,9 +962,11 @@ export const resources = {
         gammaG: "Partiële factor permanente belasting (γG)",
         gammaQ: "Partiële factor veranderlijke belasting (γQ)",
         deflectionDiv: "Doorbuigingsgrens (L/…)",
-        deflectionDivHelp: "grens als deel van de overspanning; 250 betekent L/250",
+        deflectionDivHelp:
+          "grens als deel van de overspanning; 250 betekent L/250",
         sections: "Beschikbare doorsnedes (mm)",
-        sectionsHelp: "kommagescheiden, breedte×hoogte, bijv. 44x195 · leeg voor de standaardlijst",
+        sectionsHelp:
+          "kommagescheiden, breedte×hoogte, bijv. 44x195 · leeg voor de standaardlijst",
         comfortMinHz: "Laagst aanvaardbare eigenfrequentie (Hz)",
         comfortMaxPointMm: "Grens doorbuiging bij 1 kN puntlast (mm)",
         // Issue #62: een figuur die van zijn standaardwaarde afwijkt krijgt
@@ -920,16 +1026,22 @@ export const resources = {
         missingSpanBeam: "lengte van de balk (verplaats een eindpunt)",
         missingSpanHeader: "overspanning van de kopbalk",
         missingSpanTrimmer: "overspanning van de wisselbalk",
-        missingLoadGDeck: "permanente belasting (hierboven op dit paneel) — nodig voor het trillingscijfer, de massa kan niet worden aangenomen",
-        proposalHint: "Voorstel: {{w}} × {{d}} mm blijft binnen de gestelde grens",
+        missingLoadGDeck:
+          "permanente belasting (hierboven op dit paneel) — nodig voor het trillingscijfer, de massa kan niet worden aangenomen",
+        proposalHint:
+          "Voorstel: {{w}} × {{d}} mm blijft binnen de gestelde grens",
         applyProposal: "{{w}} × {{d}} blijft binnen de gestelde grenzen",
-        noSectionPasses: "Geen van de opgegeven doorsnedes blijft binnen de gestelde grenzen.",
-        resultNote: "Indicatieve voorlopige maatvoering: één vrij opgelegde overspanning onder een gelijkmatig verdeelde belasting, bij een wisselbalk aangevuld met de kopbalken als puntlast. Zonder rekening met andere puntlasten, doorlopende of uitkragende overspanningen, kipstabiliteit, trillingen, insnijdingen, opleggingsdruk, verbindingen of brandwerendheid. Gemeld, geen constructieberekening; een geregistreerde berekening vereist een daarvoor gekwalificeerde constructeur.",
+        noSectionPasses:
+          "Geen van de opgegeven doorsnedes blijft binnen de gestelde grenzen.",
+        resultNote:
+          "Indicatieve voorlopige maatvoering: één vrij opgelegde overspanning onder een gelijkmatig verdeelde belasting, bij een wisselbalk aangevuld met de kopbalken als puntlast. Zonder rekening met andere puntlasten, doorlopende of uitkragende overspanningen, kipstabiliteit, trillingen, insnijdingen, opleggingsdruk, verbindingen of brandwerendheid. Gemeld, geen constructieberekening; een geregistreerde berekening vereist een daarvoor gekwalificeerde constructeur.",
         comfortHz: "Eigenfrequentie",
         comfortPoint: "Doorbuiging bij 1 kN puntlast",
         comfortResult: "Comfort",
-        comfortNote: "Een balklaag waarvan buiging, afschuiving en doorbuiging binnen de gestelde grenzen blijven kan nog steeds merkbaar meeveren; deze twee cijfers — eigenfrequentie en doorbuiging onder een puntlast — zeggen daar iets over. Gewone rekenformules met indicatieve grenzen, geen trillingsanalyse: ze gaan uit van de massa die de balklaag draagt (eigen gewicht plus permanente belasting, niet de veranderlijke belasting) en zeggen niets over een zware afwerking, een lange of doorlopende overspanning, of een vloer die machines draagt.",
-        comfortAdvice: "Om te verbeteren: een dikkere balk, een kleinere hart-op-hart afstand, doorschietende regels of een strongback tussen de balken, of een vloerplaat die zowel gelijmd als geschroefd is.",
+        comfortNote:
+          "Een balklaag waarvan buiging, afschuiving en doorbuiging binnen de gestelde grenzen blijven kan nog steeds merkbaar meeveren; deze twee cijfers — eigenfrequentie en doorbuiging onder een puntlast — zeggen daar iets over. Gewone rekenformules met indicatieve grenzen, geen trillingsanalyse: ze gaan uit van de massa die de balklaag draagt (eigen gewicht plus permanente belasting, niet de veranderlijke belasting) en zeggen niets over een zware afwerking, een lange of doorlopende overspanning, of een vloer die machines draagt.",
+        comfortAdvice:
+          "Om te verbeteren: een dikkere balk, een kleinere hart-op-hart afstand, doorschietende regels of een strongback tussen de balken, of een vloerplaat die zowel gelijmd als geschroefd is.",
         // Issue #62: elk paneel dat een toetsing toont, meldt in één regel
         // welke aannames zijn aangepast -- gemeld, nooit blokkerend.
         driftRow: "Afwijkende aannames: {{items}}.",
@@ -946,8 +1058,10 @@ export const resources = {
         driftTimberClass: "houtsterkteklasse aangepast",
         // Issue #62: een opgegeven belasting die lager is dan wat aannemelijk
         // is -- gemeld naast het resultaat, verandert niets aan de toetsing.
-        flagLowLoadQ: "opgegeven belasting is lager dan gebruikelijk voor een vloer",
-        flagLowLoadG: "opgegeven permanente belasting is lager dan het eigen gewicht van de balklaag zelf",
+        flagLowLoadQ:
+          "opgegeven belasting is lager dan gebruikelijk voor een vloer",
+        flagLowLoadG:
+          "opgegeven permanente belasting is lager dan het eigen gewicht van de balklaag zelf",
         flagZeroLoad: "opgegeven belasting is nul",
       },
       frame: {
@@ -968,7 +1082,16 @@ export const resources = {
         breakRemove: "Framebreuk {{n}} verwijderen",
         breakAdd: "Framebreuk toevoegen",
         breakAtDeck: "Op vloerhoogte ({{mm}} mm)",
-        breakHelp: "elke breuk is een dubbele regel · het regelwerk boven de hoogste breuk volgt de hellende bovenkant",
+        breakHelp:
+          "elke breuk is een dubbele regel · het regelwerk boven de hoogste breuk volgt de hellende bovenkant",
+        preset: {
+          none: "Geen",
+          metalStud50: "Metalstud 50",
+          metalStud75: "Metalstud 75",
+          timber4570: "Hout 45×70",
+          timber4595: "Hout 45×95",
+          custom: "Aangepast",
+        },
       },
       sheet: {
         project: "Project",
@@ -990,11 +1113,13 @@ export const resources = {
       // zelf over te doen, zonder de app te openen.
       assumptions: {
         title: "Uitgangspunten",
-        subtitle: "Dit blad meldt wat in deze plattegrond is getekend en aangenomen voor de balklagen, balken en lateien; het is een overzicht van uitgangspunten, geen constructieberekening. Een geregistreerde berekening vereist een daarvoor gekwalificeerde constructeur.",
+        subtitle:
+          "Dit blad meldt wat in deze plattegrond is getekend en aangenomen voor de balklagen, balken en lateien; het is een overzicht van uitgangspunten, geen constructieberekening. Een geregistreerde berekening vereist een daarvoor gekwalificeerde constructeur.",
         assumptionsHeading: "Aannames",
         driftHeading: "Afwijkende aannames",
         excludedHeading: "Wat dit blad niet heeft getoetst",
-        excludedPoint: "Puntlasten, behalve de kopbalken die op een wisselbalk rusten.",
+        excludedPoint:
+          "Puntlasten, behalve de kopbalken die op een wisselbalk rusten.",
         excludedContinuous: "Doorlopende en uitkragende overspanningen.",
         excludedLateral: "Kipstabiliteit.",
         excludedNotches: "Insnijdingen in de doorsnede.",
@@ -1003,7 +1128,8 @@ export const resources = {
         excludedFire: "Brandwerendheid.",
         excludedLoadPath: "De lastafdracht onder het element.",
         excludedFoundation: "De fundering.",
-        excludedTrimmer: "Balkdragers, bevestigingen en verbindingen bij de kopbalk en de wisselbalken rond een uitsparing in een balklaag — dat de balken zelf zijn ingekort en de kopbalk en wisselbalken zijn doorgerekend, staat hierboven bij de balklaag; de verbindingen daartussen niet.",
+        excludedTrimmer:
+          "Balkdragers, bevestigingen en verbindingen bij de kopbalk en de wisselbalken rond een uitsparing in een balklaag — dat de balken zelf zijn ingekort en de kopbalk en wisselbalken zijn doorgerekend, staat hierboven bij de balklaag; de verbindingen daartussen niet.",
         noElements: "Dit document bevat geen balklagen, balken of lateien.",
         aboveHead: "Hoogte muur boven latei",
         steelFy: "Vloeigrens staal (f_y)",
@@ -1018,7 +1144,8 @@ export const resources = {
         missingLintelSection: "de doorsnede van de latei",
         headerCarries: "Gedragen balken",
         trimmerPointAt: "Puntlast op",
-        incompleteHoles: "{{n}} uitsparing(en) liggen niet volledig binnen deze balklaag en zijn niet doorgerekend.",
+        incompleteHoles:
+          "{{n}} uitsparing(en) liggen niet volledig binnen deze balklaag en zijn niet doorgerekend.",
       },
       // Issue #78: het pakket voor de constructeur -- één afdrukbare PDF met
       // het dekblad, het vergunningsblad, de uitgangspunten, de materiaalstaat
@@ -1030,8 +1157,10 @@ export const resources = {
         contentsHeading: "Inhoud",
         contentsMaterials: "Materiaalstaat",
         contentsElevations: "Aanzichten",
-        statement: "Dit pakket beschrijft wat in de plattegrond is getekend en aangenomen. Het is geen constructieberekening en geen verklaring over constructieve veiligheid. Wallgraph en de maker beschikken over geen erkenning of registratie om constructies te beoordelen. Beoordeling door een daartoe bevoegde constructeur is vereist.",
-        statementFooter: "Geen constructieberekening, geen verklaring over constructieve veiligheid — beoordeling door een daartoe bevoegde constructeur vereist.",
+        statement:
+          "Dit pakket beschrijft wat in de plattegrond is getekend en aangenomen. Het is geen constructieberekening en geen verklaring over constructieve veiligheid. Wallgraph en de maker beschikken over geen erkenning of registratie om constructies te beoordelen. Beoordeling door een daartoe bevoegde constructeur is vereist.",
+        statementFooter:
+          "Geen constructieberekening, geen verklaring over constructieve veiligheid — beoordeling door een daartoe bevoegde constructeur vereist.",
         pageOf: "Pagina {{n}} van {{total}}",
         optionAssumptions: "Uitgangspunten meenemen",
         optionMaterials: "Materiaalstaat meenemen",
@@ -1039,48 +1168,66 @@ export const resources = {
         export: "Pakket voor constructeur exporteren",
         materialsTitle: "Materiaalstaat",
         materialsStockHeading: "Voorraad per systeem",
-        elevationsSkipped: "{{n}} wand/wanden met een vlak materiaal (geen regelwerk, blokwerk of sandwichpaneel) zijn overgeslagen.",
-        noElevations: "Dit document bevat geen regel-, blok- of sandwichwanden.",
+        elevationsSkipped:
+          "{{n}} wand/wanden met een vlak materiaal (geen regelwerk, blokwerk of sandwichpaneel) zijn overgeslagen.",
+        noElevations:
+          "Dit document bevat geen regel-, blok- of sandwichwanden.",
         saved: "Pakket voor constructeur opgeslagen",
         empty: "Niets om te exporteren",
         failed: "Exporteren mislukt",
       },
       hint: {
         wallStart: "klik om een muurketen te beginnen",
-        wallChain: "klik om te plaatsen · typ een lengte in mm · Shift houdt de hoek vast · Enter sluit de ring · Esc stopt",
+        wallChain:
+          "klik om te plaatsen · typ een lengte in mm · Shift houdt de hoek vast · Enter sluit de ring · Esc stopt",
         wallRect: "klik de eerste hoek van de rechthoek",
         wallRectTo: "klik de tegenoverliggende hoek · Shift houdt hem vierkant",
         wallCircle: "klik het middelpunt van de cirkel",
         wallCircleTo: "klik een punt op de cirkel",
         wallPolygon: "klik het middelpunt van de veelhoek",
-        wallPolygonTo: "klik een hoekpunt · het aantal zijden staat in het paneel",
+        wallPolygonTo:
+          "klik een hoekpunt · het aantal zijden staat in het paneel",
         wallTyped: "lengte: {{length}} mm — Enter om te plaatsen",
-        select: "klik om te selecteren · sleep punten/muren/symbolen, Alt+slepen kopieert · Shift+klik kiest meer, Shift+slepen selecteert een gebied · klik de oppervlakte om de ruimte te benoemen · Del verwijdert",
-        selectFurnishing: "Shift+klik kiest meer elementen · slepen verplaatst alles wat geselecteerd is, Alt+slepen kopieert · R draait, M spiegelt",
-        selectRoute: "dubbelklik of Cmd/Ctrl-klik op de leiding voegt een punt toe \u00b7 sleep punten \u00b7 Del verwijdert",
-        selectMode: "{{n}} geselecteerd · tik voegt toe of haalt weg · tik naast de selectie om te wissen · Klaar sluit af",
+        select:
+          "klik om te selecteren · sleep punten/muren/symbolen, Alt+slepen kopieert · Shift+klik kiest meer, Shift+slepen selecteert een gebied · klik de oppervlakte om de ruimte te benoemen · Del verwijdert",
+        selectFurnishing:
+          "Shift+klik kiest meer elementen · slepen verplaatst alles wat geselecteerd is, Alt+slepen kopieert · R draait, M spiegelt",
+        selectRoute:
+          "dubbelklik of Cmd/Ctrl-klik op de leiding voegt een punt toe \u00b7 sleep punten \u00b7 Del verwijdert",
+        selectMode:
+          "{{n}} geselecteerd · tik voegt toe of haalt weg · tik naast de selectie om te wissen · Klaar sluit af",
         selectModeBadge: "Meerdere selecteren · {{n}}",
-        selectWall: "klik de mm-waarde om te bewerken · of typ een lengte + Enter · sleep de ◆ greep om te buigen · Del verwijdert",
+        selectWall:
+          "klik de mm-waarde om te bewerken · of typ een lengte + Enter · sleep de ◆ greep om te buigen · Del verwijdert",
         selectWallTyped: "muurlengte: {{length}} mm — Enter om toe te passen",
-        resize: "sleep een hoek- of randgreep om te herschalen · Shift houdt de verhouding, Alt houdt het midden vast · dicht bij een wandvlak klikt het aan · Del verwijdert",
+        resize:
+          "sleep een hoek- of randgreep om te herschalen · Shift houdt de verhouding, Alt houdt het midden vast · dicht bij een wandvlak klikt het aan · Del verwijdert",
         door: "klik op een muur om een deur te plaatsen",
         window: "klik op een muur om een raam te plaatsen",
         passage: "klik op een muur om een doorgang te plaatsen",
         symbol: "klik om {{label}} te plaatsen (R draaien, M spiegelen)",
         stair: "klik om {{label}} te plaatsen (R kwartslag, M spiegelen)",
         structure: "klik om een {{label}} te plaatsen (R kwartslag)",
-        structureSpan: "klik het beginpunt van de {{label}} \u00b7 of sleep van begin tot eind",
-        structureSpanTo: "klik het eindpunt van de {{label}} \u00b7 O zet de hoek vast \u00b7 Esc annuleert",
-        route: "klik om punten te plaatsen \u00b7 klik een apparaat op een gekozen leiding voor een aftakking \u00b7 Esc of dubbelklik sluit af",
+        structureSpan:
+          "klik het beginpunt van de {{label}} \u00b7 of sleep van begin tot eind",
+        structureSpanTo:
+          "klik het eindpunt van de {{label}} \u00b7 O zet de hoek vast \u00b7 Esc annuleert",
+        route:
+          "klik om punten te plaatsen \u00b7 klik een apparaat op een gekozen leiding voor een aftakking \u00b7 Esc of dubbelklik sluit af",
         furnishing: "klik om {{label}} te plaatsen (R kwartslag, M spiegelt)",
         zoom: "sleep een kader \u00b7 klik een ruimte \u00b7 benoem ruimtes in de lijst \u00b7 F alles in beeld, Shift+F de selectie",
-        measure: "klik het eerste punt \u00b7 of sleep van punt tot punt \u00b7 het lint pakt hoeken, wandvlakken, dagkanten en omtrekken",
-        measureTo: "klik het tweede punt \u00b7 Shift zet de hoek vast \u00b7 Esc annuleert",
-        measured: "{{length}} mm \u00b7 horizontaal {{dx}} \u00b7 verticaal {{dy}} \u00b7 klik voor een nieuwe meting \u00b7 Esc wist",
-        view3d: "sleep om te draaien \u00b7 scrollen zoomt \u00b7 Shift+slepen verschuift \u00b7 F alles in beeld \u00b7 Esc of 3 terug naar de plattegrond",
+        measure:
+          "klik het eerste punt \u00b7 of sleep van punt tot punt \u00b7 het lint pakt hoeken, wandvlakken, dagkanten en omtrekken",
+        measureTo:
+          "klik het tweede punt \u00b7 Shift zet de hoek vast \u00b7 Esc annuleert",
+        measured:
+          "{{length}} mm \u00b7 horizontaal {{dx}} \u00b7 verticaal {{dy}} \u00b7 klik voor een nieuwe meting \u00b7 Esc wist",
+        view3d:
+          "sleep om te draaien \u00b7 scrollen zoomt \u00b7 Shift+slepen verschuift \u00b7 F alles in beeld \u00b7 Esc of 3 terug naar de plattegrond",
         fromCorner: "{{mm}} mm vanaf hoek",
         gridLegend: "raster {{grid}} · hoofdlijn {{major}}",
-        gridLegendStepped: "raster {{grid}} · getekend {{minor}} · hoofdlijn {{major}}",
+        gridLegendStepped:
+          "raster {{grid}} · getekend {{minor}} · hoofdlijn {{major}}",
         areaLegendNet: "oppervlakte netto (binnenwerks)",
         areaLegendCenterline: "oppervlakte hart-op-hart",
         dimLegendCenterline: "maten hart-op-hart",
@@ -1088,13 +1235,19 @@ export const resources = {
         dimLegendBoth: "maten dagmaat en hart-op-hart",
         dimTagClear: "dag",
         dimTagCenterline: "h.o.h.",
-        touchSelect: "tik om te selecteren \u00b7 sleep punten, muren en symbolen \u00b7 houd iets ingedrukt om te beginnen met meer selecteren, tik daarna verder om toe te voegen \u00b7 tik de oppervlakte om de ruimte te benoemen",
-        touchSelectFurnishing: "sleep het element om het te verplaatsen \u00b7 tik ernaast om de selectie los te laten",
-        touchSelectRoute: "dubbeltik op de leiding om een punt toe te voegen \u00b7 sleep punten om ze te verplaatsen",
-        touchSelectMode: "{{n}} geselecteerd \u00b7 tik voegt toe of haalt weg \u00b7 tik naast de selectie om te wissen \u00b7 Klaar sluit af",
-        touchSelectWall: "tik de mm-waarde om te bewerken \u00b7 sleep de \u25c6 greep om te buigen",
+        touchSelect:
+          "tik om te selecteren \u00b7 sleep punten, muren en symbolen \u00b7 houd iets ingedrukt om te beginnen met meer selecteren, tik daarna verder om toe te voegen \u00b7 tik de oppervlakte om de ruimte te benoemen",
+        touchSelectFurnishing:
+          "sleep het element om het te verplaatsen \u00b7 tik ernaast om de selectie los te laten",
+        touchSelectRoute:
+          "dubbeltik op de leiding om een punt toe te voegen \u00b7 sleep punten om ze te verplaatsen",
+        touchSelectMode:
+          "{{n}} geselecteerd \u00b7 tik voegt toe of haalt weg \u00b7 tik naast de selectie om te wissen \u00b7 Klaar sluit af",
+        touchSelectWall:
+          "tik de mm-waarde om te bewerken \u00b7 sleep de \u25c6 greep om te buigen",
         touchWallStart: "tik om een muurketen te beginnen",
-        touchWallChain: "tik om te plaatsen \u00b7 of typ een lengte in mm \u00b7 Sluiten maakt de ring rond \u00b7 Klaar stopt",
+        touchWallChain:
+          "tik om te plaatsen \u00b7 of typ een lengte in mm \u00b7 Sluiten maakt de ring rond \u00b7 Klaar stopt",
         touchWallRect: "tik de eerste hoek van de rechthoek",
         touchWallRectTo: "tik of sleep naar de tegenoverliggende hoek",
         touchWallCircle: "tik het middelpunt van de cirkel",
@@ -1102,8 +1255,10 @@ export const resources = {
         touchWallPolygon: "tik het middelpunt van de veelhoek",
         touchWallPolygonTo: "tik of sleep naar een hoekpunt",
         touchWallTyped: "lengte: {{length}} mm \u2014 Plaats zet het punt",
-        touchSelectWallTyped: "muurlengte: {{length}} mm \u2014 Plaats past het toe",
-        touchResize: "sleep een hoek- of randgreep om te herschalen \u00b7 dicht bij een wandvlak sluit het aan",
+        touchSelectWallTyped:
+          "muurlengte: {{length}} mm \u2014 Plaats past het toe",
+        touchResize:
+          "sleep een hoek- of randgreep om te herschalen \u00b7 dicht bij een wandvlak sluit het aan",
         touchDoor: "tik op een muur om een deur te plaatsen",
         touchWindow: "tik op een muur om een raam te plaatsen",
         touchPassage: "tik op een muur om een doorgang te plaatsen",
@@ -1112,19 +1267,28 @@ export const resources = {
         touchStructure: "tik om een {{label}} te plaatsen",
         touchStructureSpan: "tik het beginpunt van de {{label}}",
         touchStructureSpanTo: "tik of sleep naar het eindpunt van de {{label}}",
-        touchRoute: "tik om punten te plaatsen \u00b7 tik een apparaat op een gekozen leiding voor een aftakking \u00b7 dubbeltik of Klaar sluit het traject af",
+        touchRoute:
+          "tik om punten te plaatsen \u00b7 tik een apparaat op een gekozen leiding voor een aftakking \u00b7 dubbeltik of Klaar sluit het traject af",
         touchFurnishing: "tik om {{label}} te plaatsen",
-        touchZoom: "sleep een kader · tik een ruimte · benoem ruimtes in de lijst · dubbeltik het doek voor alles in beeld",
-        touchMeasure: "tik het eerste punt · of sleep van punt tot punt · het lint pakt hoeken, wandvlakken, dagkanten en omtrekken",
+        touchZoom:
+          "sleep een kader · tik een ruimte · benoem ruimtes in de lijst · dubbeltik het doek voor alles in beeld",
+        touchMeasure:
+          "tik het eerste punt · of sleep van punt tot punt · het lint pakt hoeken, wandvlakken, dagkanten en omtrekken",
         touchMeasureTo: "tik of sleep naar het tweede punt",
-        touchMeasured: "{{length}} mm · horizontaal {{dx}} · verticaal {{dy}} · tik voor een nieuwe meting",
-        touchView3d: "draai met één vinger · twee vingers zoomen en verschuiven · dubbeltik voor alles in beeld",
-        calibrateFirst: "klik het eerste punt van de bekende afstand op de onderlegger · Esc annuleert",
+        touchMeasured:
+          "{{length}} mm · horizontaal {{dx}} · verticaal {{dy}} · tik voor een nieuwe meting",
+        touchView3d:
+          "draai met één vinger · twee vingers zoomen en verschuiven · dubbeltik voor alles in beeld",
+        calibrateFirst:
+          "klik het eerste punt van de bekende afstand op de onderlegger · Esc annuleert",
         calibrateSecond: "klik het tweede punt · Esc annuleert",
-        calibrateDistance: "typ de echte afstand in mm: {{length}} — Enter past toe · Esc annuleert",
-        touchCalibrateFirst: "tik het eerste punt van de bekende afstand op de onderlegger",
+        calibrateDistance:
+          "typ de echte afstand in mm: {{length}} — Enter past toe · Esc annuleert",
+        touchCalibrateFirst:
+          "tik het eerste punt van de bekende afstand op de onderlegger",
         touchCalibrateSecond: "tik het tweede punt",
-        touchCalibrateDistance: "typ de echte afstand in mm: {{length}} — Plaats past toe",
+        touchCalibrateDistance:
+          "typ de echte afstand in mm: {{length}} — Plaats past toe",
       },
       status: {
         newPlan: "nieuwe plattegrond — Ctrl+Z herstelt de vorige",
@@ -1179,10 +1343,10 @@ export const resources = {
         "switch-series": "Serieschakelaar",
         "switch-two-way": "Wisselschakelaar",
         "switch-cross": "Kruisschakelaar",
-        "dimmer": "Dimmer",
+        dimmer: "Dimmer",
         "switch-pull": "Trekschakelaar",
         "push-button": "Drukknop",
-        "doorbell": "Deurbel",
+        doorbell: "Deurbel",
         "light-point": "Plafondlichtpunt",
         "light-wall": "Wandlichtpunt",
         "light-fluor": "TL-armatuur",
@@ -1191,7 +1355,7 @@ export const resources = {
         "outlet-tv": "TV/CAI-aansluiting",
         "outlet-data": "Data-aansluiting",
         "dist-board": "Groepenkast",
-        "thermostat": "Thermostaat",
+        thermostat: "Thermostaat",
         "motion-sensor": "Bewegingsmelder",
         "water-point": "Koudwaterpunt",
         "water-point-hot": "Warmwaterpunt",
@@ -1199,21 +1363,21 @@ export const resources = {
         "water-point-floor-hot": "Warmwaterpunt in vloer",
         "mixer-tap": "Mengkraan",
         "washing-machine": "Wasmachine",
-        "dryer": "Wasdroger",
-        "dishwasher": "Vaatwasser",
-        "boiler": "Boiler",
+        dryer: "Wasdroger",
+        dishwasher: "Vaatwasser",
+        boiler: "Boiler",
         "water-meter": "Watermeter",
         "floor-drain": "Vloerput",
         "gas-point": "Gasaansluitpunt",
         "waste-point": "Afvoeraansluitpunt",
-        "radiator": "Radiator",
+        radiator: "Radiator",
         "floor-heating": "Vloerverwarming",
         "cv-boiler": "CV-ketel",
         "heat-pump": "Warmtepomp",
         "vent-valve": "Ventilatieventiel",
         "wtw-unit": "WTW-unit",
         "expansion-vessel": "Expansievat",
-        "convector": "Convector",
+        convector: "Convector",
         "convector-pit": "Convectorput",
         "cv-manifold": "CV-verdeler",
         "storage-heater": "Verwarmingstoestel met warmteaccumulatie",
@@ -1232,7 +1396,7 @@ export const resources = {
         "vent-extract": "Ventilatie afvoerpunt (afzuigpunt)",
         "vent-supply": "Ventilatie toevoerpunt",
         "vent-unit": "Ventilatie-unit",
-        "fan": "Ventilator",
+        fan: "Ventilator",
         "emergency-exit": "Nooduitgang",
         "fire-ext-co2": "Koolzuursneeuwblusser",
         "fire-ext-powder": "Poederblusser",
@@ -1251,21 +1415,21 @@ export const resources = {
       },
       /* Documentation labels and the persistent disclaimer link. */
       stair: {
-        "steektrap": "Steektrap",
+        steektrap: "Steektrap",
         "steektrap-boven-elkaar": "Steektrappen boven elkaar",
         "steektrap-scheluw": "Steektrap, scheluw",
-        "bordestrap": "Bordestrap",
-        "bovenkwart": "Trap met bovenkwart",
-        "onderkwart": "Trap met onderkwart",
+        bordestrap: "Bordestrap",
+        bovenkwart: "Trap met bovenkwart",
+        onderkwart: "Trap met onderkwart",
         "onder-bovenkwart": "Trap met onder- en bovenkwart",
-        "rijstroken": "Trap met rijstroken",
-        "roltrap": "Roltrap",
-        "vlizotrap": "Vlizotrap met luik",
+        rijstroken: "Trap met rijstroken",
+        roltrap: "Roltrap",
+        vlizotrap: "Vlizotrap met luik",
         "spiltrap-recht": "Spiltrap, rechthoekig",
         "spiltrap-rond": "Spiltrap, rond",
-        "wenteltrap": "Wenteltrap",
-        "klimijzers": "Klimijzers",
-        "hellingbaan": "Hellingbaan",
+        wenteltrap: "Wenteltrap",
+        klimijzers: "Klimijzers",
+        hellingbaan: "Hellingbaan",
       },
       stairUse: {
         none: "niet opgegeven (ruimste marge)",
@@ -1273,14 +1437,19 @@ export const resources = {
         overig: "andere gebruiksfunctie",
       },
       stairIssue: {
-        riserHigh: "optrede {{value}} mm — gebruikelijk ten hoogste {{limit}} mm",
+        riserHigh:
+          "optrede {{value}} mm — gebruikelijk ten hoogste {{limit}} mm",
         riserLow: "optrede {{value}} mm — dat is geen trede meer",
-        goingShort: "aantrede {{value}} mm — gebruikelijk ten minste {{limit}} mm",
-        widthNarrow: "breedte {{value}} mm — gebruikelijk ten minste {{limit}} mm",
-        slopeSteep: "helling {{value}} — gebruikelijk niet steiler dan {{limit}}",
+        goingShort:
+          "aantrede {{value}} mm — gebruikelijk ten minste {{limit}} mm",
+        widthNarrow:
+          "breedte {{value}} mm — gebruikelijk ten minste {{limit}} mm",
+        slopeSteep:
+          "helling {{value}} — gebruikelijk niet steiler dan {{limit}}",
       },
       fitoutIssue: {
-        workplaceNone: "{{value}} m² — geen volledige werkplek (richtwaarde vanaf {{limit}} m²)",
+        workplaceNone:
+          "{{value}} m² — geen volledige werkplek (richtwaarde vanaf {{limit}} m²)",
       },
       cabinetKind: {
         base: "Onderkast",
@@ -1295,54 +1464,54 @@ export const resources = {
         slide: "Schuifdeur",
       },
       furnishing: {
-        "onderkast": "Onderkast",
-        "ladenkast": "Ladenkast",
-        "spoelkast": "Spoelkast",
+        onderkast: "Onderkast",
+        ladenkast: "Ladenkast",
+        spoelkast: "Spoelkast",
         "hoekkast-onder": "Hoekkast onder",
-        "vulpaneel": "Vulpaneel",
-        "bovenkast": "Bovenkast",
+        vulpaneel: "Vulpaneel",
+        bovenkast: "Bovenkast",
         "bovenkast-open": "Open bovenkast",
         "hoekkast-boven": "Hoekkast boven",
         "hoge-kast": "Hoge kast",
-        "apparatenkast": "Apparatenkast",
+        apparatenkast: "Apparatenkast",
         "koelkast-ombouw": "Koelkastombouw",
-        "aanrecht": "Aanrecht met spoelbak",
+        aanrecht: "Aanrecht met spoelbak",
         "aanrecht-dubbel": "Aanrecht, dubbele spoelbak",
-        "fornuis": "Fornuis",
-        "oven": "Oven",
-        "magnetron": "Magnetron",
-        "koelkast": "Koelkast",
-        "vriezer": "Vriezer",
-        "afzuigkap": "Afzuigkap",
-        "toestel": "Toestel, vast",
-        "toilet": "Toilet",
+        fornuis: "Fornuis",
+        oven: "Oven",
+        magnetron: "Magnetron",
+        koelkast: "Koelkast",
+        vriezer: "Vriezer",
+        afzuigkap: "Afzuigkap",
+        toestel: "Toestel, vast",
+        toilet: "Toilet",
         "toilet-inbouw": "Toilet met ingebouwde stortbak",
-        "invalidentoilet": "Invalidentoilet",
-        "wandurinoir": "Wandurinoir",
-        "standurinoir": "Standurinoir",
-        "bidet": "Bidet",
-        "wastafel": "Wastafel",
+        invalidentoilet: "Invalidentoilet",
+        wandurinoir: "Wandurinoir",
+        standurinoir: "Standurinoir",
+        bidet: "Bidet",
+        wastafel: "Wastafel",
         "wastafel-dubbel": "Wastafel, dubbel",
-        "fonteintje": "Fonteintje",
-        "trogwastafel": "Wastafel, meervoudig (trog)",
-        "bad": "Bad",
-        "douchehoek": "Douchehoek",
-        "douchebak": "Douchebak",
+        fonteintje: "Fonteintje",
+        trogwastafel: "Wastafel, meervoudig (trog)",
+        bad: "Bad",
+        douchehoek: "Douchehoek",
+        douchebak: "Douchebak",
         "douchebak-goot": "Douchebak met gootdrain",
-        "douche": "Douche",
-        "badkamermeubel": "Badkamermeubel",
-        "garderobekast": "Garderobekast",
-        "kantoorkast": "Kantoorkast",
-        "wandschap": "Wandschap",
-        "stellage": "Stellage",
-        "palletstelling": "Palletstelling",
-        "eenpersoonsbed": "Eenpersoonsbed",
-        "tweepersoonsbed": "Tweepersoonsbed",
-        "bank": "Bank",
-        "fauteuil": "Fauteuil",
-        "tafel": "Tafel",
+        douche: "Douche",
+        badkamermeubel: "Badkamermeubel",
+        garderobekast: "Garderobekast",
+        kantoorkast: "Kantoorkast",
+        wandschap: "Wandschap",
+        stellage: "Stellage",
+        palletstelling: "Palletstelling",
+        eenpersoonsbed: "Eenpersoonsbed",
+        tweepersoonsbed: "Tweepersoonsbed",
+        bank: "Bank",
+        fauteuil: "Fauteuil",
+        tafel: "Tafel",
         "ronde-tafel": "Ronde tafel",
-        "bureau": "Bureau",
+        bureau: "Bureau",
       },
       furnishingGroup: {
         keuken: "Keuken",
@@ -1421,9 +1590,12 @@ export const resources = {
         workstations: "werkplekken (indicatief): {{n}}",
         daylight: "daglicht (verhouding, geen toetsing): {{pct}}%",
         ventilation: "ventilatie (indicatief): {{m3h}} m³/h",
-        ventRouted: "aangesloten (indicatief): {{toevoer}} m³/h toevoer, {{afvoer}} m³/h afvoer",
-        ventRoutedBelow: "aangesloten toevoer blijft onder de indicatieve vraag",
-        ventRoutedUnstated: "{{n}} traject(en) zonder opgegeven debiet niet meegeteld",
+        ventRouted:
+          "aangesloten (indicatief): {{toevoer}} m³/h toevoer, {{afvoer}} m³/h afvoer",
+        ventRoutedBelow:
+          "aangesloten toevoer blijft onder de indicatieve vraag",
+        ventRoutedUnstated:
+          "{{n}} traject(en) zonder opgegeven debiet niet meegeteld",
       },
       vide: {
         label: "vide",
@@ -1441,7 +1613,8 @@ export const resources = {
         format: "Formaat & API",
         disclaimer: "Geen garantie — verantwoordelijkheid bij gebruiker",
         disclaimerShort: "Disclaimer",
-        disclaimerTitle: "Informatie over garantie, aansprakelijkheid en verantwoordelijkheid voor controle.",
+        disclaimerTitle:
+          "Informatie over garantie, aansprakelijkheid en verantwoordelijkheid voor controle.",
       },
       symbolSearch: "Zoek {{count}} symbolen…",
     },
@@ -1539,7 +1712,8 @@ export const resources = {
         newOpeningDoor: "New door",
         newOpeningWindow: "New window",
         newOpeningPassage: "New doorway",
-        newOpeningNote: "applies to the next placement \u2014 widths are clear frame openings",
+        newOpeningNote:
+          "applies to the next placement \u2014 widths are clear frame openings",
         furnishing: "{{kind}}",
         furnishingCustom: "custom",
         newFurnishing: "Add fit-out",
@@ -1550,8 +1724,10 @@ export const resources = {
         furnishingLabel: "Annotation",
         furnishingFootprint: "Size",
         furnishingBasins: "Bowls",
-        furnishingNote: "snaps to a wall and to the piece beside it \u00b7 wall units and extractor hoods draw dashed",
-        furnishingNoteLoose: "stands free in the room \u00b7 R turns a quarter, M mirrors",
+        furnishingNote:
+          "snaps to a wall and to the piece beside it \u00b7 wall units and extractor hoods draw dashed",
+        furnishingNoteLoose:
+          "stands free in the room \u00b7 R turns a quarter, M mirrors",
         cabinetKind: "Height class",
         cabinetFront: "Front",
         cabinetHinge: "Hinge side",
@@ -1575,12 +1751,14 @@ export const resources = {
         zoomZones: "Rooms",
         zoomUnnamed: "unnamed",
         zoomUnattached: "unattached label",
-        zoomNote: "click a room to frame it \u00b7 the button beside it names it \u00b7 drag a box to zoom in",
+        zoomNote:
+          "click a room to frame it \u00b7 the button beside it names it \u00b7 drag a box to zoom in",
         videWidth: "Width (mm)",
         videDepth: "Depth (mm)",
         videLabel: "Caption",
         videArea: "Area",
-        videWidthHelp: "a stairwell opening over a straight flight is about {{w}} \u00d7 {{d}} mm",
+        videWidthHelp:
+          "a stairwell opening over a straight flight is about {{w}} \u00d7 {{d}} mm",
         videNote: "an opening in the floor, open to the storey below",
         newStructure: "New structure",
         structurePlain: "Structure",
@@ -1603,7 +1781,8 @@ export const resources = {
         deckDeckingHelp: "0 counts no decking",
         deckRaised: "At a height",
         deckTop: "Top above floor (mm)",
-        deckTopHelp: "without a height the deck is this storey's floor · a loft or mezzanine lies at a height",
+        deckTopHelp:
+          "without a height the deck is this storey's floor · a loft or mezzanine lies at a height",
         deckUse: "Use",
         deckUseNone: "not stated",
         deckUseCustom: "custom",
@@ -1614,7 +1793,8 @@ export const resources = {
         deckArea: "Area",
         deckSpan: "Span",
         deckJoists: "Joists",
-        deckNote: "timber floor between its supports · dashed at a height: above the section plane · R quarter turn",
+        deckNote:
+          "timber floor between its supports · dashed at a height: above the section plane · R quarter turn",
         deckHoles: "Openings",
         deckHoleOpening: "Opening",
         deckHoleIncomplete: "does not lie fully inside the deck — not checked",
@@ -1622,7 +1802,8 @@ export const resources = {
         deckHoleTrimmer: "Trimmer (doubled)",
         deckHoleCarries: "Joists carried",
         deckHolePointAt: "Point load at",
-        deckHoleNote: "a joist cut by a stair opening or a vide is shortened and bears on a header; the joists either side are doubled (trimmer) to carry the header · joist hangers and connections are not checked",
+        deckHoleNote:
+          "a joist cut by a stair opening or a vide is shortened and bears on a header; the joists either side are doubled (trimmer) to carry the header · joist hangers and connections are not checked",
         structureLabel: "Caption",
         columnShape: "Section",
         columnShape_rect: "rectangular",
@@ -1633,22 +1814,27 @@ export const resources = {
         columnDiameter: "Diameter (mm)",
         columnOwnHeight: "Own height",
         columnHeight: "Height above floor (mm)",
-        columnHeightHelp: "without its own height the column carries the floor above \u00b7 a column under a void stops at the floor edge",
-        columnNote: "hatched: the column is cut by the section plane \u00b7 snaps to corners and walls \u00b7 R quarter turn",
+        columnHeightHelp:
+          "without its own height the column carries the floor above \u00b7 a column under a void stops at the floor edge",
+        columnNote:
+          "hatched: the column is cut by the section plane \u00b7 snaps to corners and walls \u00b7 R quarter turn",
         beamProfile: "Section",
         beamProfileCustom: "custom",
         beamWidth: "Flange width (mm)",
         beamDepth: "Section height (mm)",
         beamOwnBottom: "Own underside",
         beamBottom: "Underside above floor (mm)",
-        beamBottomHelp: "without its own underside the top sits at the storey height",
-        beamNote: "dashed: the beam runs above the section plane \u00b7 between two points, click or drag \u00b7 O locks the angle",
+        beamBottomHelp:
+          "without its own underside the top sits at the storey height",
+        beamNote:
+          "dashed: the beam runs above the section plane \u00b7 between two points, click or drag \u00b7 O locks the angle",
         beamLoadOn: "Load on beam",
         beamLoad: "Load (kN/m)",
         railingWidth: "Handrail width (mm)",
         railingHeight: "Height (mm)",
         railingPost: "Baluster centres (mm)",
-        railingNote: "outlined: the railing stands below the section plane \u00b7 between two points \u00b7 0 draws no balusters",
+        railingNote:
+          "outlined: the railing stands below the section plane \u00b7 between two points \u00b7 0 draws no balusters",
         spanLength: "Length",
         route: "Route",
         newRoute: "New route",
@@ -1688,21 +1874,27 @@ export const resources = {
         routeTotalLength: "Total incl. drops (mm)",
         routeDropUnstated: "{{n}} connected devices without a mounting height",
         routeIssues: "Riser check",
-        routeIssueDangling: "a continuation names a point that no longer exists",
+        routeIssueDangling:
+          "a continuation names a point that no longer exists",
         routeIssueSameFloor: "a continuation joins points on the same storey",
-        routeIssueDiscipline: "a continuation joins different disciplines ({{values}})",
-        routeIssueMetadata: "a continuation joins runs whose service data disagree",
+        routeIssueDiscipline:
+          "a continuation joins different disciplines ({{values}})",
+        routeIssueMetadata:
+          "a continuation joins runs whose service data disagree",
         storeyServices: "Risers on this storey",
-        storeyServicesValue: "{{in}} in \u00b7 {{out}} out \u00b7 {{through}} through",
+        storeyServicesValue:
+          "{{in}} in \u00b7 {{out}} out \u00b7 {{through}} through",
         storeyVerticalLength: "Vertical length charged to this storey",
         routeAuto: "Follow the walls",
         routeOffset: "Stand-off from wall centre (mm)",
-        routeAutoNote: "each leg takes the shortest way along the walls \u00b7 what lands is an ordinary run you edit afterwards",
+        routeAutoNote:
+          "each leg takes the shortest way along the walls \u00b7 what lands is an ordinary run you edit afterwards",
         deviceConnected: "Connected to",
         deviceDisconnect: "Disconnect from the run",
         deviceConnectTo: "Connect to {{run}}",
         deviceConnectHere: "Connect here to {{run}}",
-        deviceConnectPick: "this device stands on more than one run \u2014 pick the one it joins",
+        deviceConnectPick:
+          "this device stands on more than one run \u2014 pick the one it joins",
         deviceIncomplete: "Still to connect: {{services}}",
         board: "Distribution board",
         boardName: "Board name / number",
@@ -1713,8 +1905,10 @@ export const resources = {
         boardGroupEmpty: "nothing yet",
         boardGroupAdd: "Add a group",
         boardGroupRemove: "Remove group {{name}}",
-        boardNote: "add groups \u2014 each one gets a connection point to hook a run onto",
-        routeGroupFromBoard: "the group comes from the board this run is connected to",
+        boardNote:
+          "add groups \u2014 each one gets a connection point to hook a run onto",
+        routeGroupFromBoard:
+          "the group comes from the board this run is connected to",
         routeEndpointRemove: "Remove endpoint",
         routeEndpointLink: "Link to {{device}}",
         routeMerge: "Merge {{n}} routes",
@@ -1729,7 +1923,8 @@ export const resources = {
         requireComplete: "Check connections",
         requireCompleteOpen: "{{n}} devices are still waiting for a connection",
         requireCompleteDone: "everything that needs a connection has one",
-        routeNote: "click to place points \u00b7 a device on a selected run becomes a tap \u00b7 Esc or double-click ends the run",
+        routeNote:
+          "click to place points \u00b7 a device on a selected run becomes a tap \u00b7 Esc or double-click ends the run",
         routeKind: "Type",
         routeKindPower: "Power",
         routeKindUtp: "UTP",
@@ -1773,8 +1968,10 @@ export const resources = {
         stairFollowStorey: "Follow storey height",
         stairWidthHelp: "free width; usually at least {{min}} mm",
         stairGoingHelp: "going; usually at least {{min}} mm",
-        stairTreadsHelp: "with the rise this sets the riser; usually at most {{max}} mm",
-        stairWellHelp: "the gap between the strings, or the radius of the newel",
+        stairTreadsHelp:
+          "with the rise this sets the riser; usually at most {{max}} mm",
+        stairWellHelp:
+          "the gap between the strings, or the radius of the newel",
         stairWell: "Well (mm)",
         stairTurn: "Turn",
         stairTurnBottom: "Quarter at the foot",
@@ -1813,26 +2010,43 @@ export const resources = {
         postLayout_plasterboard: "Plasterboard 600 (usual)",
         postLayout_osb: "OSB 625",
         postLayout_even: "Even",
+        postLayout_grid: "Grid",
         postLayout_custom: "Custom grid",
         postFrom: "Grid from",
         postFromA: "start (a)",
         postFromB: "end (b)",
         postWidthOn: "State post width",
         postWidth: "Post width (mm)",
-        postsHelp: "maximum bay width \u00b7 each run between openings is divided equally \u00b7 with no width a post draws as a line",
-        postLayoutHelp: "even: each run between openings in equal bays \u00b7 grid: fixed centres from one end, carried across openings and bands, with a shorter last gap",
+        postsHelp:
+          "maximum bay width \u00b7 each run between openings is divided equally \u00b7 with no width a post draws as a line",
+        postLayoutHelp:
+          "even: each run between openings in equal bays \u00b7 grid: fixed centres from one end, carried across openings and bands, with a shorter last gap",
         facadeOn: "Cladding",
         facade: "Facade thickness (mm)",
         facadeSide: "Facade side",
         facadeLeft: "left of a\u2192b",
         facadeRight: "right of a\u2192b",
-        facadeHelp: "outside the structural body \u00b7 thickness stays the structure \u00b7 the gross area is measured over it",
+        facadeHelp:
+          "outside the structural body \u00b7 thickness stays the structure \u00b7 the gross area is measured over it",
+        buildUpFramePreset: "Lining wall",
+        buildUpFrameGap: "Stand-off (mm)",
+        buildUpFrameDepth: "Stud depth (mm)",
+        buildUpFrameMaterial: "Stud material",
+        buildUpFramePostMm: "Post centres (mm)",
+        buildUpFramePostLayout: "Stud layout",
+        buildUpFramePostWidth: "Post width (mm)",
+        buildUpFrameNoggings: "Noggings (rows)",
+        buildUpFrameInsulated: "Cavity insulated",
+        buildUpFrameHeight: "Lining wall height (mm)",
+        buildUpFrameHelp:
+          "the lining wall's position follows from the wall and its neighbours and is not stored · its studs are not yet in the materials takeoff",
         buildUpPreset: "Boards",
         buildUpBoardKind: "Board kind",
         buildUpBoardMm: "Board thickness (mm)",
         buildUpBoardRemove: "Remove",
         buildUpAdd: "Add board",
-        buildUpHelp: "boards on this face, from the wall outward into the room \u00b7 lies outside the wall thickness; the net area is measured to the outer board",
+        buildUpHelp:
+          "boards on this face, from the wall outward into the room \u00b7 lies outside the wall thickness; the net area is measured to the outer board",
         buildUpFacadeNote: "This face carries the facade.",
         blockOn: "State block format",
         blockLength: "Block length (mm)",
@@ -1842,27 +2056,39 @@ export const resources = {
         panelWidthOn: "State panel width",
         panelWidth: "Panel width (mm)",
         wallJoin: "Join walls",
-        wallJoinTitle: "extend both walls to where they cross and weld the ends into one node",
+        wallJoinTitle:
+          "extend both walls to where they cross and weld the ends into one node",
         wallJoinWeld: "Weld ends",
-        wallJoinWeldTitle: "the walls run parallel \u00b7 the ends meet at their midpoint",
+        wallJoinWeldTitle:
+          "the walls run parallel \u00b7 the ends meet at their midpoint",
         wallJoinAlready: "these walls already share a node",
         wallJoinBusy: "one of the ends is already attached to another wall",
         wallJoinApart: "the walls do not reach each other",
         wallAddNode: "Add node",
-        wallAddNodeTitle: "splits the wall at its midpoint \u00b7 the new node can then be set to size",
+        wallAddNodeTitle:
+          "splits the wall at its midpoint \u00b7 the new node can then be set to size",
         wallMerge: "Merge walls",
-        wallMergeTitle: "makes the two wall sections one wall and removes the node between them",
+        wallMergeTitle:
+          "makes the two wall sections one wall and removes the node between them",
         nodeDissolve: "Remove node",
         nodeDissolveTitle: "merges the two walls into one",
-        nodeRemoveCutTitle: "the node is a wall end \u00b7 that one wall goes with it",
-        nodeRemoveJunction: "three or more walls meet here \u00b7 this node cannot be removed without leaving loose ends",
-        routePointRemoveTitle: "takes this point out of the run \u00b7 its neighbours are reconnected",
-        nodeDissolveDegree: "only a node between exactly two walls can be removed",
+        nodeRemoveCutTitle:
+          "the node is a wall end \u00b7 that one wall goes with it",
+        nodeRemoveJunction:
+          "three or more walls meet here \u00b7 this node cannot be removed without leaving loose ends",
+        routePointRemoveTitle:
+          "takes this point out of the run \u00b7 its neighbours are reconnected",
+        nodeDissolveDegree:
+          "only a node between exactly two walls can be removed",
         nodeDissolveCurved: "a curved wall cannot be merged here",
-        nodeDissolveBent: "the walls do not run in one line \u00b7 this node is a corner",
-        nodeDissolveDiffers: "the walls differ \u00b7 merging would discard what one of them states",
-        nodeDissolveOpposed: "the walls were drawn in opposite directions and both carry a sliding door \u00b7 which side it slides on is not stored",
-        wallColorHelp: "black is existing, red to be built, yellow to be removed",
+        nodeDissolveBent:
+          "the walls do not run in one line \u00b7 this node is a corner",
+        nodeDissolveDiffers:
+          "the walls differ \u00b7 merging would discard what one of them states",
+        nodeDissolveOpposed:
+          "the walls were drawn in opposite directions and both carry a sliding door \u00b7 which side it slides on is not stored",
+        wallColorHelp:
+          "black is existing, red to be built, yellow to be removed",
         sillHeight: "Sill height (mm)",
         openingHeight: "Height (mm)",
         lintelBearing: "Lintel bearing per end (mm)",
@@ -1872,8 +2098,10 @@ export const resources = {
         lintelDepth: "Lintel depth (mm)",
         lintelLoadOn: "Additional load on lintel",
         lintelLoad: "Additional load (kN/m)",
-        lintelLoadHelp: "for example a deck bearing on this wall; counts as variable load (γQ), separate from the wall's own self-weight",
-        stairNote: "the arrow points from the bottom of the flight to the top · Wallgraph does not check regulations",
+        lintelLoadHelp:
+          "for example a deck bearing on this wall; counts as variable load (γQ), separate from the wall's own self-weight",
+        stairNote:
+          "the arrow points from the bottom of the flight to the top · Wallgraph does not check regulations",
         close: "Clear selection",
         grid: "Grid (mm)",
         length: "Length, centerline (mm)",
@@ -1938,7 +2166,8 @@ export const resources = {
         fire_wbdbo: "WBDBO",
         fire_wbd: "WBD",
         fire_wrd: "WRD",
-        fireHelp: "WBDBO = fire and smoke spread · WBD = fire spread · WRD = smoke spread",
+        fireHelp:
+          "WBDBO = fire and smoke spread · WBD = fire spread · WRD = smoke spread",
         fireMinutes: "Minutes",
         winVast: "fixed light",
         winDraai: "side-hung",
@@ -1975,7 +2204,8 @@ export const resources = {
         deleteWithWalls: "Delete with walls",
         mirror: "Mirror",
         mirrorTitle: "Mirror (M)",
-        furnishingBulk: "{{n}} pieces selected · moving, turning, mirroring and deleting apply to all",
+        furnishingBulk:
+          "{{n}} pieces selected · moving, turning, mirroring and deleting apply to all",
         selectionHeader: "{{n}} × {{label}}",
         selectModeDone: "Done ({{n}})",
         snapWall: "Snap to walls",
@@ -1990,7 +2220,8 @@ export const resources = {
         floorRename: "Floor name",
         floorDelete: "Delete floor",
         floorDrag: "Drag floor",
-        floorListNote: "highest on top · drag the grip to restack · click the grip to show that storey",
+        floorListNote:
+          "highest on top · drag the grip to restack · click the grip to show that storey",
         floor3d: "{{name}} in 3D",
         floorNewName: "Floor {{n}}",
         floorGhost: "storey below shown as underlay",
@@ -2014,13 +2245,16 @@ export const resources = {
         square: "Square",
         sides: "Sides",
         sidesHelp: "{{min}} to {{max}} sides",
-        wallWeldNote: "a new wall splits what it crosses, but welds an end that is too near the crossing to leave a wall behind; a shared wall is not drawn twice",
+        wallWeldNote:
+          "a new wall splits what it crosses, but welds an end that is too near the crossing to leave a wall behind; a shared wall is not drawn twice",
         wallList: "Walls on this storey",
         wallListLength: "{{mm}} mm",
         wallListThickness: "{{mm}} mm thick",
         wallListMeta: "{{mm}} mm thick · {{area}}",
-        wallListStub: "shorter than the wall is thick — almost certainly a leftover",
-        wallListNote: "shortest first · click a wall to frame and select it · the bin removes it",
+        wallListStub:
+          "shorter than the wall is thick — almost certainly a leftover",
+        wallListNote:
+          "shortest first · click a wall to frame and select it · the bin removes it",
         wallSurface: "Wall surface",
         wallSurfaceGross: "Gross",
         wallSurfaceOpenings: "Openings",
@@ -2028,19 +2262,26 @@ export const resources = {
         wallSurfaceReveals: "Reveals",
         wallSurfaceFinish: "To finish",
         wallSurfaceInner: "Inner faces",
-        wallSurfaceNote: "face length × wall height, both faces, openings deducted at their stated size · no suspended ceiling stated, so floor to floor · reveals are not counted",
-        wallSurfaceCeilingNote: "face length × height, both faces, openings deducted at their stated size · each face is measured to the ceiling of the room it stands in · reveals are not counted",
-        wallSurfaceCladNote: "inner faces leaves out the clad side · a wall that states no cladding counts with both faces",
-        wallSurfaceRevealNote: "reveals are two jambs and a head at the wall's thickness, never a sill: under a door that is the floor and under a window it takes a window board · one reveal is shared by the two sides, half each · cladding makes the reveal deeper, but that is facade work",
-        wallSurfaceBuildUpNote: "measured to the structural face · a stated board build-up lies outside it",
+        wallSurfaceNote:
+          "face length × wall height, both faces, openings deducted at their stated size · no suspended ceiling stated, so floor to floor · reveals are not counted",
+        wallSurfaceCeilingNote:
+          "face length × height, both faces, openings deducted at their stated size · each face is measured to the ceiling of the room it stands in · reveals are not counted",
+        wallSurfaceCladNote:
+          "inner faces leaves out the clad side · a wall that states no cladding counts with both faces",
+        wallSurfaceRevealNote:
+          "reveals are two jambs and a head at the wall's thickness, never a sill: under a door that is the floor and under a window it takes a window board · one reveal is shared by the two sides, half each · cladding makes the reveal deeper, but that is facade work",
+        wallSurfaceBuildUpNote:
+          "measured to the structural face · a stated board build-up lies outside it",
         wallSurfaceRooms: "In rooms",
         wallSurfaceFaceValue: "{{area}} up to {{mm}} mm",
         wallSurfaceFaceOutside: "Outer face",
         wallSurfaceFaceUnnamed: "Unnamed room",
         ceilingOn: "Suspended ceiling",
         ceiling: "Ceiling height (mm)",
-        ceilingHelp: "finished height below the floor above · changes the wall surface only, not the storey height, the stairs or the areas · a room can state its own ceiling in the room list",
-        ceilingAboveStorey: "above the storey height, so it does not count: a face is already finished to the floor above",
+        ceilingHelp:
+          "finished height below the floor above · changes the wall surface only, not the storey height, the stairs or the areas · a room can state its own ceiling in the room list",
+        ceilingAboveStorey:
+          "above the storey height, so it does not count: a face is already finished to the floor above",
         roomCeiling: "Ceiling (mm)",
         roomWallSurface: "wall surface {{area}}",
         roomWallReveals: "+ reveals {{area}} = {{total}}",
@@ -2062,14 +2303,18 @@ export const resources = {
         permitNorthDeg: "North (degrees clockwise)",
         permitExport: "Export sheet (PDF)",
         permitExportSvg: "Export sheet (SVG)",
-        permitNote: "the checklist reports what the sheet carries; exporting always works",
-        permitEnergyNote: "A new-build permit application requires a BENG calculation (NTA 8800) by a certified adviser; the geometric input for it is under Energy.",
+        permitNote:
+          "the checklist reports what the sheet carries; exporting always works",
+        permitEnergyNote:
+          "A new-build permit application requires a BENG calculation (NTA 8800) by a certified adviser; the geometric input for it is under Energy.",
         underlay: "Underlay",
         underlayLoad: "Load image…",
-        underlayPasteHint: "or paste an image from the clipboard (Ctrl+V) while this panel is open",
+        underlayPasteHint:
+          "or paste an image from the clipboard (Ctrl+V) while this panel is open",
         underlayCalibrate: "Calibrate scale",
         underlayCalibrateCancel: "Cancel calibration",
-        underlayCalibrateNote: "click two points a known distance apart on the underlay, then type the real distance",
+        underlayCalibrateNote:
+          "click two points a known distance apart on the underlay, then type the real distance",
         underlayOpacity: "Opacity (%)",
         underlayShow: "Show underlay",
         underlayRemove: "Remove underlay",
@@ -2110,10 +2355,13 @@ export const resources = {
         addPoint: "Add point",
         gable: "Gable",
         leanTo: "Lean-to",
-        openingAbove: "{{kind}} at {{mm}} mm pokes through the top; only the part below it is deducted",
-        mismatch: "Top disagrees here with the {{length}} mm wall: {{hereMm}} mm here against {{otherMm}} mm there",
+        openingAbove:
+          "{{kind}} at {{mm}} mm pokes through the top; only the part below it is deducted",
+        mismatch:
+          "Top disagrees here with the {{length}} mm wall: {{hereMm}} mm here against {{otherMm}} mm there",
         mismatches: "Disagreeing tops",
-        mismatchPair: "{{lengthA}} mm wall at {{heightA}} mm, against {{lengthB}} mm wall at {{heightB}} mm",
+        mismatchPair:
+          "{{lengthA}} mm wall at {{heightA}} mm, against {{lengthB}} mm wall at {{heightB}} mm",
       },
       check: {
         paper: "plan fits A4/A3 at a standard scale",
@@ -2153,12 +2401,18 @@ export const resources = {
         compactness: "Compactness Als/Ag",
         volume: "Gross volume",
         glazingOrientation: "Glazing {{dir}}",
-        northMissing: "the north direction is not stated; set it under {{permit}}",
-        unstatedExterior: "{{n}} walls bound no room but state no facade; only a wall with a facade counts in the envelope",
-        inwardFacades: "{{n}} facades face inward: the clad side bounds a room and the other side none; switch the facade side",
-        overhang: "a storey extends beyond the one below; the overhang is not measured as envelope",
-        overlappingRoof: "two roof planes overlap in plan; the shared area counts twice in the roof area",
-        uncoveredRoof: "{{area}} of the top plate lies under no roof plane and is not counted in the envelope",
+        northMissing:
+          "the north direction is not stated; set it under {{permit}}",
+        unstatedExterior:
+          "{{n}} walls bound no room but state no facade; only a wall with a facade counts in the envelope",
+        inwardFacades:
+          "{{n}} facades face inward: the clad side bounds a room and the other side none; switch the facade side",
+        overhang:
+          "a storey extends beyond the one below; the overhang is not measured as envelope",
+        overlappingRoof:
+          "two roof planes overlap in plan; the shared area counts twice in the roof area",
+        uncoveredRoof:
+          "{{area}} of the top plate lies under no roof plane and is not counted in the envelope",
         heatLossTotal: "Transmission loss H_T",
         meanU: "Mean U",
         heatYear: "Heat loss",
@@ -2166,18 +2420,23 @@ export const resources = {
         kwhYear: "{{kwh}} kWh/year",
         kwhM2Year: "{{kwh}} kWh/m²·year",
         unstatedParts: "{{n}} parts without Rc or U are not counted",
-        indicativeNote: "Indicative: transmission loss only, at {{hdd}} degree days (base 18 °C); no ventilation, infiltration, solar gain, thermal bridging or installations. Not an NTA 8800 calculation; a BENG calculation requires attested software and a certified adviser (BRL 9500).",
-        closingNote: "Measured at the structural facade face, storey by storey floor to floor; the roof from the stated roof planes, and as the top plate where none are stated. Reported, never checked.",
+        indicativeNote:
+          "Indicative: transmission loss only, at {{hdd}} degree days (base 18 °C); no ventilation, infiltration, solar gain, thermal bridging or installations. Not an NTA 8800 calculation; a BENG calculation requires attested software and a certified adviser (BRL 9500).",
+        closingNote:
+          "Measured at the structural facade face, storey by storey floor to floor; the roof from the stated roof planes, and as the top plate where none are stated. Reported, never checked.",
       },
       roof: {
         title: "Roof",
         suggest: "Suggest from walls",
         suggestSummary: "{{n}} roof planes, {{pitch}}°, eave {{eave}} mm",
         suggestSummaryOne: "1 roof plane, {{pitch}}°, eave {{eave}} mm",
-        noteGableDisagree: "The gable walls do not agree: different ridge heights, or they do not face each other. A flat roof is proposed instead.",
-        suggestSummaryMixed: "{{n}} roof planes, each with its own pitch or eave",
+        noteGableDisagree:
+          "The gable walls do not agree: different ridge heights, or they do not face each other. A flat roof is proposed instead.",
+        suggestSummaryMixed:
+          "{{n}} roof planes, each with its own pitch or eave",
         accept: "Accept",
-        suggestNone: "The drawn walls yield no roof plane: the storey has no closed outline.",
+        suggestNone:
+          "The drawn walls yield no roof plane: the storey has no closed outline.",
         presetFlat: "Flat roof",
         presetGable: "Gable roof 45°",
         plane: "Plane {{n}}",
@@ -2190,31 +2449,38 @@ export const resources = {
         deletePlane: "Remove plane",
         removeAll: "Remove all roof planes",
         mismatchHead: "Wall/roof mismatches",
-        mismatch: "{{length}} mm wall differs {{gap}} mm from the roof above it",
+        mismatch:
+          "{{length}} mm wall differs {{gap}} mm from the roof above it",
         followRoof: "Follow roof",
         clashHead: "Roof rises through the floor above",
-        clash: "Roof plane {{n}} rises {{over}} mm through the floor of {{floor}}",
+        clash:
+          "Roof plane {{n}} rises {{over}} mm through the floor of {{floor}}",
         headroomHead: "Low headroom (NEN 2580)",
         headroomTotal: "Below 1500 mm",
         headroomUsableTotal: "Usable area",
-        headroomNote: "NEN 2580 excludes floor area under 1500 mm from the usable floor area; the figure per room sits in the room list under Zoomen.",
-        closingNote: "Reported, not enforced; a wall's own top profile stays its own statement.",
+        headroomNote:
+          "NEN 2580 excludes floor area under 1500 mm from the usable floor area; the figure per room sits in the room list under Zoomen.",
+        closingNote:
+          "Reported, not enforced; a wall's own top profile stays its own statement.",
       },
       materials: {
         title: "Materials",
         stock: "Stock lengths (mm)",
-        stockHelp: "comma-separated, mm, ascending · empty for the default list",
+        stockHelp:
+          "comma-separated, mm, ascending · empty for the default list",
         stockPreset: "Preset: {{preset}}",
         stockPreset_diy: "DIY store",
         stockPreset_merchant: "Timber merchant",
         custom: "custom",
-        sheetNote: "Board such as plasterboard is usually 1200 × 2600 mm; set that under sheet size.",
+        sheetNote:
+          "Board such as plasterboard is usually 1200 × 2600 mm; set that under sheet size.",
         kerf: "Saw kerf (mm)",
         waste: "Waste allowance (%)",
         sheetWidth: "{{kind}} sheet width (mm)",
         sheetHeight: "{{kind}} sheet height (mm)",
         noWalls: "No walls or decks on this storey.",
-        nothing: "Nothing to report: no wall on this storey states a frame, a block format, a board build-up, insulation or a panel width.",
+        nothing:
+          "Nothing to report: no wall on this storey states a frame, a block format, a board build-up, insulation or a panel width.",
         system: {
           framedTimber: "Timber frame",
           framedSteel: "Steel frame",
@@ -2238,7 +2504,8 @@ export const resources = {
           deckHeader: "Header",
           trimmer: "Trimmer",
         },
-        studsNote: "Studs also count the wall ends, both sides of every opening, the studs under each header, and corner and junction backing; the figure runs higher than the drawn post positions.",
+        studsNote:
+          "Studs also count the wall ends, both sides of every opening, the studs under each header, and corner and junction backing; the figure runs higher than the drawn post positions.",
         wallLabel: "wall {{mm}} mm",
         decksHead: "Decks",
         deckLabel: "{{label}} {{w}} × {{d}} mm",
@@ -2255,10 +2522,13 @@ export const resources = {
         unfit: "{{wall}}: {{member}} {{length}} mm fits no stock length",
         incomplete: "{{wall}}: {{field}} not stated — material not counted",
         incompleteField: "{{field}} not stated — material not counted",
-        suggestBreak: "{{wall}}: studs of {{length}} mm fit no stock length; a frame break at {{at}} would make them fit",
-        suggestBreakField: "studs of {{length}} mm fit no stock length; a frame break at {{at}} would make them fit",
+        suggestBreak:
+          "{{wall}}: studs of {{length}} mm fit no stock length; a frame break at {{at}} would make them fit",
+        suggestBreakField:
+          "studs of {{length}} mm fit no stock length; a frame break at {{at}} would make them fit",
         wallHead: "Material",
-        closingNote: "An estimate from the drawn construction, under the stated assumptions. Reported, not an order.",
+        closingNote:
+          "An estimate from the drawn construction, under the stated assumptions. Reported, not an order.",
         timberClass: "Timber strength class",
         timberClass_C18: "C18 — softwood",
         timberClass_C24: "C24 — softwood (common)",
@@ -2271,7 +2541,8 @@ export const resources = {
         deflectionDiv: "Deflection limit (L/…)",
         deflectionDivHelp: "limit as a span fraction; 250 means L/250",
         sections: "Available sections (mm)",
-        sectionsHelp: "comma-separated, width×depth, e.g. 44x195 · empty for the default list",
+        sectionsHelp:
+          "comma-separated, width×depth, e.g. 44x195 · empty for the default list",
         comfortMinHz: "Lowest acceptable fundamental frequency (Hz)",
         comfortMaxPointMm: "Deflection limit under a 1 kN point load (mm)",
         // Issue #62: a figure that differs from its default gets a visible
@@ -2331,16 +2602,22 @@ export const resources = {
         missingSpanBeam: "the beam's length (move an endpoint)",
         missingSpanHeader: "the header's span",
         missingSpanTrimmer: "the trimmer's span",
-        missingLoadGDeck: "permanent load (above, on this panel) — needed for the comfort figure, the mass cannot be assumed",
-        proposalHint: "Proposal: {{w}} × {{d}} mm would stay within the stated limit",
+        missingLoadGDeck:
+          "permanent load (above, on this panel) — needed for the comfort figure, the mass cannot be assumed",
+        proposalHint:
+          "Proposal: {{w}} × {{d}} mm would stay within the stated limit",
         applyProposal: "{{w}} × {{d}} stays within the stated limits",
-        noSectionPasses: "None of the stated sections stays within the stated limits.",
-        resultNote: "Indicative preliminary sizing: one simply supported span under a uniformly distributed load, with a trimmer's headers added as point loads. Excludes other point loads, continuous or cantilevered spans, lateral-torsional stability, vibration, notches, bearing stress, connections and fire. Reported, not a constructieberekening (structural calculation); a registered calculation requires a qualified structural engineer.",
+        noSectionPasses:
+          "None of the stated sections stays within the stated limits.",
+        resultNote:
+          "Indicative preliminary sizing: one simply supported span under a uniformly distributed load, with a trimmer's headers added as point loads. Excludes other point loads, continuous or cantilevered spans, lateral-torsional stability, vibration, notches, bearing stress, connections and fire. Reported, not a constructieberekening (structural calculation); a registered calculation requires a qualified structural engineer.",
         comfortHz: "Fundamental frequency",
         comfortPoint: "Deflection under a 1 kN point load",
         comfortResult: "Comfort",
-        comfortNote: "A deck whose bending, shear and deflection stay within the stated limits can still feel noticeably lively; these two figures — fundamental frequency and deflection under a point load — speak to that. Ordinary engineering formulas against indicative limits, not a vibration analysis: they read the mass the deck carries (self weight plus the permanent load, not the variable load) and say nothing about a heavy finish, a long or continuous span, or a floor carrying machinery.",
-        comfortAdvice: "To raise it: a deeper joist, closer centres, blocking or a strongback between the joists, or a deck glued as well as screwed.",
+        comfortNote:
+          "A deck whose bending, shear and deflection stay within the stated limits can still feel noticeably lively; these two figures — fundamental frequency and deflection under a point load — speak to that. Ordinary engineering formulas against indicative limits, not a vibration analysis: they read the mass the deck carries (self weight plus the permanent load, not the variable load) and say nothing about a heavy finish, a long or continuous span, or a floor carrying machinery.",
+        comfortAdvice:
+          "To raise it: a deeper joist, closer centres, blocking or a strongback between the joists, or a deck glued as well as screwed.",
         // Issue #62: every pane that shows a check names, in one row, which
         // assumptions it reads have been edited -- reported, never blocking.
         driftRow: "Adjusted assumptions: {{items}}.",
@@ -2358,7 +2635,8 @@ export const resources = {
         // Issue #62: a stated load lower than what is plausible -- reported
         // beside the result, changes nothing about the check itself.
         flagLowLoadQ: "the stated load is lower than ordinary for a floor",
-        flagLowLoadG: "the stated permanent load is lower than the deck's own self-weight",
+        flagLowLoadG:
+          "the stated permanent load is lower than the deck's own self-weight",
         flagZeroLoad: "the stated load is zero",
       },
       frame: {
@@ -2379,7 +2657,16 @@ export const resources = {
         breakRemove: "Remove frame break {{n}}",
         breakAdd: "Add frame break",
         breakAtDeck: "At deck height ({{mm}} mm)",
-        breakHelp: "each break is a double plate · the frame above the highest break follows the sloped top",
+        breakHelp:
+          "each break is a double plate · the frame above the highest break follows the sloped top",
+        preset: {
+          none: "None",
+          metalStud50: "Metal stud 50",
+          metalStud75: "Metal stud 75",
+          timber4570: "Timber 45×70",
+          timber4595: "Timber 45×95",
+          custom: "Custom",
+        },
       },
       sheet: {
         project: "Project",
@@ -2396,11 +2683,13 @@ export const resources = {
       },
       assumptions: {
         title: "Assumptions",
-        subtitle: "This sheet states what is drawn and assumed in this plan for its decks, beams and lintels; it is a statement of assumptions, not a constructieberekening (structural calculation). A registered calculation requires a qualified structural engineer.",
+        subtitle:
+          "This sheet states what is drawn and assumed in this plan for its decks, beams and lintels; it is a statement of assumptions, not a constructieberekening (structural calculation). A registered calculation requires a qualified structural engineer.",
         assumptionsHeading: "Assumptions",
         driftHeading: "Adjusted assumptions",
         excludedHeading: "What this sheet did not check",
-        excludedPoint: "Point loads, other than the headers bearing on a trimmer.",
+        excludedPoint:
+          "Point loads, other than the headers bearing on a trimmer.",
         excludedContinuous: "Continuous and cantilevered spans.",
         excludedLateral: "Lateral-torsional stability.",
         excludedNotches: "Notches in the section.",
@@ -2409,7 +2698,8 @@ export const resources = {
         excludedFire: "Fire resistance.",
         excludedLoadPath: "The load path below the member.",
         excludedFoundation: "The foundation.",
-        excludedTrimmer: "Joist hangers, fastenings and connections at the header and trimmers around an opening in a deck — that the joists themselves are shortened and the header and trimmers are sized and checked is stated above, at the deck; the connections between them are not.",
+        excludedTrimmer:
+          "Joist hangers, fastenings and connections at the header and trimmers around an opening in a deck — that the joists themselves are shortened and the header and trimmers are sized and checked is stated above, at the deck; the connections between them are not.",
         noElements: "This document contains no decks, beams or lintels.",
         aboveHead: "Wall height above the lintel",
         steelFy: "Steel yield strength (f_y)",
@@ -2424,7 +2714,8 @@ export const resources = {
         missingLintelSection: "the lintel section",
         headerCarries: "Joists carried",
         trimmerPointAt: "Point load at",
-        incompleteHoles: "{{n}} opening(s) do not lie fully inside this deck and were not checked.",
+        incompleteHoles:
+          "{{n}} opening(s) do not lie fully inside this deck and were not checked.",
       },
       // Issue #78: the engineer's package -- one printable PDF with the
       // cover, the permit sheet, the assumptions, the materials takeoff and
@@ -2436,8 +2727,10 @@ export const resources = {
         contentsHeading: "Contents",
         contentsMaterials: "Materials takeoff",
         contentsElevations: "Elevations",
-        statement: "This package states what is drawn and assumed in this plan. It is not a structural calculation and not a statement of structural safety. Wallgraph and its maker hold no licence or registration to assess structures. Review by a qualified structural engineer is required.",
-        statementFooter: "Not a structural calculation, not a statement of structural safety — review by a qualified structural engineer required.",
+        statement:
+          "This package states what is drawn and assumed in this plan. It is not a structural calculation and not a statement of structural safety. Wallgraph and its maker hold no licence or registration to assess structures. Review by a qualified structural engineer is required.",
+        statementFooter:
+          "Not a structural calculation, not a statement of structural safety — review by a qualified structural engineer required.",
         pageOf: "Page {{n}} of {{total}}",
         optionAssumptions: "Include assumptions",
         optionMaterials: "Include materials takeoff",
@@ -2445,15 +2738,18 @@ export const resources = {
         export: "Export engineer's package",
         materialsTitle: "Materials takeoff",
         materialsStockHeading: "Stock per system",
-        elevationsSkipped: "{{n}} wall(s) with a plain material (no frame, blockwork or sandwich panel) were skipped.",
-        noElevations: "This document contains no framed, block or sandwich walls.",
+        elevationsSkipped:
+          "{{n}} wall(s) with a plain material (no frame, blockwork or sandwich panel) were skipped.",
+        noElevations:
+          "This document contains no framed, block or sandwich walls.",
         saved: "Engineer's package saved",
         empty: "Nothing to export",
         failed: "Export failed",
       },
       hint: {
         wallStart: "click to start a wall chain",
-        wallChain: "click to place · type a length in mm · Shift locks the angle · Enter closes the ring · Esc to end",
+        wallChain:
+          "click to place · type a length in mm · Shift locks the angle · Enter closes the ring · Esc to end",
         wallRect: "click the first corner of the rectangle",
         wallRectTo: "click the opposite corner · Shift keeps it square",
         wallCircle: "click the centre of the circle",
@@ -2461,29 +2757,42 @@ export const resources = {
         wallPolygon: "click the centre of the polygon",
         wallPolygonTo: "click a corner · the number of sides is in the panel",
         wallTyped: "length: {{length}} mm — Enter to place",
-        select: "click to select · drag nodes/walls/symbols, Alt-drag copies · Shift-click selects more, Shift-drag selects an area · click a room's area figure to name it · Del deletes",
-        selectFurnishing: "Shift-click selects more pieces · dragging moves everything selected, Alt-drag copies · R turns, M mirrors",
-        selectRoute: "double-click or Cmd/Ctrl-click the run to add a point \u00b7 drag points \u00b7 Del removes",
-        selectMode: "{{n}} selected · tap adds or removes · tap beside the selection to clear it · Done finishes",
+        select:
+          "click to select · drag nodes/walls/symbols, Alt-drag copies · Shift-click selects more, Shift-drag selects an area · click a room's area figure to name it · Del deletes",
+        selectFurnishing:
+          "Shift-click selects more pieces · dragging moves everything selected, Alt-drag copies · R turns, M mirrors",
+        selectRoute:
+          "double-click or Cmd/Ctrl-click the run to add a point \u00b7 drag points \u00b7 Del removes",
+        selectMode:
+          "{{n}} selected · tap adds or removes · tap beside the selection to clear it · Done finishes",
         selectModeBadge: "Selecting several · {{n}}",
-        selectWall: "click the mm value to edit it · or just type a length + Enter · drag the ◆ handle to curve · Del deletes",
+        selectWall:
+          "click the mm value to edit it · or just type a length + Enter · drag the ◆ handle to curve · Del deletes",
         selectWallTyped: "wall length: {{length}} mm — Enter to apply",
-        resize: "drag a corner or edge handle to resize · Shift keeps the ratio, Alt keeps the centre · near a wall face snaps to it · Del deletes",
+        resize:
+          "drag a corner or edge handle to resize · Shift keeps the ratio, Alt keeps the centre · near a wall face snaps to it · Del deletes",
         door: "click on a wall to place a door",
         window: "click on a wall to place a window",
         passage: "click on a wall to place an open passage",
         symbol: "click to place {{label}} (R rotate, M mirror after placing)",
         stair: "click to place {{label}} (R quarter turn, M mirror)",
         structure: "click to place a {{label}} (R quarter turn)",
-        structureSpan: "click the start of the {{label}} · or drag from start to end",
-        structureSpanTo: "click the end of the {{label}} · O locks the angle · Esc cancels",
-        route: "click to place points \u00b7 click a device on a selected run to tap into it \u00b7 Esc or double-click ends the run",
+        structureSpan:
+          "click the start of the {{label}} · or drag from start to end",
+        structureSpanTo:
+          "click the end of the {{label}} · O locks the angle · Esc cancels",
+        route:
+          "click to place points \u00b7 click a device on a selected run to tap into it \u00b7 Esc or double-click ends the run",
         furnishing: "click to place {{label}} (R turns a quarter, M mirrors)",
         zoom: "drag a box \u00b7 click a room \u00b7 name rooms in the list \u00b7 F fits all, Shift+F the selection",
-        measure: "click the first point \u00b7 or drag from point to point \u00b7 the tape catches corners, wall faces, reveals and outlines",
-        measureTo: "click the second point \u00b7 Shift locks the angle \u00b7 Esc cancels",
-        measured: "{{length}} mm \u00b7 horizontal {{dx}} \u00b7 vertical {{dy}} \u00b7 click for a new reading \u00b7 Esc clears",
-        view3d: "drag to orbit \u00b7 scroll zooms \u00b7 Shift+drag pans \u00b7 F fits all \u00b7 Esc or 3 back to the plan",
+        measure:
+          "click the first point \u00b7 or drag from point to point \u00b7 the tape catches corners, wall faces, reveals and outlines",
+        measureTo:
+          "click the second point \u00b7 Shift locks the angle \u00b7 Esc cancels",
+        measured:
+          "{{length}} mm \u00b7 horizontal {{dx}} \u00b7 vertical {{dy}} \u00b7 click for a new reading \u00b7 Esc clears",
+        view3d:
+          "drag to orbit \u00b7 scroll zooms \u00b7 Shift+drag pans \u00b7 F fits all \u00b7 Esc or 3 back to the plan",
         fromCorner: "{{mm}} mm from corner",
         gridLegend: "grid {{grid}} · major {{major}}",
         gridLegendStepped: "grid {{grid}} · drawn {{minor}} · major {{major}}",
@@ -2494,13 +2803,19 @@ export const resources = {
         dimLegendBoth: "dimensions clear span and centerline",
         dimTagClear: "clear",
         dimTagCenterline: "c/c",
-        touchSelect: "tap to select \u00b7 drag points, walls and symbols \u00b7 hold something to start selecting more, then tap others to add them \u00b7 tap a room's area figure to name it",
-        touchSelectFurnishing: "drag the piece to move it \u00b7 tap beside it to let the selection go",
-        touchSelectRoute: "double-tap the run to add a point \u00b7 drag points to move them",
-        touchSelectMode: "{{n}} selected \u00b7 tap adds or removes \u00b7 tap beside the selection to clear it \u00b7 Done finishes",
-        touchSelectWall: "tap the mm value to edit \u00b7 drag the \u25c6 grip to bow",
+        touchSelect:
+          "tap to select \u00b7 drag points, walls and symbols \u00b7 hold something to start selecting more, then tap others to add them \u00b7 tap a room's area figure to name it",
+        touchSelectFurnishing:
+          "drag the piece to move it \u00b7 tap beside it to let the selection go",
+        touchSelectRoute:
+          "double-tap the run to add a point \u00b7 drag points to move them",
+        touchSelectMode:
+          "{{n}} selected \u00b7 tap adds or removes \u00b7 tap beside the selection to clear it \u00b7 Done finishes",
+        touchSelectWall:
+          "tap the mm value to edit \u00b7 drag the \u25c6 grip to bow",
         touchWallStart: "tap to start a wall chain",
-        touchWallChain: "tap to place \u00b7 or type a length in mm \u00b7 Close rings the room \u00b7 Done ends the chain",
+        touchWallChain:
+          "tap to place \u00b7 or type a length in mm \u00b7 Close rings the room \u00b7 Done ends the chain",
         touchWallRect: "tap the first corner of the rectangle",
         touchWallRectTo: "tap or drag to the opposite corner",
         touchWallCircle: "tap the centre of the circle",
@@ -2508,8 +2823,10 @@ export const resources = {
         touchWallPolygon: "tap the centre of the polygon",
         touchWallPolygonTo: "tap or drag to a corner",
         touchWallTyped: "length: {{length}} mm \u2014 Place sets the point",
-        touchSelectWallTyped: "wall length: {{length}} mm \u2014 Place applies it",
-        touchResize: "drag a corner or edge handle to resize \u00b7 near a wall face snaps to it",
+        touchSelectWallTyped:
+          "wall length: {{length}} mm \u2014 Place applies it",
+        touchResize:
+          "drag a corner or edge handle to resize \u00b7 near a wall face snaps to it",
         touchDoor: "tap a wall to place a door",
         touchWindow: "tap a wall to place a window",
         touchPassage: "tap a wall to place a passage",
@@ -2518,19 +2835,28 @@ export const resources = {
         touchStructure: "tap to place a {{label}}",
         touchStructureSpan: "tap the start of the {{label}}",
         touchStructureSpanTo: "tap or drag to the end of the {{label}}",
-        touchRoute: "tap to place points \u00b7 tap a device on a selected run to tap into it \u00b7 double-tap or Done ends the run",
+        touchRoute:
+          "tap to place points \u00b7 tap a device on a selected run to tap into it \u00b7 double-tap or Done ends the run",
         touchFurnishing: "tap to place {{label}}",
-        touchZoom: "drag a box · tap a room · name rooms in the list · double-tap the paper to fit all",
-        touchMeasure: "tap the first point · or drag from point to point · the tape catches corners, wall faces, reveals and outlines",
+        touchZoom:
+          "drag a box · tap a room · name rooms in the list · double-tap the paper to fit all",
+        touchMeasure:
+          "tap the first point · or drag from point to point · the tape catches corners, wall faces, reveals and outlines",
         touchMeasureTo: "tap or drag to the second point",
-        touchMeasured: "{{length}} mm · horizontal {{dx}} · vertical {{dy}} · tap for a new reading",
-        touchView3d: "one finger orbits · two fingers zoom and pan · double-tap to fit all",
-        calibrateFirst: "click the first point of the known distance on the underlay · Esc cancels",
+        touchMeasured:
+          "{{length}} mm · horizontal {{dx}} · vertical {{dy}} · tap for a new reading",
+        touchView3d:
+          "one finger orbits · two fingers zoom and pan · double-tap to fit all",
+        calibrateFirst:
+          "click the first point of the known distance on the underlay · Esc cancels",
         calibrateSecond: "click the second point · Esc cancels",
-        calibrateDistance: "type the real distance in mm: {{length}} — Enter to apply · Esc cancels",
-        touchCalibrateFirst: "tap the first point of the known distance on the underlay",
+        calibrateDistance:
+          "type the real distance in mm: {{length}} — Enter to apply · Esc cancels",
+        touchCalibrateFirst:
+          "tap the first point of the known distance on the underlay",
         touchCalibrateSecond: "tap the second point",
-        touchCalibrateDistance: "type the real distance in mm: {{length}} — Place applies it",
+        touchCalibrateDistance:
+          "type the real distance in mm: {{length}} — Place applies it",
       },
       status: {
         newPlan: "new plan — Ctrl+Z restores the old one",
@@ -2585,10 +2911,10 @@ export const resources = {
         "switch-series": "Series switch",
         "switch-two-way": "Two-way switch",
         "switch-cross": "Cross switch",
-        "dimmer": "Dimmer",
+        dimmer: "Dimmer",
         "switch-pull": "Pull switch",
         "push-button": "Push button",
-        "doorbell": "Doorbell",
+        doorbell: "Doorbell",
         "light-point": "Ceiling light",
         "light-wall": "Wall light",
         "light-fluor": "Fluorescent light",
@@ -2597,7 +2923,7 @@ export const resources = {
         "outlet-tv": "TV/CAI outlet",
         "outlet-data": "Data outlet",
         "dist-board": "Distribution board",
-        "thermostat": "Thermostat",
+        thermostat: "Thermostat",
         "motion-sensor": "Motion sensor",
         "water-point": "Cold tap",
         "water-point-hot": "Hot tap",
@@ -2605,21 +2931,21 @@ export const resources = {
         "water-point-floor-hot": "Hot tap (floor)",
         "mixer-tap": "Mixer tap",
         "washing-machine": "Washing machine",
-        "dryer": "Dryer",
-        "dishwasher": "Dishwasher",
-        "boiler": "Boiler",
+        dryer: "Dryer",
+        dishwasher: "Dishwasher",
+        boiler: "Boiler",
         "water-meter": "Water meter",
         "floor-drain": "Floor drain",
         "gas-point": "Gas connection",
         "waste-point": "Waste connection",
-        "radiator": "Radiator",
+        radiator: "Radiator",
         "floor-heating": "Floor heating",
         "cv-boiler": "CV boiler",
         "heat-pump": "Heat pump",
         "vent-valve": "Vent valve",
         "wtw-unit": "Heat recovery unit",
         "expansion-vessel": "Expansion vessel",
-        "convector": "Convector",
+        convector: "Convector",
         "convector-pit": "Trench convector",
         "cv-manifold": "Heating manifold",
         "storage-heater": "Storage heater",
@@ -2638,7 +2964,7 @@ export const resources = {
         "vent-extract": "Extract point",
         "vent-supply": "Supply point",
         "vent-unit": "Ventilation unit",
-        "fan": "Fan",
+        fan: "Fan",
         "emergency-exit": "Emergency exit",
         "fire-ext-co2": "CO\u2082 extinguisher",
         "fire-ext-powder": "Powder extinguisher",
@@ -2656,21 +2982,21 @@ export const resources = {
         "fire-blanket": "Fire blanket",
       },
       stair: {
-        "steektrap": "Straight flight",
+        steektrap: "Straight flight",
         "steektrap-boven-elkaar": "Flights over each other",
         "steektrap-scheluw": "Raking flight",
-        "bordestrap": "Stair with landing",
-        "bovenkwart": "Quarter turn at the top",
-        "onderkwart": "Quarter turn at the foot",
+        bordestrap: "Stair with landing",
+        bovenkwart: "Quarter turn at the top",
+        onderkwart: "Quarter turn at the foot",
         "onder-bovenkwart": "Quarter turn at both ends",
-        "rijstroken": "Flight with wheeling gutters",
-        "roltrap": "Escalator",
-        "vlizotrap": "Loft ladder with hatch",
+        rijstroken: "Flight with wheeling gutters",
+        roltrap: "Escalator",
+        vlizotrap: "Loft ladder with hatch",
         "spiltrap-recht": "Spiral stair in a square well",
         "spiltrap-rond": "Spiral stair in a round well",
-        "wenteltrap": "Helical stair",
-        "klimijzers": "Climbing irons",
-        "hellingbaan": "Ramp",
+        wenteltrap: "Helical stair",
+        klimijzers: "Climbing irons",
+        hellingbaan: "Ramp",
       },
       stairUse: {
         none: "not stated (widest margin)",
@@ -2685,7 +3011,8 @@ export const resources = {
         slopeSteep: "gradient {{value}} — usually no steeper than {{limit}}",
       },
       fitoutIssue: {
-        workplaceNone: "{{value}} m² — not a full workstation (guideline value from {{limit}} m²)",
+        workplaceNone:
+          "{{value}} m² — not a full workstation (guideline value from {{limit}} m²)",
       },
       cabinetKind: {
         base: "Base unit",
@@ -2700,54 +3027,54 @@ export const resources = {
         slide: "Sliding door",
       },
       furnishing: {
-        "onderkast": "Base unit",
-        "ladenkast": "Drawer unit",
-        "spoelkast": "Sink unit",
+        onderkast: "Base unit",
+        ladenkast: "Drawer unit",
+        spoelkast: "Sink unit",
         "hoekkast-onder": "Base corner unit",
-        "vulpaneel": "Filler panel",
-        "bovenkast": "Wall unit",
+        vulpaneel: "Filler panel",
+        bovenkast: "Wall unit",
         "bovenkast-open": "Open wall unit",
         "hoekkast-boven": "Wall corner unit",
         "hoge-kast": "Tall unit",
-        "apparatenkast": "Appliance housing",
+        apparatenkast: "Appliance housing",
         "koelkast-ombouw": "Fridge housing",
-        "aanrecht": "Worktop with sink",
+        aanrecht: "Worktop with sink",
         "aanrecht-dubbel": "Worktop, double sink",
-        "fornuis": "Cooktop",
-        "oven": "Oven",
-        "magnetron": "Microwave",
-        "koelkast": "Fridge",
-        "vriezer": "Freezer",
-        "afzuigkap": "Extractor hood",
-        "toestel": "Fixed appliance",
-        "toilet": "Toilet",
+        fornuis: "Cooktop",
+        oven: "Oven",
+        magnetron: "Microwave",
+        koelkast: "Fridge",
+        vriezer: "Freezer",
+        afzuigkap: "Extractor hood",
+        toestel: "Fixed appliance",
+        toilet: "Toilet",
         "toilet-inbouw": "Toilet, concealed cistern",
-        "invalidentoilet": "Accessible toilet",
-        "wandurinoir": "Urinal (wall)",
-        "standurinoir": "Urinal (stall)",
-        "bidet": "Bidet",
-        "wastafel": "Wash basin",
+        invalidentoilet: "Accessible toilet",
+        wandurinoir: "Urinal (wall)",
+        standurinoir: "Urinal (stall)",
+        bidet: "Bidet",
+        wastafel: "Wash basin",
         "wastafel-dubbel": "Double wash basin",
-        "fonteintje": "Hand basin",
-        "trogwastafel": "Trough basin",
-        "bad": "Bathtub",
-        "douchehoek": "Shower area",
-        "douchebak": "Shower tray",
+        fonteintje: "Hand basin",
+        trogwastafel: "Trough basin",
+        bad: "Bathtub",
+        douchehoek: "Shower area",
+        douchebak: "Shower tray",
         "douchebak-goot": "Shower tray, linear drain",
-        "douche": "Shower head",
-        "badkamermeubel": "Bathroom vanity",
-        "garderobekast": "Wardrobe",
-        "kantoorkast": "Office cupboard",
-        "wandschap": "Wall shelf",
-        "stellage": "Shelving rack",
-        "palletstelling": "Pallet racking",
-        "eenpersoonsbed": "Single bed",
-        "tweepersoonsbed": "Double bed",
-        "bank": "Sofa",
-        "fauteuil": "Armchair",
-        "tafel": "Table",
+        douche: "Shower head",
+        badkamermeubel: "Bathroom vanity",
+        garderobekast: "Wardrobe",
+        kantoorkast: "Office cupboard",
+        wandschap: "Wall shelf",
+        stellage: "Shelving rack",
+        palletstelling: "Pallet racking",
+        eenpersoonsbed: "Single bed",
+        tweepersoonsbed: "Double bed",
+        bank: "Sofa",
+        fauteuil: "Armchair",
+        tafel: "Table",
         "ronde-tafel": "Round table",
-        "bureau": "Desk",
+        bureau: "Desk",
       },
       furnishingGroup: {
         keuken: "Kitchen",
@@ -2826,7 +3153,8 @@ export const resources = {
         workstations: "workstations (indicative): {{n}}",
         daylight: "daylight (ratio, not a compliance check): {{pct}}%",
         ventilation: "ventilation (indicative): {{m3h}} m³/h",
-        ventRouted: "routed (indicative): {{toevoer}} m³/h supply, {{afvoer}} m³/h extract",
+        ventRouted:
+          "routed (indicative): {{toevoer}} m³/h supply, {{afvoer}} m³/h extract",
         ventRoutedBelow: "routed supply is below the indicative demand",
         ventRoutedUnstated: "{{n}} run(s) with no stated flow excluded",
       },
@@ -2846,7 +3174,8 @@ export const resources = {
         format: "Format & API",
         disclaimer: "No warranty — user responsible for verification",
         disclaimerShort: "Disclaimer",
-        disclaimerTitle: "Information about warranty, liability and responsibility for verification.",
+        disclaimerTitle:
+          "Information about warranty, liability and responsibility for verification.",
       },
       symbolSearch: "Search {{count}} symbols…",
     },
@@ -2871,7 +3200,9 @@ function detect(): Lang {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved === "nl" || saved === "en") return saved;
-  } catch { /* storage unavailable (private mode, sandbox) — use the default */ }
+  } catch {
+    /* storage unavailable (private mode, sandbox) — use the default */
+  }
   return DEFAULT;
 }
 
@@ -2897,10 +3228,13 @@ export function t(key: string, vars?: Record<string, string | number>): string {
   const raw = lookup(current, key) ?? lookup(FALLBACK, key) ?? key;
   if (!vars) return raw;
   return raw.replace(/\{\{(\w+)\}\}/g, (whole, name: string) =>
-    name in vars ? String(vars[name]) : whole);
+    name in vars ? String(vars[name]) : whole,
+  );
 }
 
-export function language(): Lang { return current; }
+export function language(): Lang {
+  return current;
+}
 
 /**
  * A number in the interface language's own convention -- comma decimal
@@ -2910,8 +3244,14 @@ export function language(): Lang { return current; }
  * for the one place a figure is read out loud in a sentence rather than
  * shown in its own field.
  */
-export function formatNumber(n: number, opts?: Intl.NumberFormatOptions): string {
-  return new Intl.NumberFormat(current === "nl" ? "nl-NL" : "en-US", opts).format(n);
+export function formatNumber(
+  n: number,
+  opts?: Intl.NumberFormatOptions,
+): string {
+  return new Intl.NumberFormat(
+    current === "nl" ? "nl-NL" : "en-US",
+    opts,
+  ).format(n);
 }
 
 /**
@@ -2931,8 +3271,16 @@ export function allTranslations(key: string): string[] {
 export function changeLanguage(lng: Lang): void {
   if (lng === current) return;
   current = lng;
-  try { localStorage.setItem(STORAGE_KEY, lng); } catch { /* not fatal */ }
-  try { document.documentElement.lang = lng; } catch { /* no DOM (tests) */ }
+  try {
+    localStorage.setItem(STORAGE_KEY, lng);
+  } catch {
+    /* not fatal */
+  }
+  try {
+    document.documentElement.lang = lng;
+  } catch {
+    /* no DOM (tests) */
+  }
   for (const fn of listeners) fn(lng);
 }
 

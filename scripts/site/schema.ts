@@ -459,9 +459,10 @@ export function planSchema(siteUrl: string): JsonSchema {
           buildUp: {
             type: "object",
             description:
-              "A board stack per face, outside the structural faces like facadeMm and " +
-              "ordered from the wall outward into the room. Absent, or a side left out, " +
-              "means that face is bare; a face carrying the facade never carries a build-up.",
+              "An optional voorzetwand (frame) plus a board stack per face, outside the " +
+              "structural faces like facadeMm and ordered from the wall outward into the " +
+              "room. Absent, or a side left out, means that face is bare; a face carrying " +
+              "the facade never carries a build-up.",
             additionalProperties: false,
             properties: {
               left: { $ref: "#/$defs/faceBuildUp" },
@@ -594,13 +595,40 @@ export function planSchema(siteUrl: string): JsonSchema {
       faceBuildUp: {
         type: "object",
         description:
-          "One face's board stack, ordered from the wall outward into the room.",
+          "One face's build-up: an optional voorzetwand (frame) plus the board stack on " +
+          "it, ordered from the wall outward into the room. boards may be empty where " +
+          "frame is present -- a voorzetwand with nothing hung on it yet.",
         required: ["boards"],
         additionalProperties: false,
         properties: {
+          frame: { $ref: "#/$defs/faceFrame" },
           boards: {
             type: "array", items: { $ref: "#/$defs/buildUpBoard" },
-            minItems: 1, maxItems: MAX_BOARDS,
+            minItems: 0, maxItems: MAX_BOARDS,
+          },
+        },
+      },
+      faceFrame: {
+        type: "object",
+        description:
+          "A voorzetwand: a stud frame standing in front of a wall face at a stand-off, " +
+          "carrying that face's boards on its room side. Derived into a wall of its own " +
+          "for drawing and takeoff; nothing about where it sits in world space is stored " +
+          "here.",
+        required: ["gapMm", "depthMm", "material"],
+        additionalProperties: false,
+        properties: {
+          gapMm: { type: "integer", minimum: 0, maximum: 500, description: "Structural face to the back of the frame, mm." },
+          depthMm: { type: "integer", minimum: 20, maximum: 400, description: "Stud depth, mm." },
+          material: { enum: ["timber", "steel"] },
+          postMm: { type: "integer", minimum: 1, description: "Post centres, mm. Absent means no frame members drawn." },
+          postLayout: { enum: ["even", "grid"] },
+          postWidthMm: { type: "integer", minimum: 1, description: "A post's own width along the wall, mm." },
+          noggingRows: { type: "integer", minimum: 0, maximum: 5, description: "Rows of noggings between the posts." },
+          insulated: { type: "boolean", description: "The cavity is filled with insulation. Takeoff only." },
+          heightMm: {
+            type: "integer", minimum: 100, maximum: 10000,
+            description: "Flat cap above the floor, mm. Absent means the host wall's own top.",
           },
         },
       },

@@ -11,6 +11,7 @@
 // paper-scale output (1:50 at 300 dpi) and vector formats are still the P1 item.
 import { PlanDoc, areaModeOf, dimModeOf, mountMarksOn } from "../model/doc";
 import { resolveFloor } from "../core/resolve";
+import { resolveLeaves } from "../core/leaf";
 import { planBounds } from "../core/bounds";
 import { detectRooms } from "../core/rooms";
 import { Viewport } from "../render/viewport";
@@ -63,6 +64,7 @@ function renderPlan(doc: PlanDoc, floorIndex = 0): HTMLCanvasElement | null {
   const floor = doc.floors[floorIndex] ?? doc.floors[0];
   if (!floor) return null;
   const resolved = resolveFloor(floor);
+  const leaves = resolveLeaves(floor, resolved);
   const bounds = planBounds(floor, resolved);
   if (!bounds) return null;
 
@@ -86,7 +88,7 @@ function renderPlan(doc: PlanDoc, floorIndex = 0): HTMLCanvasElement | null {
   // extras carries no `showUnderlay` -- the trace-over image is a drawing
   // aid, not part of the drawing, so a PNG excludes it unconditionally rather
   // than following whatever Tools.showUnderlay happens to be set to.
-  drawScene(ctx, vp, lw, lh, floor, resolved, detectRooms(floor), null,
+  drawScene(ctx, vp, lw, lh, floor, resolved, leaves, detectRooms(floor), null,
     { showGrid: false, riserMarks: riserMarks(doc, floorIndex) },
     doc.gridMm, areaModeOf(doc), dimModeOf(doc), mountMarksOn(doc));
   drawScaleBar(ctx, pxPerMm, lw, lh);

@@ -6,7 +6,7 @@ import {
   Floor, Wall, Opening, PlanNode, SymbolInstance, Id, newId, stairsOf, videsOf, decksOf, furnishingsOf,
   structureOf,
   routesOf, roomNamesOf, floorHeight, DOOR_DEFAULT_WIDTH, WINDOW_DEFAULT_WIDTH, PASSAGE_DEFAULT_WIDTH,
-  OpeningKind, FireRating, dimModeOf, WallMaterial, postDefaultsFor,
+  OpeningKind, FireRating, dimModeOf, WallMaterial, postDefaultsFor, cloneFaceBuildUp,
 } from "../model/doc";
 import type { RoomUse } from "../model/room";
 import {
@@ -876,8 +876,8 @@ export class Tools {
       if (this.wallPostMm && this.wallPostLayout === "grid" && this.wallPostFrom) w.postFrom = this.wallPostFrom;
       if (this.wallBuildUp) {
         w.buildUp = {};
-        if (this.wallBuildUp.left) w.buildUp.left = { boards: this.wallBuildUp.left.boards.map(b => ({ ...b })) };
-        if (this.wallBuildUp.right) w.buildUp.right = { boards: this.wallBuildUp.right.boards.map(b => ({ ...b })) };
+        if (this.wallBuildUp.left) w.buildUp.left = cloneFaceBuildUp(this.wallBuildUp.left);
+        if (this.wallBuildUp.right) w.buildUp.right = cloneFaceBuildUp(this.wallBuildUp.right);
       }
       if (this.wallBlockMm) w.blockMm = { ...this.wallBlockMm };
       if (this.wallPostMm && this.wallNoggingRows) w.noggingRows = this.wallNoggingRows;
@@ -3228,6 +3228,25 @@ export class Tools {
           this.drag = { kind: "wall", id: rw.wall.id, startWorld: w, moved: false };
         }
         return;
+      }
+    }
+    // A voorzetwand's own zone, checked only once no wall's structural body
+    // claimed the point. A leaf is derived (core/leaf.ts) and cannot be
+    // selected or edited on its own, so a click inside the band its studs
+    // stand in resolves to the HOST wall it was derived from instead -- the
+    // same wall a click on its structural body above already resolves to.
+    // The facade and board bands are not extended this way; that is a
+    // separate change.
+    for (const rw of res.walls.values()) {
+      for (const faceBands of rw.frame) {
+        for (const piece of faceBands) {
+          if (pointInPolygon(w, piece.poly)) {
+            if (this.pick({ kind: "wall", id: rw.wall.id })) {
+              this.drag = { kind: "wall", id: rw.wall.id, startWorld: w, moved: false };
+            }
+            return;
+          }
+        }
       }
     }
     const deckPick = this.deckAt(w);

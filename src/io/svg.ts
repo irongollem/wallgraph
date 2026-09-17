@@ -18,6 +18,7 @@ import { deckJoistLayout } from "../core/trimmer";
 import { Vec, add, sub, scale, perp, norm, polygonCentroid } from "../geometry/vec";
 import { arcPointAt } from "../geometry/arc";
 import { resolveFloor } from "../core/resolve";
+import { resolveLeaves, type Leaves } from "../core/leaf";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames, roomArea } from "../core/rooms";
 import { roofPlanesOf } from "../model/roof";
 import { roofRidges, eaveSegment } from "../core/roof";
@@ -205,8 +206,18 @@ export function sceneSvg(items: readonly Item[], look: Look = ROOT): string[] {
  * world millimetres. `toSvg` wraps it in a document at true scale; the permit
  * sheet places it in a scaled group on a paper-sized page and renders it to
  * PDF. One scene, so the three cannot draw a different plan.
+ *
+ * `leaves` (core/leaf.ts) is the voorzetwanden as walls of their own, for the
+ * "frames" group. Required rather than optional: a voorzetwand is bouwkundig,
+ * so every consumer of this scene — the plain SVG export and the permit
+ * sheet alike — draws it, and an optional parameter here is exactly the
+ * silent-omission case that would let one of them quietly stop (see #66).
+ * Each caller computes it once (resolveLeaves() is not free) and passes the
+ * same value in.
  */
-export function planScene(doc: PlanDoc, floor: Floor, resolved: ReturnType<typeof resolveFloor>): Group[] {
+export function planScene(
+  doc: PlanDoc, floor: Floor, resolved: ReturnType<typeof resolveFloor>, leaves: Leaves,
+): Group[] {
   const out: Group[] = [];
 
   // Rooms beneath everything, as the editor draws them.
@@ -267,6 +278,43 @@ export function planScene(doc: PlanDoc, floor: Floor, resolved: ReturnType<typeo
   if (facades.length > 0)
     out.push(group(facades,
       { fill: COLORS.bg, ink: COLORS.wallStroke, width: W_WALL }, "facade"));
+
+  // Voorzetwand frame zone and its own studs, one "frames" group for both: a
+  // voorzetwand is built by a different trade from the wall's own frame (see
+  // the BOARDS comment above and LAYER.frames in io/dxf.ts), so its studs do
+  // not belong in the "posts" group below any more than its zone belongs in
+  // "facade". The zone is drawn the same way as the cladding band, ordered
+  // between it and the boards -- see ResolvedWall.frame's doc comment in
+  // core/resolve.ts; the stand-off before it carries no material. The studs
+  // come from the leaf floor's own resolve (core/leaf.ts), through the same
+  // postMarks() builder "posts" uses, in the HOST wall's own pen -- a leaf is
+  // derived and carries no pen of its own.
+  const frameZones: Item[] = [];
+  for (const rw of resolved.walls.values()) {
+    if (rw.frame[0].length === 0 && rw.frame[1].length === 0) continue;
+    const bands = [...rw.frame[0], ...rw.frame[1]];
+    frameZones.push(group(bands.map(band => poly(band.poly, true)),
+      { ink: wallPen(rw.wall).stroke }));
+  }
+  const frameStuds: Item[] = [];
+  for (const [leafId, lw] of leaves.resolved.walls) {
+    const stijlen = postMarks(lw);
+    if (stijlen.length === 0) continue;
+    const host = leaves.leaf.hostOf.get(leafId);
+    const hostWall = host && resolved.walls.get(host.wallId);
+    if (!hostWall) continue;
+    const pen = wallPen(hostWall.wall);
+    const profiled = lw.posts.some(pp => pp.poly !== undefined);
+    frameStuds.push(group(stijlen, { ink: pen.mark, fill: profiled ? pen.mark : "none" }));
+  }
+  if (frameZones.length > 0 || frameStuds.length > 0) {
+    const items: Item[] = [];
+    if (frameZones.length > 0)
+      items.push(group(frameZones, { fill: COLORS.bg, ink: COLORS.wallStroke, width: W_WALL }));
+    if (frameStuds.length > 0)
+      items.push(group(frameStuds, { fill: "none", ink: COLORS.glassStroke, width: W_OPENING, cap: "round" }));
+    out.push(group(items, {}, "frames"));
+  }
 
   // Build-up boards, same drawing approach as the cladding band above, but
   // bucketed by kind so each stands out with its own fill (COLORS.board):
@@ -592,6 +640,7 @@ export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
   const floor: Floor | undefined = doc.floors[floorIndex] ?? doc.floors[0];
   if (!floor) return null;
   const resolved = resolveFloor(floor);
+  const leaves = resolveLeaves(floor, resolved);
   const bounds = planBounds(floor, resolved);
   if (!bounds) return null;
 
@@ -608,7 +657,7 @@ export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
   );
   parts.push(`<rect x="${n(minX)}" y="${n(minY)}" width="${n(w)}" height="${n(h)}" fill="${COLORS.bg}"/>`);
   parts.push(...sceneSvg([
-    ...planScene(doc, floor, resolved), ...routeScene(floor, riserMarks(doc, floorIndex)),
+    ...planScene(doc, floor, resolved, leaves), ...routeScene(floor, riserMarks(doc, floorIndex)),
   ]));
   parts.push(`</svg>`);
   return parts.join("\n") + "\n";

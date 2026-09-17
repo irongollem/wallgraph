@@ -10,10 +10,10 @@
 // is exact in the limit and visually correct at wall scale.
 import {
   Floor, Wall, Opening, Id, BoardKind, wallPostMm, wallPostWidthMm, wallFacadeMm, facadeSideOf,
-  buildUpOf, buildUpMm, postLayoutOf, postFromOf, canonPostOffset,
+  buildUpOf, buildUpMm, frameZoneOf, boardsStartMm, postLayoutOf, postFromOf, canonPostOffset,
 } from "../model/doc";
 import {
-  Vec, add, sub, scale, norm, perp, dist, v, angleOf, lineIntersect,
+  Vec, add, sub, scale, norm, perp, dist, v, angleOf, lineIntersect, mid,
 } from "../geometry/vec";
 import { arcFlatten, arcLength, arcPointAt, arcTangentAt } from "../geometry/arc";
 
@@ -104,6 +104,22 @@ export interface ResolvedWall {
    * that wall's own face rather than overlapping it.
    */
   boards: [BoardBand[], BoardBand[]];
+  /**
+   * The voorzetwand's own zone per face, left then right, empty where that
+   * face states no frame: the band between the stand-off and the front of the
+   * frame, built by the same corner pass as `facade` and `boards`. The gap
+   * between the structural face and this band is left empty — it is a
+   * stand-off, not material.
+   */
+  frame: [SolidPiece[], SolidPiece[]];
+  /**
+   * The centerline ends of the wall a voorzetwand is derived into, per face,
+   * absent where that face states no frame: at each host end, the midpoint of
+   * the frame zone's inner and outer mitered corners on that side. Consumed by
+   * core/leaf.ts, which cannot recompute them — the corner passes they come
+   * from live only inside resolveFloor().
+   */
+  frameLine: { left?: { a: Vec; b: Vec }; right?: { a: Vec; b: Vec } };
 }
 
 /** One board of a face's build-up, resolved: its own kind and thickness
@@ -243,7 +259,20 @@ export function resolveFloor(f: Floor): Resolved {
   const boardDepths = new Set<number>();
   for (const w of f.walls) {
     for (const side of ["left", "right"] as const) {
-      let acc = 0;
+      // The frame zone is one more skin band: its own inner (stand-off) and
+      // outer (face of the studs) depths need a corner pass exactly like a
+      // board boundary does. Depth 0 needs none -- it is the structural pass
+      // already computed above (see cornersAt() below).
+      const zone = frameZoneOf(w, side);
+      if (zone) {
+        if (zone.from > 0) boardDepths.add(zone.from);
+        boardDepths.add(zone.to);
+      }
+      // Boards are measured from the frame zone's own outer depth (or the
+      // structural face where there is no frame) -- boardsStartMm() -- rather
+      // than from 0, so a voorzetwand's boards miter starting at the front of
+      // the studs, not at the structural face underneath them.
+      let acc = boardsStartMm(w, side);
       for (const b of buildUpOf(w, side)?.boards ?? []) { acc += b.mm; boardDepths.add(acc); }
     }
   }
@@ -334,6 +363,14 @@ export function resolveFloor(f: Floor): Resolved {
         boardBandsFor("left", w, A, B, L, half, flat, params, intervals, ca, cb, cornersAtDepth),
         boardBandsFor("right", w, A, B, L, half, flat, params, intervals, ca, cb, cornersAtDepth),
       ],
+      frame: [
+        frameBandFor("left", w, A, B, L, half, flat, params, intervals, ca, cb, cornersAtDepth),
+        frameBandFor("right", w, A, B, L, half, flat, params, intervals, ca, cb, cornersAtDepth),
+      ],
+      frameLine: {
+        left: frameLineFor("left", w, ca, cb, cornersAtDepth),
+        right: frameLineFor("right", w, ca, cb, cornersAtDepth),
+      },
     });
   }
 
@@ -544,11 +581,27 @@ function skinFor(
 }
 
 /**
+ * The corner pass at exactly `mm` past the structural face on one wall-end
+ * pair: the structural pass itself at `mm` = 0, `cornersAtDepth` otherwise --
+ * shared by `boardBandsFor()` and `frameBandFor()`/`frameLineFor()` so a
+ * frame zone and a board stack read corners by the same rule.
+ */
+function cornersAt(
+  w: Wall, ca: WallEndCorners, cb: WallEndCorners,
+  cornersAtDepth: ReadonlyMap<number, Map<string, WallEndCorners>>, mm: number,
+): { a: WallEndCorners | undefined; b: WallEndCorners | undefined } {
+  if (mm === 0) return { a: ca, b: cb };
+  const at = cornersAtDepth.get(mm);
+  return { a: at?.get(w.id + ":a"), b: at?.get(w.id + ":b") };
+}
+
+/**
  * One face's board bands: one skinBandFor() call per board in
- * buildUpOf(w, side), from the previous board's own outer boundary (or the
- * structural face for the first board) to this board's own, each corner pass
- * read from `cornersAtDepth` at that exact cumulative depth (see
- * resolveFloor()). Empty where the face carries no build-up.
+ * buildUpOf(w, side), from the previous board's own outer boundary --
+ * boardsStartMm() (the frame zone's own outer depth, where one is stated, or
+ * the structural face otherwise) for the first board -- to this board's own,
+ * each corner pass read from `cornersAtDepth` at that exact cumulative depth
+ * (see resolveFloor()). Empty where the face carries no build-up.
  */
 function boardBandsFor(
   side: "left" | "right",
@@ -560,22 +613,74 @@ function boardBandsFor(
 ): BoardBand[] {
   const fu = buildUpOf(w, side);
   if (!fu || fu.boards.length === 0) return [];
-  const cornersAt = (mm: number): { a: WallEndCorners; b: WallEndCorners } =>
-    mm === 0
-      ? { a: ca, b: cb }
-      : { a: cornersAtDepth.get(mm)!.get(w.id + ":a")!, b: cornersAtDepth.get(mm)!.get(w.id + ":b")! };
   const out: BoardBand[] = [];
-  let prevMm = 0;
+  let prevMm = boardsStartMm(w, side);
   for (const board of fu.boards) {
     const mm = prevMm + board.mm;
-    const inner = cornersAt(prevMm), outer = cornersAt(mm);
+    const inner = cornersAt(w, ca, cb, cornersAtDepth, prevMm);
+    const outer = cornersAt(w, ca, cb, cornersAtDepth, mm);
     const pieces = skinBandFor(
-      side, prevMm, mm, w, A, B, L, half, flat, params, intervals, inner.a, inner.b, outer.a, outer.b,
+      side, prevMm, mm, w, A, B, L, half, flat, params, intervals, inner.a!, inner.b!, outer.a!, outer.b!,
     );
     out.push({ kind: board.kind, mm: board.mm, pieces });
     prevMm = mm;
   }
   return out;
+}
+
+/**
+ * The voorzetwand's own band on one face: one skinBandFor() call from the
+ * frame zone's inner depth (the stand-off) to its outer depth (the front of
+ * the studs) -- see Wall.buildUp's FaceFrame and frameZoneOf(). Empty where
+ * the face states no frame.
+ */
+function frameBandFor(
+  side: "left" | "right",
+  w: Wall, A: Vec, B: Vec, L: number, half: number,
+  flat: Vec[], params: number[],
+  intervals: ReadonlyArray<{ from: number; to: number }>,
+  ca: WallEndCorners, cb: WallEndCorners,
+  cornersAtDepth: ReadonlyMap<number, Map<string, WallEndCorners>>,
+): SolidPiece[] {
+  const zone = frameZoneOf(w, side);
+  if (!zone) return [];
+  const inner = cornersAt(w, ca, cb, cornersAtDepth, zone.from);
+  const outer = cornersAt(w, ca, cb, cornersAtDepth, zone.to);
+  if (!inner.a || !inner.b || !outer.a || !outer.b) return [];
+  return skinBandFor(side, zone.from, zone.to, w, A, B, L, half, flat, params, intervals, inner.a, inner.b, outer.a, outer.b);
+}
+
+/**
+ * The face a wall-end's corner belongs to: at end "a" the wall's own `side`
+ * reads directly off the corner ("left"/"right"); at end "b" the outgoing
+ * tangent there is reversed, so the wall's left face is that end's right (the
+ * same swap skinBandFor()'s innerStart/innerEnd/outerStart/outerEnd apply).
+ */
+function faceCorner(c: WallEndCorners, side: "left" | "right", end: "a" | "b"): Vec {
+  if (end === "a") return side === "left" ? c.left : c.right;
+  return side === "left" ? c.right : c.left;
+}
+
+/**
+ * The centerline ends of the wall a voorzetwand on `side` is derived into:
+ * at each host end, the midpoint of the frame zone's inner and outer mitered
+ * corners on that side -- see ResolvedWall.frameLine. Undefined where the
+ * face states no frame, or where either corner pass could not be built.
+ */
+function frameLineFor(
+  side: "left" | "right", w: Wall,
+  ca: WallEndCorners, cb: WallEndCorners,
+  cornersAtDepth: ReadonlyMap<number, Map<string, WallEndCorners>>,
+): { a: Vec; b: Vec } | undefined {
+  const zone = frameZoneOf(w, side);
+  if (!zone) return undefined;
+  const inner = cornersAt(w, ca, cb, cornersAtDepth, zone.from);
+  const outer = cornersAt(w, ca, cb, cornersAtDepth, zone.to);
+  if (!inner.a || !inner.b || !outer.a || !outer.b) return undefined;
+  return {
+    a: mid(faceCorner(inner.a, side, "a"), faceCorner(outer.a, side, "a")),
+    b: mid(faceCorner(inner.b, side, "b"), faceCorner(outer.b, side, "b")),
+  };
 }
 
 function polylineLength(pts: Vec[]): number {

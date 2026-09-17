@@ -181,12 +181,47 @@ export const BOARD_KINDS: readonly BoardKind[] = ["gypsum", "gypsumFibre", "osb"
 export interface Board { kind: BoardKind; mm: number }
 
 /**
- * A wall face's build-up: a stack of boards, ordered from the wall outward
- * into the room. `frame` (a voorzetwand) is not modelled yet -- see
- * Wall.buildUp -- and is added by a later issue; this shape is written so
- * that addition is a new optional field, not a restructuring.
+ * A voorzetwand: a stud frame standing in front of a wall face at a
+ * stand-off, carrying that face's boards on its room side. Derived into a
+ * wall of its own for drawing and takeoff (see src/core/leaf.ts); nothing
+ * about where it sits in world space is stored here -- only the zone it
+ * occupies measured from the structural face.
  */
-export interface FaceBuildUp { boards: Board[] }
+export interface FaceFrame {
+  /** Structural face to the back of the frame, mm. */
+  gapMm: number;
+  /** Stud depth, mm. */
+  depthMm: number;
+  material: "timber" | "steel";
+  postMm?: number;
+  postLayout?: "even" | "grid";
+  postWidthMm?: number;
+  noggingRows?: number;
+  insulated?: boolean;
+  /** Flat cap above the floor, mm. Absent means the host wall's own top. */
+  heightMm?: number;
+}
+
+/**
+ * A wall face's build-up: an optional voorzetwand (`frame`), standing off
+ * the structural face, and a stack of boards on top of it -- or directly on
+ * the face where there is no frame -- ordered from the wall outward into the
+ * room. `boards` may be empty where `frame` is present: a voorzetwand with
+ * nothing hung on it yet is a legitimate state. A face with neither a frame
+ * nor boards is not stored at all (see setFaceBuildUp()).
+ */
+export interface FaceBuildUp { frame?: FaceFrame; boards: Board[] }
+
+/**
+ * A deep copy of one face's build-up: a fresh frame object where present,
+ * and fresh Board objects in a fresh array -- so two walls that carry "the
+ * same" build-up never share an object one can edit without moving the
+ * other. The one place this copy is made; ops.ts's splitWall() and
+ * input/tools.ts's armWalls() both call it rather than repeating the shape.
+ */
+export function cloneFaceBuildUp(fu: FaceBuildUp): FaceBuildUp {
+  return { ...(fu.frame ? { frame: { ...fu.frame } } : {}), boards: fu.boards.map(b => ({ ...b })) };
+}
 
 export interface Wall {
   id: Id;
@@ -314,14 +349,14 @@ export interface Wall {
    */
   color?: string;
   /**
-   * Board build-up on the wall's faces: a stack of boards per face, ordered
-   * from the wall outward into the room. Absent, or a face with no `boards`,
-   * means none on that face. A face carrying the facade never carries a
-   * build-up. Lies OUTSIDE the structural faces like `facadeMm`: `thickness`
-   * stays the frame or block depth. Read via buildUpOf()/buildUpMm() rather
-   * than directly -- an empty `boards` array is never stored (see
-   * setFaceBuildUp()), so a reader that trusts the field's mere presence
-   * would count a face that carries nothing.
+   * Build-up on the wall's faces: an optional voorzetwand (FaceFrame) plus a
+   * board stack per face, ordered from the wall outward into the room.
+   * Absent, or a face with neither a frame nor boards, means none on that
+   * face -- but a face MAY carry a frame with an empty board stack (a
+   * voorzetwand with nothing hung on it yet); see setFaceBuildUp(). A face
+   * carrying the facade never carries a build-up. Lies OUTSIDE the
+   * structural faces like `facadeMm`: `thickness` stays the frame or block
+   * depth. Read via buildUpOf()/buildUpMm() rather than directly.
    */
   buildUp?: { left?: FaceBuildUp; right?: FaceBuildUp };
   /**
@@ -506,21 +541,49 @@ export function postDefaultsFor(material: WallMaterial | undefined): { postMm: n
 
 /**
  * The build-up on one face, or undefined where that face carries nothing —
- * either the wall states no build-up on it, or that side carries the facade
- * instead (cladding and a build-up cannot both sit on one face). Replaces
+ * neither boards nor a frame — or that side carries the facade instead
+ * (cladding and a build-up cannot both sit on one face). Replaces
  * liningSideOf(): where that returned a bool, this returns the stack itself.
  */
 export function buildUpOf(w: Wall, side: "left" | "right"): FaceBuildUp | undefined {
   const fu = w.buildUp?.[side];
-  if (!fu || fu.boards.length === 0) return undefined;
+  if (!fu || (fu.boards.length === 0 && !fu.frame)) return undefined;
   if (wallFacadeMm(w) !== undefined && facadeSideOf(w) === side) return undefined;
   return fu;
 }
 
-/** The build-up's skin depth on one face, mm. 0 where that face carries none. */
+/** The voorzetwand on one face, or undefined where that face states none. */
+export function frameOf(w: Wall, side: "left" | "right"): FaceFrame | undefined {
+  return buildUpOf(w, side)?.frame;
+}
+
+/**
+ * The frame zone's depths from the structural face, mm: `from` is `gapMm`,
+ * `to` is `gapMm + depthMm`. Undefined where that face carries no frame.
+ */
+export function frameZoneOf(w: Wall, side: "left" | "right"): { from: number; to: number } | undefined {
+  const frame = frameOf(w, side);
+  return frame ? { from: frame.gapMm, to: frame.gapMm + frame.depthMm } : undefined;
+}
+
+/**
+ * Where this face's boards start, mm from the structural face: past the
+ * frame zone where one stands, at the face itself otherwise.
+ */
+export function boardsStartMm(w: Wall, side: "left" | "right"): number {
+  return frameZoneOf(w, side)?.to ?? 0;
+}
+
+/**
+ * The build-up's total skin depth on one face, mm: boardsStartMm() (the
+ * frame zone, where one is stated) plus the boards stacked on top of it. 0
+ * where that face carries none. core/rooms.ts's net-boundary inset reads
+ * this directly, so it already insets by the frame zone as well as the
+ * boards without needing its own change.
+ */
 export function buildUpMm(w: Wall, side: "left" | "right"): number {
   const fu = buildUpOf(w, side);
-  return fu ? fu.boards.reduce((sum, b) => sum + b.mm, 0) : 0;
+  return fu ? boardsStartMm(w, side) + fu.boards.reduce((sum, b) => sum + b.mm, 0) : 0;
 }
 
 /** A board's stated thickness is always a whole mm (invariant 1); 6..30
@@ -553,14 +616,56 @@ export function boardPresetOf(boards: readonly Board[]): string {
   return hit?.id ?? "custom";
 }
 
+/** Gap between the structural face and the back of a voorzetwand, mm --
+ *  0 covers a frame built straight against the face. */
+export const clampFrameGapMm = (n: number): number => clampInt(n, 0, 500);
+/** A voorzetwand's own stud depth, mm. */
+export const clampFrameDepthMm = (n: number): number => clampInt(n, 20, 400);
+/** A voorzetwand's flat cap above the floor, mm. */
+export const clampFrameHeightMm = (n: number): number => clampInt(n, 100, 10000);
+
 /**
- * Write a face's build-up, deleting what an empty stack means "none": the
- * face itself when `fu` is undefined or carries no boards, and `Wall.buildUp`
- * entirely once neither face is left. For use inside store.mutate() by the
- * UI, the way clampOpening() and its neighbours are.
+ * A named voorzetwand set-out: a whole `FaceFrame` plus the boards stacked
+ * on it, offered the way BOARD_PRESETS and POST_LAYOUT_PRESETS are rather
+ * than built field by field. `id` doubles as the i18n key under
+ * `frame.preset.*`.
+ */
+export interface FramePreset { id: string; frame: FaceFrame; boards: readonly Board[] }
+
+export const FRAME_PRESETS: readonly FramePreset[] = [
+  { id: "metalStud50", frame: { gapMm: 20, depthMm: 50, material: "steel", postMm: 600, postWidthMm: 50 },
+    boards: [{ kind: "gypsum", mm: 12 }] },
+  { id: "metalStud75", frame: { gapMm: 20, depthMm: 75, material: "steel", postMm: 600, postWidthMm: 50, insulated: true },
+    boards: [{ kind: "gypsum", mm: 12 }] },
+  { id: "timber4570", frame: { gapMm: 20, depthMm: 70, material: "timber", postMm: 600, postWidthMm: 45, insulated: true },
+    boards: [{ kind: "gypsum", mm: 12 }] },
+  { id: "timber4595", frame: { gapMm: 20, depthMm: 95, material: "timber", postMm: 600, postWidthMm: 45, insulated: true },
+    boards: [{ kind: "osb", mm: 18 }, { kind: "gypsum", mm: 12 }] },
+];
+
+/** The FRAME_PRESETS entry a face's frame and boards both exactly match, or
+ *  "custom" for a frame, or a board stack on it, that none states. */
+export function framePresetOf(fu: FaceBuildUp): string {
+  const frame = fu.frame;
+  if (!frame) return "custom";
+  const sameFrame = (p: FaceFrame): boolean =>
+    p.gapMm === frame.gapMm && p.depthMm === frame.depthMm && p.material === frame.material
+    && p.postMm === frame.postMm && p.postLayout === frame.postLayout && p.postWidthMm === frame.postWidthMm
+    && p.noggingRows === frame.noggingRows && p.insulated === frame.insulated && p.heightMm === frame.heightMm;
+  const sameBoards = (boards: readonly Board[]): boolean =>
+    boards.length === fu.boards.length && boards.every((b, i) => b.kind === fu.boards[i]!.kind && b.mm === fu.boards[i]!.mm);
+  const hit = FRAME_PRESETS.find(p => sameFrame(p.frame) && sameBoards(p.boards));
+  return hit?.id ?? "custom";
+}
+
+/**
+ * Write a face's build-up, deleting what "carries nothing" means: the face
+ * itself when `fu` is undefined or carries neither boards nor a frame, and
+ * `Wall.buildUp` entirely once neither face is left. For use inside
+ * store.mutate() by the UI, the way clampOpening() and its neighbours are.
  */
 export function setFaceBuildUp(w: Wall, side: "left" | "right", fu: FaceBuildUp | undefined): void {
-  const empty = !fu || fu.boards.length === 0;
+  const empty = !fu || (fu.boards.length === 0 && !fu.frame);
   if (empty) {
     if (w.buildUp) {
       delete w.buildUp[side];

@@ -39,6 +39,15 @@ export function planBounds(floor: Floor, resolved: Resolved): Bounds | null {
       for (const piece of band.pieces) for (const p of piece.poly) b.add(p.x, p.y);
     }
   }
+  // A voorzetwand's own zone sits outside the structural outline too, on
+  // whichever face states one. Its studs stand inside this zone (see
+  // core/leaf.ts), so walking the zone alone already covers them -- walking
+  // the leaf's posts as well would only retrace ground this already covers.
+  for (const rw of resolved.walls.values()) {
+    for (const faceBands of rw.frame) for (const band of faceBands) {
+      for (const p of band.poly) b.add(p.x, p.y);
+    }
+  }
   for (const n of floor.nodes) b.add(n.x, n.y);
   for (const s of floor.symbols) {
     const def = getSymbol(s.type);
