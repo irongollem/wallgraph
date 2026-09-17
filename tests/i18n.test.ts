@@ -1,4 +1,6 @@
 // Validate lookup, fallback, interpolation and translation-key parity.
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { t, changeLanguage, language, resources } from "../src/i18n";
 import { SYMBOLS } from "../src/render/symbols";
 let fail = 0;
@@ -38,6 +40,42 @@ ck("en symbol names match the registry", drift.length === 0, drift.join(" | "));
 const stale = Object.keys(enDict).filter(k => !SYMBOLS.some(sym => sym.type === k));
 ck("no translations for removed symbols", stale.length === 0, stale.join(", "));
 
-console.log(`${nl.length} keys per language, ${SYMBOLS.length} symbols`);
+// Every key a source file names must exist. A key is an ordinary string
+// constant, so neither the type checker nor a rendering test notices when a
+// rename leaves one behind at a call site or in a key table: the UI prints the
+// raw key instead of a word. This scans the sources for key-shaped literals and
+// requires each to resolve in both languages.
+const KEY_SHAPED = /^[a-z][A-Za-z0-9]*(?:\.[A-Za-z0-9]+)+$/;
+/** Literals that are key-shaped only because a namespace shares their first word. */
+const NOT_KEYS = new Set(["package.json"]);
+const namespaces = new Set(nl.map(k => k.split(".")[0]!));
+const nlKeys = new Set(nl), enKeys = new Set(en);
+// A prefix the code completes at runtime — `panel.ink` + `New` — names a family
+// rather than a key, and still fails once that family is gone.
+const completed = (s: string) => nl.some(k => k.startsWith(s) && /[A-Z.]/.test(k[s.length] ?? ""));
+
+const sources = (dir: string): string[] => readdirSync(dir).flatMap(name => {
+  const full = join(dir, name);
+  return statSync(full).isDirectory() ? sources(full)
+       : full.endsWith(".ts") ? [full] : [];
+});
+// i18n.ts holds the dictionary itself; the keys there are nested identifiers.
+const scanned = [...sources("src"), ...sources("scripts")].filter(f => f !== join("src", "i18n.ts"));
+const dangling: string[] = [];
+for (const file of scanned) {
+  // Quoted literals only: comments in this codebase spell code references in
+  // backticks, and a template head is a runtime-completed prefix either way.
+  for (const m of readFileSync(file, "utf8").matchAll(/"([^"\\\n]*)"|'([^'\\\n]*)'/g)) {
+    const key = m[1] ?? m[2] ?? "";
+    if (!KEY_SHAPED.test(key) || NOT_KEYS.has(key)) continue;
+    if (!namespaces.has(key.split(".")[0]!)) continue;
+    if (nlKeys.has(key) && enKeys.has(key)) continue;
+    if (completed(key)) continue;
+    dangling.push(`${file}: ${key}`);
+  }
+}
+ck("every key named in src/ and scripts/ exists", dangling.length === 0, dangling.join(" | "));
+
+console.log(`${nl.length} keys per language, ${SYMBOLS.length} symbols, ${scanned.length} source files scanned`);
 console.log(fail === 0 ? "ALL I18N TESTS PASSED" : `${fail} FAILURES`);
 process.exit(fail === 0 ? 0 : 1);

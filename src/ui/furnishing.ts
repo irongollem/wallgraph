@@ -146,7 +146,7 @@ export function renderFurnishingProps(store: Store, tools: Tools, rows: PaneRows
       kind: preset ? t("furnishing." + preset.id) : t("form." + piece.form),
     }),
     { sel: true, mode: true });
-  if (group.length > 1) rows.noteRow(t("panel.furnishingGroup", { n: group.length }));
+  if (group.length > 1) rows.noteRow(t("panel.furnishingBulk", { n: group.length }));
 
   // Swapping the named piece rewrites every field it names, the way picking a
   // door kind rewrites the sash list. The hinge side is a tuning and survives.
