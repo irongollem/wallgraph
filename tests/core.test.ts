@@ -31,6 +31,7 @@ import {
 import {
   buildUpMm, boardPresetOf, BOARD_PRESETS, type Board,
   frameOf, frameZoneOf, boardsStartMm, setFaceBuildUp, type FaceFrame,
+  faceOffsetMm, concealedOffsetMm, skinMmOf,
 } from "../src/model/doc";
 
 let failures = 0;
@@ -2254,6 +2255,58 @@ function rectFloor(wallTh = 100) {
     JSON.stringify(frameZoneOf(w, "left")) === JSON.stringify({ from: 20, to: 70 }));
   check("a face with no frame reports no zone, and boardsStartMm falls back to the structural face",
     frameZoneOf(w, "right") === undefined && boardsStartMm(w, "right") === 0);
+}
+
+// ---- faceOffsetMm / concealedOffsetMm / skinMmOf: where a device or a run
+// actually lands on a finished face (issue #72) ------------------------------
+{
+  const f = emptyDoc().floors[0]!;
+
+  // Case 1: a socket snapped to a face with gypsum 12 on a 100 wall lands at
+  // 62 -- wallSnap() is private to Tools, so this is tested through the
+  // exported accessor it reads.
+  const boarded: Wall = {
+    id: newId("w"), a: nodeAt(f, v(0, 0)).id, b: nodeAt(f, v(4000, 0)).id,
+    thickness: 100, bulge: 0, openings: [],
+    buildUp: { left: { boards: [{ kind: "gypsum", mm: 12 }] } },
+  };
+  check("faceOffsetMm on a boarded face is thickness/2 + the board stack (62)",
+    faceOffsetMm(boarded, "left") === 62, String(faceOffsetMm(boarded, "left")));
+  check("the bare face behind it is still the plain thickness/2",
+    faceOffsetMm(boarded, "right") === 50, String(faceOffsetMm(boarded, "right")));
+
+  // Case 2: a concealed run on a face with gap 30 + frame 50 lies at
+  // 50 + 30 + 25 = 105 -- half the structural thickness, plus the stand-off
+  // to the back of the frame, plus half the stud depth.
+  const framed: Wall = {
+    id: newId("w"), a: nodeAt(f, v(0, 0)).id, b: nodeAt(f, v(4000, 0)).id,
+    thickness: 100, bulge: 0, openings: [],
+    buildUp: { left: { frame: { gapMm: 30, depthMm: 50, material: "timber" }, boards: [] } },
+  };
+  check("concealedOffsetMm is thickness/2 + the frame zone's own middle (105)",
+    concealedOffsetMm(framed, "left") === 105, String(concealedOffsetMm(framed, "left")));
+  check("a face with no frame stays concealed at the bare centerline",
+    concealedOffsetMm(framed, "right") === 0, String(concealedOffsetMm(framed, "right")));
+
+  // Case 7: facadeMm on the facade's own face, and a facade face never also
+  // counts a build-up -- buildUpOf() already refuses that face (see the
+  // build-up tests above); faceOffsetMm has to inherit the same refusal
+  // through skinMmOf rather than adding the two skins together.
+  const faced: Wall = {
+    id: newId("w"), a: nodeAt(f, v(0, 0)).id, b: nodeAt(f, v(4000, 0)).id,
+    thickness: 100, bulge: 0, openings: [],
+    facadeMm: 80, facadeSide: "left",
+    buildUp: {
+      left: { boards: [{ kind: "gypsum", mm: 12 }] },  // the clad face -- ignored
+      right: { boards: [{ kind: "osb", mm: 18 }] },    // the plain face -- counted
+    },
+  };
+  check("faceOffsetMm on the facade face is thickness/2 + facadeMm (130), not the build-up on top",
+    faceOffsetMm(faced, "left") === 130, String(faceOffsetMm(faced, "left")));
+  check("skinMmOf never adds a build-up on top of the facade it already counted",
+    skinMmOf(faced, "left") === 80, String(skinMmOf(faced, "left")));
+  check("the other, unclad face still counts its own build-up (68)",
+    faceOffsetMm(faced, "right") === 68, String(faceOffsetMm(faced, "right")));
 }
 
 // ---- setFaceBuildUp: stores a frame-only face, deletes an empty one -------

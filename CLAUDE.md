@@ -643,8 +643,25 @@ the SVG group and its own DXF layer instead.
   the rule would let the two gestures disagree, and the state they would disagree into is
   the bad one: an unanchored endpoint under a socket LOOKS wired, does not follow the
   socket when it moves, and still reports itself as loose. A wall-mounted device sits on
-  the wall FACE while a concealed run hugs the centerline, so matching allows for half a
-  wall and matches on a shared `wallId` regardless of the plan distance.
+  the FINISHED face while a concealed run lies in the wall, so matching allows for
+  `faceOffsetMm()` on the device's own side — not half a wall, which on a wall behind a
+  voorzetwand is short by the whole build-up and leaves a socket looking wired and not
+  being — and matches on a shared `wallId` regardless of the plan distance.
+- **Where a face IS is stated once too**, in `faceOffsetMm()` ([doc.ts](src/model/doc.ts)):
+  half the structural thickness plus whatever skin stands on it, a facade or a build-up and
+  the voorzetwand it hangs on. `wallSnap()` anchors a device there, a `"surface"` run hugs
+  it, and `attach.ts` reaches to it. A `"concealed"` run instead takes `concealedOffsetMm()`
+  — the middle of the frame zone where a face states one, the centerline where it does not,
+  which is where a cable actually lies in a voorzetwand. `resolveRoutePoints()` reads the
+  same two functions, which is the point: a stored waypoint is only a fallback, so a rule
+  applied at placement and not at derive time would show the run in one place while it was
+  being drawn and another once drawn. A reveal does NOT read `faceOffsetMm()` — it counts
+  the build-up but not the facade, cladding being facade work (see `floorSurface()`).
+  Autoroute adds `skinMmOf()` rather than the whole offset, since its stand-off has always
+  been measured from the centerline and a plain wall's zero stand-off must stay on it.
+  Nothing is migrated: a symbol keeps its stored anchor until the wall pane's own button
+  moves it, wall-mounted fit-out is not moved at all, and `drawWallOffsets()` and the
+  mounting marks stay centerline-to-node.
 - **Every route-graph edit goes through [routegraph.ts](src/core/routegraph.ts)**, because
   a continuation names a point by (floorId, routeId, pointId): removing a point or folding
   one run into another has to drop or re-point the ports that named it. A port left naming
@@ -729,8 +746,8 @@ before changing one:
   face build-up (board stacks, and the voorzetwand they hang on) are skins outside that thickness,
   not layers within it.
 - A voorzetwand is drawn, counted, elevated, finished to its own face, checked against the columns it
-  stands over, and selected through its host, and no further yet: no service runs on or inside it
-  (#72), and it has no body in 3D or IFC (#73). A frame runs the whole face — it cannot stop short or
+  stands over, carries services on its finished face and in its frame zone, and is selected through
+  its host, and no further yet: it has no body in 3D or IFC (#73). A frame runs the whole face — it cannot stop short or
   box a column in (#74). Its header is checked under its own boards only; nothing asks whether a frame
   at that stand-off is fixed back to the wall. Only a column is checked for reaching into a build-up —
   not a beam, a duct or anything else the plan carries.

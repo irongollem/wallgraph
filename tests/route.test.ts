@@ -4,7 +4,7 @@
 // never carry services.
 import { COLORS } from "../src/render/draw";
 import { routeBandMm, routeBandInk, routeLineWidthMm } from "../src/render/route";
-import { emptyDoc, routesOf } from "../src/model/doc";
+import { emptyDoc, routesOf, faceOffsetMm, concealedOffsetMm } from "../src/model/doc";
 import {
   Route, Discipline, routeBoreMm, DISCIPLINES, ROUTE_KINDS, routeKind, routeVeins,
   ROUTE_WATERS, routeWater, routeDiameter, WATER_SUPPLY_DIAMETERS, WATER_DRAIN_DIAMETERS,
@@ -145,6 +145,63 @@ const route = (over: Partial<Route> = {}): Route =>
   f.nodes[0]!.y = 100; f.nodes[1]!.y = 100;
   check("a wall-attached surface route follows a moved wall",
     resolveRoutePoints(f, surface)[0]!.y === 150, JSON.stringify(resolveRoutePoints(f, surface)[0]));
+}
+
+/* ── a plain wall resolves bit-identically to before build-ups existed (#72) ── */
+
+{
+  const f = emptyDoc().floors[0]!;
+  f.nodes.push({ id: "n1", x: 0, y: 0 }, { id: "n2", x: 5000, y: 0 });
+  f.walls.push({ id: "wall", a: "n1", b: "n2", thickness: 120, bulge: 0, openings: [] });
+
+  const concealed: Route = {
+    id: "pc", discipline: "water", installation: "concealed",
+    points: [{ id: "p0", x: 2000, y: 0, wallId: "wall", wallT: 2000, wallSide: 1 }, { id: "p1", x: 9000, y: 9000 }],
+    segments: [{ id: "ps0", a: "p0", b: "p1" }],
+  };
+  const surface: Route = {
+    id: "psf", discipline: "water", installation: "surface",
+    points: [{ id: "q0", x: 2000, y: 0, wallId: "wall", wallT: 2000, wallSide: 1 }, { id: "q1", x: 9000, y: 9000 }],
+    segments: [{ id: "qs0", a: "q0", b: "q1" }],
+  };
+  check("a plain wall's concealed point still resolves exactly on the centerline",
+    resolveRoutePoints(f, concealed)[0]!.y === 0, String(resolveRoutePoints(f, concealed)[0]!.y));
+  check("a plain wall's surface point still resolves at exactly thickness/2 (60)",
+    resolveRoutePoints(f, surface)[0]!.y === 60, String(resolveRoutePoints(f, surface)[0]!.y));
+}
+
+/* ── resolveRoutePoints agrees with the placement on a framed, boarded face (#72) ── */
+
+{
+  // Before #72 a concealed point resolved to the bare centerline and a
+  // surface one to thickness/2, whatever the wall's own build-up said -- so
+  // without this case the feature would be invisible everywhere except the
+  // instant of drawing.
+  const f = emptyDoc().floors[0]!;
+  f.nodes.push({ id: "n1", x: 0, y: 0 }, { id: "n2", x: 5000, y: 0 });
+  const wall = {
+    id: "wall", a: "n1", b: "n2", thickness: 100, bulge: 0, openings: [],
+    buildUp: { left: { frame: { gapMm: 30, depthMm: 50, material: "timber" as const }, boards: [{ kind: "gypsum" as const, mm: 12 }] } },
+  };
+  f.walls.push(wall);
+
+  const concealed: Route = {
+    id: "cf", discipline: "electrical", installation: "concealed",
+    points: [{ id: "c0", x: 2000, y: 0, wallId: "wall", wallT: 2000, wallSide: 1 }, { id: "c1", x: 9000, y: 9000 }],
+    segments: [{ id: "cs0", a: "c0", b: "c1" }],
+  };
+  const surface: Route = {
+    id: "sf", discipline: "electrical", installation: "surface",
+    points: [{ id: "s0", x: 2000, y: 0, wallId: "wall", wallT: 2000, wallSide: 1 }, { id: "s1", x: 9000, y: 9000 }],
+    segments: [{ id: "ss0", a: "s0", b: "s1" }],
+  };
+  check("a concealed wall-anchored point on a framed face resolves to the frame zone's middle, 105 off centerline",
+    resolveRoutePoints(f, concealed)[0]!.y === 105, String(resolveRoutePoints(f, concealed)[0]!.y));
+  check("a surface wall-anchored point on the same face resolves to the finished face, 142 -- not thickness/2 (50)",
+    resolveRoutePoints(f, surface)[0]!.y === 142, String(resolveRoutePoints(f, surface)[0]!.y));
+  check("both match model/doc.ts's own accessors",
+    concealedOffsetMm(wall, "left") === 105 && faceOffsetMm(wall, "left") === 142,
+    `${concealedOffsetMm(wall, "left")} / ${faceOffsetMm(wall, "left")}`);
 }
 
 /* ── resolveRoutes: corridor fanning ── */

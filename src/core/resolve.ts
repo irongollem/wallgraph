@@ -11,6 +11,7 @@
 import {
   Floor, Wall, Opening, Id, BoardKind, wallPostMm, wallPostWidthMm, wallFacadeMm, facadeSideOf,
   buildUpOf, buildUpMm, frameZoneOf, boardsStartMm, postLayoutOf, postFromOf, canonPostOffset,
+  skinMmOf,
 } from "../model/doc";
 import {
   Vec, add, sub, scale, norm, perp, dist, v, angleOf, lineIntersect, mid,
@@ -533,20 +534,6 @@ function postsFor(
     out.push(mark);
   }
   return out;
-}
-
-/**
- * The skin depth a wall states on one of its own faces, mm: the facade where
- * that face carries it, the build-up where it carries that instead (the two
- * cannot both sit on one face — see buildUpOf()), 0 otherwise. Shared by the
- * outer corner pass, the per-board-depth passes and skinFor()/skinBandFor()
- * so a facade and a neighbouring wall's build-up miter against each other by
- * the same rule a facade meeting a facade does.
- */
-function skinMmOf(w: Wall, side: "left" | "right"): number {
-  const fm = wallFacadeMm(w);
-  if (fm !== undefined && facadeSideOf(w) === side) return fm;
-  return buildUpMm(w, side);
 }
 
 /**

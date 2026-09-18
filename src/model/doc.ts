@@ -586,6 +586,49 @@ export function buildUpMm(w: Wall, side: "left" | "right"): number {
   return fu ? boardsStartMm(w, side) + fu.boards.reduce((sum, b) => sum + b.mm, 0) : 0;
 }
 
+/**
+ * The skin depth a wall states on one of its own faces, mm: the facade where
+ * that face carries it, the build-up where it carries that instead (the two
+ * cannot both sit on one face — see buildUpOf()), 0 otherwise. A model fact
+ * about the wall, not a resolve detail: resolveFloor()'s outer corner pass and
+ * its per-board-depth passes read it so a facade and a neighbouring wall's
+ * build-up miter against each other by the same rule a facade meeting a
+ * facade does, and faceOffsetMm() below reads it so a device or a service run
+ * lands on the same depth resolveFloor() draws the face at.
+ */
+export function skinMmOf(w: Wall, side: "left" | "right"): number {
+  const fm = wallFacadeMm(w);
+  if (fm !== undefined && facadeSideOf(w) === side) return fm;
+  return buildUpMm(w, side);
+}
+
+/**
+ * Centerline to the outside of the wall on one face, mm: half the structural
+ * thickness plus whatever skin stands on it — a facade, or a build-up and the
+ * voorzetwand it may hang on. Where a wall-mounted device sits and where a
+ * surface-run service hugs.
+ */
+export function faceOffsetMm(w: Wall, side: "left" | "right"): number {
+  return w.thickness / 2 + skinMmOf(w, side);
+}
+
+/**
+ * Centerline to where a CONCEALED run actually lies on one face, mm: the
+ * middle of the voorzetwand's own frame zone (frameZoneOf()) where that face
+ * states one -- half the structural thickness, plus the stand-off to the
+ * back of the frame, plus half the stud depth, which is where the cable
+ * genuinely sits inside it -- and the bare centerline (0) on a face that
+ * states no frame, unchanged from before build-ups existed. The one place
+ * this rule lives: input/tools.ts's routeWallHug() (placing a new waypoint)
+ * and core/route.ts's resolveRoutePoints() (resolving a stored one) both
+ * read it, so a run drawn against a frame and the same run read back never
+ * drift apart the way two copies of this arithmetic could.
+ */
+export function concealedOffsetMm(w: Wall, side: "left" | "right"): number {
+  const zone = frameZoneOf(w, side);
+  return zone ? w.thickness / 2 + (zone.from + zone.to) / 2 : 0;
+}
+
 /** A board's stated thickness is always a whole mm (invariant 1); 6..30
  *  covers everything from a thin cement board to a doubled 15 mm layer. */
 export const clampBoardMm = (n: number): number => clampInt(n, 6, 30);

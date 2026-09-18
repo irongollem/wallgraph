@@ -10,14 +10,15 @@
 // since an unanchored endpoint sitting under a socket LOOKS wired and behaves
 // as though it is not: the run does not follow the device when it moves, and
 // the panel still calls the end loose.
-import { Floor, Id, furnishingsOf, routesOf, type SymbolInstance } from "../model/doc";
+import { Floor, Id, furnishingsOf, routesOf, faceOffsetMm, type SymbolInstance, type Wall } from "../model/doc";
 import { furnishingPorts, type Furnishing } from "../model/furnishing";
 import {
   Discipline, RoutePoint, RouteWater, RouteVent, RouteKind, routeServiceKey,
 } from "../model/route";
 import { serviceKeyOf, serviceMatches, type ServiceKey } from "../model/service";
 import { getSymbol } from "../render/symbols";
-import { Vec, dist, v } from "../geometry/vec";
+import { Vec, dist, v, sub, dot, perp, distToSeg } from "../geometry/vec";
+import { arcPointAt, arcTangentAt } from "../geometry/arc";
 import { resolveRoutePoints } from "./route";
 import { insertRoutePoint, projectOntoLeg } from "./routegraph";
 import { connectionPoint, type Device } from "./port";
@@ -52,12 +53,40 @@ export function routeTakesFurnishing(key: ServiceKey, fn: Furnishing): boolean {
  * as its connection, mm.
  *
  * Generous on purpose, and not a screen distance: a concealed run hugs the
- * wall CENTERLINE while a wall-mounted socket's anchor sits on the wall FACE,
- * so the two are half a wall apart even when they are drawn as the same
- * connection. A device on the same wall as the endpoint is matched on the
- * wall instead (see below), which covers a wall thicker than this figure.
+ * wall's own installation depth -- the centerline, or the middle of a
+ * voorzetwand's frame zone where one stands (see routeWallHug() in
+ * input/tools.ts) -- while a wall-mounted socket's anchor sits on the
+ * FINISHED face, which a facade or a build-up can stand well past the
+ * centerline. A device on the same wall as the endpoint is matched on the
+ * wall instead (see below), adding that wall's own faceOffsetMm() rather than
+ * this flat figure, which is what covers a wall carrying more skin than
+ * ROUTE_LINK_MM alone would reach.
  */
 export const ROUTE_LINK_MM = 200;
+
+/**
+ * The finished-face depth (faceOffsetMm()) of `wall` on the side `device`
+ * actually stands on, mm -- the same perp(tangent) sign test wallSnap()
+ * places a wall-mounted symbol with (input/tools.ts), read off the device's
+ * own stored x/y: its anchor, which for a wall-mounted device IS the point
+ * that test was run against when it was placed.
+ *
+ * Falls back to the LARGER of the two faces' offsets when the wall's own
+ * geometry is missing a node and no side can be read at all -- a reach that
+ * is slightly too generous links a device that should link, while one that is
+ * too short silently leaves a socket looking wired and not being one.
+ */
+function deviceFaceMm(floor: Floor, wall: Wall, device: Device): number {
+  const a = floor.nodes.find(n => n.id === wall.a), b = floor.nodes.find(n => n.id === wall.b);
+  if (!a || !b) return Math.max(faceOffsetMm(wall, "left"), faceOffsetMm(wall, "right"));
+  const A = v(a.x, a.y), B = v(b.x, b.y);
+  const p = v(device.x, device.y);
+  const frac = Math.max(0, Math.min(1, distToSeg(p, A, B).t));
+  const center = arcPointAt(A, B, wall.bulge, frac);
+  const normal = perp(arcTangentAt(A, B, wall.bulge, frac));
+  const side: "left" | "right" = dot(sub(p, center), normal) >= 0 ? "left" : "right";
+  return faceOffsetMm(wall, side);
+}
 
 /**
  * Every loose, unanchored endpoint this device stands on -- the ends a
@@ -128,8 +157,9 @@ function pointsUnder(
       const sameWall = device.wallId !== undefined && point.wallId === device.wallId;
       const wall = sameWall ? floor.walls.find(w => w.id === device.wallId) : undefined;
       // A shared wall permits the perpendicular gap from its centreline to
-      // its face, but not an unlimited distance along the wall.
-      const reach = ROUTE_LINK_MM + (wall?.thickness ?? 0) / 2;
+      // its own finished face on the device's own side (deviceFaceMm()), but
+      // not an unlimited distance along the wall.
+      const reach = ROUTE_LINK_MM + (wall ? deviceFaceMm(floor, wall, device) : 0);
       if (dist(resolved[i]!, at) > reach) continue;
       found.push(point);
     }

@@ -4,7 +4,7 @@
 // The behaviour these cover is the difference between a drawing that LOOKS
 // wired and one that is: an endpoint sitting under a socket without an anchor
 // does not follow the socket when it moves, and reports itself as loose.
-import { emptyDoc, routesOf, type Floor, type SymbolInstance } from "../src/model/doc";
+import { emptyDoc, routesOf, faceOffsetMm, type Floor, type SymbolInstance } from "../src/model/doc";
 import type { Route } from "../src/model/route";
 import type { RouteContinuation } from "../src/model/continuation";
 import {
@@ -13,7 +13,7 @@ import {
 } from "../src/core/routegraph";
 import {
   routeTakesSymbol, routeTakesFurnishing, routeEndsUnder, linkDeviceToRouteEnds,
-  routeLegsUnder, connectDevice, nearestDeviceFor,
+  routeLegsUnder, connectDevice, nearestDeviceFor, ROUTE_LINK_MM,
 } from "../src/core/attach";
 import { resolveRoutePoints, routeLength } from "../src/core/route";
 import { resources } from "../src/i18n";
@@ -352,6 +352,48 @@ const socket = (over: Partial<SymbolInstance> = {}): SymbolInstance =>
   const elsewhere = socket({ id: "e", x: 2000, y: 300, wallId: "w2" });
   check("a device on a different wall does not",
     routeEndsUnder(f, elsewhere, key => routeTakesSymbol(key, elsewhere.type)).length === 0);
+}
+
+{
+  // A socket on a framed, boarded face still attaches to a concealed run's
+  // endpoint on the same wall -- the reach has to cover the build-up, not
+  // just the bare thickness/2 it used to (issue #72). Built so the endpoint
+  // sits 300 mm along the wall from the socket: the OLD reach
+  // (ROUTE_LINK_MM + thickness/2 = 200 + 50 = 250) would have missed it, and
+  // the new one (ROUTE_LINK_MM + faceOffsetMm = 200 + 152 = 352) finds it.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.nodes.push({ id: "n1", x: 0, y: 0 }, { id: "n2", x: 5000, y: 0 });
+  const wall = {
+    id: "w1", a: "n1", b: "n2", thickness: 100, bulge: 0, openings: [],
+    buildUp: { left: { frame: { gapMm: 20, depthMm: 70, material: "timber" as const }, boards: [{ kind: "gypsum" as const, mm: 12 }] } },
+  };
+  f.walls.push(wall);
+  check("faceOffsetMm on this face is 152, well past the old thickness/2 of 50",
+    faceOffsetMm(wall, "left") === 152, String(faceOffsetMm(wall, "left")));
+
+  const device = socket({ x: 2000, y: 152, wallId: "w1" });
+  const r: Route = {
+    id: "fr", discipline: "electrical", installation: "surface",
+    points: [
+      { id: "e0", x: 2300, y: 152, wallId: "w1", wallT: 2300, wallSide: 1 },
+      { id: "e1", x: 9000, y: 9000 },
+    ],
+    segments: [{ id: "fs0", a: "e0", b: "e1" }],
+  };
+  f.routes = [r];
+
+  const oldReach = ROUTE_LINK_MM + wall.thickness / 2;
+  const newReach = ROUTE_LINK_MM + faceOffsetMm(wall, "left");
+  const endpointDistanceMm = 300; // purely along the wall: both points sit at y = 152
+  check("the fixture's own arithmetic: the OLD reach would have been too short",
+    oldReach < endpointDistanceMm, `${oldReach} < ${endpointDistanceMm}`);
+  check("the NEW reach covers it",
+    newReach >= endpointDistanceMm, `${newReach} >= ${endpointDistanceMm}`);
+
+  const ends = routeEndsUnder(f, device, key => routeTakesSymbol(key, device.type));
+  check("a socket on a framed face reaches a concealed run's endpoint across the build-up",
+    ends.length === 1 && ends[0]!.id === "e0", JSON.stringify(ends));
 }
 
 {

@@ -2,7 +2,7 @@
 // waypoints (model/route.ts): where an anchored point currently sits, how
 // long the run is, and where several routes bundle through the same corridor
 // are all recomputed on every call, exactly like a room's boundary.
-import { Floor, floorHeight, routesOf } from "../model/doc";
+import { Floor, floorHeight, routesOf, faceOffsetMm, concealedOffsetMm } from "../model/doc";
 import {
   Route, RouteKind, routeKind, routeVeins, RouteWater, routeWater, routeDiameter, ROUTE_WATERS,
   RouteInstallation, routeInstallation, routeServiceKey,
@@ -21,9 +21,19 @@ import { wallLength } from "../model/ops";
  * (the thing is gone) or a free point reads its own stored x/y. Purely derived -- nothing is written back,
  * so a route and the symbols it follows can each be edited without either
  * mutation racing to keep the other in sync. See model/route.ts.
+ *
+ * A wall-anchored point offsets off the centerline by faceOffsetMm() for a
+ * "surface" run (the finished face) or concealedOffsetMm() for a "concealed"
+ * one (the middle of a voorzetwand's own frame zone where that face states
+ * one, the bare centerline otherwise) -- the SAME two helpers
+ * input/tools.ts's routeWallHug() places a new waypoint with, so the point a
+ * run is drawn to and the point it resolves to afterward cannot drift apart
+ * (see model/doc.ts). Any other installation (floor/ceiling/free) reads the
+ * centerline, same as before those two helpers existed.
  */
 export function resolveRoutePoints(floor: Floor, route: Route): Vec[] {
   const key = routeServiceKey(route);
+  const installation = routeInstallation(route);
   return route.points.map(p => {
     if (p.anchor) {
       // Where THIS run reaches whatever it follows: for a fixture with several
@@ -42,11 +52,13 @@ export function resolveRoutePoints(floor: Floor, route: Route): Vec[] {
           const frac = length > 0 ? Math.max(0, Math.min(1, p.wallT / length)) : 0;
           const A = v(a.x, a.y), B = v(b.x, b.y);
           const center = arcPointAt(A, B, wall.bulge, frac);
-          if (routeInstallation(route) === "surface") {
-            const normal = perp(arcTangentAt(A, B, wall.bulge, frac));
-            return add(center, scale(normal, (p.wallSide ?? 1) * wall.thickness / 2));
-          }
-          return center;
+          const side: "left" | "right" = (p.wallSide ?? 1) === 1 ? "left" : "right";
+          const offset = installation === "surface" ? faceOffsetMm(wall, side)
+                        : installation === "concealed" ? concealedOffsetMm(wall, side)
+                        : 0;
+          if (offset === 0) return center;
+          const normal = perp(arcTangentAt(A, B, wall.bulge, frac));
+          return add(center, scale(normal, (p.wallSide ?? 1) * offset));
         }
       }
     }

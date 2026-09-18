@@ -16,7 +16,7 @@
 // Scope, per the issue: shortest along the walls, with an offset. No obstacle
 // semantics -- nothing here knows a vide from a corridor -- and no preference
 // between two paths of equal length beyond a deterministic tie-break.
-import { Floor, Id } from "../model/doc";
+import { Floor, Id, skinMmOf } from "../model/doc";
 import { nearestWall, wallLength } from "../model/ops";
 import { arcFlatten } from "../geometry/arc";
 import { Vec, v, add, sub, scale, dist, norm, perp, cross, dot, lineIntersect } from "../geometry/vec";
@@ -230,7 +230,15 @@ export function offsetPolyline(pts: Vec[], offset: number, hand: 1 | -1): Vec[] 
 }
 
 export interface AutoRouteOptions {
-  /** Stand-off from the wall centerline, mm. 0 runs down the centerline. */
+  /**
+   * Stand-off from the wall's own centerline, mm -- the graph this searches
+   * is the centerline graph, so this is what "0" has always meant here. A
+   * wall carrying a facade or a build-up adds its own skin depth on top of
+   * this (see autoRoutePath()'s own comment), which is the one place the
+   * finished face rather than the bare centerline now matters: a plain wall
+   * with neither states 0 skin, so this alone is still the whole offset for
+   * it, exactly as before build-ups existed.
+   */
   offsetMm?: number;
   /** How far off the fabric a picked point may be and still route. */
   reachMm?: number;
@@ -245,6 +253,18 @@ export interface AutoRouteOptions {
  * it; everything between follows the graph. Which side the offset falls on is
  * taken from where `from` was picked relative to the first leg, which is the
  * only side the caller has actually expressed an opinion about.
+ *
+ * The lateral offset is `options.offsetMm` plus skinMmOf() of the wall `from`
+ * was picked on, on that same hand -- the depth of that wall's own facade or
+ * build-up, so a run proposed along a clad or lined wall stands off its
+ * finished face rather than the bare centerline the graph is built from. This
+ * is ONE offset for the whole path, not one per leg: buildGraph() below keys
+ * its vertices on position alone and its edges carry no wall id, so once the
+ * search has run there is no leg-by-leg identity left to read a skin depth
+ * from. Faking one would claim a per-wall accuracy the graph does not have;
+ * reading it off the wall the path starts from is honest about what this can
+ * and cannot promise -- a path that crosses from an unskinned wall onto a
+ * clad one keeps the first wall's (zero) skin rather than growing to match.
  */
 export function autoRoutePath(
   floor: Floor, from: Vec, to: Vec, options: AutoRouteOptions = {},
@@ -263,14 +283,17 @@ export function autoRoutePath(
   if (!path) return null;
   const along = tidy(path.map(i => graph.nodes[i]!.at));
 
-  const offset = Math.round(options.offsetMm ?? 0);
+  const standoff = Math.round(options.offsetMm ?? 0);
   let laid = along;
-  if (offset !== 0 && along.length >= 2) {
+  if (along.length >= 2) {
     const first = norm(sub(along[1]!, along[0]!));
     // Which side of the first leg the pick was on. Exactly on the line is a
     // caller with no opinion, and takes perp()'s own side.
     const hand: 1 | -1 = dot(sub(from, along[0]!), perp(first)) >= 0 ? 1 : -1;
-    laid = offsetPolyline(along, offset, hand);
+    const startWall = nearestWall(floor, from, reach)?.wall;
+    const skinMm = startWall ? skinMmOf(startWall, hand === 1 ? "left" : "right") : 0;
+    const offset = standoff + Math.round(skinMm);
+    if (offset !== 0) laid = offsetPolyline(along, offset, hand);
   }
   const out = tidy([from, ...laid, to]);
   return out.map(p => v(Math.round(p.x), Math.round(p.y)));

@@ -7,6 +7,7 @@ import {
   structureOf,
   routesOf, roomNamesOf, floorHeight, DOOR_DEFAULT_WIDTH, WINDOW_DEFAULT_WIDTH, PASSAGE_DEFAULT_WIDTH,
   OpeningKind, FireRating, dimModeOf, WallMaterial, postDefaultsFor, cloneFaceBuildUp,
+  faceOffsetMm, concealedOffsetMm,
 } from "../model/doc";
 import type { RoomUse } from "../model/room";
 import {
@@ -131,6 +132,13 @@ const WALL_SNAP_MIN_MM = 150;
 /** Shortest step the route tool accepts between two waypoints, mm -- same
  *  figure the wall tool uses for the same reason (MIN_WALL_MM). */
 const MIN_ROUTE_STEP_MM = MIN_WALL_MM;
+
+/**
+ * The model's "left"/"right" for the numeric `side: 1 | -1` this file snaps
+ * with: 1 is the wall's own left face (+perp(tangent), invariant 2). One
+ * bridge, rather than one at each site faceOffsetMm() is read from.
+ */
+const faceOf = (side: 1 | -1): "left" | "right" => side === 1 ? "left" : "right";
 
 /** Grab radius for a riser mark, mm. The mark itself draws at r = 78. */
 const RISER_PICK_MM = 90;
@@ -1984,7 +1992,7 @@ export class Tools {
     const tan = arcTangentAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, frac);
     const n = perp(tan);
     const side = dot(sub(this.cursor, pOn), n) >= 0 ? 1 : -1;
-    const anchor = add(pOn, scale(n, (nw.wall.thickness / 2) * side));
+    const anchor = add(pOn, scale(n, faceOffsetMm(nw.wall, faceOf(side)) * side));
     const outN = scale(n, side);
     return {
       wall: nw.wall, tMm: frac * L, side,
@@ -2385,10 +2393,18 @@ export class Tools {
   setRouteBoard(value: string): void { this.routeBoard = value.trim(); this.onToolChange(); }
 
   /**
-   * A fixed 30 mm stand-off from the nearest wall's centerline, on the
-   * cursor's side -- reusing wallSnap()'s own centerline-projection maths
-   * (see its comment) rather than a symbol's half-thickness offset, since a
-   * route is not mounted flush to the face the way a symbol is.
+   * Where a run hugging the nearest wall actually lies, on the cursor's side
+   * -- reusing wallSnap()'s own centerline-projection maths (see its
+   * comment). `"surface"` hugs the finished face, same as a wall-mounted
+   * symbol's anchor (faceOffsetMm()). `"concealed"` lies where the cable
+   * actually sits: at the middle of the voorzetwand's own frame zone on a
+   * face that states one -- half the structural thickness, plus the stand-off
+   * to the back of the frame, plus half the stud depth -- and on the
+   * centerline everywhere else, since there is no frame zone to sit inside.
+   * Both offsets are concealedOffsetMm()/faceOffsetMm() in model/doc.ts, the
+   * same helpers resolveRoutePoints() (core/route.ts) reads back a stored
+   * point through, so the point a run is drawn to and the point it resolves
+   * to afterward cannot drift apart.
    */
   private routeWallHug(p: Vec, installation: RouteInstallation = this.routeInstallation): {
     p: Vec; wallId: Id; wallT: number; wallSide: 1 | -1;
@@ -2403,9 +2419,10 @@ export class Tools {
     const pOn = arcPointAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, frac);
     const n = perp(arcTangentAt(v(a.x, a.y), v(b.x, b.y), nw.wall.bulge, frac));
     const side: 1 | -1 = dot(sub(p, pOn), n) >= 0 ? 1 : -1;
-    const snapped = installation === "surface"
-      ? add(pOn, scale(n, (nw.wall.thickness / 2) * side))
-      : pOn;
+    const face = faceOf(side);
+    const offset = installation === "surface"
+      ? faceOffsetMm(nw.wall, face) : concealedOffsetMm(nw.wall, face);
+    const snapped = offset === 0 ? pOn : add(pOn, scale(n, offset * side));
     return {
       p: snapped, wallId: nw.wall.id, wallT: Math.round(frac * L), wallSide: side,
     };

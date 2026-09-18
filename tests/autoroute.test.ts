@@ -5,7 +5,7 @@
 // walls rather than cutting across a room, it turns at junctions, it keeps a
 // stated stand-off on one side of the wall it is following, and it is plain
 // waypoints -- there is no second representation to keep true afterwards.
-import { emptyDoc, type Floor } from "../src/model/doc";
+import { emptyDoc, skinMmOf, type Floor } from "../src/model/doc";
 import { autoRoutePath, snapToFabric, offsetPolyline, AUTOROUTE_REACH_MM } from "../src/core/autoroute";
 import { dist, v, type Vec } from "../src/geometry/vec";
 import { resources } from "../src/i18n";
@@ -109,6 +109,30 @@ const length = (pts: Vec[]): number => {
     && inset[inset.length - 1]!.x === 1000 && inset[inset.length - 1]!.y === 2800);
   check("the offset run is shorter than the centreline one, being inside the corner",
     length(inset) < length(centre), `${length(inset)}/${length(centre)}`);
+}
+
+{
+  // The stand-off is the wall's own SKIN (skinMmOf), not the finished-face
+  // offset a wall-mounted device or a surface run reads (faceOffsetMm): a
+  // proposal along a framed, boarded wall stands off the board, not off
+  // thickness/2 as well (issue #72) -- deliberately the skin alone, so a
+  // plain wall's zero-stand-off proposal (the "centreline run" case above)
+  // still lands exactly on the centerline.
+  const f = room(4000, 3000);
+  f.walls[0]!.buildUp = {
+    left: { frame: { gapMm: 10, depthMm: 40, material: "timber" }, boards: [{ kind: "gypsum", mm: 12 }] },
+  };
+  check("the wall states the skin this run should stand off (62)",
+    skinMmOf(f.walls[0]!, "left") === 62, String(skinMmOf(f.walls[0]!, "left")));
+
+  // Two points on wall0 (a -> b runs (0,0) -> (4000,0), tangent (1,0), so
+  // "left" is +y), picked exactly on the centerline like the plain two-points-
+  // on-one-wall case above.
+  const path = autoRoutePath(f, v(500, 0), v(3000, 0))!;
+  check("a proposal along a framed, boarded wall stands off by the build-up depth alone (62)",
+    path.length === 4 && path[1]!.y === 62 && path[2]!.y === 62, JSON.stringify(path));
+  check("and it still starts and ends exactly where it was picked",
+    path[0]!.x === 500 && path[0]!.y === 0 && path[path.length - 1]!.x === 3000 && path[path.length - 1]!.y === 0);
 }
 
 {

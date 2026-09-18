@@ -6,8 +6,8 @@ import { defaultMountHeight, clampMountHeight } from "../core/mount";
 import { Tools, ToolName } from "../input/tools";
 import { clampOpening, wallLength, deleteWall, deleteRoomNames, splitWall } from "../model/ops";
 import type { SymbolDef } from "../render/symbols";
-import { sagittaFromBulge, bulgeFromSagitta } from "../geometry/arc";
-import { v, norm, sub, add, scale } from "../geometry/vec";
+import { sagittaFromBulge, bulgeFromSagitta, arcPointAt, arcTangentAt, arcFlatten } from "../geometry/arc";
+import { v, norm, sub, add, scale, dot, perp, dist, distToSeg, type Vec } from "../geometry/vec";
 import { exportJson, copyJson, importJsonFile, parseDoc, clearAutosave } from "../io/json";
 import { pickUnderlayImage, prepareUnderlayImage, initialUnderlay, imageFromClipboard } from "../io/underlay";
 import { exportPng } from "../io/image";
@@ -27,7 +27,7 @@ import {
   doorKindOf, DOOR_KINDS, widthsFor, DOOR_WIDTHS_DOUBLE, FIRE_KINDS, FIRE_MINUTES,
   FIRE_MINUTES_DEFAULT, routesOf, furnishingsOf, decksOf, WALL_MATERIALS, POST_WIDTH_DEFAULT,
   FACADE_DEFAULT_MM, facadeSideOf, wallPostMm, postDefaultsFor, postLayoutOf,
-  isBlockMaterial, BLOCK_DEFAULT_MM, PANEL_DEFAULT_MM, buildUpOf, frameOf, setFaceBuildUp,
+  isBlockMaterial, BLOCK_DEFAULT_MM, PANEL_DEFAULT_MM, buildUpOf, frameOf, setFaceBuildUp, faceOffsetMm,
   clampBlockLength, clampBlockHeight, clampNoggingRows, clampPanel, clampFrameGapMm, structureOf,
   openingBearing, OPENING_BEARING_DEFAULT_MM, clampOpeningBearing, clampLintelSection, clampLintelLoad,
   type AreaMode, type DimMode, type Sash, type HingeEdge, type Opening, type Wall, type Floor, type FireKind,
@@ -3046,6 +3046,27 @@ export class Panel {
           }));
         }
       }
+      // A symbol snapped to this wall before a facade or build-up moved its
+      // finished face outward keeps sitting on the structural face -- issue
+      // #72 changed where a NEW placement lands, but nothing already placed
+      // is migrated (see model/doc.ts's faceOffsetMm). Offer the catch-up as
+      // one mutation so a single Ctrl+Z puts every symbol back. Hidden once
+      // nothing would move, and recomputed inside the mutation so it acts on
+      // the wall as it stands at click time.
+      const faceMoves = wallSymbolFaceMoves(f, w);
+      if (faceMoves.length > 0) {
+        secHead(t("panel.symbolFaceHead"), { later: true });
+        warnRow(t("panel.symbolFaceWarn", { n: faceMoves.length }));
+        btnRow(t("panel.symbolFaceMove", { n: faceMoves.length }), () => this.store.mutate(d => {
+          const fl = this.store.floorOf(d);
+          const wall = fl.walls.find(x => x.id === sel.id);
+          if (!wall) return;
+          for (const move of wallSymbolFaceMoves(fl, wall)) {
+            const sym = fl.symbols.find(x => x.id === move.id);
+            if (sym) { sym.x = move.x; sym.y = move.y; }
+          }
+        }));
+      }
       // Block format, only meaningful on a block-built material.
       if (isBlockMaterial(w.material)) {
         checkRow(t("panel.blockOn"), w.blockMm !== undefined, on => this.store.mutate(d => {
@@ -3257,6 +3278,51 @@ export interface NumRowExtra {
 
 function dist2(a: { x: number; y: number }, b: { x: number; y: number }): number {
   return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+/** Fraction (0..1) along a wall's centerline closest to p, the same
+ *  arc-flattened projection nearestWall() (model/ops.ts) uses, restricted to
+ *  the one wall already known instead of searching the floor for it. */
+function projectFracOnWall(A: Vec, B: Vec, bulge: number, L: number, p: Vec): number {
+  if (bulge === 0) return distToSeg(p, A, B).t;
+  const pts = arcFlatten(A, B, bulge, 2);
+  let bestD = Infinity, bestAcc = 0, acc = 0;
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const s0 = pts[i]!, s1 = pts[i + 1]!;
+    const segLen = dist(s0, s1);
+    const { d, t } = distToSeg(p, s0, s1);
+    if (d < bestD) { bestD = d; bestAcc = acc + t * segLen; }
+    acc += segLen;
+  }
+  return L > 0 ? Math.max(0, Math.min(1, bestAcc / L)) : 0;
+}
+
+/**
+ * Every wall-snapped symbol on `w` that is not already sitting on its
+ * finished face, with where it belongs. Side comes from the sign of the
+ * stored anchor against perp(tangent) at its own projection onto the
+ * centerline -- the same test wallSnap() (input/tools.ts) uses to place one:
+ * 1 is the wall's own left face (invariant 2). Furnishings snap to a wall the
+ * same way but are not covered here -- issue #72 named symbols only.
+ */
+function wallSymbolFaceMoves(f: Floor, w: Wall): { id: Id; x: number; y: number }[] {
+  const a = f.nodes.find(n => n.id === w.a), b = f.nodes.find(n => n.id === w.b);
+  if (!a || !b) return [];
+  const A = v(a.x, a.y), B = v(b.x, b.y);
+  const L = wallLength(f, w);
+  const moves: { id: Id; x: number; y: number }[] = [];
+  for (const s of f.symbols) {
+    if (s.wallId !== w.id) continue;
+    const p = v(s.x, s.y);
+    const frac = projectFracOnWall(A, B, w.bulge, L, p);
+    const pOn = arcPointAt(A, B, w.bulge, frac);
+    const n = perp(arcTangentAt(A, B, w.bulge, frac));
+    const side: 1 | -1 = dot(sub(p, pOn), n) >= 0 ? 1 : -1;
+    const target = add(pOn, scale(n, faceOffsetMm(w, side === 1 ? "left" : "right") * side));
+    const x = Math.round(target.x), y = Math.round(target.y);
+    if (x !== s.x || y !== s.y) moves.push({ id: s.id, x, y });
+  }
+  return moves;
 }
 /**
  * The key that fires a control, beside it. Hidden by CSS wherever there is no
