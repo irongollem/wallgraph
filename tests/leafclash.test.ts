@@ -3,7 +3,7 @@
 import { emptyDoc, newId, type Wall, type Floor } from "../src/model/doc";
 import type { Column, ColumnShape } from "../src/model/structure";
 import { resolveFloor } from "../src/core/resolve";
-import { columnProtrusions, proposedGapMm, buildUpClashes } from "../src/core/leafclash";
+import { columnProtrusions, proposedGapMm, buildUpClashes, proposedRuns } from "../src/core/leafclash";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ""): void {
@@ -196,6 +196,55 @@ function addColumn(
     !!ps[0] && near(ps[0]!.protrusionMm, 30, 1),
     String(ps[0]?.protrusionMm),
   );
+}
+
+// ---- proposedRuns: stop the face either side of the column (#74) ----------
+//
+// The second way to deal with a column in front of a wall. Where proposedGapMm
+// stands the WHOLE face off far enough to clear it, this splits the face and
+// leaves the column to be cased on its own.
+
+{
+  // 6000 wall, 100 thick (half 50). A 300-wide column centred at t = 3000
+  // spans t in [2850, 3150] and stands past the face on the left.
+  const { f, w } = wallFloor(6000, 100);
+  w.material = "steel";
+  w.buildUp = { left: { frame: { gapMm: 20, depthMm: 50, material: "steel" }, boards: [] } };
+  addColumn(f, { x: 3000, y: 100, width: 300, depth: 200, shape: "rect", rotation: 0 });
+  const resolved = resolveFloor(f);
+
+  const runs = proposedRuns(f, resolved, w.id, "left");
+  check("a column in the face proposes runs either side of it", runs !== null && runs.length === 2,
+    JSON.stringify(runs));
+  // 2850 - 50 clearance = 2800; 3150 + 50 = 3200.
+  check("the runs stop a clearance short of the column",
+    JSON.stringify(runs) === JSON.stringify([{ fromMm: 0, toMm: 2800 }, { fromMm: 3200, toMm: 6000 }]),
+    JSON.stringify(runs));
+
+  // Both proposals read the same protrusion, so they cannot disagree about
+  // which columns are in the way.
+  check("the stand-off proposal sees the same column", proposedGapMm(f, resolved, w.id, "left") !== null);
+
+  // Before the split the column clashes with the build-up standing over it.
+  check("the column clashes while the face runs past it",
+    buildUpClashes(f, resolved).length === 1, String(buildUpClashes(f, resolved).length));
+
+  // Writing the runs answers the clash: the face no longer covers the column,
+  // so there is nothing there to clash with. A proposal that left the report
+  // standing would be a second opinion rather than an answer.
+  w.buildUp!.left!.runs = runs!;
+  const after = resolveFloor(f);
+  check("splitting the face around it clears the clash",
+    buildUpClashes(f, after).length === 0, JSON.stringify(buildUpClashes(f, after)));
+}
+
+{
+  // A face with no column in it is not a face with no runs.
+  const { f, w } = wallFloor(6000, 100);
+  w.material = "steel";
+  w.buildUp = { left: { frame: { gapMm: 20, depthMm: 50, material: "steel" }, boards: [] } };
+  check("no protrusion proposes nothing at all",
+    proposedRuns(f, resolveFloor(f), w.id, "left") === null);
 }
 
 if (failures > 0) { console.error(`${failures} failure(s)`); process.exit(1); }

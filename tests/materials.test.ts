@@ -837,5 +837,42 @@ function leafFrame(over: Partial<FaceFrame> = {}): FaceFrame {
     stockPresetOf(doc) === "diy");
 }
 
+// ---- a face split into runs counts every run (#74) ------------------------
+//
+// A voorzetwand stopping either side of a column is two frames, and the
+// takeoff has to count both. Counting only the first is the failure the
+// leafOf()/leavesOf() split exists to prevent.
+
+{
+  const build = (runs?: { fromMm: number; toMm: number }[]) => {
+    const doc = emptyDoc();
+    const f = doc.floors[0]!;
+    const n1 = newId("n"), n2 = newId("n");
+    f.nodes = [{ id: n1, x: 0, y: 0 }, { id: n2, x: 6000, y: 0 }];
+    f.walls = [{
+      id: "H", a: n1, b: n2, thickness: 100, bulge: 0, openings: [],
+      buildUp: { left: { frame: leafFrame(), boards: [], ...(runs ? { runs } : {}) } },
+    }];
+    return materialsOf(doc, f).m;
+  };
+
+  const split = build([{ fromMm: 0, toMm: 2800 }, { fromMm: 3200, toMm: 6000 }]);
+  const leaves = split.walls.filter(w => w.host?.wallId === "H");
+  check("a face split into two runs yields two leaf takeoffs", leaves.length === 2,
+    String(leaves.length));
+
+  const studsIn = (m: typeof split): number => m.walls
+    .filter(w => w.host?.wallId === "H")
+    .reduce((n, w) => n + (w.members.find(x => x.name === "stud")?.count ?? 0), 0);
+
+  // Every run is framed in full: two 2800 runs carry more studs than one
+  // 6000 face does, because each of them has its own pair of end studs.
+  const whole = build();
+  check("both runs' studs are counted, not just the first run's",
+    studsIn(split) > studsIn(whole) / 2, `${studsIn(split)} vs ${studsIn(whole)}`);
+  check("and the whole face is still one takeoff when no runs are stated",
+    whole.walls.filter(w => w.host?.wallId === "H").length === 1);
+}
+
 console.log(failures === 0 ? "ok" : `FAIL (${failures} failures)`);
 process.exit(failures === 0 ? 0 : 1);

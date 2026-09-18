@@ -5,7 +5,7 @@
 // "proposes, never owns" stance core/autoroute.ts and core/roofsuggest.ts
 // take. Nothing writes a FaceFrame.gapMm or refuses a build-up because of
 // what is found here.
-import { Floor, Id, Wall, buildUpOf } from "../model/doc";
+import { Floor, Id, Wall, buildUpOf, faceRunsOf, FaceRun, normalizeFaceRuns } from "../model/doc";
 import type { Column } from "../model/structure";
 import { columnOutline } from "./structure";
 import type { Resolved } from "./resolve";
@@ -146,6 +146,59 @@ export function columnProtrusions(f: Floor, resolved: Resolved): ColumnProtrusio
   }));
 }
 
+/** How far short of a protruding column a proposed run stops, mm, on either
+ *  side of it -- room for the frame to be cut square and closed off (an end
+ *  stud, a plate end) beside the column, not to touch it. */
+const RUN_CLEARANCE_MM = 50;
+
+/**
+ * The face split around each column that protrudes into it, with
+ * RUN_CLEARANCE_MM clearance either side: the alternative to standing the
+ * whole face off (proposedGapMm) -- stop the voorzetwand either side of the
+ * column and case it separately instead. Reads protrusionEntries() (the same
+ * raw, unrounded data proposedGapMm() reads, and the query columnProtrusions()
+ * itself is built from), so the two proposals cannot disagree about which
+ * columns are in the way; the clearance is added to the raw figures for the
+ * same reason proposedGapMm() ceils on them rather than on the rounded
+ * columnProtrusions() -- so the proposed run always clears the column it was
+ * measured from.
+ *
+ * Null where nothing protrudes -- a face with no columns in it is not a face
+ * with no runs. Where a column (with its clearance) covers the whole face,
+ * this returns an empty array rather than null: something did protrude, and
+ * the split leaves no run to build.
+ */
+export function proposedRuns(
+  f: Floor, resolved: Resolved, wallId: Id, side: "left" | "right",
+): FaceRun[] | null {
+  const rw = resolved.walls.get(wallId);
+  if (!rw) return null;
+  const matching = protrusionEntries(f, resolved).filter(e => e.wallId === wallId && e.side === side);
+  if (matching.length === 0) return null;
+
+  const gaps = matching
+    .map(e => ({
+      from: Math.max(0, e.tFrom - RUN_CLEARANCE_MM),
+      to: Math.min(rw.length, e.tTo + RUN_CLEARANCE_MM),
+    }))
+    .sort((a, b) => a.from - b.from);
+  const merged: Array<{ from: number; to: number }> = [];
+  for (const g of gaps) {
+    const last = merged[merged.length - 1];
+    if (last && g.from <= last.to) last.to = Math.max(last.to, g.to);
+    else merged.push({ ...g });
+  }
+
+  const runs: FaceRun[] = [];
+  let cursor = 0;
+  for (const g of merged) {
+    if (g.from > cursor) runs.push({ fromMm: cursor, toMm: g.from });
+    cursor = Math.max(cursor, g.to);
+  }
+  if (cursor < rw.length) runs.push({ fromMm: cursor, toMm: rw.length });
+  return normalizeFaceRuns(runs, rw.length);
+}
+
 /** The stand-off a face would need to clear its columns: the ceiling of the
  *  largest protrusion, or null where nothing protrudes. Ceils on the raw
  *  (unrounded) figure, not columnProtrusions()'s already-rounded one, so the
@@ -166,6 +219,17 @@ export function buildUpClashes(f: Floor, resolved: Resolved): ColumnProtrusion[]
     if (!w) return false;
     const fu = buildUpOf(w, p.side);
     if (!fu) return false;
+    // A column standing where the face states no build-up is not a clash:
+    // there is nothing there to clash with. This is what makes proposedRuns()
+    // an actual answer to a clash rather than a second opinion about it --
+    // splitting the face around the column clears the report the same way
+    // standing the whole face off does.
+    const rw = resolved.walls.get(p.wallId);
+    const stated = faceRunsOf(w, p.side);
+    if (stated && rw) {
+      const runs = normalizeFaceRuns(stated, rw.length);
+      if (!runs.some(r => r.fromMm < p.tToMm && r.toMm > p.tFromMm)) return false;
+    }
     const frame = fu.frame;
     if (!frame) return true; // unframed board stack: any protrusion clashes
     return p.protrusionMm > frame.gapMm;

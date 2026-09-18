@@ -27,14 +27,14 @@ import {
   doorKindOf, DOOR_KINDS, widthsFor, DOOR_WIDTHS_DOUBLE, FIRE_KINDS, FIRE_MINUTES,
   FIRE_MINUTES_DEFAULT, routesOf, furnishingsOf, decksOf, WALL_MATERIALS, POST_WIDTH_DEFAULT,
   FACADE_DEFAULT_MM, facadeSideOf, wallPostMm, postDefaultsFor, postLayoutOf,
-  isBlockMaterial, BLOCK_DEFAULT_MM, PANEL_DEFAULT_MM, buildUpOf, frameOf, setFaceBuildUp, faceOffsetMm,
+  isBlockMaterial, BLOCK_DEFAULT_MM, PANEL_DEFAULT_MM, buildUpOf, frameOf, setFaceBuildUp, type FaceRun, faceOffsetMm,
   clampBlockLength, clampBlockHeight, clampNoggingRows, clampPanel, clampFrameGapMm, structureOf,
   openingBearing, OPENING_BEARING_DEFAULT_MM, clampOpeningBearing, clampLintelSection, clampLintelLoad,
   type AreaMode, type DimMode, type Sash, type HingeEdge, type Opening, type Wall, type Floor, type FireKind,
   type ProjectMeta, type Id, type WallMaterial, type PlanDoc,
 } from "../model/doc";
 import type { Column } from "../model/structure";
-import { columnProtrusions, proposedGapMm, buildUpClashes } from "../core/leafclash";
+import { columnProtrusions, proposedGapMm, buildUpClashes, proposedRuns } from "../core/leafclash";
 import { isEnvelopeWall, openingIsGlazing, thermalValue } from "../model/energy";
 import type { Discipline } from "../model/route";
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
@@ -3024,10 +3024,30 @@ export class Panel {
             };
           }
         }
+        // The alternative to the stand-off: stop the build-up either side of
+        // the column. Both proposals read the same protrusion, so they cannot
+        // disagree about which columns are in the way.
+        let runs: { count: number; apply: () => void; clear: () => void } | undefined;
+        if (fu?.frame) {
+          const proposal = proposedRuns(f, resolved, w.id, side);
+          if (proposal !== null && proposal.length > 0) {
+            const writeRuns = (next: FaceRun[] | undefined): void => this.store.mutate(d => {
+              const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+              const face = wall && buildUpOf(wall, side);
+              if (!face) return;
+              if (next) face.runs = next.map(r => ({ ...r })); else delete face.runs;
+            });
+            runs = {
+              count: proposal.length,
+              apply: () => writeRuns(proposal),
+              clear: () => writeRuns(undefined),
+            };
+          }
+        }
         renderFaceBuildUp(rows, faceLabel(side), facadeHere, fu, next => this.store.mutate(d => {
           const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
           if (wall) setFaceBuildUp(wall, side, next);
-        }), { standOff, ownPosts: w.postMm !== undefined });
+        }), { standOff, ownPosts: w.postMm !== undefined, runs });
       }
       // Columns that still reach into this wall's own build-up -- reported,
       // never repaired, the stance topMismatches() and roofWallMismatches()

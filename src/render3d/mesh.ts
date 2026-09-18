@@ -5,9 +5,10 @@
 // z is height above Peil (mm, positive up); a renderer maps axes itself. Pure
 // and uncached like the rest of the derived geometry — callers cache against
 // the store revision.
-import { PlanDoc, Floor, Id, floorElevation, floorHeight, stairsOf, furnishingsOf, decksOf } from "../model/doc";
+import { PlanDoc, Floor, Id, floorElevation, floorHeight, stairsOf, furnishingsOf, decksOf, structureOf } from "../model/doc";
 import { floorSolids, FloorSolids, roofSlabSolids } from "../core/solids";
-import { structureSolids } from "../core/structure";
+import { structureSolids, columnCasingPieces, columnHeight } from "../core/structure";
+import { resolveFloor } from "../core/resolve";
 import { deckSolids } from "../core/deck";
 import { deckJoistLayout } from "../core/trimmer";
 import { stairSteps, StairStep } from "../core/stair3d";
@@ -177,6 +178,23 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
     for (const s of structureSolids(f)) {
       const color = s.material === "steel" ? STEEL_COLOR : s.material === "timber" ? DOOR_COLOR : WALL_COLOR;
       emitPrism(acc, s.poly, [], elev + s.z0, elev + seat(s.z1), color);
+    }
+
+    // A column's casing (Column.casing), the same flat massing style as
+    // everything else here: one prism per band per EXPOSED sub-segment
+    // (core/structure.ts's columnCasingPieces(), wall-clipped the same way
+    // the takeoff's columnExposedPerimeterMm() is -- a face buried in a wall
+    // gets no casing prism), coloured like a wall's own build-up -- the
+    // voorzetwand zone as FRAME_COLOR, a board as BOARD_COLOR regardless of
+    // kind, since 3D massing does not distinguish board kinds the way the
+    // plan's own fills do.
+    const casingWalls = [...resolveFloor(f).walls.values()];
+    for (const el of structureOf(f)) {
+      if (el.kind !== "column" || !el.casing) continue;
+      const z1 = columnHeight(f, el);
+      for (const piece of columnCasingPieces(el, casingWalls)) {
+        emitPrism(acc, piece.poly, [], elev, elev + seat(z1), piece.kind === "frame" ? FRAME_COLOR : BOARD_COLOR);
+      }
     }
 
     // A deck stands on its own for the same reason: a vliering is built into a

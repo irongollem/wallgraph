@@ -606,6 +606,25 @@ export function planSchema(siteUrl: string): JsonSchema {
             type: "array", items: { $ref: "#/$defs/buildUpBoard" },
             minItems: 0, maxItems: MAX_BOARDS,
           },
+          runs: {
+            type: "array", items: { $ref: "#/$defs/faceRun" },
+            description:
+              "The stretches of the face this build-up covers. Absent means the whole " +
+              "face; a voorzetwand stopped either side of a column it cases separately, " +
+              "or a finish that is not full length, states this instead.",
+          },
+        },
+      },
+      faceRun: {
+        type: "object",
+        description:
+          "One stretch of a face's build-up, positioned like an opening: fromMm/toMm are " +
+          "mm from node a along the host centerline, fromMm < toMm.",
+        required: ["fromMm", "toMm"],
+        additionalProperties: false,
+        properties: {
+          fromMm: mm("Distance from node a along the centerline, mm."),
+          toMm: mm("Distance from node a along the centerline, mm."),
         },
       },
       faceFrame: {
@@ -800,6 +819,29 @@ export function planSchema(siteUrl: string): JsonSchema {
           label: { type: "string", description: "Designation written on the drawing. Absent means none." },
           color: { type: "string", pattern: "^#[0-9a-fA-F]{6}$", description: "Pen colour; absent means the plan's default ink." },
           material: { enum: [...WALL_MATERIALS], description: "Absent means not stated." },
+          casing: {
+            type: "object",
+            description:
+              "A casing built around the column: boards on every face of it that is not " +
+              "inside a wall body, optionally on a frame of its own. Absent means bare.",
+            required: ["boards"],
+            additionalProperties: false,
+            properties: {
+              frame: {
+                type: "object",
+                required: ["depthMm", "material"],
+                additionalProperties: false,
+                properties: {
+                  depthMm: { type: "integer", exclusiveMinimum: 0, description: "Stud depth, mm." },
+                  material: { enum: ["timber", "steel"] },
+                },
+              },
+              boards: {
+                type: "array", items: { $ref: "#/$defs/buildUpBoard" },
+                minItems: 0, maxItems: MAX_BOARDS,
+              },
+            },
+          },
         },
       },
       beam: {

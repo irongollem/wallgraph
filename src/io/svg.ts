@@ -40,6 +40,7 @@ import { deckPrims } from "./deck";
 import { deckRaised } from "../core/deck";
 import { structurePrims } from "./structure";
 import { BEAM_DASH } from "../render/structure";
+import { columnCasingPieces } from "../core/structure";
 import { furnishingPrims } from "./furnishing";
 import { furnishingOverhead } from "../model/furnishing";
 import { videBox } from "../core/vide";
@@ -307,6 +308,19 @@ export function planScene(
     const profiled = lw.posts.some(pp => pp.poly !== undefined);
     frameStuds.push(group(stijlen, { ink: pen.mark, fill: profiled ? pen.mark : "none" }));
   }
+  // A column's own casing (Column.casing) folds into the same "frames" group
+  // a wall's own voorzetwand zone populates -- the trade that stands the
+  // frame works from one layer regardless of what it is built around. See
+  // core/structure.ts's columnCasingPieces(): wall-clipped the same way the
+  // takeoff's columnExposedPerimeterMm() is, so a face buried in a wall
+  // carries no casing piece here either.
+  const casingWallList = [...resolved.walls.values()];
+  for (const el of structureOf(floor)) {
+    if (el.kind !== "column" || !el.casing?.frame) continue;
+    const framePieces = columnCasingPieces(el, casingWallList)
+      .filter(p => p.kind === "frame").map(p => poly(p.poly, true));
+    if (framePieces.length > 0) frameZones.push(group(framePieces, { ink: wallPen(el).stroke }));
+  }
   if (frameZones.length > 0 || frameStuds.length > 0) {
     const items: Item[] = [];
     if (frameZones.length > 0)
@@ -333,6 +347,25 @@ export function planScene(
       perKind.set(band.kind, items);
     }
     const ink = wallPen(rw.wall).stroke;
+    for (const [kind, items] of perKind) {
+      const arr = boardsByKind.get(kind) ?? [];
+      arr.push(group(items, { ink }));
+      boardsByKind.set(kind, arr);
+    }
+  }
+  // A column's own casing boards fold into the same "boards" group a wall's
+  // own build-up populates, one more wall's worth of pieces per kind -- see
+  // the "frames" loop above for why.
+  for (const el of structureOf(floor)) {
+    if (el.kind !== "column" || !el.casing) continue;
+    const ink = wallPen(el).stroke;
+    const perKind = new Map<BoardKind, Item[]>();
+    for (const piece of columnCasingPieces(el, casingWallList)) {
+      if (piece.kind === "frame") continue;
+      const items = perKind.get(piece.kind) ?? [];
+      items.push(poly(piece.poly, true, { kind: piece.kind }));
+      perKind.set(piece.kind, items);
+    }
     for (const [kind, items] of perKind) {
       const arr = boardsByKind.get(kind) ?? [];
       arr.push(group(items, { ink }));

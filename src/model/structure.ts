@@ -10,7 +10,7 @@
 // The section plane is what separates the three on a plan. A column is cut by
 // it and drawn with poché; a railing stands below it and is drawn in outline;
 // a beam runs above it and is drawn dashed. See CUT_PLANE_MM.
-import type { Id, WallMaterial } from "./doc";
+import type { Id, WallMaterial, Board } from "./doc";
 
 export type StructureKind = "column" | "beam" | "railing";
 
@@ -68,6 +68,16 @@ export interface Column extends StructuralBase {
    * otherwise. A column under a vide's edge beam, or a plinth, states its own.
    */
   height?: number;
+  /**
+   * A casing built around the column: boards on every face of it that is not
+   * inside a wall body, optionally on a frame of its own. Absent means bare
+   * -- the ordinary case for a column standing free in a room. Built for the
+   * builder who stops a voorzetwand either side of a column and cases it
+   * separately rather than standing the wall off far enough to clear it (see
+   * FaceBuildUp.runs). Reuses `Board` from model/doc.ts rather than a second
+   * board type of its own, so the same clamp (clampBoardMm) applies.
+   */
+  casing?: { frame?: { depthMm: number; material: "timber" | "steel" }; boards: Board[] };
 }
 
 /**

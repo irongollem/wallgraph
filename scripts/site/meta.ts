@@ -208,7 +208,8 @@ export const FEATURES: Record<Lang, string[]> = {
       "tekening, met een indicatief transmissieverlies",
     "Muuropbouw per muur en per wandzijde vastgelegd voor de materiaalstaat: platen (gips, " +
       "gipsvezel, OSB, multiplex, cement), een voorzetwand met eigen hart-op-hart-maat en " +
-      "stijlbreedte, blokformaat, klossen, spouwisolatie en paneelbreedte",
+      "stijlbreedte, desgewenst over stroken met een beklede kolom ertussen, blokformaat, " +
+      "klossen, spouwisolatie en paneelbreedte",
     "Hellende muren met een bovenprofiel per muur: puntgevel- en lessenaarvorm, wandoppervlak over " +
       "het profiel en een melding waar buurmuren een andere hoogte opgeven",
     "Dakvlakken per verdieping: voorgesteld uit de getekende muren of als plat of zadeldak gezet, met " +
@@ -239,7 +240,8 @@ export const FEATURES: Record<Lang, string[]> = {
       "drawing, with an indicative transmission loss",
     "Wall build-up recorded per wall and per face for the materials takeoff: board stacks " +
       "(gypsum, gypsum fibre, OSB, plywood, cement), a lining wall with its own post " +
-      "spacing and width, block format, nogging rows, cavity insulation and panel width",
+      "spacing and width, optionally over stretches with a cased column between them, " +
+      "block format, nogging rows, cavity insulation and panel width",
     "Sloped walls with a top profile per wall: gable and lean-to shapes, wall surface measured over " +
       "the profile, and a report where neighbouring walls state a different height",
     "Roof planes per storey: suggested from the drawn walls or set as a flat or gable roof, with " +

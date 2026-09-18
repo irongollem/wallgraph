@@ -8,15 +8,17 @@
 // gets built, only what the drawn construction implies.
 import type { Floor, Id, PlanDoc, Wall, BoardKind } from "../model/doc";
 import {
-  isBlockMaterial, isFramedMaterial, frameOf, BOARD_KINDS, wallPostMm, decksOf,
+  isBlockMaterial, isFramedMaterial, frameOf, BOARD_KINDS, wallPostMm, decksOf, structureOf,
 } from "../model/doc";
+import type { Column } from "../model/structure";
 import { wallTopRange } from "../model/profile";
 import { type Deck, bearingOf } from "../model/deck";
 import { deckAcrossMm, deckSpanMm } from "./deck";
 import { trimDeck } from "./trimmer";
 import { kerfMm, sheetOf, stockLengths, wastePct } from "../model/materials";
 import type { Resolved, ResolvedWall } from "./resolve";
-import { floorSurface, type FloorSurface, type WallSurface } from "./surface";
+import { columnExposedPerimeterMm, columnHeight } from "./structure";
+import { floorSurface, type FloorSurface } from "./surface";
 import { detectRooms } from "./rooms";
 import { resolveLeaves } from "./leaf";
 import { nest, type NestResult, type Piece } from "./stock";
@@ -123,6 +125,24 @@ export interface DeckTakeoff {
   incomplete: "joist"[];
 }
 
+/**
+ * One column's casing (Column.casing): a non-wall item with its own entry,
+ * like DeckTakeoff -- a casing has no wallId to hang off WallTakeoff. `boards`
+ * feeds `bySystem` below the same way a wall's own board areas do, so one
+ * sheet count covers both.
+ */
+export interface ColumnCasingTakeoff {
+  columnId: Id;
+  /** What the casing actually costs: columnExposedPerimeterMm(), the part of
+   *  the column's own outline not inside a wall's structural body. */
+  perimeterMm: number;
+  heightMm: number;
+  system: WallSystem;
+  /** One entry per board kind on the casing -- every board wraps the same
+   *  exposed run at perimeterMm * heightMm, whatever ring depth it stands at. */
+  boards: { kind: BoardKind; areaMm2: number }[];
+}
+
 export interface FloorMaterials {
   walls: WallTakeoff[];
   /** The storey's decks: per deck, and summed and nested as one system. */
@@ -133,6 +153,8 @@ export interface FloorMaterials {
     deckingMm2: number;
     sheets: number;
   };
+  /** The storey's column casings, one per column that states one. */
+  casings: ColumnCasingTakeoff[];
   bySystem: {
     system: WallSystem;
     walls: number;
@@ -200,16 +222,20 @@ function framedMembers(
  * and so still facing the same room, on the leaf's own `left`. A leaf derived
  * from `right` is room-side on its own `right` the same way.
  *
- * `leafSurfaceOf`, present only when `w` is a HOST wall, looks up the
- * WallSurface of the leaf standing on one of its faces (undefined where that
- * face states no frame), for the board-area rule below.
+ * `leafSurfaceOf`, present only when `w` is a HOST wall, looks up the room
+ * face of the leaf(ves) standing on one of its faces -- summed across every
+ * run where the face states more than one (see FaceBuildUp.runs), since the
+ * host's own board bands (`rw.boards`) already aggregate their pieces and
+ * innerLengthMm across every run on that face (resolve.ts's runIntervalsFor())
+ * -- undefined where that face states no frame at all, for the board-area
+ * rule below.
  */
 function wallTakeoffOf(
   f: Floor, w: Wall, rw: ResolvedWall, surface: FloorSurface, waste: number,
   backing: ReadonlyMap<Id, WallBacking>, maxStockMm: number,
   opts: {
     leaf?: { host: { wallId: Id; side: "left" | "right" } };
-    leafSurfaceOf?: (wallId: Id, side: "left" | "right") => WallSurface | undefined;
+    leafSurfaceOf?: (wallId: Id, side: "left" | "right") => { netMm2: number; lengthMm: number } | undefined;
   } = {},
 ): WallTakeoff {
   const system = opts.leaf ? leafSystemOf(w) : systemOf(w);
@@ -274,7 +300,7 @@ function wallTakeoffOf(
     const bands = rw.boards[side === "left" ? 0 : 1];
     if (bands.length === 0) continue;
     const faceSurf = frameOf(w, side)
-      ? opts.leafSurfaceOf?.(w.id, side)?.faces[side === "left" ? 0 : 1] // room face, see comment above
+      ? opts.leafSurfaceOf?.(w.id, side) // room face, summed over every run -- see comment above
       : wsurf?.faces[side === "left" ? 0 : 1];
     if (!faceSurf || faceSurf.lengthMm <= 0) { boardsIncomplete = true; continue; }
     for (const band of bands) {
@@ -349,6 +375,30 @@ export function deckTakeoffOf(f: Floor, d: Deck, waste: number, sheetArea: numbe
   return { deckId: d.id, spanMm, members, deckingMm2, sheets, incomplete };
 }
 
+/**
+ * One column's casing, costed at its exposed perimeter (columnExposedPerimeterMm())
+ * times its own height -- every board shares that one figure, since a board
+ * wraps the same run regardless of which ring depth it stands at. `system` is
+ * classified the way a wall's own systemOf() is: a stated frame reads as
+ * framed-timber/framed-steel by its own material; bare boards with no frame
+ * (fixed straight to the column, the way a build-up can stand straight on a
+ * wall's structural face) read as "other", since a column carries no material
+ * a board system could otherwise be read off.
+ */
+export function columnCasingTakeoffOf(f: Floor, c: Column, walls: readonly ResolvedWall[]): ColumnCasingTakeoff {
+  const casing = c.casing!;
+  const perimeterMm = columnExposedPerimeterMm(c, walls);
+  const heightMm = columnHeight(f, c);
+  const system: WallSystem = casing.frame
+    ? (casing.frame.material === "steel" ? "framed-steel" : "framed-timber")
+    : "other";
+  const areaMm2 = perimeterMm * heightMm;
+  const totals = new Map<BoardKind, number>();
+  for (const b of casing.boards) totals.set(b.kind, (totals.get(b.kind) ?? 0) + areaMm2);
+  const boards = BOARD_KINDS.filter(kind => totals.has(kind)).map(kind => ({ kind, areaMm2: totals.get(kind)! }));
+  return { columnId: c.id, perimeterMm, heightMm, system, boards };
+}
+
 export function floorMaterials(doc: PlanDoc, f: Floor, resolved: Resolved, surface: FloorSurface): FloorMaterials {
   const waste = wastePct(doc) / 100;
   const stockList = stockLengths(doc);
@@ -365,10 +415,24 @@ export function floorMaterials(doc: PlanDoc, f: Floor, resolved: Resolved, surfa
   const leafRooms = detectRooms(leaves.leaf.floor);
   const leafSurface = floorSurface(leaves.leaf.floor, leaves.resolved, leafRooms);
   const leafBacking = computeBacking(leaves.leaf.floor);
-  const leafSurfaceOf = (wallId: Id, side: "left" | "right"): WallSurface | undefined => {
-    const leafWall = leaves.leaf.leafOf(wallId, side);
-    if (!leafWall) return undefined;
-    return leafSurface.walls.find(s => s.wallId === leafWall.id);
+  // The room face of every run standing on this host face, summed: a face
+  // split into two runs (a voorzetwand stopping either side of a column)
+  // yields two leaves, and their board area is the sum over both, not the
+  // first run's alone (see leaf.ts's leavesOf() and the comment on
+  // wallTakeoffOf() above).
+  const leafSurfaceOf = (wallId: Id, side: "left" | "right"): { netMm2: number; lengthMm: number } | undefined => {
+    const leafWalls = leaves.leaf.leavesOf(wallId, side);
+    if (leafWalls.length === 0) return undefined;
+    let netMm2 = 0, lengthMm = 0, found = false;
+    for (const leafWall of leafWalls) {
+      const ws = leafSurface.walls.find(s => s.wallId === leafWall.id);
+      if (!ws) continue;
+      const face = ws.faces[side === "left" ? 0 : 1];
+      netMm2 += face.netMm2;
+      lengthMm += face.lengthMm;
+      found = true;
+    }
+    return found ? { netMm2, lengthMm } : undefined;
   };
 
   const backing = computeBacking(f);
@@ -389,6 +453,11 @@ export function floorMaterials(doc: PlanDoc, f: Floor, resolved: Resolved, surfa
     walls.push(wallTakeoffOf(leaves.leaf.floor, w, rw, leafSurface, waste, leafBacking, maxStockMm, { leaf: { host } }));
   }
 
+  const wallList = [...resolved.walls.values()];
+  const casings: ColumnCasingTakeoff[] = structureOf(f)
+    .filter((el): el is Column => el.kind === "column" && el.casing !== undefined)
+    .map(c => columnCasingTakeoffOf(f, c, wallList));
+
   interface SystemEntry {
     walls: number; members: Member[]; boards: Map<BoardKind, number>;
     insulationMm2: number; blocks: number; panels: number;
@@ -408,6 +477,20 @@ export function floorMaterials(doc: PlanDoc, f: Floor, resolved: Resolved, surfa
     entry.blocks += wt.blocks;
     entry.panels += wt.panels;
     mergeMembers(entry.members, wt.members);
+  }
+  // A column casing's boards fold into the same bySystem map a wall's own
+  // boards populate, keyed the same way (see columnCasingTakeoffOf()'s
+  // `system`) -- one sheet count covers a casing and a framed wall of the
+  // same system, but a casing adds no members, insulation, blocks or panels
+  // and does not count toward `walls`.
+  for (const ct of casings) {
+    let entry = bySystemMap.get(ct.system);
+    if (!entry) {
+      entry = { walls: 0, members: [], boards: new Map(), insulationMm2: 0, blocks: 0, panels: 0 };
+      bySystemMap.set(ct.system, entry);
+      order.push(ct.system);
+    }
+    for (const b of ct.boards) entry.boards.set(b.kind, (entry.boards.get(b.kind) ?? 0) + b.areaMm2);
   }
 
   const kerf = kerfMm(doc);
@@ -447,5 +530,5 @@ export function floorMaterials(doc: PlanDoc, f: Floor, resolved: Resolved, surfa
     sheets: deckingMm2 > 0 ? Math.ceil((deckingMm2 * (1 + waste)) / deckSheetArea) : 0,
   };
 
-  return { walls, bySystem, decks };
+  return { walls, bySystem, decks, casings };
 }

@@ -8,7 +8,10 @@
 // only hosts them under the shared picker.
 import { Store } from "../model/store";
 import { Tools, type StructureTarget } from "../input/tools";
-import { structureOf, floorHeight, WALL_MATERIALS, type Floor, type WallMaterial } from "../model/doc";
+import {
+  structureOf, floorHeight, WALL_MATERIALS, BOARD_KINDS, BOARD_PRESETS, MAX_BOARDS,
+  boardPresetOf, clampBoardMm, type Floor, type WallMaterial, type Board, type BoardKind,
+} from "../model/doc";
 import {
   Structural, Column, Beam, Railing, ColumnShape, ColumnSize, SpanSize, COLUMN_SHAPES,
   STEEL_PROFILES, STRUCTURE_LIMITS, clampColumnSize, clampBeamSize, clampRailWidth,
@@ -165,6 +168,47 @@ export function renderStructureTool(
 }
 
 /** Properties of the selected element. */
+
+/**
+ * A column's casing: boards wrapped around every face of it not buried in a
+ * wall. The counterpart to a voorzetwand that stops either side of a column
+ * rather than standing off far enough to clear it -- what is counted is the
+ * EXPOSED perimeter, so a column half in a wall is cased on what shows.
+ */
+function columnCasing(rows: PaneRows, c: Column, mut: (fn: (e: Column) => void) => void): void {
+  const boards = c.casing?.boards ?? [];
+  const presetId = boards.length === 0 ? "none" : boardPresetOf(boards);
+  const options: Array<[string, string]> = [
+    ["none", t("board.preset.none")],
+    ...BOARD_PRESETS.map(p => [p.id, t("board.preset." + p.id)] as [string, string]),
+  ];
+  if (presetId === "custom") options.push(["custom", t("board.preset.custom")]);
+  rows.selRow(t("panel.columnCasing"), presetId, options, value => {
+    if (value === "custom") return;
+    mut(e => {
+      if (value === "none") { delete e.casing; return; }
+      const preset = BOARD_PRESETS.find(p => p.id === value);
+      if (preset) e.casing = { ...e.casing, boards: preset.boards.map(b => ({ ...b })) };
+    });
+  });
+  if (boards.length === 0) return;
+  boards.forEach((board, index) => {
+    const setBoard = (patch: Partial<Board>): void => mut(e => {
+      if (e.casing) e.casing.boards = e.casing.boards.map((b, i) => (i === index ? { ...b, ...patch } : b));
+    });
+    rows.selRow(t("panel.buildUpBoardKind"), board.kind,
+      BOARD_KINDS.map(k => [k, t("board.kind." + k)] as [string, string]),
+      kind => setBoard({ kind: kind as BoardKind }));
+    rows.numRow(t("panel.buildUpBoardMm"), board.mm, n => setBoard({ mm: clampBoardMm(n) }), 1);
+  });
+  if (boards.length < MAX_BOARDS) {
+    rows.btnRow(t("panel.buildUpAdd"), () => mut(e => {
+      if (e.casing) e.casing.boards = [...e.casing.boards, { kind: "gypsum", mm: 12 }];
+    }));
+  }
+  rows.noteRow(t("panel.columnCasingHelp"));
+}
+
 export function renderStructureProps(store: Store, tools: Tools, rows: PaneRows, id: string): void {
   const f = store.floor;
   const elm = structureOf(f).find(x => x.id === id);
@@ -181,7 +225,10 @@ export function renderStructureProps(store: Store, tools: Tools, rows: PaneRows,
 
   rows.secHead(kindLabel(elm.kind), { sel: true });
 
-  if (elm.kind === "column") columnProps(rows, f, elm, fn => mut("column", fn));
+  if (elm.kind === "column") {
+    columnProps(rows, f, elm, fn => mut("column", fn));
+    columnCasing(rows, elm, fn => mut("column", fn));
+  }
   else if (elm.kind === "beam") {
     beamProps(rows, f, elm, fn => mut("beam", fn));
     const result = beamCheck(store.doc, f, elm);

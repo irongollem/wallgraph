@@ -66,7 +66,7 @@ import {
 } from "../model/doc";
 import { deckSolids, type DeckPart } from "../core/deck";
 import { deckJoistLayout } from "../core/trimmer";
-import { structureSolid, spanLength } from "../core/structure";
+import { structureSolid, spanLength, columnCasingPieces } from "../core/structure";
 import {
   Discipline, Route, routeDiameter, routeDuctDiameter, routeHeat, routeHeatDiameter,
   routeInstallation, routeKind, routeVeins, routeVent, routeWater,
@@ -1304,7 +1304,7 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
         }
       }
 
-      // ── voorzetwand: a framed face exports as a wall of its own ──────────
+      // ── voorzetwand: a framed face exports as a wall of its own, one per run
       //
       // A face with a stud frame (frameOf()) is not a flat board layer on the
       // host's own material -- core/leaf.ts already derives it into a wall of
@@ -1318,134 +1318,170 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
       // (ws.buildUp, already opening-split and capped at FaceFrame.heightMm
       // by core/solids.ts's buildUpPrisms()). A face with boards and no frame
       // keeps the plain layer-set association above unchanged (#67).
+      //
+      // A face stating more than one run (FaceBuildUp.runs, #74 -- a
+      // voorzetwand stopping either side of a column) carries more than one
+      // leaf, from leavesOf() in run order; each gets its OWN IFCWALL, its
+      // own IFCRELCONNECTSELEMENTS to the host and its own opening voids --
+      // never only the first, which is all leafOf() would give. ws.buildUp's
+      // board pieces are not split by run themselves, so a piece is assigned
+      // to whichever run's leaf its own centroid projects onto along the
+      // host centerline (the same projectS() a sloped body piece is already
+      // clipped through, above); a face with exactly one run skips that
+      // matching and keeps every board piece, unchanged from before runs
+      // existed.
       for (const side of ["left", "right"] as const) {
         const frame = frameOf(wall, side);
-        const leafWall = leaves.leaf.leafOf(wall.id, side);
-        if (!frame || !leafWall) continue;
-        const leafRw = leaves.resolved.walls.get(leafWall.id);
-        if (!leafRw) continue;
-        const leafFloorS = leaves.leaf.floor;
+        const leafWalls = leaves.leaf.leavesOf(wall.id, side);
+        if (!frame || leafWalls.length === 0) continue;
+        const hostRw = hostResolved.walls.get(wall.id);
+        const allBoardPieces = ws.buildUp.filter(bp => bp.part === "boards" && bp.side === side);
+        const runRanges = leafWalls.length > 1 && hostRw
+          ? leafWalls.map(lw => {
+              const lwRw = leaves.resolved.walls.get(lw.id);
+              if (!lwRw) return null;
+              const sa = projectS(hostRw.a, hostRw.b, wall.bulge, hostRw.length, lwRw.a);
+              const sb = projectS(hostRw.a, hostRw.b, wall.bulge, hostRw.length, lwRw.b);
+              return { lo: Math.min(sa, sb), hi: Math.max(sa, sb) };
+            })
+          : null;
+        const boardPiecesForRun = (i: number): typeof allBoardPieces => {
+          if (!runRanges || !hostRw) return allBoardPieces;
+          const range = runRanges[i];
+          if (!range) return [];
+          return allBoardPieces.filter(bp => {
+            const sum = bp.poly.reduce((acc, p) => add(acc, p), v(0, 0));
+            const centroid = scale(sum, 1 / bp.poly.length);
+            const s = projectS(hostRw.a, hostRw.b, wall.bulge, hostRw.length, centroid);
+            return s >= range.lo - 0.5 && s <= range.hi + 0.5;
+          });
+        };
 
-        const leafLengthMm = wallLength(leafFloorS, leafWall);
-        const leafHasProfile = (leafWall.profile?.length ?? 0) > 0;
-        const leafMaxH = wallTopRange(leafFloorS, leafWall, leafLengthMm).max;
-        // ResolvedWall.a/b ARE the plain node positions (resolveFloor() sets
-        // them straight from the node map), so this is the same A/B a fresh
-        // node lookup would give -- reusing leafRw's own rather than
-        // re-deriving it.
-        const leafA = leafRw.a, leafB = leafRw.b;
+        leafWalls.forEach((leafWall, runIndex) => {
+          const leafRw = leaves.resolved.walls.get(leafWall.id);
+          if (!leafRw) return;
+          const leafFloorS = leaves.leaf.floor;
 
-        const frameBodyIds: (number | null)[] = leafHasProfile
-          ? leafBodyPieces(leafFloorS, leafWall, leafRw)
-              .map(poly => slopedPieceSolid(leafFloorS, leafWall, poly, leafMaxH, leafA, leafB, leafLengthMm))
-          : leafRw.pieces.map(p => extrudedSolid(p.poly, 0, leafMaxH));
-        // Board bands (ws.buildUp, "boards" on this side): massing -- one
-        // prism per piece rather than individual boards drawn edge to edge --
-        // but NOT flattened to the wall's own maximum on a sloped face. A
-        // profiled leaf routes every board piece through the SAME
-        // slopedPieceSolid() clip the frame body above uses, off the leaf
-        // wall's own (already-capped, see core/leaf.ts's mapProfile()) top --
-        // not the host's, so a face-frame's own FaceFrame.heightMm cap
-        // (baked into the leaf's profile already) does not have to be
-        // re-applied here. A flat leaf keeps buildUpPrisms()'s own flat
-        // z0/z1 unchanged, the cheapest correct case.
-        const boardBodyIds: (number | null)[] = ws.buildUp
-          .filter(bp => bp.part === "boards" && bp.side === side)
-          .map(bp => leafHasProfile
-            ? slopedPieceSolid(leafFloorS, leafWall, bp.poly, leafMaxH, leafA, leafB, leafLengthMm, bp.z0)
-            : extrudedSolid(bp.poly, bp.z0, bp.z1));
+          const leafLengthMm = wallLength(leafFloorS, leafWall);
+          const leafHasProfile = (leafWall.profile?.length ?? 0) > 0;
+          const leafMaxH = wallTopRange(leafFloorS, leafWall, leafLengthMm).max;
+          // ResolvedWall.a/b ARE the plain node positions (resolveFloor() sets
+          // them straight from the node map), so this is the same A/B a fresh
+          // node lookup would give -- reusing leafRw's own rather than
+          // re-deriving it.
+          const leafA = leafRw.a, leafB = leafRw.b;
 
-        const leafId = leafWall.id;
-        const leafEntity = w.entity("IFCWALL",
-          [str(ifcGuid(seed, leafId)), ref(ownerHistory), str("Voorzetwand"), UNSET, UNSET, ref(levelPlacement),
-            bodyShape([...frameBodyIds, ...boardBodyIds], leafHasProfile ? "Clipping" : "SweptSolid"),
-            UNSET, enumv("NOTDEFINED")]);
-        contained.push(leafEntity);
+          const frameBodyIds: (number | null)[] = leafHasProfile
+            ? leafBodyPieces(leafFloorS, leafWall, leafRw)
+                .map(poly => slopedPieceSolid(leafFloorS, leafWall, poly, leafMaxH, leafA, leafB, leafLengthMm))
+            : leafRw.pieces.map(p => extrudedSolid(p.poly, 0, leafMaxH));
+          // Board bands (ws.buildUp, "boards" on this side): massing -- one
+          // prism per piece rather than individual boards drawn edge to edge --
+          // but NOT flattened to the wall's own maximum on a sloped face. A
+          // profiled leaf routes every board piece through the SAME
+          // slopedPieceSolid() clip the frame body above uses, off the leaf
+          // wall's own (already-capped, see core/leaf.ts's mapProfile()) top --
+          // not the host's, so a face-frame's own FaceFrame.heightMm cap
+          // (baked into the leaf's profile already) does not have to be
+          // re-applied here. A flat leaf keeps buildUpPrisms()'s own flat
+          // z0/z1 unchanged, the cheapest correct case.
+          const boardBodyIds: (number | null)[] = boardPiecesForRun(runIndex)
+            .map(bp => leafHasProfile
+              ? slopedPieceSolid(leafFloorS, leafWall, bp.poly, leafMaxH, leafA, leafB, leafLengthMm, bp.z0)
+              : extrudedSolid(bp.poly, bp.z0, bp.z1));
 
-        attachPropertySet(leafEntity, `${leafId}:pset`, "Pset_WallCommon", [
-          ref(propValue("LoadBearing", boolValue(false))),
-          ref(propValue("IsExternal", boolValue(false))),
-        ]);
+          const leafId = leafWall.id;
+          const leafEntity = w.entity("IFCWALL",
+            [str(ifcGuid(seed, leafId)), ref(ownerHistory), str("Voorzetwand"), UNSET, UNSET, ref(levelPlacement),
+              bodyShape([...frameBodyIds, ...boardBodyIds], leafHasProfile ? "Clipping" : "SweptSolid"),
+              UNSET, enumv("NOTDEFINED")]);
+          contained.push(leafEntity);
 
-        // Wallgraph_Construction: the frame's own facts, the same fields the
-        // host wall's own construction pset states, read off FaceFrame rather
-        // than Wall. Insulated is stated here, as a plain boolean property,
-        // rather than as an IFCMATERIALCONSTITUENT: that entity (and
-        // IFCMATERIALLAYERSETUSAGE) appear nowhere else in this file, and
-        // introducing a constituent set for one boolean would add a
-        // vocabulary the rest of the export does not speak, where this file
-        // already has a working precedent -- Wall.insulated is surfaced the
-        // same way, two lines above this one's own use, on the host wall.
-        const leafConstructionProps: IfcArg[] = [];
-        if (frame.postMm !== undefined && frame.postMm > 0) {
-          leafConstructionProps.push(ref(propValue("PostCentres", typed("IFCPOSITIVELENGTHMEASURE", real(frame.postMm)))));
-        }
-        if (frame.postWidthMm !== undefined) {
-          leafConstructionProps.push(ref(propValue("PostWidth", typed("IFCPOSITIVELENGTHMEASURE", real(frame.postWidthMm)))));
-        }
-        if (frame.noggingRows !== undefined) {
-          leafConstructionProps.push(ref(propValue("NoggingRows", typed("IFCCOUNTMEASURE", int(frame.noggingRows)))));
-        }
-        if (frame.insulated !== undefined) {
-          leafConstructionProps.push(ref(propValue("Insulated", boolValue(frame.insulated))));
-        }
-        attachPropertySet(leafEntity, `${leafId}:construction`, "Wallgraph_Construction", leafConstructionProps);
+          attachPropertySet(leafEntity, `${leafId}:pset`, "Pset_WallCommon", [
+            ref(propValue("LoadBearing", boolValue(false))),
+            ref(propValue("IsExternal", boolValue(false))),
+          ]);
 
-        // Material: the stud zone, then its boards -- Wall.buildUp already
-        // stores a face's boards "ordered from the wall outward into the
-        // room" (model/doc.ts), so the stored order alone is outward from the
-        // frame here, unlike the host's own layer set above, which has two
-        // physical sides to reconcile and so may need to reverse one stack.
-        const leafBoards = buildUpOf(wall, side)?.boards ?? [];
-        const leafStructureLayer = w.entity("IFCMATERIALLAYER",
-          [ref(materialEntity(IFC_MATERIAL_NAME[frame.material])), real(frame.depthMm), UNSET, str("Structure"),
-            UNSET, UNSET, UNSET]);
-        const leafLayerSet = w.entity("IFCMATERIALLAYERSET",
-          [list(ref(leafStructureLayer), ...leafBoards.map(boardLayer).map(ref)), str("Wall"), UNSET]);
-        w.entity("IFCRELASSOCIATESMATERIAL",
-          [str(ifcGuid(seed, `${leafId}:material`)), ref(ownerHistory), UNSET, UNSET,
-            list(ref(leafEntity)), ref(leafLayerSet)]);
+          // Wallgraph_Construction: the frame's own facts, the same fields the
+          // host wall's own construction pset states, read off FaceFrame rather
+          // than Wall. Insulated is stated here, as a plain boolean property,
+          // rather than as an IFCMATERIALCONSTITUENT: that entity (and
+          // IFCMATERIALLAYERSETUSAGE) appear nowhere else in this file, and
+          // introducing a constituent set for one boolean would add a
+          // vocabulary the rest of the export does not speak, where this file
+          // already has a working precedent -- Wall.insulated is surfaced the
+          // same way, two lines above this one's own use, on the host wall.
+          const leafConstructionProps: IfcArg[] = [];
+          if (frame.postMm !== undefined && frame.postMm > 0) {
+            leafConstructionProps.push(ref(propValue("PostCentres", typed("IFCPOSITIVELENGTHMEASURE", real(frame.postMm)))));
+          }
+          if (frame.postWidthMm !== undefined) {
+            leafConstructionProps.push(ref(propValue("PostWidth", typed("IFCPOSITIVELENGTHMEASURE", real(frame.postWidthMm)))));
+          }
+          if (frame.noggingRows !== undefined) {
+            leafConstructionProps.push(ref(propValue("NoggingRows", typed("IFCCOUNTMEASURE", int(frame.noggingRows)))));
+          }
+          if (frame.insulated !== undefined) {
+            leafConstructionProps.push(ref(propValue("Insulated", boolValue(frame.insulated))));
+          }
+          attachPropertySet(leafEntity, `${leafId}:construction`, "Wallgraph_Construction", leafConstructionProps);
 
-        // Qto_WallBaseQuantities: the frame's own length/width/height, the
-        // same fields the host wall's own Qto states above.
-        attachQuantitySet(leafEntity, `${leafId}:qto`, "Qto_WallBaseQuantities", [
-          ref(w.entity("IFCQUANTITYLENGTH", [str("Length"), UNSET, UNSET, real(leafLengthMm), UNSET])),
-          ref(w.entity("IFCQUANTITYLENGTH", [str("Width"), UNSET, UNSET, real(frame.depthMm), UNSET])),
-          ref(w.entity("IFCQUANTITYLENGTH", [str("Height"), UNSET, UNSET, real(leafMaxH), UNSET])),
-        ]);
+          // Material: the stud zone, then its boards -- Wall.buildUp already
+          // stores a face's boards "ordered from the wall outward into the
+          // room" (model/doc.ts), so the stored order alone is outward from the
+          // frame here, unlike the host's own layer set above, which has two
+          // physical sides to reconcile and so may need to reverse one stack.
+          const leafBoards = buildUpOf(wall, side)?.boards ?? [];
+          const leafStructureLayer = w.entity("IFCMATERIALLAYER",
+            [ref(materialEntity(IFC_MATERIAL_NAME[frame.material])), real(frame.depthMm), UNSET, str("Structure"),
+              UNSET, UNSET, UNSET]);
+          const leafLayerSet = w.entity("IFCMATERIALLAYERSET",
+            [list(ref(leafStructureLayer), ...leafBoards.map(boardLayer).map(ref)), str("Wall"), UNSET]);
+          w.entity("IFCRELASSOCIATESMATERIAL",
+            [str(ifcGuid(seed, `${leafId}:material`)), ref(ownerHistory), UNSET, UNSET,
+              list(ref(leafEntity)), ref(leafLayerSet)]);
 
-        // IFCRELCONNECTSELEMENTS: the one 1:1 structural relation between the
-        // host wall and the voorzetwand standing in front of one of its
-        // faces. This entity type appears nowhere else in the file --
-        // IFCRELVOIDSELEMENT is the closest existing precedent for a 1:1
-        // element relation, but a voorzetwand does not void its host, so a
-        // distinct relation type is used rather than repurposing that one.
-        w.entity("IFCRELCONNECTSELEMENTS",
-          [str(ifcGuid(seed, `${leafId}:connects`)), ref(ownerHistory), UNSET, UNSET, UNSET,
-            ref(wallEntity), ref(leafEntity)]);
+          // Qto_WallBaseQuantities: the frame's own length/width/height, the
+          // same fields the host wall's own Qto states above.
+          attachQuantitySet(leafEntity, `${leafId}:qto`, "Qto_WallBaseQuantities", [
+            ref(w.entity("IFCQUANTITYLENGTH", [str("Length"), UNSET, UNSET, real(leafLengthMm), UNSET])),
+            ref(w.entity("IFCQUANTITYLENGTH", [str("Width"), UNSET, UNSET, real(frame.depthMm), UNSET])),
+            ref(w.entity("IFCQUANTITYLENGTH", [str("Height"), UNSET, UNSET, real(leafMaxH), UNSET])),
+          ]);
 
-        // One IFCOPENINGELEMENT per host opening, voiding the voorzetwand at
-        // its own mapped position -- never a second IFCRELFILLSELEMENT: the
-        // door or window leaf stays on the HOST's own opening only, above.
-        for (const leafOg of leafRw.openings) {
-          const o = leafOg.opening;
-          const sill = openingSill(o);
-          const topHere = minTopOver(leafFloorS, leafWall, leafLengthMm, o.t - o.width / 2, o.t + o.width / 2);
-          const z1 = Math.min(sill + openingHeight(o), topHere);
-          const z0 = Math.min(sill, z1);
-          const poly: Vec[] = [
-            add(leafOg.p0, scale(leafOg.n0, leafOg.half)),
-            add(leafOg.p1, scale(leafOg.n1, leafOg.half)),
-            sub(leafOg.p1, scale(leafOg.n1, leafOg.half)),
-            sub(leafOg.p0, scale(leafOg.n0, leafOg.half)),
-          ];
-          const leafOpeningEntity = w.entity("IFCOPENINGELEMENT",
-            [str(ifcGuid(seed, o.id)), ref(ownerHistory), str(o.kind[0]!.toUpperCase() + o.kind.slice(1)), UNSET, UNSET,
-              ref(levelPlacement), bodyShape([extrudedSolid(poly, z0, z1)]), UNSET, UNSET]);
-          w.entity("IFCRELVOIDSELEMENT",
-            [str(ifcGuid(seed, `${o.id}:void`)), ref(ownerHistory), UNSET, UNSET,
-              ref(leafEntity), ref(leafOpeningEntity)]);
-        }
+          // IFCRELCONNECTSELEMENTS: the one 1:1 structural relation between the
+          // host wall and the voorzetwand standing in front of one of its
+          // faces. This entity type appears nowhere else in the file --
+          // IFCRELVOIDSELEMENT is the closest existing precedent for a 1:1
+          // element relation, but a voorzetwand does not void its host, so a
+          // distinct relation type is used rather than repurposing that one.
+          w.entity("IFCRELCONNECTSELEMENTS",
+            [str(ifcGuid(seed, `${leafId}:connects`)), ref(ownerHistory), UNSET, UNSET, UNSET,
+              ref(wallEntity), ref(leafEntity)]);
+
+          // One IFCOPENINGELEMENT per host opening, voiding the voorzetwand at
+          // its own mapped position -- never a second IFCRELFILLSELEMENT: the
+          // door or window leaf stays on the HOST's own opening only, above.
+          for (const leafOg of leafRw.openings) {
+            const o = leafOg.opening;
+            const sill = openingSill(o);
+            const topHere = minTopOver(leafFloorS, leafWall, leafLengthMm, o.t - o.width / 2, o.t + o.width / 2);
+            const z1 = Math.min(sill + openingHeight(o), topHere);
+            const z0 = Math.min(sill, z1);
+            const poly: Vec[] = [
+              add(leafOg.p0, scale(leafOg.n0, leafOg.half)),
+              add(leafOg.p1, scale(leafOg.n1, leafOg.half)),
+              sub(leafOg.p1, scale(leafOg.n1, leafOg.half)),
+              sub(leafOg.p0, scale(leafOg.n0, leafOg.half)),
+            ];
+            const leafOpeningEntity = w.entity("IFCOPENINGELEMENT",
+              [str(ifcGuid(seed, o.id)), ref(ownerHistory), str(o.kind[0]!.toUpperCase() + o.kind.slice(1)), UNSET, UNSET,
+                ref(levelPlacement), bodyShape([extrudedSolid(poly, z0, z1)]), UNSET, UNSET]);
+            w.entity("IFCRELVOIDSELEMENT",
+              [str(ifcGuid(seed, `${o.id}:void`)), ref(ownerHistory), UNSET, UNSET,
+                ref(leafEntity), ref(leafOpeningEntity)]);
+          }
+        });
       }
     }
 
@@ -1471,6 +1507,35 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
         attachQuantitySet(entity, `${el.id}:qto`, "Qto_ColumnBaseQuantities", [
           ref(w.entity("IFCQUANTITYLENGTH", [str("Length"), UNSET, UNSET, real(solid.z1 - solid.z0), UNSET])),
         ]);
+        // ── casing: one IFCCOVERING per column that states one (Column.casing) ──
+        //
+        // Its body is every band core/structure.ts's columnCasingPieces()
+        // returns, as one extrusion each floor to the column's own height --
+        // the same range the column itself stands over. IFCRELCOVERSBLDGELEMENTS
+        // is IFC4's own relation for exactly this (RelatingBuildingElement,
+        // RelatedCoverings), a better fit than the deck's IFCRELAGGREGATES
+        // (a covering is not a part the column decomposes into) or the
+        // voorzetwand's IFCRELCONNECTSELEMENTS (general-purpose, and this one
+        // already names the relationship). It is an IfcRelConnects like the
+        // voorzetwand's own relation, not a decomposition like the deck's
+        // aggregation, so the covering is its own independent element and, like
+        // the voorzetwand leaf, joins `contained` in its own right rather than
+        // riding along on the column's containment the way an aggregated
+        // member rides on its slab.
+        if (el.casing) {
+          const casingWalls = [...hostResolved.walls.values()];
+          const casingIds = columnCasingPieces(el, casingWalls).map(p => extrudedSolid(p.poly, solid.z0, solid.z1));
+          const casingShape = bodyShape(casingIds);
+          if (casingShape !== UNSET) {
+            const casingEntity = w.entity("IFCCOVERING",
+              [str(ifcGuid(seed, `${el.id}:casing`)), ref(ownerHistory), str("Casing"), UNSET, UNSET,
+                ref(levelPlacement), casingShape, UNSET, enumv("CLADDING")]);
+            contained.push(casingEntity);
+            w.entity("IFCRELCOVERSBLDGELEMENTS",
+              [str(ifcGuid(seed, `${el.id}:casing:covers`)), ref(ownerHistory), UNSET, UNSET,
+                ref(entity), list(ref(casingEntity))]);
+          }
+        }
       } else if (el.kind === "beam") {
         entity = w.entity("IFCBEAM",
           [str(ifcGuid(seed, el.id)), ref(ownerHistory), str(el.label ?? "Beam"), UNSET, UNSET,

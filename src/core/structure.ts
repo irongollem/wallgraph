@@ -6,10 +6,13 @@
 // box like everything else: the box is the run's length by its breadth, placed
 // at the midpoint and turned to the run's direction. One frame for the hit
 // test, the marquee, the framing and the exports.
-import { Floor, floorHeight } from "../model/doc";
+import { Floor, floorHeight, type BoardKind } from "../model/doc";
 import { Structural, Column, Beam, Railing, ColumnShape } from "../model/structure";
-import { Vec, v, sub, add, scale, norm, perp, dist, angleOf, mid } from "../geometry/vec";
+import {
+  Vec, v, sub, add, scale, norm, perp, dist, angleOf, mid, dot, cross, pointInPolygon, polygonCentroid,
+} from "../geometry/vec";
 import { boxCorners, boxHit, worldPoint, type LocalBox, type Placed } from "./placed";
+import type { ResolvedWall } from "./resolve";
 
 export type Span = Beam | Railing;
 
@@ -188,4 +191,131 @@ export function structureSolid(f: Floor, el: Structural): StructureSolid {
 
 export function structureSolids(f: Floor): StructureSolid[] {
   return (f.structure ?? []).map(el => structureSolid(f, el));
+}
+
+/**
+ * A casing ring's own material -- the voorzetwand zone, or one of the boards
+ * stacked on it (see Column.casing).
+ */
+export type CasingPart = "frame" | BoardKind;
+
+/** One band of a column's casing, as a flat quad in world millimetres: one
+ *  EXPOSED sub-segment of the column's own section, offset outward to that
+ *  band's inner and outer depth. See columnCasingPieces() for how the bands
+ *  are built, and columnExposedSegments() for what "exposed" means here. */
+export interface CasingPiece { kind: CasingPart; poly: Vec[] }
+
+/** Where segment p->p+d crosses segment a->b, as p's own parameter in [0,1];
+ *  null when they do not cross within both segments (including parallel). */
+function segSegIntersectT(p: Vec, d: Vec, a: Vec, b: Vec): number | null {
+  const e = sub(b, a);
+  const denom = cross(d, e);
+  if (Math.abs(denom) < 1e-9) return null;
+  const t = cross(sub(a, p), e) / denom;
+  const u = cross(sub(a, p), d) / denom;
+  if (t < 0 || t > 1 || u < 0 || u > 1) return null;
+  return t;
+}
+
+/** One exposed sub-segment of a column's own outline, with the edge's own
+ *  outward normal (see columnExposedSegments()). */
+interface ExposedSegment { a: Vec; b: Vec; normal: Vec }
+
+/**
+ * The part of a column's own outline (world mm) that is not inside any
+ * wall's structural body -- the single fact columnCasingPieces() (what gets
+ * drawn, meshed and exported) and columnExposedPerimeterMm() (what a casing
+ * costs) both read, so the two cannot disagree about which face is buried.
+ * Each edge is split at its intersection parameters with every wall's
+ * ResolvedWall.outline (sorted), and a sub-segment survives only when its
+ * own midpoint falls outside every wall (pointInPolygon()). A column
+ * standing clear of every wall keeps every edge whole, one segment per edge.
+ */
+function columnExposedSegments(c: Column, walls: readonly ResolvedWall[]): ExposedSegment[] {
+  const outline = columnOutline(c);
+  const n = outline.length;
+  const centroid = polygonCentroid(outline);
+  const out: ExposedSegment[] = [];
+  for (let i = 0; i < n; i++) {
+    const P = outline[i]!, Q = outline[(i + 1) % n]!;
+    const d = sub(Q, P);
+    let normal = perp(norm(d));
+    if (dot(normal, sub(mid(P, Q), centroid)) < 0) normal = scale(normal, -1);
+    const ts = new Set<number>([0, 1]);
+    for (const w of walls) {
+      const poly = w.outline;
+      for (let j = 0; j < poly.length; j++) {
+        const t = segSegIntersectT(P, d, poly[j]!, poly[(j + 1) % poly.length]!);
+        if (t !== null) ts.add(t);
+      }
+    }
+    const sorted = [...ts].sort((x, y) => x - y);
+    for (let k = 0; k < sorted.length - 1; k++) {
+      const t0 = sorted[k]!, t1 = sorted[k + 1]!;
+      if (t1 - t0 < 1e-9) continue;
+      const midPt = add(P, scale(d, (t0 + t1) / 2));
+      if (walls.some(w => pointInPolygon(midPt, w.outline))) continue;
+      out.push({ a: add(P, scale(d, t0)), b: add(P, scale(d, t1)), normal });
+    }
+  }
+  return out;
+}
+
+/**
+ * A column's casing, innermost first: the voorzetwand's own zone where
+ * `frame` is stated, then each board in turn (Column.casing), each as one
+ * quad per EXPOSED sub-segment of the column's own section
+ * (columnExposedSegments()) -- offset outward by the band's own cumulative
+ * depth, in world millimetres already (columnOutline() maps through
+ * worldPoint(), so a placed casing turns and moves with its column exactly
+ * like the section itself). A face buried in a wall gets no casing at all,
+ * at any depth: the wall is what stands there. Empty where the column
+ * carries no casing.
+ *
+ * Each exposed sub-segment is offset on its own rather than mitered at the
+ * corners: the outer corner of a band is left with a small triangular gap
+ * the width of its own depth, imperceptible at an ordinary casing depth
+ * against an ordinary column section, and it is what keeps this from having
+ * to solve a true polygon offset -- a mitered join would self-intersect in
+ * the narrow web notch of an "h" column at a depth an ordinary
+ * stud-and-board casing already reaches. See CLAUDE.md's known limitations.
+ * A pure translation does not change a segment's own length, so every band's
+ * pieces cover exactly the same run as the base exposed segments -- which is
+ * what lets columnExposedPerimeterMm() below read the same segments rather
+ * than re-deriving them from whatever columnCasingPieces() draws.
+ */
+export function columnCasingPieces(c: Column, walls: readonly ResolvedWall[]): CasingPiece[] {
+  const casing = c.casing;
+  if (!casing) return [];
+  const segments = columnExposedSegments(c, walls);
+  const out: CasingPiece[] = [];
+  let depth = 0;
+  const pushBand = (kind: CasingPart, mm: number): void => {
+    if (mm <= 0) return;
+    const from = depth, to = depth + mm;
+    for (const seg of segments) {
+      const poly = [
+        add(seg.a, scale(seg.normal, from)), add(seg.b, scale(seg.normal, from)),
+        add(seg.b, scale(seg.normal, to)), add(seg.a, scale(seg.normal, to)),
+      ];
+      out.push({ kind, poly });
+    }
+    depth = to;
+  };
+  if (casing.frame) pushBand("frame", casing.frame.depthMm);
+  for (const board of casing.boards) pushBand(board.kind, board.mm);
+  return out;
+}
+
+/**
+ * What a casing actually costs (core/materials.ts): the sum of the exposed
+ * sub-segments columnCasingPieces() draws every band from, mm. Reads
+ * columnExposedSegments() directly rather than columnCasingPieces() itself,
+ * since a casing may state boards with no frame or vice versa and the
+ * exposed run is the same either way -- but it is the identical clip, so the
+ * two can never disagree about which face is buried. A column standing
+ * clear of every wall gets its whole perimeter.
+ */
+export function columnExposedPerimeterMm(c: Column, walls: readonly ResolvedWall[]): number {
+  return columnExposedSegments(c, walls).reduce((sum, seg) => sum + dist(seg.a, seg.b), 0);
 }

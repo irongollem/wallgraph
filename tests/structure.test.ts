@@ -9,12 +9,13 @@ import {
 import {
   columnBox, columnProfile, columnOutline, columnHeight, beamBottom, beamTop, spanLength, spanPlaced,
   spanBox, spanTurned, spanQuad, structureCorners, structureHit, structureLabelAt, railingPosts,
-  structureSolid, structureSolids, isSpan,
+  structureSolid, structureSolids, isSpan, columnCasingPieces, columnExposedPerimeterMm,
 } from "../src/core/structure";
 import { structurePrims } from "../src/io/structure";
 import { Prim } from "../src/io/record";
 import { Vec, v, dist } from "../src/geometry/vec";
-import { emptyDoc, structureOf, floorHeight } from "../src/model/doc";
+import { emptyDoc, structureOf, floorHeight, newId, type Wall } from "../src/model/doc";
+import { columnCasingTakeoffOf } from "../src/core/materials";
 import { cloneOnFloor } from "../src/model/ops";
 import { marqueePick } from "../src/input/marquee";
 import { toDxf } from "../src/io/dxf";
@@ -386,6 +387,73 @@ for (const lng of ["nl", "en"] as const) {
     worst < 0.01, `${worstLabel} off by ${(worst * 100).toFixed(2)}%`);
   check("every steel profile states both catalogue figures",
     STEEL_PROFILES.every(p => p.wy > 0 && p.iy > 0));
+}
+
+// ---- column casing (#74) --------------------------------------------------
+//
+// A voorzetwand that stops either side of a column leaves the column to be
+// cased on its own: boards around every face of it NOT buried in a wall. What
+// it costs is the exposed perimeter, and the drawn, meshed and exported bands
+// are built from the same exposed segments, so the body cannot claim material
+// the takeoff does not count.
+
+{
+  const c = column({ shape: "h", width: 200, depth: 200, x: 1000, y: 1000, rotation: 0 });
+  const bare = columnExposedPerimeterMm(c, []);
+  // Standing clear of every wall, the whole outline is exposed: the sum of
+  // its own edges.
+  const outline = columnOutline(c);
+  const perimeter = outline.reduce((n, p, i) => n + dist(p, outline[(i + 1) % outline.length]!), 0);
+  check("a column standing clear exposes its whole perimeter", near(bare, perimeter),
+    `${bare} vs ${perimeter}`);
+  // An H section's two reentrant notches add boundary rather than remove it,
+  // so it is longer than the 800 mm its 200x200 bounding box would give.
+  check("an H section's notches make it longer than its bounding box", bare > 800, String(bare));
+
+  const f = emptyDoc().floors[0]!;
+  c.casing = { boards: [{ kind: "gypsum", mm: 12 }] };
+  f.structure = [c];
+  const takeoff = columnCasingTakeoffOf(f, c, []);
+  check("the casing's perimeter is the exposed one", near(takeoff.perimeterMm, bare));
+  check("its height is the storey's", takeoff.heightMm === floorHeight(f));
+  check("a gypsum casing's area is the exposed perimeter times the height",
+    takeoff.boards.length === 1 && takeoff.boards[0]!.kind === "gypsum"
+    && near(takeoff.boards[0]!.areaMm2, bare * floorHeight(f), 2),
+    JSON.stringify(takeoff.boards));
+}
+
+{
+  // Half-buried: a 300x300 column whose near half sits inside a 200 mm wall
+  // whose body spans y in [2900, 3100]. The buried edge earns no casing.
+  const f = emptyDoc().floors[0]!;
+  const a = newId("n"), b = newId("n");
+  f.nodes.push({ id: a, x: 0, y: 3000 }, { id: b, x: 4000, y: 3000 });
+  const w: Wall = { id: newId("w"), a, b, thickness: 200, bulge: 0, openings: [] };
+  f.walls.push(w);
+  const c = column({ shape: "rect", width: 300, depth: 300, x: 2000, y: 3150, rotation: 0 });
+  c.casing = { boards: [{ kind: "gypsum", mm: 12 }] };
+  f.structure = [c];
+  const walls = [...resolveFloor(f).walls.values()];
+
+  // Top edge (y = 3000) lies wholly in the wall: 0 exposed. Bottom (y = 3300)
+  // is wholly clear: 300. Each side crosses the face at y = 3100, giving 200
+  // exposed and 100 buried. 300 + 200 + 200 = 700, against a 1200 perimeter.
+  const exposed = columnExposedPerimeterMm(c, walls);
+  check("a half-buried column exposes only what stands clear", near(exposed, 700), String(exposed));
+
+  const pieces = columnCasingPieces(c, walls);
+  check("the wholly buried edge earns no casing piece", pieces.length === 3, String(pieces.length));
+
+  const takeoff = columnCasingTakeoffOf(f, c, walls);
+  check("the takeoff reads the same exposure the pieces are built from",
+    near(takeoff.perimeterMm, exposed), `${takeoff.perimeterMm} vs ${exposed}`);
+  check("and its board area follows from it",
+    near(takeoff.boards[0]!.areaMm2, exposed * floorHeight(f), 2),
+    String(takeoff.boards[0]!.areaMm2));
+
+  // A column stating no casing is unchanged everywhere.
+  const bareCol = column({ shape: "rect", width: 300, depth: 300, x: 2000, y: 3150, rotation: 0 });
+  check("a column with no casing builds no pieces", columnCasingPieces(bareCol, walls).length === 0);
 }
 
 console.log(failures === 0 ? "ALL STRUCTURE TESTS PASSED" : `${failures} FAILURES`);

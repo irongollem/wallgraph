@@ -328,8 +328,11 @@ voorzetwand daarin op hun eigen hart-op-hart-maat; de platen stapelen vanaf de v
 voorzetwand verder naar de ruimte toe. Bij oppervlaktemaat <b>netto</b> wordt gemeten tot de buitenste
 plaat van de hele opbouw — tussenruimte, voorzetwand en platen samen. Voorkeuzen zijn er voor
 metalstud 50, metalstud 75, hout 45×70 en hout 45×95, elk met een platenpakket; alle velden blijven
-daarna vrij te wijzigen. De eigen stijlen, regels en klossen van de voorzetwand tellen nog niet mee in
-de materiaalstaat.</p>
+daarna vrij te wijzigen. Een voorzetwand hoeft niet over de hele muur te lopen: er zijn stroken op te geven, en waar een
+kolom voor de muur staat stopt de voorzetwand aan weerszijden ervan — het paneel stelt die stroken
+voor, als alternatief voor een grotere tussenruimte. De kolom zelf krijgt dan een eigen
+<b>bekleding</b>: platen rondom, gerekend over de vrijstaande omtrek, zodat het deel dat in de muur
+zit niet meetelt.</p>
 
 <p>Onder <b>Wandoppervlak</b> staat wat de muren van de verdieping aan vlak bieden — de maat waarop
 stucwerk, verf en behang worden besteld. Per muur staat het netto oppervlak in de muurlijst en in het
@@ -884,8 +887,11 @@ inside a band outside the structural face, with the lining wall's own studs draw
 own centres; the boards then stack outward from the front of the lining wall. Under the <b>net</b> area
 mode, measurement runs to the outermost board of the whole build-up — past the stand-off, the lining
 wall and the boards. Presets exist for metal stud 50, metal stud 75, timber 45×70 and timber 45×95,
-each with a board stack; every field stays editable afterwards. The lining wall's own studs, plates and
-noggings are not yet counted in the materials takeoff.</p>
+each with a board stack; every field stays editable afterwards. A lining wall need not run the whole wall: stretches can be
+stated, and where a column stands in front of the wall the lining stops either side of it — the pane
+proposes those stretches as the alternative to a larger stand-off. The column itself then takes its own
+<b>casing</b>: boards around it, counted over the exposed perimeter, so the part buried in the wall does
+not count.</p>
 
 <p><b>Wall surface</b> states the face area the storey's walls present — the quantity stucco, paint and
 wallpaper are ordered against. Each wall's net area appears in the wall list and in the pane of the

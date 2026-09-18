@@ -641,6 +641,7 @@ export function drawScene(
   // Structure, over the masonry: a column is cut like a wall and takes the
   // same pen, so a steel column in a red plan is red poché; a beam is dashed
   // above the plane and a railing outlined below it, in the instance's ink.
+  const structureWalls = [...resolved.walls.values()];
   for (const el of structureOf(floor)) {
     const pen = el.kind === "column" ? wallPen(el) : null;
     drawStructure(ctx, el, {
@@ -649,7 +650,8 @@ export function drawScene(
       fill: pen ? (isSel("structure", el.id) ? selectedFill(pen) : pen.fill) : COLORS.bg,
       selected: isSel("structure", el.id),
       select: COLORS.select, wash: COLORS.selectWash,
-    });
+      casingFrame: COLORS.bg, casingBoards: COLORS.board,
+    }, structureWalls);
   }
 
   // Routes: a services overlay. Drawn over the masonry, so a duct reads as

@@ -10,11 +10,11 @@
 // written back into PlanDoc.
 import {
   Floor, Wall, PlanNode, Id, Opening, ProfilePoint, FaceFrame,
-  frameOf, wallHeight, floorHeight,
+  frameOf, wallHeight, floorHeight, frameZoneOf, faceRunsOf, normalizeFaceRuns,
 } from "../model/doc";
 import { wallTopAt, wallTopPolyline } from "../model/profile";
-import { Vec, v, dist, sub, dot, norm, angleOf } from "../geometry/vec";
-import { arcInfo, arcLength, sweepOf } from "../geometry/arc";
+import { Vec, v, dist, sub, dot, norm, angleOf, perp, add, scale } from "../geometry/vec";
+import { arcInfo, arcLength, sweepOf, arcPointAt, arcTangentAt } from "../geometry/arc";
 import { resolveFloor, type Resolved, type ResolvedWall } from "./resolve";
 
 /**
@@ -27,9 +27,21 @@ export interface LeafFloor {
   floor: Floor;
   /** A leaf wall's own id -> the host wall and face it was derived from. */
   hostOf: Map<Id, { wallId: Id; side: "left" | "right" }>;
-  /** The leaf derived from one host wall's face, or undefined where that
-   *  face states no frame. */
+  /**
+   * The leaf derived from one host wall's face, or undefined where that face
+   * states no frame. A face stating runs (see FaceBuildUp.runs) can carry
+   * more than one leaf -- see leavesOf() -- and this returns the first
+   * (lowest t) of them, for a caller reading one leaf per face.
+   */
   leafOf(wallId: Id, side: "left" | "right"): Wall | undefined;
+  /**
+   * Every leaf derived from one host wall's face, in run order: one entry
+   * where the face states no runs, or one run: several where a voorzetwand
+   * stops either side of a column it is casing separately (see
+   * FaceBuildUp.runs and leafclash.ts's proposedRuns()). Empty where that
+   * face states no frame.
+   */
+  leavesOf(wallId: Id, side: "left" | "right"): Wall[];
 }
 
 /** The leaf floor and its own resolve, the pair every consumer needs. */
@@ -68,6 +80,33 @@ function hostMmAt(A: Vec, B: Vec, bulge: number, hostLen: number, p: Vec): numbe
 }
 
 interface Candidate { id: Id; pos: Vec }
+
+/**
+ * The square end of a face's own frame-zone midline at host mm `t`: the
+ * plain perpendicular offset of the host centerline, at the frame zone's own
+ * mid-depth (half the host thickness plus the mean of gapMm and
+ * gapMm + depthMm -- see frameZoneOf()), with no miter.
+ *
+ * Used for a run boundary that does not coincide with the host wall's own
+ * end -- a voorzetwand stopping mid-face because a column is in the way. The
+ * true-end case instead takes ResolvedWall.frameLine's mitered point, which
+ * is built the same way (the midpoint of the frame zone's inner and outer
+ * mitered corners); this is that same construction without a corner to
+ * miter against, matching how resolveFloor()'s own degree-1 wall end is a
+ * plain perpendicular offset with no miter either (solveCorners()'s
+ * `ends.length === 1` branch). The LEAF wall's own square cap at this node
+ * -- its end stud -- comes from that same degree-1 branch when
+ * resolveLeaves() resolves the synthetic leaf floor; nothing here draws it.
+ */
+function squareEndAt(hostWall: Wall, rw: ResolvedWall, side: "left" | "right", t: number): Vec {
+  const zone = frameZoneOf(hostWall, side)!;
+  const depth = hostWall.thickness / 2 + (zone.from + zone.to) / 2;
+  const frac = rw.length > 0 ? t / rw.length : 0;
+  const p = arcPointAt(rw.a, rw.b, hostWall.bulge, frac);
+  const n = perp(arcTangentAt(rw.a, rw.b, hostWall.bulge, frac));
+  const sgn = side === "left" ? 1 : -1;
+  return add(p, scale(n, sgn * depth));
+}
 
 /**
  * Cluster candidate leaf-node positions within 1 mm of each other into one
@@ -226,11 +265,35 @@ export function leafFloor(f: Floor, resolved: Resolved): LeafFloor {
       const frame = frameOf(hostWall, side);
       const line = rw.frameLine[side];
       if (!frame || !line) continue;
-      const leafId = `${hostWall.id}~${side}`;
-      const aCand = `${leafId}:a`, bCand = `${leafId}:b`;
-      candidates.push({ id: aCand, pos: v(Math.round(line.a.x), Math.round(line.a.y)) });
-      candidates.push({ id: bCand, pos: v(Math.round(line.b.x), Math.round(line.b.y)) });
-      pending.push({ hostWall, side, frame, leafId, aCand, bCand });
+
+      const rawRuns = faceRunsOf(hostWall, side);
+      if (!rawRuns) {
+        // Absent runs = the whole face: one leaf, the true wall ends,
+        // unchanged from before FaceBuildUp.runs existed.
+        const leafId = `${hostWall.id}~${side}`;
+        const aCand = `${leafId}:a`, bCand = `${leafId}:b`;
+        candidates.push({ id: aCand, pos: v(Math.round(line.a.x), Math.round(line.a.y)) });
+        candidates.push({ id: bCand, pos: v(Math.round(line.b.x), Math.round(line.b.y)) });
+        pending.push({ hostWall, side, frame, leafId, aCand, bCand });
+        continue;
+      }
+
+      // Stated runs: one leaf per run -- normalised against the host's own
+      // length first, so a stale or overlapping stored value cannot produce
+      // overlapping leaves (see normalizeFaceRuns()). A run boundary at the
+      // host's own end takes the mitered `line` point; an interior boundary
+      // -- a column stopping the voorzetwand mid-face -- gets the square
+      // offset instead (see squareEndAt()).
+      const runs = normalizeFaceRuns(rawRuns, rw.length);
+      runs.forEach((run, i) => {
+        const leafId = `${hostWall.id}~${side}~${i}`;
+        const aCand = `${leafId}:a`, bCand = `${leafId}:b`;
+        const aPos = run.fromMm <= 0.5 ? line.a : squareEndAt(hostWall, rw, side, run.fromMm);
+        const bPos = run.toMm >= rw.length - 0.5 ? line.b : squareEndAt(hostWall, rw, side, run.toMm);
+        candidates.push({ id: aCand, pos: v(Math.round(aPos.x), Math.round(aPos.y)) });
+        candidates.push({ id: bCand, pos: v(Math.round(bPos.x), Math.round(bPos.y)) });
+        pending.push({ hostWall, side, frame, leafId, aCand, bCand });
+      });
     }
   }
 
@@ -239,21 +302,23 @@ export function leafFloor(f: Floor, resolved: Resolved): LeafFloor {
 
   const walls: Wall[] = [];
   const hostOf = new Map<Id, { wallId: Id; side: "left" | "right" }>();
-  const byKey = new Map<string, Wall>();
+  const byKey = new Map<string, Wall[]>();
 
   for (const p of pending) {
     const rw = resolved.walls.get(p.hostWall.id)!;
     const aId = mapping.get(p.aCand)!, bId = mapping.get(p.bCand)!;
-    // A host wall short enough that its own two miters meet leaves a leaf
-    // whose ends cluster into one node. That is a self-loop, which the
-    // half-edge walk and computeBacking() both read as a wall meeting
-    // itself; there is no voorzetwand to draw at that length anyway.
+    // A host wall (or run) short enough that its own two ends cluster into
+    // one node. That is a self-loop, which the half-edge walk and
+    // computeBacking() both read as a wall meeting itself; there is no
+    // voorzetwand to draw at that length anyway.
     if (aId === bId) continue;
     const aNode = nodeById.get(aId)!, bNode = nodeById.get(bId)!;
     const wall = buildLeafWall(f, p.hostWall, p.side, p.frame, rw, p.leafId, aId, bId, aNode, bNode);
     walls.push(wall);
     hostOf.set(wall.id, { wallId: p.hostWall.id, side: p.side });
-    byKey.set(`${p.hostWall.id}~${p.side}`, wall);
+    const key = `${p.hostWall.id}~${p.side}`;
+    const arr = byKey.get(key);
+    if (arr) arr.push(wall); else byKey.set(key, [wall]);
   }
 
   const floor: Floor = {
@@ -265,6 +330,7 @@ export function leafFloor(f: Floor, resolved: Resolved): LeafFloor {
 
   return {
     floor, hostOf,
-    leafOf: (wallId, side) => byKey.get(`${wallId}~${side}`),
+    leafOf: (wallId, side) => byKey.get(`${wallId}~${side}`)?.[0],
+    leavesOf: (wallId, side) => byKey.get(`${wallId}~${side}`) ?? [],
   };
 }

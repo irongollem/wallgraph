@@ -11,7 +11,7 @@
 // intersection is behind one end and beyond the other in the overlap case.
 import {
   Floor, Wall, Id, wallFacadeMm, facadeSideOf, buildUpOf, type FaceFrame,
-  postLayoutOf, postFromOf, wallPostMm, flipGridOffset, canonPostOffset,
+  postLayoutOf, postFromOf, wallPostMm, flipGridOffset, canonPostOffset, normalizeFaceRuns,
 } from "../model/doc";
 import { Vec, v, add, sub, scale, dist, norm, perp, lineIntersect } from "../geometry/vec";
 import { arcTangentAt } from "../geometry/arc";
@@ -239,12 +239,22 @@ export function planNodeDissolve(f: Floor, nodeId: Id): NodeDissolveResult | nul
       && a.postMm === b.postMm && a.postLayout === b.postLayout && a.postWidthMm === b.postWidthMm
       && a.noggingRows === b.noggingRows && a.insulated === b.insulated && a.heightMm === b.heightMm;
   };
+  // A run is compared only for whether it is STATED, not for its stretches --
+  // the merge shifts and appends `drop`'s runs into `keep`'s own (see
+  // mergeThrough()), which is well defined once both faces agree on absent
+  // (the whole face, on both walls) or stated (an explicit, possibly partial,
+  // stretch on both). One face stating runs and the other stating none is
+  // the case this refuses: there is no coordinate to fold an explicit
+  // partial run and an implicit whole face together at, so "the second's
+  // runs shift by the first's length" would either drop the whole-face half
+  // silently or extend the partial one across it.
   const buildUpEq = (a: ReturnType<typeof buildUpOf>, b: ReturnType<typeof buildUpOf>): boolean => {
     if (!a && !b) return true;
     if (!a || !b) return false;
     return sameFrame(a.frame, b.frame)
       && a.boards.length === b.boards.length
-      && a.boards.every((x, i) => x.kind === b.boards[i]!.kind && x.mm === b.boards[i]!.mm);
+      && a.boards.every((x, i) => x.kind === b.boards[i]!.kind && x.mm === b.boards[i]!.mm)
+      && (a.runs === undefined) === (b.runs === undefined);
   };
   const [w2Left, w2Right] = sameDirection
     ? [buildUpOf(w2, "left"), buildUpOf(w2, "right")]
@@ -373,6 +383,23 @@ function mergeThrough(f: Floor, keep: Wall, drop: Wall, nodeId: Id): void {
     o.t += keepLength;
     keep.openings.push(o);
   }
+  // A face's runs carry across the same way: `drop`'s shift by keepLength and
+  // append to `keep`'s own. Both flipWall() calls above already left
+  // keep.buildUp and drop.buildUp expressed per PHYSICAL side (a flip swaps
+  // left/right to keep the meaning constant), so the same key on each names
+  // the same face here. planNodeDissolve()'s buildUpEq() already refused the
+  // merge unless the two faces agree on stated-or-not, so `keepFu` exists
+  // wherever `dropFu` states runs. Left unnormalised until the wall's own
+  // length is final, below, the way openings are clamped only after `keep.b`
+  // moves.
+  for (const side of ["left", "right"] as const) {
+    const dropFu = drop.buildUp?.[side];
+    if (!dropFu || dropFu.runs === undefined) continue;
+    const keepFu = keep.buildUp?.[side];
+    if (!keepFu) continue;
+    const shifted = dropFu.runs.map(r => ({ fromMm: r.fromMm + keepLength, toMm: r.toMm + keepLength }));
+    keepFu.runs = [...(keepFu.runs ?? []), ...shifted];
+  }
   // The profile carries across as both walls' full polylines, the ends each one
   // leaves to wallHeight() made explicit, so the merged wall keeps the shape of
   // the two it replaces; `drop`'s points need keepLength added, same as an
@@ -394,6 +421,16 @@ function mergeThrough(f: Floor, keep: Wall, drop: Wall, nodeId: Id): void {
   // change, since the merged wall's own profile (and so its highest point)
   // may differ from either half's.
   clampFrameBreaks(f, keep);
+  // Runs are normalised last, against the merged wall's own final length --
+  // keep's own stretch and drop's shifted one may now touch or overlap at
+  // the seam and fold into one.
+  if (keep.buildUp) {
+    const total = wallLength(f, keep);
+    for (const side of ["left", "right"] as const) {
+      const fu = keep.buildUp[side];
+      if (fu?.runs !== undefined) fu.runs = normalizeFaceRuns(fu.runs, total);
+    }
+  }
 }
 
 /**

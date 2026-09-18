@@ -15,8 +15,9 @@
 // that would complete it is one field away.
 import { Store } from "../model/store";
 import { frameOf, type Id, type Wall } from "../model/doc";
-import { resolveFloor } from "../core/resolve";
-import { resolveLeaves } from "../core/leaf";
+import { resolveFloor, type ResolvedWall } from "../core/resolve";
+import { resolveLeaves, type Leaves } from "../core/leaf";
+import { projectS } from "../core/solids";
 import { wallElevation, type WallElevation } from "../core/frame";
 import type { MemberName } from "../core/materials";
 import { drawElevation } from "../render/frame";
@@ -27,9 +28,14 @@ import { COLORS } from "../render/draw";
 import { faceLabel } from "./buildup";
 import { t } from "../i18n";
 
-/** structure, or the voorzetwand on one face -- what the dialog's own face
- *  select picks between (see openFrameDialog()). */
-type ElevationFace = "structure" | "left" | "right";
+/**
+ * structure, or one leaf wall's own id -- what the dialog's own face select
+ * picks between (see openFrameDialog()). A face split into runs (#74, a
+ * voorzetwand stopping either side of a column) can carry more than one
+ * leaf, so the select's own value is the LEAF's id rather than just its
+ * side -- "left"/"right" alone could no longer tell two runs apart.
+ */
+type ElevationFace = "structure" | Id;
 
 function el(tag: string, cls?: string): HTMLElement {
   const e = document.createElement(tag);
@@ -177,9 +183,7 @@ export function openFrameDialog(store: Store, wallId: Id): void {
   let faceRowMounted = false;
   let face: ElevationFace = "structure";
   faceSelect.onchange = () => {
-    if (faceSelect.value === "left" || faceSelect.value === "right" || faceSelect.value === "structure") {
-      face = faceSelect.value;
-    }
+    face = faceSelect.value;
     redraw();
   };
 
@@ -201,17 +205,61 @@ export function openFrameDialog(store: Store, wallId: Id): void {
   document.body.append(overlay);
 
   let current: WallElevation | null = null;
+  // The filename tag for the face currently drawn: the side, plus the run's
+  // own 1-based position within it once a face carries more than one leaf --
+  // null for the structure. Set in redraw(), read by svgBtn.onclick below;
+  // `face` itself is a leaf id from #74 on, not fit to print into a filename.
+  let currentFaceTag: string | null = null;
 
-  /** Rebuilds the select's own options from the wall's current faces, and
-   *  falls back to "structure" once the face `face` names stops stating a
-   *  frame -- a build-up edited away while the dialog stays open. Mounts the
-   *  row only while there is a real choice, unmounts it the moment there is
-   *  not, so a plain wall's dialog never shows a select with nothing to pick. */
-  const syncFaceOptions = (wall: Wall): void => {
-    const options: ElevationFace[] = ["structure"];
-    if (frameOf(wall, "left")) options.push("left");
-    if (frameOf(wall, "right")) options.push("right");
-    if (!options.includes(face)) face = "structure";
+  /**
+   * A leaf's own span along the HOST centerline, mm from node `a` -- the
+   * handle a run's own fromMm/toMm is authored in (FaceBuildUp.runs) -- read
+   * off the leaf's own resolved endpoints (leafRw.a/b) projected back onto
+   * the host's, so it stays right for the true-end case too (a run boundary
+   * at the host's own end takes the mitered point, not the stated mm exactly
+   * -- see leaf.ts's buildLeafWall()).
+   */
+  const leafRangeMm = (hostRw: ResolvedWall, leafRw: ResolvedWall): { from: number; to: number } => {
+    const sa = projectS(hostRw.a, hostRw.b, hostRw.wall.bulge, hostRw.length, leafRw.a);
+    const sb = projectS(hostRw.a, hostRw.b, hostRw.wall.bulge, hostRw.length, leafRw.b);
+    return sa <= sb ? { from: sa, to: sb } : { from: sb, to: sa };
+  };
+
+  /**
+   * Rebuilds the select's own options from the wall's current faces and
+   * their leaves, and falls back to "structure" once the face `face` names
+   * stops existing -- a build-up edited away, or a run removed, while the
+   * dialog stays open. A face stating more than one run (#74, a voorzetwand
+   * stopping either side of a column) offers one option per leaf, named by
+   * its own span along the wall so two runs can be told apart; a face with
+   * exactly one run, or none stated, keeps the plain side wording unchanged
+   * from before runs existed. Mounts the row only while there is a real
+   * choice, unmounts it the moment there is not, so a plain wall's dialog
+   * never shows a select with nothing to pick.
+   */
+  const syncFaceOptions = (wall: Wall, hostRw: ResolvedWall, leaves: Leaves): void => {
+    const options: Array<{ key: ElevationFace; label: string }> = [
+      { key: "structure", label: t("frame.faceStructure") },
+    ];
+    for (const side of ["left", "right"] as const) {
+      if (!frameOf(wall, side)) continue;
+      const leafWalls = leaves.leaf.leavesOf(wallId, side);
+      const multi = leafWalls.length > 1;
+      for (const lw of leafWalls) {
+        if (!multi) {
+          options.push({ key: lw.id, label: t("frame.faceLeaf", { side: faceLabel(side) }) });
+          continue;
+        }
+        const leafRw = leaves.resolved.walls.get(lw.id);
+        const range = leafRw ? leafRangeMm(hostRw, leafRw) : { from: 0, to: 0 };
+        options.push({
+          key: lw.id,
+          label: t("frame.faceLeafRun",
+            { side: faceLabel(side), from: Math.round(range.from), to: Math.round(range.to) }),
+        });
+      }
+    }
+    if (!options.some(o => o.key === face)) face = "structure";
 
     if (options.length <= 1) {
       if (faceRowMounted) { faceRow.remove(); faceRowMounted = false; }
@@ -220,9 +268,9 @@ export function openFrameDialog(store: Store, wallId: Id): void {
     faceSelect.replaceChildren();
     for (const opt of options) {
       const o = el("option") as HTMLOptionElement;
-      o.value = opt;
-      o.textContent = opt === "structure" ? t("frame.faceStructure") : t("frame.faceLeaf", { side: faceLabel(opt) });
-      if (opt === face) o.selected = true;
+      o.value = opt.key;
+      o.textContent = opt.label;
+      if (opt.key === face) o.selected = true;
       faceSelect.append(o);
     }
     if (!faceRowMounted) { dialog.insertBefore(faceRow, canvasWrap); faceRowMounted = true; }
@@ -231,27 +279,39 @@ export function openFrameDialog(store: Store, wallId: Id): void {
   const redraw = (): void => {
     const wall = store.floor.walls.find(w => w.id === wallId);
     if (!wall) { close(); return; }
-    syncFaceOptions(wall);
     const resolved = resolveFloor(store.floor);
     const rw = resolved.walls.get(wallId);
     if (!rw) { close(); return; }
+    const leaves = resolveLeaves(store.floor, resolved);
+    syncFaceOptions(wall, rw, leaves);
 
-    // The structure's own elevation, or -- once a voorzetwand is picked --
-    // the LEAF's: a real Wall/Floor/ResolvedWall of its own (see
-    // core/leaf.ts), not a band on the host's resolve. A face that states a
-    // frame but derives no leaf at all (a host wall short enough that its two
-    // miters meet -- core/leaf.ts's own note on that) falls back to the
-    // structure rather than drawing nothing.
+    // The structure's own elevation, or -- once a voorzetwand run is picked
+    // -- that LEAF's: a real Wall/Floor/ResolvedWall of its own (see
+    // core/leaf.ts), not a band on the host's resolve. A face whose picked
+    // leaf no longer exists (a run removed, or a host wall short enough
+    // that its own miters meet -- core/leaf.ts's own note on that) falls
+    // back to the structure rather than drawing nothing.
     let elevation: WallElevation;
     if (face === "structure") {
       elevation = wallElevation(store.floor, wall, rw);
+      currentFaceTag = null;
     } else {
-      const leaves = resolveLeaves(store.floor, resolved);
-      const leafWall = leaves.leaf.leafOf(wallId, face);
+      const leafWall = leaves.leaf.floor.walls.find(w => w.id === face);
       const leafRw = leafWall ? leaves.resolved.walls.get(leafWall.id) : undefined;
-      elevation = leafWall && leafRw
-        ? wallElevation(leaves.leaf.floor, leafWall, leafRw)
-        : wallElevation(store.floor, wall, rw);
+      if (leafWall && leafRw) {
+        elevation = wallElevation(leaves.leaf.floor, leafWall, leafRw);
+        const host = leaves.leaf.hostOf.get(leafWall.id);
+        if (host) {
+          const siblings = leaves.leaf.leavesOf(host.wallId, host.side);
+          const idx = siblings.findIndex(w => w.id === leafWall.id);
+          currentFaceTag = host.side + (siblings.length > 1 && idx >= 0 ? `-${idx + 1}` : "");
+        } else {
+          currentFaceTag = null;
+        }
+      } else {
+        elevation = wallElevation(store.floor, wall, rw);
+        currentFaceTag = null;
+      }
     }
     current = elevation;
 
@@ -307,7 +367,7 @@ export function openFrameDialog(store: Store, wallId: Id): void {
     // wall-length label is ambiguous once a voorzetwand can be exported from
     // the same dialog. Not user-facing prose, so plain ASCII rather than a
     // translated word.
-    const label = String(Math.round(current.lengthMm)) + (face !== "structure" ? `-${face}` : "");
+    const label = String(Math.round(current.lengthMm)) + (currentFaceTag ? `-${currentFaceTag}` : "");
     void exportFrameSvg(current, label);
   };
 

@@ -461,6 +461,11 @@ export const resources = {
         buildUpFrameHeight: "Hoogte voorzetwand (mm)",
         buildUpFrameHelp:
           "de positie van de voorzetwand volgt uit de muur en de belendende vlakken en wordt niet opgeslagen · de stijlen zitten nog niet in de materiaalstaat",
+        buildUpRunsNote: "deze opbouw loopt niet over de hele muur · stroken: {{n}}",
+        buildUpRunsApply: "Onderbreken bij de kolom (stroken: {{n}})",
+        buildUpRunsClear: "Over de hele muur laten lopen",
+        columnCasing: "Bekleding",
+        columnCasingHelp: "platen rondom de kolom · gerekend over de vrijstaande omtrek, het deel dat in een muur zit telt niet mee",
         buildUpStandOffNote:
           "Kolom ‘{{column}}’ steekt hier {{gap}} mm voorbij het constructieve vlak.",
         buildUpStandOffApply: "Tussenruimte instellen op {{gap}} mm",
@@ -1087,6 +1092,7 @@ export const resources = {
         face: "Vlak",
         faceStructure: "Constructie",
         faceLeaf: "Voorzetwand ({{side}})",
+        faceLeafRun: "Voorzetwand ({{side}}, {{from}}–{{to}} mm)",
         legendBlocks: "{{n}} hele blokken",
         legendCut: "{{n}} pasblokken",
         legendPanels: "{{n}} panelen",
@@ -2059,6 +2065,11 @@ export const resources = {
         buildUpFrameHelp:
           "the lining wall's position follows from the wall and its neighbours and is not stored · its studs are not yet in the materials takeoff",
         buildUpStandOffNote: "Column ‘{{column}}’ reaches {{gap}} mm past the structural face here.",
+        buildUpRunsNote: "this build-up does not run the whole wall · stretches: {{n}}",
+        buildUpRunsApply: "Stop either side of the column (stretches: {{n}})",
+        buildUpRunsClear: "Run the whole wall",
+        columnCasing: "Casing",
+        columnCasingHelp: "boards around the column · counted over the exposed perimeter, the part buried in a wall does not count",
         buildUpStandOffApply: "Set stand-off to {{gap}} mm",
         buildUpOwnPostsNote:
           "This wall's own posts lie within its thickness, so they are not why no stand-off is proposed here.",
@@ -2679,6 +2690,7 @@ export const resources = {
         face: "Face",
         faceStructure: "Structure",
         faceLeaf: "Lining wall ({{side}})",
+        faceLeafRun: "Lining wall ({{side}}, {{from}}–{{to}} mm)",
         legendBlocks: "{{n}} whole blocks",
         legendCut: "{{n}} cut blocks",
         legendPanels: "{{n}} panels",

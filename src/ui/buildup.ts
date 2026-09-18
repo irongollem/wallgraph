@@ -66,6 +66,12 @@ export function renderFaceBuildUp(
     /** The wall states its own posts. They lie within its thickness by
      *  definition, so they are never why a stand-off is proposed. */
     ownPosts?: boolean;
+    /**
+     * The other way to deal with a column in this face: stop the build-up
+     * either side of it. `apply` writes the proposed runs, `clear` puts the
+     * face back to its whole length. Absent where nothing protrudes.
+     */
+    runs?: { count: number; apply: () => void; clear: () => void };
   } = {},
 ): void {
   rows.secHead(label, { later: true });
@@ -138,6 +144,21 @@ export function renderFaceBuildUp(
         n => withFrame({ ...frame, heightMm: clampFrameHeightMm(n) }), 50);
     }
     rows.noteRow(t("panel.buildUpFrameHelp"));
+
+    // What this face covers. A build-up over part of a wall is the second way
+    // of dealing with a column standing in it -- the first being the stand-off
+    // above -- and also covers a finish that simply is not full length.
+    const runs = fu?.runs;
+    if (runs && runs.length > 0) {
+      rows.noteRow(t("panel.buildUpRunsNote", { n: runs.length }));
+    }
+    if (opts.runs) {
+      if (!runs || runs.length === 0) {
+        rows.btnRow(t("panel.buildUpRunsApply", { n: opts.runs.count }), opts.runs.apply);
+      } else {
+        rows.btnRow(t("panel.buildUpRunsClear"), opts.runs.clear);
+      }
+    }
     // What this face's own columns say about the stand-off just chosen --
     // proposed, never written except through the button itself (see
     // core/leafclash.ts's own "proposes, never owns" stance).

@@ -747,12 +747,14 @@ before changing one:
   not layers within it.
 - A voorzetwand is drawn, counted, elevated, finished to its own face, checked against the columns it
   stands over, carries services on its finished face and in its frame zone, has a body in 3D and an
-  element of its own in IFC, and is selected through its host. A frame still runs the whole face — it
-  cannot stop short or box a column in (#74). Its header is checked under its own boards only; nothing
-  asks whether a frame at that stand-off is fixed back to the wall. Only a column is checked for
-  reaching into a build-up — not a beam, a duct or anything else the plan carries.
+  element of its own in IFC, may cover part of a face only, and is selected through its host. Its
+  header is checked under its own boards only; nothing asks whether a frame at that stand-off is fixed
+  back to the wall. Only a column is checked for reaching into a build-up — not a beam, a duct or
+  anything else the plan carries.
 - A build-up's body is massing: a frame zone is one prism rather than studs, and a board band one prism
-  per piece rather than sheets. The 3D view gives boards and frame one flat colour each — per-material
+  per piece rather than sheets. A column casing's bands are offset per edge and not mitered, so each
+  outer corner carries a gap about its own depth wide, and a casing's own frame contributes board area
+  only — no stud count. The 3D view gives boards and frame one flat colour each — per-material
   appearance, facade prisms and lighting are #75.
 - A wall's top profile is read by the wall surface, 3D, IFC, energy, the frame and the materials
   takeoff. A roof plane over it is a separate statement: a wall that pierces the roof's underside, or

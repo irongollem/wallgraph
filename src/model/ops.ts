@@ -4,6 +4,7 @@
 import {
   Floor, PlanNode, Wall, Opening, ProfilePoint, Id, newId, roomNamesOf, routesOf, Underlay, wallHeight,
   postLayoutOf, postFromOf, wallPostMm, flipGridOffset, canonPostOffset, cloneFaceBuildUp,
+  type FaceRun, normalizeFaceRuns,
 } from "./doc";
 import { routeInstallation } from "./route";
 import { clampProfile } from "./profile";
@@ -26,6 +27,25 @@ function cloneBuildUp(bu: Wall["buildUp"]): Wall["buildUp"] {
   if (bu.left) out.left = cloneFaceBuildUp(bu.left);
   if (bu.right) out.right = cloneFaceBuildUp(bu.right);
   return out;
+}
+
+/**
+ * Split one face's stated runs at `tt`, mm from the pre-split wall's own
+ * node a: each half keeps the part of each run that falls within its own
+ * span, `moved` rebased to the second half's own node a like a moved
+ * opening's `t`. A run straddling the cut contributes a piece to both.
+ * Always returns both arrays -- a run with nothing left on one half comes
+ * back empty there, never absent, because absent means "the whole face" and
+ * a half a stated run does not reach is the opposite of that.
+ */
+function splitFaceRuns(runs: readonly FaceRun[], tt: number, L: number): { keep: FaceRun[]; moved: FaceRun[] } {
+  const keep: FaceRun[] = [], moved: FaceRun[] = [];
+  for (const r of runs) {
+    const from = Math.max(0, r.fromMm), to = Math.min(L, r.toMm);
+    if (from < tt) keep.push({ fromMm: from, toMm: Math.min(to, tt) });
+    if (to > tt) moved.push({ fromMm: Math.max(from, tt) - tt, toMm: to - tt });
+  }
+  return { keep: normalizeFaceRuns(keep, tt), moved: normalizeFaceRuns(moved, L - tt) };
 }
 
 /** Get or create a node at p (mm, rounded to integers). Reuses a node within tol. */
@@ -87,6 +107,20 @@ export function splitWall(f: Floor, w: Wall, tMm: number): PlanNode | null {
   // w2), but still points at the pre-split arrays -- reclone so `w` and `w2`
   // hold two independent copies rather than one shared between them.
   if (w.buildUp) w.buildUp = cloneBuildUp(w.buildUp);
+  // A face with no stated runs covers the whole face on both halves too --
+  // nothing to do. One that states runs splits them the way an opening's `t`
+  // splits, at the SAME `tt` (both clones above still carry the pre-split
+  // wall's own coordinates, read against the pre-split length `L`).
+  if (w.buildUp) {
+    for (const side of ["left", "right"] as const) {
+      const wSide = w.buildUp[side];
+      if (!wSide || wSide.runs === undefined) continue;
+      const { keep, moved } = splitFaceRuns(wSide.runs, tt, L);
+      wSide.runs = keep;
+      const w2Side = w2.buildUp?.[side];
+      if (w2Side) w2Side.runs = moved;
+    }
+  }
   // A "grid" postLayout is set out from one end (Wall.postFrom). Whichever
   // half keeps THAT end as its own unmoved 'a' or 'b' needs no correction at
   // all -- w2 already carries it via the spread above, and stays right when
@@ -289,6 +323,16 @@ export function flipWall(f: Floor, w: Wall): void {
   // postLayout, a FaceFrame states no side-relative field (no postFrom/
   // postOffsetMm of its own -- a leaf's grid is set out from its own end).
   if (w.buildUp) {
+    // Runs mirror around the wall's own length regardless of which side they
+    // end up filed under -- t -> L - t, same as an opening or a profile
+    // point -- and normalizeFaceRuns() re-sorts the reversed list back to
+    // ascending order.
+    const mirrorRuns = (fu: NonNullable<Wall["buildUp"]>["left"]): void => {
+      if (!fu || fu.runs === undefined) return;
+      fu.runs = normalizeFaceRuns(fu.runs.map(r => ({ fromMm: L - r.toMm, toMm: L - r.fromMm })), L);
+    };
+    mirrorRuns(w.buildUp.left);
+    mirrorRuns(w.buildUp.right);
     const { left, right } = w.buildUp;
     const swapped: NonNullable<Wall["buildUp"]> = {};
     if (right !== undefined) swapped.left = right;

@@ -11,7 +11,7 @@
 import {
   Floor, Wall, Opening, Id, BoardKind, wallPostMm, wallPostWidthMm, wallFacadeMm, facadeSideOf,
   buildUpOf, buildUpMm, frameZoneOf, boardsStartMm, postLayoutOf, postFromOf, canonPostOffset,
-  skinMmOf,
+  skinMmOf, faceRunsOf, normalizeFaceRuns,
 } from "../model/doc";
 import {
   Vec, add, sub, scale, norm, perp, dist, v, angleOf, lineIntersect, mid,
@@ -381,6 +381,14 @@ export function resolveFloor(f: Floor): Resolved {
 
     const oa = outerCorners.get(w.id + ":a"), ob = outerCorners.get(w.id + ":b");
     const fm = wallFacadeMm(w);
+    // A face's board bands and frame zone are built over its own runs
+    // (FaceBuildUp.runs) intersected with the solid intervals, not the solid
+    // intervals alone -- see runIntervalsFor(). A face stating no runs gets
+    // `intervals` back unchanged.
+    const runIntervals = {
+      left: runIntervalsFor(w, "left", L, intervals),
+      right: runIntervalsFor(w, "right", L, intervals),
+    };
     walls.set(w.id, {
       wall: w, a: A, b: B, length: L,
       faces, finishFaces, clearLength: Math.min(faces.left, faces.right),
@@ -391,12 +399,12 @@ export function resolveFloor(f: Floor): Resolved {
         facadeSideOf(w), fm, w, A, B, L, half, flat, params, intervals, ca, cb, oa, ob,
       ),
       boards: [
-        boardBandsFor("left", w, A, B, L, half, flat, params, intervals, ca, cb, cornersAtDepth),
-        boardBandsFor("right", w, A, B, L, half, flat, params, intervals, ca, cb, cornersAtDepth),
+        boardBandsFor("left", w, A, B, L, half, flat, params, runIntervals.left, ca, cb, cornersAtDepth),
+        boardBandsFor("right", w, A, B, L, half, flat, params, runIntervals.right, ca, cb, cornersAtDepth),
       ],
       frame: [
-        frameBandFor("left", w, A, B, L, half, flat, params, intervals, ca, cb, cornersAtDepth),
-        frameBandFor("right", w, A, B, L, half, flat, params, intervals, ca, cb, cornersAtDepth),
+        frameBandFor("left", w, A, B, L, half, flat, params, runIntervals.left, ca, cb, cornersAtDepth),
+        frameBandFor("right", w, A, B, L, half, flat, params, runIntervals.right, ca, cb, cornersAtDepth),
       ],
       frameLine: {
         left: frameLineFor("left", w, ca, cb, cornersAtDepth),
@@ -532,6 +540,32 @@ function postsFor(
       ];
     }
     out.push(mark);
+  }
+  return out;
+}
+
+/**
+ * A face's solid intervals restricted to its own stated runs (see
+ * FaceBuildUp.runs) -- the intersection of the wall's solid body (between
+ * openings) with the stretches this face's build-up covers. A run is
+ * normalised against the wall's own length first (normalizeFaceRuns()), so a
+ * stale or overlapping stored value cannot produce overlapping bands here.
+ * Undefined runs (the whole face) return `intervals` unchanged -- a face
+ * stating no runs must build bit-identical bands to before this existed.
+ */
+function runIntervalsFor(
+  w: Wall, side: "left" | "right", L: number,
+  intervals: ReadonlyArray<{ from: number; to: number }>,
+): ReadonlyArray<{ from: number; to: number }> {
+  const runs = faceRunsOf(w, side);
+  if (!runs) return intervals;
+  const normalized = normalizeFaceRuns(runs, L);
+  const out: Array<{ from: number; to: number }> = [];
+  for (const iv of intervals) {
+    for (const r of normalized) {
+      const from = Math.max(iv.from, r.fromMm), to = Math.min(iv.to, r.toMm);
+      if (to > from + 0.5) out.push({ from, to });
+    }
   }
   return out;
 }

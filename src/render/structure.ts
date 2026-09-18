@@ -8,12 +8,14 @@
 // Colours arrive as arguments, as they do for a stair, so this module and
 // draw.ts need not import each other.
 import { Structural, Column, Beam, Railing } from "../model/structure";
+import type { BoardKind } from "../model/doc";
 import {
   columnBox, columnProfile, spanPlaced, spanBox, railingPosts, structureBox, structurePlaced,
-  structureLabelAt, STRUCTURE_LABEL_SIZE,
+  structureLabelAt, STRUCTURE_LABEL_SIZE, columnCasingPieces,
 } from "../core/structure";
 import { localPoint } from "../core/placed";
 import { withCtx } from "./symbols/defs";
+import type { ResolvedWall } from "../core/resolve";
 
 /** Grab margin around the element, mm — the symbols' and stairs' figure. */
 const FRAME = 30;
@@ -34,10 +36,55 @@ export interface StructurePaint {
   selected?: boolean;
   select?: string;
   wash?: string;
+  /**
+   * A column casing's own fills (Column.casing): the voorzetwand zone's
+   * paper colour and each board kind's, matching the way draw.ts's COLORS.bg
+   * and COLORS.board fill a wall's build-up bands. Absent draws no casing --
+   * drawStructure()'s caller supplies these rather than this module importing
+   * draw.ts's COLORS, the same arrangement the rest of this module's colours
+   * already follow (see the file banner).
+   */
+  casingFrame?: string;
+  casingBoards?: Record<BoardKind, string>;
 }
 
-export function drawStructure(ctx: CanvasRenderingContext2D, el: Structural, paint: StructurePaint): void {
+/**
+ * A column's casing, drawn in world space before the column's own cut
+ * section: paper-coloured (or a board's own colour) with a stroked outline,
+ * the way a wall's build-up bands are drawn. This is NOT part of the
+ * columnMark() replayed through recordSymbol() (see symbols/defs.ts's draw
+ * contract) -- a board's fill differs from the column's own poché fill, and
+ * the replay applies one ink/fill pair to everything columnMark() draws, so
+ * a second colour has no way to travel through that path. The SVG and DXF
+ * exports draw the same columnCasingPieces() in their own pass instead, the
+ * way they already draw a wall's own build-up bands outside the replay
+ * (io/svg.ts, io/dxf.ts).
+ */
+function drawColumnCasing(
+  ctx: CanvasRenderingContext2D, c: Column, ink: string, paint: StructurePaint, walls: readonly ResolvedWall[],
+): void {
+  if (paint.casingFrame === undefined || paint.casingBoards === undefined) return;
+  ctx.save();
+  ctx.lineWidth = paint.px;
+  ctx.strokeStyle = ink;
+  for (const piece of columnCasingPieces(c, walls)) {
+    ctx.beginPath();
+    piece.poly.forEach((pt, i) => (i === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y)));
+    ctx.closePath();
+    ctx.fillStyle = piece.kind === "frame" ? paint.casingFrame : paint.casingBoards[piece.kind];
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+export function drawStructure(
+  ctx: CanvasRenderingContext2D, el: Structural, paint: StructurePaint, walls: readonly ResolvedWall[] = [],
+): void {
   const p = structurePlaced(el), b = structureBox(el);
+
+  if (el.kind === "column" && el.casing) drawColumnCasing(ctx, el, paint.ink, paint, walls);
+
   ctx.save();
   ctx.translate(p.x, p.y);
   ctx.rotate(p.rotation);

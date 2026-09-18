@@ -33,6 +33,7 @@ import { videPrims } from "./vide";
 import { deckPrims } from "./deck";
 import { deckRaised } from "../core/deck";
 import { structurePrims } from "./structure";
+import { columnCasingPieces } from "../core/structure";
 import { furnishingPrims } from "./furnishing";
 import { furnishingClass, furnishingOverhead, type FurnishingClass } from "../model/furnishing";
 import { resolveStair } from "../core/stair";
@@ -391,6 +392,19 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
       for (const band of [...rw.frame[0], ...rw.frame[1]]) w.polyline(LAYER.frames, band.poly, true);
       for (const band of [...rw.boards[0], ...rw.boards[1]]) {
         for (const piece of band.pieces) w.polyline(LAYER.boards, piece.poly, true);
+      }
+    }
+    // A column's own casing (Column.casing) goes on the same FRAMES/BOARDS
+    // layers as a wall's own voorzetwand zone and build-up, above -- the
+    // trade that hangs them works from one layer regardless of what they
+    // are fixed to. core/structure.ts's columnCasingPieces() is wall-clipped
+    // the same way the takeoff's columnExposedPerimeterMm() is, so a face
+    // buried in a wall carries no casing piece here either.
+    const casingWallList = [...resolved.walls.values()];
+    for (const el of structureOf(floor)) {
+      if (el.kind !== "column" || !el.casing) continue;
+      for (const piece of columnCasingPieces(el, casingWallList)) {
+        w.polyline(piece.kind === "frame" ? LAYER.frames : LAYER.boards, piece.poly, true);
       }
     }
     // A voorzetwand's own studs, from the leaf floor's own resolve

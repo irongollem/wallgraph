@@ -6,7 +6,7 @@
 // carries through correctly.
 import {
   emptyDoc, newId, type Floor, type Wall, type Opening, type FaceFrame,
-  frameOf, buildUpMm,
+  frameOf, buildUpMm, faceRunsOf,
 } from "../src/model/doc";
 import { nodeAt, splitWall, flipWall } from "../src/model/ops";
 import { resolveFloor } from "../src/core/resolve";
@@ -399,6 +399,95 @@ function opening(over: Partial<Opening> & Pick<Opening, "kind" | "t" | "width">)
     JSON.stringify(leafResult));
   check("lintelCheck still proposes a section for the leaf, from the frame's own self-weight",
     leafResult.proposal !== null && leafResult.proposal !== undefined, JSON.stringify(leafResult.proposal));
+}
+
+// ---- partial runs: one leaf per run (#74) ---------------------------------
+//
+// A voorzetwand that stops either side of a column covers only part of its
+// face. A run's end that coincides with a host end is mitered as before; a
+// FREE end -- one that stops mid-face -- gets a square cap, which resolveFloor()
+// already gives any degree-1 wall end.
+
+/** A straight 6000 mm host, framed on its left face over `runs`. */
+function runHost(runs?: { fromMm: number; toMm: number }[], openings: Opening[] = []) {
+  const f = emptyDoc().floors[0]!;
+  const a = nodeAt(f, v(0, 0)).id, b = nodeAt(f, v(6000, 0)).id;
+  const w: Wall = {
+    id: "H", a, b, thickness: 100, bulge: 0, openings,
+    material: "steel",
+    buildUp: { left: { frame: frame(), boards: [{ kind: "gypsum", mm: 12 }], ...(runs ? { runs } : {}) } },
+  };
+  f.walls.push(w);
+  return { f, w };
+}
+
+{
+  const runs = [{ fromMm: 0, toMm: 2800 }, { fromMm: 3200, toMm: 6000 }];
+  const { f } = runHost(runs);
+  const leaf = leafFloor(f, resolveFloor(f));
+  check("a face stating two runs yields two leaves", leaf.floor.walls.length === 2,
+    String(leaf.floor.walls.length));
+  check("leavesOf() returns both, in run order", leaf.leavesOf("H", "left").length === 2);
+
+  // Half 50 + gap 20 + half the 50 depth = 95 mm off the centerline, which
+  // runs along y = 0; each run is 2800 mm long.
+  for (const [i, lw] of leaf.leavesOf("H", "left").entries()) {
+    const A = leaf.floor.nodes.find(n => n.id === lw.a)!;
+    const B = leaf.floor.nodes.find(n => n.id === lw.b)!;
+    check(`run ${i} stands 95 mm off the centerline`, near(A.y, 95) && near(B.y, 95),
+      `${A.y} / ${B.y}`);
+    check(`run ${i} is 2800 mm long`, near(dist(v(A.x, A.y), v(B.x, B.y)), 2800),
+      String(dist(v(A.x, A.y), v(B.x, B.y))));
+  }
+  const xs = leaf.leavesOf("H", "left").flatMap(lw => [
+    leaf.floor.nodes.find(n => n.id === lw.a)!.x,
+    leaf.floor.nodes.find(n => n.id === lw.b)!.x,
+  ]);
+  check("the runs start and stop where they say", xs.every((x, i) => near(x, [0, 2800, 3200, 6000][i]!)),
+    xs.join(" / "));
+
+  // Two free ends, one per run, each its own node: 4 ends, none clustered,
+  // since no two of them meet.
+  check("the two free ends are their own nodes", leaf.floor.nodes.length === 4,
+    String(leaf.floor.nodes.length));
+
+  // A face stating no runs is the whole face, unchanged.
+  const whole = leafFloor(runHost().f, resolveFloor(runHost().f));
+  check("a face stating no runs is still one leaf over the whole face",
+    whole.floor.walls.length === 1, String(whole.floor.walls.length));
+  const wa = whole.floor.nodes.find(n => n.id === whole.floor.walls[0]!.a)!;
+  const wb = whole.floor.nodes.find(n => n.id === whole.floor.walls[0]!.b)!;
+  check("and it spans the whole 6000", near(dist(v(wa.x, wa.y), v(wb.x, wb.y)), 6000),
+    String(dist(v(wa.x, wa.y), v(wb.x, wb.y))));
+}
+
+{
+  // An opening maps into the run that contains it and no other.
+  const runs = [{ fromMm: 0, toMm: 2800 }, { fromMm: 3200, toMm: 6000 }];
+  const near0 = opening({ kind: "door", t: 1000, width: 900 });
+  const near1 = opening({ kind: "door", t: 4500, width: 900 });
+  const { f } = runHost(runs, [near0, near1]);
+  const leaf = leafFloor(f, resolveFloor(f));
+  const [l0, l1] = leaf.leavesOf("H", "left");
+  check("the first run carries only the opening inside it",
+    l0!.openings.length === 1 && near(l0!.openings[0]!.t, 1000),
+    JSON.stringify(l0!.openings.map(o => o.t)));
+  check("the second run carries only its own, rebased to its own start",
+    l1!.openings.length === 1 && near(l1!.openings[0]!.t, 4500 - 3200),
+    JSON.stringify(l1!.openings.map(o => o.t)));
+}
+
+{
+  // Flip mirrors the runs: t -> L - t, kept ascending. Asymmetric on purpose
+  // -- the mirror of a fixture symmetric about its own midpoint is itself,
+  // which would pass whatever the code did.
+  const runs = [{ fromMm: 500, toMm: 2000 }, { fromMm: 3200, toMm: 5000 }];
+  const { f, w } = runHost(runs);
+  flipWall(f, w);
+  const after = faceRunsOf(w, "right") ?? faceRunsOf(w, "left");
+  check("a flip mirrors the runs and keeps them ascending",
+    JSON.stringify(after) === JSON.stringify([{ fromMm: 1000, toMm: 2800 }, { fromMm: 4000, toMm: 5500 }]),
+    JSON.stringify(after));
 }
 
 console.log(failures === 0 ? "ok" : `FAIL (${failures} failures)`);

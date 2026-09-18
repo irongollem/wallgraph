@@ -203,6 +203,12 @@ export interface FaceFrame {
 }
 
 /**
+ * One stretch of a face's build-up, positioned like an opening: `fromMm`/
+ * `toMm` are mm from node `a` along the host centerline.
+ */
+export interface FaceRun { fromMm: number; toMm: number }
+
+/**
  * A wall face's build-up: an optional voorzetwand (`frame`), standing off
  * the structural face, and a stack of boards on top of it -- or directly on
  * the face where there is no frame -- ordered from the wall outward into the
@@ -210,17 +216,36 @@ export interface FaceFrame {
  * nothing hung on it yet is a legitimate state. A face with neither a frame
  * nor boards is not stored at all (see setFaceBuildUp()).
  */
-export interface FaceBuildUp { frame?: FaceFrame; boards: Board[] }
+export interface FaceBuildUp {
+  frame?: FaceFrame;
+  boards: Board[];
+  /**
+   * The stretches of the face this build-up covers, `t` in mm from node `a`
+   * along the host centerline the way an opening's `t` is, so splitting,
+   * flipping and merging the host carry them as they carry openings. Absent
+   * means the whole face -- a voorzetwand that stops either side of a column
+   * it is casing separately, or a finish that simply is not full length,
+   * states this; an ordinary full-length build-up does not. Overlapping or
+   * out-of-order runs are the caller's to normalise -- see
+   * normalizeFaceRuns(), the one place that is done.
+   */
+  runs?: FaceRun[];
+}
 
 /**
  * A deep copy of one face's build-up: a fresh frame object where present,
- * and fresh Board objects in a fresh array -- so two walls that carry "the
- * same" build-up never share an object one can edit without moving the
- * other. The one place this copy is made; ops.ts's splitWall() and
- * input/tools.ts's armWalls() both call it rather than repeating the shape.
+ * fresh Board objects in a fresh array, and a fresh runs array where present
+ * -- so two walls that carry "the same" build-up never share an object one
+ * can edit without moving the other. The one place this copy is made;
+ * ops.ts's splitWall() and input/tools.ts's armWalls() both call it rather
+ * than repeating the shape.
  */
 export function cloneFaceBuildUp(fu: FaceBuildUp): FaceBuildUp {
-  return { ...(fu.frame ? { frame: { ...fu.frame } } : {}), boards: fu.boards.map(b => ({ ...b })) };
+  return {
+    ...(fu.frame ? { frame: { ...fu.frame } } : {}),
+    boards: fu.boards.map(b => ({ ...b })),
+    ...(fu.runs ? { runs: fu.runs.map(r => ({ ...r })) } : {}),
+  };
 }
 
 export interface Wall {
@@ -558,6 +583,43 @@ export function frameOf(w: Wall, side: "left" | "right"): FaceFrame | undefined 
 }
 
 /**
+ * The stretches of one face's build-up, or undefined meaning the whole face
+ * -- see FaceBuildUp.runs. Not normalised: a stored document may carry runs
+ * out of order or past the wall's current length (the wall may have been
+ * shortened since), so a reader that cares about the canonical form passes
+ * this through normalizeFaceRuns() itself.
+ */
+export function faceRunsOf(w: Wall, side: "left" | "right"): FaceRun[] | undefined {
+  return buildUpOf(w, side)?.runs;
+}
+
+/**
+ * The canonical form of a face's runs against a host `lengthMm`: rounded to
+ * integer mm (invariant 1), clamped into `[0, lengthMm]`, sorted, touching or
+ * overlapping runs merged into one, and an empty or inverted run dropped.
+ * The one place this is done -- ops.ts's splitWall()/flipWall() and
+ * core/join.ts's merge all read this rather than each normalising its own
+ * way, so a document with runs authored out of order, or past the wall's
+ * current length, reads the same everywhere.
+ */
+export function normalizeFaceRuns(runs: readonly FaceRun[], lengthMm: number): FaceRun[] {
+  const clamped = runs
+    .map(r => ({
+      fromMm: Math.max(0, Math.min(lengthMm, Math.round(r.fromMm))),
+      toMm: Math.max(0, Math.min(lengthMm, Math.round(r.toMm))),
+    }))
+    .filter(r => r.toMm > r.fromMm)
+    .sort((a, b) => a.fromMm - b.fromMm);
+  const out: FaceRun[] = [];
+  for (const r of clamped) {
+    const last = out[out.length - 1];
+    if (last && r.fromMm <= last.toMm) last.toMm = Math.max(last.toMm, r.toMm);
+    else out.push({ ...r });
+  }
+  return out;
+}
+
+/**
  * The frame zone's depths from the structural face, mm: `from` is `gapMm`,
  * `to` is `gapMm + depthMm`. Undefined where that face carries no frame.
  */
@@ -706,6 +768,10 @@ export function framePresetOf(fu: FaceBuildUp): string {
  * itself when `fu` is undefined or carries neither boards nor a frame, and
  * `Wall.buildUp` entirely once neither face is left. For use inside
  * store.mutate() by the UI, the way clampOpening() and its neighbours are.
+ *
+ * `runs` plays no part in this rule: a face stating runs but no boards and no
+ * frame carries nothing to run along, so it is deleted the same as one
+ * stating no runs at all.
  */
 export function setFaceBuildUp(w: Wall, side: "left" | "right", fu: FaceBuildUp | undefined): void {
   const empty = !fu || (fu.boards.length === 0 && !fu.frame);
