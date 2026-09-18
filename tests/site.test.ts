@@ -9,7 +9,7 @@ import { FURNISHING_PRESETS } from "../src/model/furnishing";
 import { WINDOW_KINDS, DOOR_KINDS, type Opening, type PlanDoc } from "../src/model/doc";
 import { resources, changeLanguage } from "../src/i18n";
 import { DOC_PATHS, DOC_IDS as LINK_IDS, docHref, SITE_ORIGIN } from "../src/links";
-import { ogSvg } from "../scripts/render-og";
+import { ogSvg, renderedStamp } from "../scripts/render-og";
 
 let fail = 0;
 const ck = (n: string, c: boolean, d = "") => { if (!c) { fail++; console.error("FAIL " + n + " " + d); } else console.log("ok   " + n); };
@@ -23,6 +23,37 @@ ck("social card uses the current symbol count", socialCard.includes(`${SYMBOL_TY
 ck("social card uses the current opening count",
   socialCard.includes(`${WINDOW_KINDS.length + DOOR_KINDS.length} deur- en raamtypen`));
 ck("social card has no unresolved count", !socialCard.includes("{{"));
+
+// The card ships as a committed raster; the stamp says what it was rendered from.
+const stamp = renderedStamp();
+ck("social card raster is rendered from the current registries",
+  stamp.symbols === SYMBOL_TYPES.length
+    && stamp.openingTypes === WINDOW_KINDS.length + DOOR_KINDS.length,
+  `assets/og.png states ${stamp.symbols} symbols and ${stamp.openingTypes} opening types; `
+    + "run npm run assets:og");
+
+/* A door mark is the leaf from its hinge plus a swing of the leaf's own radius
+   ABOUT THAT HINGE. Both candidate centres yield the same endpoints, so the
+   sweep flag alone decides whether the arc bows away from the hinge or back
+   into it, the second being the mark drawn backwards. */
+const swings = [...socialCard.matchAll(
+  /<path d="M(\d+) (\d+)[HV](\d+)"\/>\s*<path d="M(\d+) (\d+)a(\d+) \d+ 0 0 ([01]) (-?\d+) ?(-?\d+)"\/>/g)];
+ck("social card draws both door swings", swings.length === 2, `found ${swings.length}`);
+for (const [i, m] of swings.entries()) {
+  const at = (g: number): number => Number(m[g]);
+  const [hx, hy] = [at(1), at(2)];                       // hinge: where the leaf starts
+  const [x1, y1, r, sweep] = [at(4), at(5), at(6), at(7)];  // open leaf tip, and the arc from it
+  const [x2, y2] = [x1 + at(8), y1 + at(9)];             // far jamb: the closed leaf
+  // SVG endpoint -> centre parameterisation, for rx = ry and the small arc.
+  const [px, py] = [(x1 - x2) / 2, (y1 - y2) / 2];
+  const k = Math.sqrt(Math.max((r * r) / (px * px + py * py) - 1, 0)) * (sweep === 1 ? 1 : -1);
+  const [cx, cy] = [(x1 + x2) / 2 + k * py, (y1 + y2) / 2 - k * px];
+  ck(`social card door ${i + 1} swings about its hinge`,
+    Math.abs(cx - hx) < 0.5 && Math.abs(cy - hy) < 0.5,
+    `arc is centred on (${cx}, ${cy}), hinge is (${hx}, ${hy})`);
+  ck(`social card door ${i + 1} swings at the leaf's own length`,
+    Math.abs(Math.hypot(x1 - hx, y1 - hy) - r) < 0.5);
+}
 
 /* ── schema ── */
 
