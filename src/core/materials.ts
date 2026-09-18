@@ -8,7 +8,7 @@
 // gets built, only what the drawn construction implies.
 import type { Floor, Id, PlanDoc, Wall, BoardKind } from "../model/doc";
 import {
-  isBlockMaterial, isFramedMaterial, buildUpOf, frameOf, BOARD_KINDS, wallPostMm, decksOf,
+  isBlockMaterial, isFramedMaterial, frameOf, BOARD_KINDS, wallPostMm, decksOf,
 } from "../model/doc";
 import { wallTopRange } from "../model/profile";
 import { type Deck, bearingOf } from "../model/deck";
@@ -227,10 +227,12 @@ function wallTakeoffOf(
 
   let blocks = 0, blockMm2 = 0;
   if (system === "block") {
-    // One face's net area -- the smaller of the two, the same conservative
-    // choice ResolvedWall.clearLength makes, since the two faces can differ
-    // when the rooms either side carry different ceiling heights.
-    const faceArea = wsurf ? Math.min(wsurf.faces[0].netMm2, wsurf.faces[1].netMm2) : 0;
+    // One face's STRUCTURAL net area -- the smaller of the two, the same
+    // conservative choice ResolvedWall.clearLength makes, since the two faces
+    // can differ when the rooms either side carry different ceiling heights.
+    // The block body is the structural face itself; #71's finish face is
+    // where a build-up stands in front of it.
+    const faceArea = wsurf ? Math.min(wsurf.faces[0].structuralNetMm2, wsurf.faces[1].structuralNetMm2) : 0;
     blockMm2 = faceArea;
     if (w.blockMm && w.blockMm.length > 0 && w.blockMm.height > 0) {
       // core/frame.ts's own courses, not a second area-based estimate: a
@@ -251,46 +253,49 @@ function wallTakeoffOf(
     else incomplete.push("panel");
   }
 
-  // One entry per kind present on either face: a board's own area is the
-  // FACE's net area it stands on (see floorSurface()), regardless of the
-  // board's own thickness, so a kind stacked twice on one face -- or once on
-  // each -- counts twice. #71 moves this to each board's own face; today
-  // every board on a face shares that face's one structural-face figure.
+  // One entry per kind present on either face, each board's own area read
+  // off its own mitered inner edge (BoardBand.innerLengthMm, resolve.ts) --
+  // the face it is actually fixed to -- rather than every board on a face
+  // sharing that face's one net-area figure. The face's finish net area and
+  // finish length (netMm2 / lengthMm, both already accounting for openings
+  // and, on a framed face, the leaf's own geometry) supply the height/opening
+  // component; scaling it by innerLengthMm / lengthMm reads it at each
+  // board's own true length instead, so a board that miters longer than the
+  // face average is never ordered short.
   //
   // A face that carries a frame (frameOf() set) is hung on the LEAF, not on
   // the host's own structural face -- the boards stand on the studs, at a
-  // stand-off in front of the wall they are drawn against. An unframed face
-  // is unchanged (#71 is what refines the finish face for those).
+  // stand-off in front of the wall they are drawn against; resolve.ts's own
+  // board bands (rw.boards) already measure each board at the correct depth
+  // either way, so the same scaling applies unchanged to a framed face.
   const boardAreas = new Map<BoardKind, number>();
   let boardsIncomplete = false;
   for (const side of ["left", "right"] as const) {
-    const fu = buildUpOf(w, side);
-    if (!fu) continue;
-    let area: number | undefined;
-    if (frameOf(w, side)) {
-      const leafSurf = opts.leafSurfaceOf?.(w.id, side);
-      // Room face = same side letter as the host frame side, see the
-      // function comment above.
-      area = leafSurf?.faces[side === "left" ? 0 : 1].netMm2;
-    } else {
-      area = wsurf?.faces[side === "left" ? 0 : 1].netMm2;
+    const bands = rw.boards[side === "left" ? 0 : 1];
+    if (bands.length === 0) continue;
+    const faceSurf = frameOf(w, side)
+      ? opts.leafSurfaceOf?.(w.id, side)?.faces[side === "left" ? 0 : 1] // room face, see comment above
+      : wsurf?.faces[side === "left" ? 0 : 1];
+    if (!faceSurf || faceSurf.lengthMm <= 0) { boardsIncomplete = true; continue; }
+    for (const band of bands) {
+      const area = faceSurf.netMm2 * (band.innerLengthMm / faceSurf.lengthMm);
+      boardAreas.set(band.kind, (boardAreas.get(band.kind) ?? 0) + area);
     }
-    if (area === undefined) { boardsIncomplete = true; continue; }
-    for (const b of fu.boards) boardAreas.set(b.kind, (boardAreas.get(b.kind) ?? 0) + area);
   }
   if (boardsIncomplete) incomplete.push("boards");
   const boards = BOARD_KINDS
     .filter(kind => boardAreas.has(kind))
     .map(kind => ({ kind, areaMm2: boardAreas.get(kind)! }));
 
-  // The cavity's own area: one face's net area. A host wall reads the
-  // smaller of the two, the same conservative choice the block body makes --
-  // see above. A leaf's two faces are not two room faces (one looks into the
-  // room, the other at the stand-off against the host), so a leaf reads its
-  // own room face instead -- see the function comment above.
+  // The cavity's own area: one face's STRUCTURAL net area, the cavity being
+  // structural itself (see #71's block-body comment above). A host wall reads
+  // the smaller of the two, the same conservative choice the block body makes.
+  // A leaf's two faces are not two room faces (one looks into the room, the
+  // other at the stand-off against the host), so a leaf reads its own room
+  // face instead -- see the function comment above.
   const insulationMm2 = !w.insulated || !wsurf ? 0
-    : opts.leaf ? wsurf.faces[opts.leaf.host.side === "left" ? 0 : 1].netMm2
-    : Math.min(wsurf.faces[0].netMm2, wsurf.faces[1].netMm2);
+    : opts.leaf ? wsurf.faces[opts.leaf.host.side === "left" ? 0 : 1].structuralNetMm2
+    : Math.min(wsurf.faces[0].structuralNetMm2, wsurf.faces[1].structuralNetMm2);
 
   return {
     wallId: w.id, ...(opts.leaf ? { host: opts.leaf.host } : {}),

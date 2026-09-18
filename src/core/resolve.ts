@@ -66,6 +66,16 @@ export interface ResolvedWall {
    */
   faces: { left: number; right: number };
   /**
+   * The mitered face length at each face's OUTERMOST stated depth -- the
+   * finish face, where the last board of a build-up actually stands. Equal to
+   * `faces` on a face that states no build-up (buildUpMm() = 0), since that
+   * is the structural pass itself. Built the same way `faces` is -- the
+   * continuous offset polyline ignoring openings, mitered at whichever corner
+   * pass already solved that exact depth (see cornersAtDepth below) -- not by
+   * re-extracting an edge out of a board's own closed polygon.
+   */
+  finishFaces: { left: number; right: number };
+  /**
    * Clear span (dagmaat): the shorter face. For a wall bounding a room this is
    * the inner face — the number an interior dimension on a plan refers to —
    * while `length` is measured axis-to-axis.
@@ -125,7 +135,15 @@ export interface ResolvedWall {
 /** One board of a face's build-up, resolved: its own kind and thickness
  *  (see Wall.buildUp) and the polygons it draws as, split by the same
  *  openings `pieces` is. */
-export interface BoardBand { kind: BoardKind; mm: number; pieces: SolidPiece[] }
+export interface BoardBand {
+  kind: BoardKind; mm: number; pieces: SolidPiece[];
+  /**
+   * The mitered length of this board's INNER edge: the face it is fixed to,
+   * and so the length it is ordered against. Read off the same corner pass
+   * its inner boundary is already built from (see boardBandsFor()).
+   */
+  innerLengthMm: number;
+}
 
 export interface Resolved {
   walls: Map<Id, ResolvedWall>;
@@ -310,6 +328,18 @@ export function resolveFloor(f: Floor): Resolved {
 
     const outline: Vec[] = [...leftSide, ...rightSide.slice().reverse()];
     const faces = { left: polylineLength(leftSide), right: polylineLength(rightSide) };
+    // The finish face: the structural pass itself (faces) where the face
+    // states no build-up, otherwise the same construction re-run at that
+    // face's own full skin depth, mitered at the corner pass already solved
+    // for it (cornersAtDepth, built below before this loop runs).
+    const finishFaceFor = (side: "left" | "right"): number => {
+      const depth = buildUpMm(w, side);
+      if (depth <= 0) return faces[side];
+      const at = cornersAt(w, ca, cb, cornersAtDepth, depth);
+      if (!at.a || !at.b) return faces[side];
+      return faceLengthAt(side, depth, flat, params, w, A, B, half, at.a, at.b);
+    };
+    const finishFaces = { left: finishFaceFor("left"), right: finishFaceFor("right") };
 
     // Opening geometry + solid intervals.
     const sorted = [...w.openings].sort((o1, o2) => o1.t - o2.t);
@@ -352,7 +382,7 @@ export function resolveFloor(f: Floor): Resolved {
     const fm = wallFacadeMm(w);
     walls.set(w.id, {
       wall: w, a: A, b: B, length: L,
-      faces, clearLength: Math.min(faces.left, faces.right),
+      faces, finishFaces, clearLength: Math.min(faces.left, faces.right),
       pieces, outline, openings: ogs,
       posts: postsFor(w, A, B, L, half, intervals),
       intervals,
@@ -622,7 +652,8 @@ function boardBandsFor(
     const pieces = skinBandFor(
       side, prevMm, mm, w, A, B, L, half, flat, params, intervals, inner.a!, inner.b!, outer.a!, outer.b!,
     );
-    out.push({ kind: board.kind, mm: board.mm, pieces });
+    const innerLengthMm = faceLengthAt(side, prevMm, flat, params, w, A, B, half, inner.a!, inner.b!);
+    out.push({ kind: board.kind, mm: board.mm, pieces, innerLengthMm });
     prevMm = mm;
   }
   return out;
@@ -681,6 +712,26 @@ function frameLineFor(
     a: mid(faceCorner(inner.a, side, "a"), faceCorner(outer.a, side, "a")),
     b: mid(faceCorner(inner.b, side, "b"), faceCorner(outer.b, side, "b")),
   };
+}
+
+/**
+ * The mitered length of one face's offset polyline at `depthMm` past the
+ * structural face (0 = the structural face itself) -- the same construction
+ * `faces` is built from in resolveFloor(), generalised to any depth, for any
+ * corner pass that already solved that depth (see cornersAt()). Shared by
+ * `finishFaces` and `BoardBand.innerLengthMm`, so a finish face and a board's
+ * own inner edge are measured by the identical miter rule the structural
+ * face already is.
+ */
+function faceLengthAt(
+  side: "left" | "right", depthMm: number,
+  flat: Vec[], params: number[], w: Wall, A: Vec, B: Vec, half: number,
+  cornersA: WallEndCorners, cornersB: WallEndCorners,
+): number {
+  const sgn = side === "left" ? 1 : -1;
+  const start = side === "left" ? cornersA.left : cornersA.right;
+  const end = side === "left" ? cornersB.right : cornersB.left;
+  return polylineLength(offsetSide(flat, params, w, A, B, sgn * (half + depthMm), start, end));
 }
 
 function polylineLength(pts: Vec[]): number {

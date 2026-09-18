@@ -783,8 +783,8 @@ function leafFrame(over: Partial<FaceFrame> = {}): FaceFrame {
   check("the board area is measured on the leaf's own room face",
     near(gypsum.areaMm2, roomFace, 1), `${gypsum.areaMm2} vs ${roomFace}`);
   check("the board area is NOT the host's own structural face area",
-    !near(gypsum.areaMm2, hostWsurf.faces[1].netMm2, 1),
-    `${gypsum.areaMm2} vs ${hostWsurf.faces[1].netMm2}`);
+    !near(gypsum.areaMm2, hostWsurf.faces[1].structuralNetMm2, 1),
+    `${gypsum.areaMm2} vs ${hostWsurf.faces[1].structuralNetMm2}`);
 }
 
 // ---- a frame with no postMm reports rather than vanishing ------------------

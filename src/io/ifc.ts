@@ -1179,17 +1179,20 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
         ref(w.entity("IFCQUANTITYLENGTH", [str("Height"), UNSET, UNSET, real(heightMm), UNSET])),
         ref(w.entity("IFCQUANTITYVOLUME", [str("GrossVolume"), UNSET, UNSET, real(grossVolumeM3), UNSET])),
       ];
-      // GrossSideArea/NetSideArea: the same per-face figures the surface
-      // takeoff (core/surface.ts's floorSurface()) reports, read off ONE face
-      // -- this element is one IFCWALL, not two, so it states one side's area
-      // rather than the two faces' (differently mitered) figures, or their
-      // sum, either of which a reader would have no honest way to interpret
-      // back into a single wall's own gross/net.
+      // GrossSideArea/NetSideArea: the STRUCTURAL per-face figures the
+      // surface takeoff (core/surface.ts's floorSurface()) reports, read off
+      // ONE face -- this element is one IFCWALL, not two, so it states one
+      // side's area rather than the two faces' (differently mitered) figures,
+      // or their sum, either of which a reader would have no honest way to
+      // interpret back into a single wall's own gross/net. The structural
+      // figures, not #71's finish ones: this IFCWALL is the structural body,
+      // and a board stack or a voorzetwand in front of it is not this
+      // element's own side area.
       const wallFace = surface.walls.find(s => s.wallId === wall.id)?.faces[0];
       if (wallFace) {
         wallQuantities.push(
-          ref(w.entity("IFCQUANTITYAREA", [str("GrossSideArea"), UNSET, UNSET, real(wallFace.grossMm2 / 1e6), UNSET])),
-          ref(w.entity("IFCQUANTITYAREA", [str("NetSideArea"), UNSET, UNSET, real(wallFace.netMm2 / 1e6), UNSET])),
+          ref(w.entity("IFCQUANTITYAREA", [str("GrossSideArea"), UNSET, UNSET, real(wallFace.structuralGrossMm2 / 1e6), UNSET])),
+          ref(w.entity("IFCQUANTITYAREA", [str("NetSideArea"), UNSET, UNSET, real(wallFace.structuralNetMm2 / 1e6), UNSET])),
         );
       }
       attachQuantitySet(wallEntity, `${wall.id}:qto`, "Qto_WallBaseQuantities", wallQuantities);

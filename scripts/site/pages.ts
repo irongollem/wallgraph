@@ -308,12 +308,12 @@ toe geordend, op de kant die geen gevel draagt. Net als de gevelbekleding tekent
 buiten het constructieve muurlichaam, met één band per plaat zodat de stapel op ware dikte leesbaar is,
 en bij oppervlaktemaat <b>netto</b> wordt de ruimtegrens gemeten tot de buitenste plaat, niet tot de
 constructie. Twee naastliggende platenopbouwen versnijden plaat op plaat in een hoek, zoals de
-gevelbekleding dat doet. Het wandoppervlak (stucwerk, verf, behang) blijft hoe dan ook gemeten over het
-constructieve vlak; het paneel meldt dat apart waar een wandzijde een platenopbouw draagt. Voor
-een blokopbouw (cellenbeton, kalkzandsteen) is het blokformaat vast te leggen; op een spant het aantal
-rijen klossen en of de spouw is geïsoleerd; op een sandwichwand de paneelbreedte. Blokformaat, klossen,
-isolatie en paneelbreedte veranderen niets aan de tekening — ze worden vastgelegd voor de
-materiaalstaat.</p>
+gevelbekleding dat doet. Het wandoppervlak (stucwerk, verf, behang) wordt gemeten tot de buitenste plaat
+van de opbouw, niet tot de constructie erachter; het paneel meldt dat apart waar een wandzijde een
+platenopbouw draagt. Voor een blokopbouw (cellenbeton, kalkzandsteen) is het blokformaat vast te
+leggen; op een spant het aantal rijen klossen en of de spouw is geïsoleerd; op een sandwichwand de
+paneelbreedte. Blokformaat, klossen, isolatie en paneelbreedte veranderen niets aan de tekening — ze
+worden vastgelegd voor de materiaalstaat.</p>
 
 <p>Op zo'n wandzijde is ook een <b>voorzetwand</b> te zetten: stijlen op een tussenruimte vóór het
 constructieve vlak, die de platen van die zijde dragen. Vastgelegd worden de tussenruimte, de
@@ -347,8 +347,9 @@ maat hier wordt dit gemeld en niet gecontroleerd.</p>
 neggen en een bovendorpel. Géén onderdorpel — onder een deur ligt de vloer en onder een raam komt een
 vensterbank in plaats van stucwerk. Eén dag wordt door de twee zijden gedeeld, elk de helft, en dat is
 geen benadering die goedgepraat moet worden: bij een raam in de gevel is de binnendag stucwerk en de
-buitendag gevelwerk, en de verdeling zet beide waar ze horen. Gemeten wordt over de constructieve dikte;
-gevelbekleding maakt de dag dieper, maar dat is gevelwerk. Zit er een verlaagd plafond onder de
+buitendag gevelwerk, en de verdeling zet beide waar ze horen. Elke zijde telt haar eigen helft van de
+constructieve dikte plus haar eigen opbouw, dus een dag door een voorzetwand is dieper — nog steeds
+één dag, niet twee. Gevelbekleding maakt de dag ook dieper, maar dat is gevelwerk en telt niet mee. Zit er een verlaagd plafond onder de
 bovendorpel, dan telt die dorpel niet mee en stoppen de neggen bij het plafond.</p>
 <p>De hoogte wordt <em>per vlak</em> genomen, want de twee zijden van één muur staan in twee ruimtes.
 Zonder verlaagd plafond is dat vloer tot vloer; met een verlaagd plafond wordt elk vlak gemeten tot het
@@ -864,11 +865,12 @@ wall outward into the room, on the side that carries no facade. Like the claddin
 band outside the structural body, one band per board so the stack reads at its true thickness, and
 under the <b>net</b> area mode the room boundary is measured to the outermost board rather than to the
 structure. Two neighbouring build-ups miter board line against board line, the way the cladding miters
-at a corner. Wall surface (stucco, paint, wallpaper) stays measured over the structural face regardless;
-the pane notes this separately wherever a face carries a build-up. On a block-built body (aerated
-concrete, calcium silicate) the block format can be stated; on a frame the number of nogging rows and
-whether the cavity is insulated; on a sandwich wall the panel width. None of the block format, nogging
-rows, insulation or panel width change the drawing — they are recorded for the materials takeoff.</p>
+at a corner. Wall surface (stucco, paint, wallpaper) is measured to the outermost board of the build-up,
+not to the structure behind it; the pane notes this separately wherever a face carries a build-up. On a
+block-built body (aerated concrete, calcium silicate) the block format can be stated; on a frame the
+number of nogging rows and whether the cavity is insulated; on a sandwich wall the panel width. None of
+the block format, nogging rows, insulation or panel width change the drawing — they are recorded for the
+materials takeoff.</p>
 
 <p>That same face can also carry a <b>lining wall</b>: studs standing at a stand-off in front of the
 structural face, carrying that face's boards. What is recorded is the stand-off, the stud depth,
@@ -900,8 +902,9 @@ then say which side is outside. Like every figure here, this is reported and not
 and a head. No sill — under a door that is the floor, and under a window it takes a window board rather
 than plaster. One reveal is shared by the two sides, half each, and that is not an approximation to
 apologise for: on a window in the facade the inner reveal is plasterwork and the outer one is facade
-detail, and the split puts each where it belongs. It is measured over the structural thickness;
-cladding makes the reveal deeper, but that is facade work. Where a suspended ceiling sits below the
+detail, and the split puts each where it belongs. Each side counts its own half of the structural
+thickness plus its own build-up, so a reveal through a lining wall is deeper — still one reveal, not
+two. Cladding makes a reveal deeper as well, but that is facade work and is left out. Where a suspended ceiling sits below the
 head, the head does not count and the jambs stop at the ceiling.</p>
 <p>The height is taken <em>per face</em>, because the two sides of one wall stand in two rooms. With no
 suspended ceiling that is floor to floor; with one, each face is measured to the ceiling of the room it

@@ -8,40 +8,52 @@
 //
 // What the figures are measured over:
 //
-//   length   the MITERED face length from resolveFloor(), not the centerline.
-//            A wall running between two thicker walls has an inner face shorter
-//            than its axis and an outer face longer, and it is the face that
-//            gets plastered.
+//   length   the MITERED length of the FINISH face from resolveFloor()'s
+//            `finishFaces` -- where a board stack or a voorzetwand stands off
+//            the structural body, the finish that a stucadoor or schilder
+//            prices is on the outermost board, not on the structural face
+//            underneath. Equal to the structural `faces` length on a face
+//            that states no build-up. `structuralLengthMm` carries the
+//            structural figure alongside it, for the block takeoff, the
+//            cavity and IFC's wall quantities.
 //   height   PER FACE, because the two faces of one wall stand in two different
 //            rooms and each is finished to its own room's ceiling. A room with
-//            a suspended ceiling is finished to it; otherwise the wall's own
-//            top, floor to top, applies. Nothing here knows about a floor
-//            build-up.
+//            a suspended ceiling is finished to it; a voorzetwand's own
+//            `FaceFrame.heightMm` flat cap finishes it lower still, where one
+//            is stated; otherwise the wall's own top, floor to top, applies.
 //   top      a wall's own top may be a profile rather than one flat height
 //            (model/profile.ts) -- a gable end, a lean-to. grossMm2 is the
 //            area under that top, mapped from the centerline [0, L] onto the
 //            face's own MITERED length proportionally: the profile is stated
 //            once per wall, not once per face, so the face's area is the
-//            centerline area scaled by faceLength / L. A ceiling still caps a
-//            face, now pointwise along the top rather than as one flat
-//            height. Flat where the wall states no profile, and bit-identical
-//            to a plain length x height in that case.
+//            centerline area scaled by faceLength / L. A ceiling or a
+//            voorzetwand cap still caps a face, now pointwise along the top
+//            rather than as one flat height. Flat where the wall states no
+//            profile and no frame cap, and bit-identical to a plain
+//            length x height in that case.
 //   openings each opening is deducted at its stated size (width x height,
 //            clamped to the top over its own width) from BOTH faces, which is
 //            what a kozijn schedule states. An opening whose head pokes above
 //            the wall's own top anywhere across its width is listed in
 //            `WallSurface.openingsAbove` and deducted only up to the top.
-//   reveals  the dagkanten: the surface of the hole itself, through the wall's
-//            thickness. Two jambs and a head, never a sill -- under a door the
-//            sill is the floor, and under a window it takes a vensterbank
-//            rather than plaster. Reported as its own figure and added to
-//            `finishMm2`, never folded into `netMm2`, so a quantity that
-//            excludes it stays readable beside one that includes it.
+//            Unaffected by a face's own build-up depth or frame cap -- the
+//            same cut this reported before #71.
+//   reveals  the dagkanten: the surface of the hole itself. A reveal is ONE
+//            surface through the wall and the build-up on top of it, and each
+//            face finishes its own half PLUS its own build-up depth -- gap +
+//            frame + boards (see buildUpMm()) -- rather than half the
+//            structural thickness alone. Two jambs and a head, never a sill
+//            -- under a door the sill is the floor, and under a window it
+//            takes a vensterbank rather than plaster. Reported as its own
+//            figure and added to `finishMm2`, never folded into `netMm2`, so
+//            a quantity that excludes it stays readable beside one that
+//            includes it.
 //
 // Reported, never enforced, like every other figure in this product. Nothing
 // here decides what is finished; it states what area the walls present.
 import {
   Floor, Wall, Opening, Id, wallFacadeMm, facadeSideOf, openingSill, openingHeight,
+  buildUpOf, buildUpMm, frameOf,
 } from "../model/doc";
 import { wallLength } from "../model/ops";
 import { wallTopAt, wallTopPolyline, wallTopRange } from "../model/profile";
@@ -67,8 +79,11 @@ export interface WallFaceSurface {
   openingsMm2: number;
   netMm2: number;
   /**
-   * Half the reveal of this face's openings -- see openingOn(). A reveal is one
-   * surface through the wall, and the two sides finish half of it each.
+   * This face's own share of the reveal of its openings -- see openingOn().
+   * A reveal is one surface through the wall and its build-up, and each face
+   * finishes half the structural thickness plus its own build-up depth
+   * (gap + frame + boards); the two sides sum to the same total a plain wall
+   * with no build-up always reported.
    */
   revealsMm2: number;
   /** `netMm2` plus `revealsMm2`: everything this face costs to finish. */
@@ -85,6 +100,19 @@ export interface WallFaceSurface {
   /** That room's name, where it has one. Carried here so a caller naming the
    *  face does not have to walk the room list for a word it already knows. */
   roomName?: string;
+  /**
+   * What stands in front of this face, absent where the structure is itself
+   * the finish: a board stack laid on it, or a voorzetwand standing off it.
+   */
+  coveredBy: "boards" | "frame" | null;
+  /**
+   * The face behind the build-up. Equal to the finish figures above where
+   * nothing covers it. Read by anything that wants the structural body: the
+   * block takeoff, the cavity, IFC's wall quantities.
+   */
+  structuralLengthMm: number;
+  structuralGrossMm2: number;
+  structuralNetMm2: number;
 }
 
 export interface WallSurface {
@@ -179,21 +207,27 @@ export interface FloorSurface {
  * openingCutArea(), which integrates rather than reading one worst-case
  * height for the whole width.
  *
- * `thicknessMm` is the STRUCTURAL body. A clad wall's reveal is deeper by its
- * facade, but that depth is an exterior detail rather than plasterwork, and
- * this figure is read by the trades working inside.
+ * `depthMm` is ONE face's own share of the reveal: half the structural
+ * thickness plus whatever build-up stands on that face (gap + frame +
+ * boards, see buildUpMm()) -- called once per face with that face's own
+ * depth, rather than once for the whole wall's thickness halved afterwards.
+ * A face with no build-up gets exactly half the structural thickness, so the
+ * two faces still sum to the same total reveal a plain wall always reported.
+ * A clad wall's own reveal is deeper by its facade on that side, but that
+ * depth is an exterior detail rather than plasterwork, and this figure is
+ * read by the trades working inside.
  */
-function openingOn(localTopMm: number, thicknessMm: number, o: Opening): { revealMm2: number } {
+function openingOn(localTopMm: number, depthMm: number, o: Opening): { revealMm2: number } {
   const sill = openingSill(o);
   const head = sill + openingHeight(o);
   const top = Math.min(head, localTopMm);
   const bottom = Math.min(sill, top);
   const width = Math.max(0, o.width);
   const clear = Math.max(0, top - bottom);
-  const jambs = 2 * clear * thicknessMm;
+  const jambs = 2 * clear * depthMm;
   // No sill: under a door or a passage it is the floor, and under a window a
   // vensterbank rather than plaster. A head clipped by the top is above it.
-  const headArea = head <= localTopMm ? width * thicknessMm : 0;
+  const headArea = head <= localTopMm ? width * depthMm : 0;
   return { revealMm2: jambs + headArea };
 }
 
@@ -330,45 +364,71 @@ function wallSurface(f: Floor, rw: ResolvedWall, byFace: ReadonlyMap<string, Roo
     .filter(o => openingSill(o) + openingHeight(o) > localTop(f, w, L, o.t - o.width / 2, o.t + o.width / 2, undefined))
     .map(o => o.id);
 
-  const face = (side: "left" | "right", lengthMm: number): WallFaceSurface => {
+  const face = (side: "left" | "right"): WallFaceSurface => {
     const room = byFace.get(w.id + ":" + side);
+    const fu = buildUpOf(w, side);
+    const frame = frameOf(w, side);
+    const coveredBy: WallFaceSurface["coveredBy"] =
+      frame ? "frame" : fu && fu.boards.length > 0 ? "boards" : null;
+
     // A ceiling is a finish under the slab, so it can only lower the face --
-    // capping the top pointwise rather than by one flat figure.
-    const cap = room?.ceilingMm;
-    const faceHeight = Math.min(heightMm, cap ?? Infinity);
-    const faceMinHeight = Math.min(minHeightMm, cap ?? Infinity);
+    // capping the top pointwise rather than by one flat figure. A voorzetwand
+    // states its own flat cap the same way (FaceFrame.heightMm, absent
+    // meaning the host wall's own top) -- the finish face is capped by
+    // whichever of the two is lower; the structural body knows nothing about
+    // a frame it carries and stays capped by the room ceiling alone.
+    const roomCap = room?.ceilingMm;
+    const finishCap = frame?.heightMm === undefined ? roomCap : Math.min(roomCap ?? Infinity, frame.heightMm);
+    const faceHeight = Math.min(heightMm, finishCap ?? Infinity);
+    const faceMinHeight = Math.min(minHeightMm, finishCap ?? Infinity);
+
+    const lengthMm = rw.finishFaces[side];
+    const structuralLengthMm = rw.faces[side];
     // The mitered face length differs from the centerline L (a corner miter
     // runs one face long and the other short), so the centerline area under
-    // the top is scaled onto the face's own length proportionally.
-    const grossMm2 = L > 0 ? grossAreaUnderTop(f, w, L, cap) * (lengthMm / L) : lengthMm * faceHeight;
+    // the top is scaled onto each face's own length proportionally.
+    const grossMm2 = L > 0
+      ? grossAreaUnderTop(f, w, L, finishCap) * (lengthMm / L) : lengthMm * faceHeight;
+    const structuralGrossMm2 = L > 0
+      ? grossAreaUnderTop(f, w, L, roomCap) * (structuralLengthMm / L)
+      : structuralLengthMm * Math.min(heightMm, roomCap ?? Infinity);
+
+    // The opening cut and its reveal are unaffected by a face's own build-up
+    // depth or frame cap -- the same figures floorSurface() reported before
+    // #71 (see the module comment's "openings" bullet).
     let cut = 0, reveal = 0;
     for (const o of w.openings) {
-      const top = localTop(f, w, L, o.t - o.width / 2, o.t + o.width / 2, cap);
-      const on = openingOn(top, w.thickness, o);
-      cut += openingCutArea(f, w, L, cap, o);
+      const top = localTop(f, w, L, o.t - o.width / 2, o.t + o.width / 2, roomCap);
+      // This face's own share of the reveal: half the structural thickness
+      // plus whatever build-up stands on THIS face -- see openingOn()'s own
+      // comment. Bit-identical to the old half-the-thickness split where the
+      // face states no build-up (buildUpMm() = 0).
+      const depth = w.thickness / 2 + buildUpMm(w, side);
+      const on = openingOn(top, depth, o);
+      cut += openingCutArea(f, w, L, roomCap, o);
       reveal += on.revealMm2;
     }
     // A face shorter than its openings is a wall the openings do not fit in;
-    // it reports no area rather than a negative one.
+    // it reports no area rather than a negative one -- applied separately to
+    // the finish and the structural gross, which can differ once a build-up
+    // or a frame cap is in play.
     const openingsMm2 = Math.min(cut, grossMm2);
-    // Half, because a reveal is ONE surface through the wall and the two sides
-    // finish half of it each. Where one side is outside, that half genuinely is
-    // exterior work -- the inner reveal of a window is plastered, the outer one
-    // belongs to the facade detail -- so the split is the fact, not a fudge.
     const netMm2 = grossMm2 - openingsMm2;
-    const revealsMm2 = reveal / 2;
+    const structuralNetMm2 = structuralGrossMm2 - Math.min(cut, structuralGrossMm2);
+    const revealsMm2 = reveal;
     return {
       side, lengthMm, heightMm: faceHeight, minHeightMm: faceMinHeight, grossMm2, openingsMm2,
       netMm2,
       revealsMm2,
       finishMm2: netMm2 + revealsMm2,
       clad: side === cladSide,
+      coveredBy,
+      structuralLengthMm, structuralGrossMm2, structuralNetMm2,
       ...(room ? { roomKey: roomKey(room) } : {}),
       ...(room?.name !== undefined ? { roomName: room.name } : {}),
     };
   };
-  const faces: [WallFaceSurface, WallFaceSurface] =
-    [face("left", rw.faces.left), face("right", rw.faces.right)];
+  const faces: [WallFaceSurface, WallFaceSurface] = [face("left"), face("right")];
 
   const sum = (pick: (x: WallFaceSurface) => number): number =>
     faces.reduce((n, x) => n + pick(x), 0);

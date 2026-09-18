@@ -270,7 +270,20 @@ export function renderWallSurface(rows: PaneRows, s: WallSurface, hasBuildUp = f
   rows.noteRow(lowered ? t("panel.wallSurfaceCeilingNote") : t("panel.wallSurfaceNote"));
   if (s.revealsMm2 > 0) rows.noteRow(t("panel.wallSurfaceRevealNote"));
   if (clad) rows.noteRow(t("panel.wallSurfaceCladNote"));
-  if (hasBuildUp) rows.noteRow(t("panel.wallSurfaceBuildUpNote"));
+  if (hasBuildUp) rows.noteRow(t(buildUpNoteKey(s.faces)));
+}
+
+/**
+ * Which build-up note applies: the finish stands ON a board stack laid
+ * straight on the structural face, or OFF it on a voorzetwand
+ * (`coveredBy: "frame"`) -- a fact worth saying plainly since a voorzetwand's
+ * outer board is not the wall's own face at all. Picks the voorzetwand
+ * wording where either face is one; falls back to the board-stack wording,
+ * which also covers a plain board stack with no frame behind it.
+ */
+function buildUpNoteKey(faces: Iterable<{ coveredBy: "boards" | "frame" | null }>): string {
+  for (const f of faces) if (f.coveredBy === "frame") return "panel.wallSurfaceBuildUpFrameNote";
+  return "panel.wallSurfaceBuildUpNote";
 }
 
 /** What to call one face: the room it looks into, named or not, or the outside
@@ -304,7 +317,7 @@ function renderStoreySurface(rows: PaneRows, total: FloorSurface, hasBuildUp: bo
   rows.noteRow(lowered ? t("panel.wallSurfaceCeilingNote") : t("panel.wallSurfaceNote"));
   if (total.revealsMm2 > 0) rows.noteRow(t("panel.wallSurfaceRevealNote"));
   if (total.cladFaces > 0) rows.noteRow(t("panel.wallSurfaceCladNote"));
-  if (hasBuildUp) rows.noteRow(t("panel.wallSurfaceBuildUpNote"));
+  if (hasBuildUp) rows.noteRow(t(buildUpNoteKey(total.walls.flatMap(w => w.faces))));
 }
 
 /**

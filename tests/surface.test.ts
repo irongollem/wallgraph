@@ -275,6 +275,201 @@ const reveal = (w: number, h: number, th = TH): number => (2 * h + w) * th;
     !one.faces[0]!.clad && one.faces[1]!.clad);
 }
 
+// ---- build-ups and voorzetwanden: finish vs structural face (#71) ----------
+
+{
+  // At an ordinary 90 degree corner, a wall's OWN build-up does not change its
+  // own mitered face length -- the corner point is set by the MEETING wall's
+  // own half-thickness and skin, never by the wall's own (see resolve.ts's
+  // corner solver). A lone gypsum board on one face, with plain neighbours,
+  // therefore leaves both faces bit-identical to a bare wall.
+  const f = rectFloor();
+  const w = f.walls[0]!;
+  w.buildUp = { right: { boards: [{ kind: "gypsum", mm: 12 }] } };
+  const one = surfaceOf(f).walls.find(x => x.wallId === w.id)!;
+  const right = one.faces.find(x => x.side === "right")!;
+  check("a wall's own build-up alone does not change its own mitered length",
+    right.lengthMm === right.structuralLengthMm, `${right.lengthMm} vs ${right.structuralLengthMm}`);
+  check("nor its net area", right.netMm2 === right.structuralNetMm2);
+  check("but the face is marked as covered", right.coveredBy === "boards");
+}
+
+{
+  // Case 1: gypsum 12 on the right face of a 3000 wall, matched by the same
+  // build-up on the two neighbouring walls it corners into -- the fixture
+  // caveat above means the mitered length only moves once the neighbour also
+  // states the skin. wall[1] is the D=3000 wall; wall[0] and wall[2] are its
+  // neighbours at each end.
+  const f = rectFloor();
+  const w0 = f.walls[0]!, w1 = f.walls[1]!, w2 = f.walls[2]!;
+  const gypsum12 = { boards: [{ kind: "gypsum" as const, mm: 12 }] };
+  w0.buildUp = { right: gypsum12 };
+  w1.buildUp = { right: gypsum12 };
+  w2.buildUp = { right: gypsum12 };
+  const h = floorHeight(f);
+  const one = surfaceOf(f).walls.find(x => x.wallId === w1.id)!;
+  const left = one.faces.find(x => x.side === "left")!;
+  const right = one.faces.find(x => x.side === "right")!;
+
+  check("the right face's mitered length grows to the board's own outer face",
+    near(right.lengthMm, 3124, 1) && near(right.structuralLengthMm, 3100, 1),
+    `${right.lengthMm} / ${right.structuralLengthMm}`);
+  check("its net area is that outer length times the height",
+    near(right.netMm2, right.lengthMm * h, 1), String(right.netMm2));
+  check("and the structural figure keeps the mitered length underneath",
+    near(right.structuralNetMm2, right.structuralLengthMm * h, 1), String(right.structuralNetMm2));
+  check("the left face, carrying no build-up, is unchanged",
+    left.lengthMm === left.structuralLengthMm && near(left.lengthMm, 2900, 1), String(left.lengthMm));
+}
+
+{
+  // Case 2: a voorzetwand (gap 30 + depth 50 + board 12 = 92mm) on the LEFT
+  // (room-facing) side of an inside corner, matched on the same side by the
+  // walls it corners into -- wall[0]'s left face and its two neighbours,
+  // wall[1] and wall[3].
+  const f = rectFloor();
+  const w0 = f.walls[0]!, w1 = f.walls[1]!, w3 = f.walls[3]!;
+  const voorzetwand = { frame: { gapMm: 30, depthMm: 50, material: "timber" as const }, boards: [{ kind: "gypsum" as const, mm: 12 }] };
+  w0.buildUp = { left: voorzetwand };
+  w1.buildUp = { left: voorzetwand };
+  w3.buildUp = { left: voorzetwand };
+  const one = surfaceOf(f).walls.find(x => x.wallId === w0.id)!;
+  const left = one.faces.find(x => x.side === "left")!;
+  const right = one.faces.find(x => x.side === "right")!;
+
+  check("the voorzetwand's finish length shortens by 92mm at each mitered end",
+    near(left.structuralLengthMm - left.lengthMm, 2 * 92, 1),
+    `${left.structuralLengthMm} -> ${left.lengthMm}`);
+  check("structural length itself is untouched", near(left.structuralLengthMm, 3900, 1));
+  check("the face is marked as carrying a frame, not just boards", left.coveredBy === "frame");
+  check("the opposite face, with no build-up, is unaffected",
+    right.lengthMm === right.structuralLengthMm);
+}
+
+{
+  // Case 3: a 1000x1200 window in a 200mm wall, 92mm build-up on the right
+  // face only -- each face finishes its own half of the hole plus its own
+  // build-up depth (thickness/2 + buildUpMm), never the structural half alone.
+  const f = rectFloor();
+  const w = f.walls[0]!;
+  w.thickness = 200;
+  w.buildUp = { right: { boards: [{ kind: "gypsum", mm: 92 }] } };
+  w.openings.push(opening({ kind: "window", t: 2000, width: 1000, sillHeight: 0, height: 1200 }));
+  const one = surfaceOf(f).walls.find(x => x.wallId === w.id)!;
+  const left = one.faces.find(x => x.side === "left")!;
+  const right = one.faces.find(x => x.side === "right")!;
+  const dagkant = (depth: number) => (2 * 1200 + 1000) * depth;
+
+  check("the covered face reveals at half the structural thickness plus its build-up",
+    near(right.revealsMm2, dagkant(100 + 92), 1), String(right.revealsMm2));
+  check("the bare face still reveals at half the structural thickness alone",
+    near(left.revealsMm2, dagkant(100), 1), String(left.revealsMm2));
+}
+
+{
+  // Case 4: room totals. A partition and every other wall bounding the left
+  // room carry a build-up on the room-facing side; the right room's own
+  // boundary carries none. The left room's net area must be the SUM of the
+  // finish faces around it, not the structural ones -- and the right room,
+  // untouched, has finish and structural agreeing for itself.
+  const f = rectFloor();
+  const t0 = newId("n"), b0 = newId("n");
+  f.nodes.push({ id: t0, x: 2000, y: 0 }, { id: b0, x: 2000, y: D });
+  const top = f.walls[0]!, bottom = f.walls[2]!, leftWall = f.walls[3]!;
+  const topB = top.b, bottomB = bottom.b;
+  top.b = t0;
+  bottom.b = b0;
+  f.walls.push(
+    { id: newId("w"), a: t0, b: topB, thickness: TH, bulge: 0, openings: [] },
+    { id: newId("w"), a: b0, b: bottomB, thickness: TH, bulge: 0, openings: [] },
+    { id: newId("w"), a: t0, b: b0, thickness: TH, bulge: 0, openings: [] },
+  );
+  const partition = f.walls[6]!;
+  const bottomLeft = f.walls[5]!; // (b0)->bottomB: the left room's own bottom segment
+  const gypsum12 = { boards: [{ kind: "gypsum" as const, mm: 12 }] };
+  // Each wall's build-up goes on the face perp(tangent) points into the left
+  // room (x < 2000) -- "left" for top and the partition, both of which run
+  // toward increasing y; "left" for the bottom segment (running toward
+  // decreasing x); "left" for the left wall itself (running toward
+  // decreasing y). All four happen to be "left" for this rectangle's winding.
+  top.buildUp = { left: gypsum12 };
+  leftWall.buildUp = { left: gypsum12 };
+  bottomLeft.buildUp = { left: gypsum12 };
+  partition.buildUp = { left: gypsum12 };
+
+  const s = surfaceOf(f);
+  const partWall = s.walls.find(x => x.wallId === partition.id)!;
+  const leftKey = partWall.faces.find(x => x.side === "left")!.roomKey!;
+  const rightKey = partWall.faces.find(x => x.side === "right")!.roomKey!;
+  const leftRoom = s.rooms.find(r => r.key === leftKey)!;
+  const rightRoom = s.rooms.find(r => r.key === rightKey)!;
+
+  let leftFinish = 0, leftStructural = 0, rightFinish = 0, rightStructural = 0;
+  for (const wsurf of s.walls) {
+    for (const face of wsurf.faces) {
+      if (face.roomKey === leftKey) { leftFinish += face.netMm2; leftStructural += face.structuralNetMm2; }
+      if (face.roomKey === rightKey) { rightFinish += face.netMm2; rightStructural += face.structuralNetMm2; }
+    }
+  }
+  check("the room behind the framed faces reports the finish total",
+    near(leftRoom.netMm2, leftFinish, 1), `${leftRoom.netMm2} vs finish ${leftFinish}`);
+  check("not the structural total, which is a genuinely different figure",
+    !near(leftRoom.netMm2, leftStructural, 1), `${leftRoom.netMm2} vs structural ${leftStructural}`);
+  check("its neighbour, with no build-up on its own boundary, reports its own",
+    near(rightRoom.netMm2, rightFinish, 1) && near(rightRoom.netMm2, rightStructural, 1),
+    `${rightRoom.netMm2} vs ${rightFinish} / ${rightStructural}`);
+}
+
+{
+  // A bare wall carries no build-up on either face: finish and structural
+  // figures are identical and coveredBy is null.
+  const f = rectFloor();
+  const one = surfaceOf(f).walls[0]!;
+  check("a bare wall's finish and structural figures agree on both faces",
+    one.faces.every(x =>
+      x.lengthMm === x.structuralLengthMm && x.netMm2 === x.structuralNetMm2
+      && x.grossMm2 === x.structuralGrossMm2 && x.coveredBy === null),
+    JSON.stringify(one.faces.map(x => ({ l: x.lengthMm, sl: x.structuralLengthMm, c: x.coveredBy }))));
+}
+
+{
+  // A reveal on a wall with no build-up is bit-identical to before #71: half
+  // the structural thickness per face, the two summing to the full thickness.
+  const f = rectFloor();
+  const w = f.walls[0]!;
+  w.openings.push(opening({ kind: "door", t: 2000, width: 900, height: DOOR_H }));
+  const one = surfaceOf(f).walls.find(x => x.wallId === w.id)!;
+  const [a, b] = one.faces;
+  check("each face reveals at exactly half the structural thickness",
+    near(a!.revealsMm2, reveal(900, DOOR_H, TH / 2), 1) && near(b!.revealsMm2, reveal(900, DOOR_H, TH / 2), 1),
+    `${a!.revealsMm2} / ${b!.revealsMm2}`);
+  check("and the halves sum to the whole-thickness reveal",
+    near(a!.revealsMm2 + b!.revealsMm2, reveal(900, DOOR_H), 1));
+}
+
+{
+  // A voorzetwand's own heightMm caps the finish face's height below the
+  // wall's own top; the structural body, which knows nothing of a frame it
+  // carries, keeps the wall's own height.
+  const f = rectFloor();
+  const w = f.walls[0]!;
+  const h = floorHeight(f);
+  w.buildUp = {
+    right: { frame: { gapMm: 20, depthMm: 50, material: "timber", heightMm: 2000 }, boards: [{ kind: "gypsum", mm: 12 }] },
+  };
+  const one = surfaceOf(f).walls.find(x => x.wallId === w.id)!;
+  const right = one.faces.find(x => x.side === "right")!;
+
+  check("the capped face's height is the frame's own heightMm",
+    right.heightMm === 2000 && right.minHeightMm === 2000, String(right.heightMm));
+  check("its gross area is measured at that capped height",
+    near(right.grossMm2, right.lengthMm * 2000, 1), String(right.grossMm2));
+  check("the structural gross area is untouched, at the wall's own height",
+    near(right.structuralGrossMm2, right.structuralLengthMm * h, 1), String(right.structuralGrossMm2));
+  check("so the finish face is shorter (in area) than the structural face behind it",
+    right.grossMm2 < right.structuralGrossMm2);
+}
+
 // ---- listing ----------------------------------------------------------------
 
 {

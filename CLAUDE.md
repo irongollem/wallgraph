@@ -184,15 +184,21 @@ convention, junction finiteness and opening segmentation.
 
 **`floorSurface()`** — the face area of a storey's walls, per wall, per room and summed, for the
 trades ordered by the square metre (stucwerk, verf, behang). It measures the MITERED face length
-from `resolveFloor()` rather than the centerline, on both faces; an opening is deducted at its
-stated size from each face and clamped to it. `innerMm2` leaves out the face a wall states cladding
+from `resolveFloor()` rather than the centerline, on both faces, and measures it where the FINISH
+stands: `lengthMm`/`grossMm2`/`netMm2` are the outermost board of whatever covers the face
+(`ResolvedWall.finishFaces`), with `coveredBy` saying what that is and `structural*` carrying the face
+behind it for anything that wants the body — the block takeoff, the cavity, IFC's wall quantities. A
+voorzetwand's own `heightMm` caps the finish face and leaves the structural one alone. An opening is
+deducted at its stated size from each face and clamped to it. `innerMm2` leaves out the face a wall states cladding
 on, that face being outside by definition; a wall with no cladding keeps both, since the document
 does not then say which side is outside. Reported, never enforced — nothing here decides what is
 finished. Verified by [tests/surface.test.ts](tests/surface.test.ts).
 
 **A reveal is one surface through the wall, so the two sides get half each.** `revealsMm2` is the
-dagkanten — two jambs and a head at the wall's THICKNESS, never a sill (under a door that is the
-floor, under a window a vensterbank). It stays out of `netMm2` and is added in `finishMm2`, because
+dagkanten — two jambs and a head, never a sill (under a door that is the floor, under a window a
+vensterbank). Each face is measured at its OWN depth: half the structural thickness plus that face's
+own build-up, so a reveal through a voorzetwand is deeper and is still one reveal, not two. A wall
+stating no build-up gives half a thickness each and is unchanged. It stays out of `netMm2` and is added in `finishMm2`, because
 a stucadoor prices it separately and a plan that wants the wall alone still has it. The half-and-half
 split is not an approximation to apologise for: on an exterior window the inner half genuinely is
 plasterwork and the outer half genuinely is facade detail, and the split puts each where it belongs.
@@ -222,9 +228,9 @@ builds one band per board: a corner pass per distinct cumulative depth needed an
 neighbouring stacks miter board line against board line rather than only at the stack's outer face; the
 canvas, SVG and DXF draw the bands as paper-coloured, the way they draw the facade. `detectRooms()` insets
 the net boundary by half the thickness plus `buildUpMm()` on a face carrying one, so the `net` area mode
-measures to the outermost board and a plan does not show more room than there is. `floorSurface()` keeps
-measuring the structural face regardless — moving it to the finished face per board is #71 — and the pane
-says so where a face carries a build-up. Unlike the facade side, a build-up is not inferred from which
+measures to the outermost board and a plan does not show more room than there is. `floorSurface()` measures the finished
+face, and the takeoff measures each board at its own inner edge (`BoardBand.innerLengthMm`) rather than
+giving every board on a face one figure. Unlike the facade side, a build-up is not inferred from which
 face is "outside": a wall stating no facade carries a build-up on exactly the faces the document states
 one for, independently, because nothing there says which side is out. Verified by
 [tests/core.test.ts](tests/core.test.ts).
@@ -722,12 +728,12 @@ before changing one:
 - Varying-thickness walls; a wall is one thickness, not a layered cross-section. A facade and a
   face build-up (board stacks, and the voorzetwand they hang on) are skins outside that thickness,
   not layers within it.
-- A voorzetwand is drawn, counted, elevated, checked against the columns it stands over, and selected
-  through its host, and no further yet: no service runs on or inside it (#72), and it has no body in 3D
-  or IFC (#73). Wall surface still measures the structural face under it (#71), and a frame runs the
-  whole face — it cannot stop short or box a column in (#74). Its header is checked under its own boards
-  only; nothing asks whether a frame at that stand-off is fixed back to the wall. Only a column is
-  checked for reaching into a build-up — not a beam, a duct or anything else the plan carries.
+- A voorzetwand is drawn, counted, elevated, finished to its own face, checked against the columns it
+  stands over, and selected through its host, and no further yet: no service runs on or inside it
+  (#72), and it has no body in 3D or IFC (#73). A frame runs the whole face — it cannot stop short or
+  box a column in (#74). Its header is checked under its own boards only; nothing asks whether a frame
+  at that stand-off is fixed back to the wall. Only a column is checked for reaching into a build-up —
+  not a beam, a duct or anything else the plan carries.
 - A wall's top profile is read by the wall surface, 3D, IFC, energy, the frame and the materials
   takeoff. A roof plane over it is a separate statement: a wall that pierces the roof's underside, or
   states a profile that disagrees with it, is reported (`roofWallMismatches()`) and never repaired; a
@@ -761,8 +767,9 @@ before changing one:
   a build-up board joint are not counted, nor are mortar, adhesive, fixings, or floor, roof and finish
   materials. The takeoff checks no member; the span checks below do, preliminarily.
 - Wall surface counts the two faces of a wall plus the reveals through it. A reveal is measured over
-  the structural thickness only — cladding makes it deeper, but that is facade work — and a floor
-  build-up is not modelled. A ceiling is one height per room, not a plenum with its own geometry.
+  the structural thickness plus each face's own build-up; cladding makes it deeper still, but that is
+  facade work and is left out. A floor build-up is not modelled. A ceiling is one height per room, not
+  a plenum with its own geometry.
 - A roof is authored planes (`RoofPlane`), not a modelled build-up: no dormer, roof window or
   valley flashing is an object, the outline is written by a suggestion or a preset and is not yet
   edited as geometry point by point, and a plane carries one thickness with no layers (sarking,

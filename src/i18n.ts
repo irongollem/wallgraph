@@ -700,7 +700,9 @@ export const resources = {
         wallSurfaceRevealNote:
           "dagkanten zijn twee neggen en een bovendorpel op de dikte van de muur, geen onderdorpel: onder een deur ligt de vloer en onder een raam komt een vensterbank · één dagkant wordt door de twee zijden gedeeld, elk de helft · gevelbekleding maakt de dag dieper, maar dat is gevelwerk",
         wallSurfaceBuildUpNote:
-          "gemeten tot het constructieve vlak · een opgegeven platenopbouw ligt hier buiten",
+          "gemeten tot de buitenste plaat van de platenopbouw · het constructieve vlak erachter wordt apart gerapporteerd",
+        wallSurfaceBuildUpFrameNote:
+          "gemeten tot de buitenste plaat van de voorzetwand, los van de muur · het constructieve vlak erachter wordt apart gerapporteerd",
         wallSurfaceRooms: "In ruimtes",
         wallSurfaceFaceValue: "{{area}} tot {{mm}} mm",
         wallSurfaceFaceOutside: "Buitenzijde",
@@ -2290,7 +2292,9 @@ export const resources = {
         wallSurfaceRevealNote:
           "reveals are two jambs and a head at the wall's thickness, never a sill: under a door that is the floor and under a window it takes a window board · one reveal is shared by the two sides, half each · cladding makes the reveal deeper, but that is facade work",
         wallSurfaceBuildUpNote:
-          "measured to the structural face · a stated board build-up lies outside it",
+          "measured to the outermost board of the build-up · the structural face behind it is reported separately",
+        wallSurfaceBuildUpFrameNote:
+          "measured to the outermost board of the lining wall, standing off the wall · the structural face behind it is reported separately",
         wallSurfaceRooms: "In rooms",
         wallSurfaceFaceValue: "{{area}} up to {{mm}} mm",
         wallSurfaceFaceOutside: "Outer face",
