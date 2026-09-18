@@ -46,6 +46,11 @@ export function faceLabel(side: "left" | "right"): string {
  * disagreeing members does -- neither a frame's fields nor a per-board list
  * has anything to show when the selection does not even agree on what stands
  * on this face.
+ *
+ * `opts.standOff`/`opts.ownPosts` are the single-wall pane's own report of
+ * what core/leafclash.ts finds for THIS face -- the bulk pane and the wall
+ * pen pass neither, since a proposal is about one wall's own columns and the
+ * pen has no wall yet to check.
  */
 export function renderFaceBuildUp(
   rows: PaneRows,
@@ -53,7 +58,15 @@ export function renderFaceBuildUp(
   facadeHere: boolean,
   fu: FaceBuildUp | undefined,
   onChange: (fu: FaceBuildUp | undefined) => void,
-  opts: { mixed?: boolean } = {},
+  opts: {
+    mixed?: boolean;
+    /** The stand-off this face's columns need, and the button that writes it.
+     *  Absent where nothing protrudes. */
+    standOff?: { gapMm: number; column: string; apply: () => void };
+    /** The wall states its own posts. They lie within its thickness by
+     *  definition, so they are never why a stand-off is proposed. */
+    ownPosts?: boolean;
+  } = {},
 ): void {
   rows.secHead(label, { later: true });
   if (facadeHere) {
@@ -125,6 +138,15 @@ export function renderFaceBuildUp(
         n => withFrame({ ...frame, heightMm: clampFrameHeightMm(n) }), 50);
     }
     rows.noteRow(t("panel.buildUpFrameHelp"));
+    // What this face's own columns say about the stand-off just chosen --
+    // proposed, never written except through the button itself (see
+    // core/leafclash.ts's own "proposes, never owns" stance).
+    if (opts.standOff) {
+      rows.noteRow(t("panel.buildUpStandOffNote", { column: opts.standOff.column, gap: opts.standOff.gapMm }));
+      rows.btnRow(t("panel.buildUpStandOffApply", { gap: opts.standOff.gapMm }), opts.standOff.apply);
+    } else if (opts.ownPosts) {
+      rows.noteRow(t("panel.buildUpOwnPostsNote"));
+    }
   }
 
   // A frame standing on this face survives every board edit below, including

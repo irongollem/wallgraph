@@ -3,7 +3,8 @@
 // opening decorations, routes, furnishings, symbols, stairs, selection, labels
 // (labels in screen space).
 import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, videsOf, decksOf, furnishingsOf, structureOf, fireLabel, Underlay, Wall, Id, wallInfill, BoardKind } from "../model/doc";
-import { belowCutPlane } from "../model/structure";
+import { belowCutPlane, type Column } from "../model/structure";
+import { buildUpClashes } from "../core/leafclash";
 import { Resolved, OpeningGeom, Junction, ResolvedWall, PostMark } from "../core/resolve";
 import type { Leaves } from "../core/leaf";
 import { Room, roomSize, sizeLabel, looseRoomNames, roomArea } from "../core/rooms";
@@ -347,6 +348,14 @@ export interface DrawExtras {
   pulse?: number;
   /** False for exports: no grid, and no legend describing one. */
   showGrid?: boolean;
+  /**
+   * False for exports: the small warning badge at a column that still
+   * reaches into a stated build-up (core/leafclash.ts's buildUpClashes()).
+   * It reports the current resolve, the way the pane's own clash rows do
+   * (ui/panel.ts) -- not a stated plan fact, so no export carries it.
+   * Absent means shown, the same default showGrid uses.
+   */
+  showClashMarks?: boolean;
   /**
    * True to draw the floor's trace-over image (Tools.showUnderlay, the
    * editor's own visibility toggle). Absent/false excludes it -- the default
@@ -836,6 +845,29 @@ export function drawScene(
     ctx.fillText(rn.name, at.x, at.y);
   }
 
+  // Columns that still reach into a stated build-up (core/leafclash.ts): a
+  // small warning badge offset from the column's own mark, screen space so
+  // it stays legible at any zoom -- the same reason the room labels and the
+  // roof pitch figures above are drawn here rather than in world space. One
+  // badge per column, not per clashing face: a column clashing on both faces
+  // still stands in one place. Kept out of every export (extras.showClashMarks;
+  // see io/image.ts) because it reports the current resolve, not a plan fact.
+  if (extras.showClashMarks !== false) {
+    const clashes = buildUpClashes(floor, resolved);
+    if (clashes.length > 0) {
+      const columns = structureOf(floor).filter((s): s is Column => s.kind === "column");
+      const seen = new Set<Id>();
+      for (const c of clashes) {
+        if (seen.has(c.columnId)) continue;
+        seen.add(c.columnId);
+        const col = columns.find(x => x.id === c.columnId);
+        if (!col) continue;
+        const at = vp.toScreen({ x: col.x, y: col.y });
+        drawClashMark(ctx, { x: at.x + 12, y: at.y - 12 });
+      }
+    }
+  }
+
   // Snap marker.
   if (extras.hoverSnap) {
     const s = vp.toScreen(extras.hoverSnap);
@@ -954,6 +986,28 @@ function drawSelectModeBadge(
   ctx.fill();
   ctx.fillStyle = COLORS.bg;
   ctx.fillText(text, x + boxW / 2, y + h / 2 + 0.5);
+}
+
+/**
+ * The badge one column-build-up clash draws at, in screen space: a small
+ * filled circle with an exclamation mark, the same fill/text contrast
+ * drawSelectModeBadge uses above. Kept small and unobtrusive on purpose --
+ * this reports, it does not shout -- unlike that badge it carries no text
+ * wide enough to need measuring.
+ */
+function drawClashMark(ctx: CanvasRenderingContext2D, at: Vec): void {
+  const r = 7;
+  ctx.save();
+  ctx.fillStyle = COLORS.stairWarn;
+  ctx.beginPath();
+  ctx.arc(at.x, at.y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = COLORS.bg;
+  ctx.font = "700 10px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("!", at.x, at.y + 0.5);
+  ctx.restore();
 }
 
 function fmtMm(mm: number): string {

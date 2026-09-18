@@ -89,7 +89,7 @@ function renderPlan(doc: PlanDoc, floorIndex = 0): HTMLCanvasElement | null {
   // aid, not part of the drawing, so a PNG excludes it unconditionally rather
   // than following whatever Tools.showUnderlay happens to be set to.
   drawScene(ctx, vp, lw, lh, floor, resolved, leaves, detectRooms(floor), null,
-    { showGrid: false, riserMarks: riserMarks(doc, floorIndex) },
+    { showGrid: false, showClashMarks: false, riserMarks: riserMarks(doc, floorIndex) },
     doc.gridMm, areaModeOf(doc), dimModeOf(doc), mountMarksOn(doc));
   drawScaleBar(ctx, pxPerMm, lw, lh);
   return cv;

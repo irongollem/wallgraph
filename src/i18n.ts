@@ -461,6 +461,11 @@ export const resources = {
         buildUpFrameHeight: "Hoogte voorzetwand (mm)",
         buildUpFrameHelp:
           "de positie van de voorzetwand volgt uit de muur en de belendende vlakken en wordt niet opgeslagen · de stijlen zitten nog niet in de materiaalstaat",
+        buildUpStandOffNote:
+          "Kolom ‘{{column}}’ steekt hier {{gap}} mm voorbij het constructieve vlak.",
+        buildUpStandOffApply: "Tussenruimte instellen op {{gap}} mm",
+        buildUpOwnPostsNote:
+          "De eigen stijlen van deze muur liggen binnen de muurdikte, dus daaruit volgt geen voorstel voor een tussenruimte.",
         buildUpPreset: "Platen",
         buildUpBoardKind: "Soort plaat",
         buildUpBoardMm: "Plaatdikte (mm)",
@@ -469,6 +474,8 @@ export const resources = {
         buildUpHelp:
           "platen op dit vlak, van de muur naar buiten toe de kamer in \u00b7 ligt buiten de muurdikte \u00b7 het netto oppervlak wordt gemeten tot de buitenste plaat",
         buildUpFacadeNote: "Deze zijde draagt de gevel.",
+        buildUpClashHead: "Kolom steekt in de opbouw",
+        buildUpClash: "{{face}}: kolom ‘{{column}}’ steekt {{mm}} mm in de opbouw",
         blockOn: "Blokformaat opgeven",
         blockLength: "Bloklengte (mm)",
         blockHeight: "Blokhoogte (mm)",
@@ -2046,6 +2053,10 @@ export const resources = {
         buildUpFrameHeight: "Lining wall height (mm)",
         buildUpFrameHelp:
           "the lining wall's position follows from the wall and its neighbours and is not stored · its studs are not yet in the materials takeoff",
+        buildUpStandOffNote: "Column ‘{{column}}’ reaches {{gap}} mm past the structural face here.",
+        buildUpStandOffApply: "Set stand-off to {{gap}} mm",
+        buildUpOwnPostsNote:
+          "This wall's own posts lie within its thickness, so they are not why no stand-off is proposed here.",
         buildUpPreset: "Boards",
         buildUpBoardKind: "Board kind",
         buildUpBoardMm: "Board thickness (mm)",
@@ -2054,6 +2065,8 @@ export const resources = {
         buildUpHelp:
           "boards on this face, from the wall outward into the room \u00b7 lies outside the wall thickness; the net area is measured to the outer board",
         buildUpFacadeNote: "This face carries the facade.",
+        buildUpClashHead: "Column reaches into the build-up",
+        buildUpClash: "{{face}}: column ‘{{column}}’ reaches {{mm}} mm into the build-up",
         blockOn: "State block format",
         blockLength: "Block length (mm)",
         blockHeight: "Block height (mm)",

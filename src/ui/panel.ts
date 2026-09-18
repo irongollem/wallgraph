@@ -27,12 +27,14 @@ import {
   doorKindOf, DOOR_KINDS, widthsFor, DOOR_WIDTHS_DOUBLE, FIRE_KINDS, FIRE_MINUTES,
   FIRE_MINUTES_DEFAULT, routesOf, furnishingsOf, decksOf, WALL_MATERIALS, POST_WIDTH_DEFAULT,
   FACADE_DEFAULT_MM, facadeSideOf, wallPostMm, postDefaultsFor, postLayoutOf,
-  isBlockMaterial, BLOCK_DEFAULT_MM, PANEL_DEFAULT_MM, buildUpOf, setFaceBuildUp,
-  clampBlockLength, clampBlockHeight, clampNoggingRows, clampPanel,
+  isBlockMaterial, BLOCK_DEFAULT_MM, PANEL_DEFAULT_MM, buildUpOf, frameOf, setFaceBuildUp,
+  clampBlockLength, clampBlockHeight, clampNoggingRows, clampPanel, clampFrameGapMm, structureOf,
   openingBearing, OPENING_BEARING_DEFAULT_MM, clampOpeningBearing, clampLintelSection, clampLintelLoad,
   type AreaMode, type DimMode, type Sash, type HingeEdge, type Opening, type Wall, type Floor, type FireKind,
   type ProjectMeta, type Id, type WallMaterial, type PlanDoc,
 } from "../model/doc";
+import type { Column } from "../model/structure";
+import { columnProtrusions, proposedGapMm, buildUpClashes } from "../core/leafclash";
 import { isEnvelopeWall, openingIsGlazing, thermalValue } from "../model/energy";
 import type { Discipline } from "../model/route";
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
@@ -2996,13 +2998,53 @@ export class Panel {
         }
       }
       // Board build-up on each face, outside the structural thickness like
-      // the facade -- the face carrying the facade shows a note instead.
+      // the facade -- the face carrying the facade shows a note instead. A
+      // face standing a voorzetwand also gets the stand-off this wall's own
+      // embedded columns need, if any (core/leafclash.ts); recomputed here
+      // rather than cached, like the surface and materials figures above.
+      const allColumns = structureOf(f).filter((s): s is Column => s.kind === "column");
       for (const side of ["left", "right"] as const) {
         const facadeHere = w.facadeMm !== undefined && facadeSideOf(w) === side;
-        renderFaceBuildUp(rows, faceLabel(side), facadeHere, buildUpOf(w, side), fu => this.store.mutate(d => {
+        const fu = buildUpOf(w, side);
+        let standOff: { gapMm: number; column: string; apply: () => void } | undefined;
+        if (fu?.frame) {
+          const gapMm = proposedGapMm(f, resolved, w.id, side);
+          if (gapMm !== null) {
+            const worst = columnProtrusions(f, resolved)
+              .filter(p => p.wallId === w.id && p.side === side)
+              .reduce((a, b) => (b.protrusionMm > a.protrusionMm ? b : a));
+            const col = allColumns.find(c => c.id === worst.columnId);
+            standOff = {
+              gapMm, column: col?.label ?? t("panel.structureColumn"),
+              apply: () => this.store.mutate(d => {
+                const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+                const face = wall && buildUpOf(wall, side);
+                if (face?.frame) face.frame.gapMm = clampFrameGapMm(gapMm);
+              }),
+            };
+          }
+        }
+        renderFaceBuildUp(rows, faceLabel(side), facadeHere, fu, next => this.store.mutate(d => {
           const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
-          if (wall) setFaceBuildUp(wall, side, fu);
-        }));
+          if (wall) setFaceBuildUp(wall, side, next);
+        }), { standOff, ownPosts: w.postMm !== undefined });
+      }
+      // Columns that still reach into this wall's own build-up -- reported,
+      // never repaired, the stance topMismatches() and roofWallMismatches()
+      // both take (see core/leafclash.ts).
+      const clashesHere = buildUpClashes(f, resolved).filter(c => c.wallId === sel.id);
+      if (clashesHere.length > 0) {
+        secHead(t("panel.buildUpClashHead"), { later: true });
+        for (const c of clashesHere) {
+          const col = allColumns.find(x => x.id === c.columnId);
+          // How far it reaches INTO the build-up, not how far past the
+          // structural face: a frame standing off 30 mm has 20 mm of a 50 mm
+          // column in it, and the reader is being told what still fouls.
+          const reachMm = c.protrusionMm - (frameOf(w, c.side)?.gapMm ?? 0);
+          warnRow(t("panel.buildUpClash", {
+            face: faceLabel(c.side), column: col?.label ?? t("panel.structureColumn"), mm: reachMm,
+          }));
+        }
       }
       // Block format, only meaningful on a block-built material.
       if (isBlockMaterial(w.material)) {

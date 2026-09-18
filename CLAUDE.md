@@ -266,6 +266,21 @@ voorzetwand carries neither. Verified by [tests/leaf.test.ts](tests/leaf.test.ts
 [tests/core.test.ts](tests/core.test.ts), [tests/materials.test.ts](tests/materials.test.ts) and
 [tests/frame.test.ts](tests/frame.test.ts).
 
+**A column protruding into a build-up is reported, never repaired.** [leafclash.ts](src/core/leafclash.ts)
+projects each `Column`'s own `columnOutline()` onto a wall's (t, s) frame — t along the centerline from
+node `a`, s signed off `perp(tangent)` so positive is the `left` face — and calls whatever stands past
+`half` a protrusion, within the wall's own t range and out to `half + 1000`. On an arc s is radial, and the
+inner extreme is taken from the EDGE rather than the vertices: a polygon's nearest point to a centre need
+not be a corner. `proposedGapMm()` ceils the largest protrusion, so a stand-off written from it always
+clears the column, and `buildUpClashes()` reports what still reaches in — past `gapMm` on a framed face,
+past the structural face at all on a board stack laid straight on it. A wall's own posts are not columns
+and lie within its thickness by definition, which the pane says rather than leaving a wall that states
+posts looking unexamined. Nothing here is stored: the pane proposes a figure and a button writes it, the
+way a roof mismatch offers `profileFromRoof()`. The canvas marks a clash in screen space — the first such
+mark in this codebase, `topMismatches()` and `roofWallMismatches()` being pane-only — kept off the PNG
+through `DrawExtras` and absent from the SVG and DXF, which do not run `drawScene`. Verified by
+[tests/leafclash.test.ts](tests/leafclash.test.ts).
+
 **A sloped wall states its top; nothing derives it.** `Wall.profile` is heights at points along the
 centerline, `t` in mm from node `a` like an opening's, so moving, splitting, flipping and merging a wall
 carry it the way they carry openings. A wall end with no point of its own stands at `wallHeight()`, which
@@ -707,11 +722,12 @@ before changing one:
 - Varying-thickness walls; a wall is one thickness, not a layered cross-section. A facade and a
   face build-up (board stacks, and the voorzetwand they hang on) are skins outside that thickness,
   not layers within it.
-- A voorzetwand is drawn, counted, elevated and selected through its host, and no further yet: no
-  service runs on or inside it (#72), and it has no body in 3D or IFC (#73). Wall surface still
-  measures the structural face under it (#71). A column protruding into one is not reported (#70), and
-  a frame runs the whole face — it cannot stop short or box a column in (#74). Its header is checked
-  under its own boards only; nothing asks whether a frame at that stand-off is fixed back to the wall.
+- A voorzetwand is drawn, counted, elevated, checked against the columns it stands over, and selected
+  through its host, and no further yet: no service runs on or inside it (#72), and it has no body in 3D
+  or IFC (#73). Wall surface still measures the structural face under it (#71), and a frame runs the
+  whole face — it cannot stop short or box a column in (#74). Its header is checked under its own boards
+  only; nothing asks whether a frame at that stand-off is fixed back to the wall. Only a column is
+  checked for reaching into a build-up — not a beam, a duct or anything else the plan carries.
 - A wall's top profile is read by the wall surface, 3D, IFC, energy, the frame and the materials
   takeoff. A roof plane over it is a separate statement: a wall that pierces the roof's underside, or
   states a profile that disagrees with it, is reported (`roofWallMismatches()`) and never repaired; a
