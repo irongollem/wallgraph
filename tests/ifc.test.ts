@@ -1389,6 +1389,84 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
   check("a wall with a differing stack gets its own layer set",
     (diffOut.match(/=IFCMATERIALLAYERSET\(/g) ?? []).length === 2,
     String((diffOut.match(/=IFCMATERIALLAYERSET\(/g) ?? []).length));
+
+  // An unframed board stack (straight on the structural face) stays exactly
+  // what it was: still the host's own single IFCWALL, no
+  // IFCRELCONNECTSELEMENTS at all -- the voorzetwand path below is reached
+  // only through frameOf(), which a plain `boards` build-up never states.
+  check("an unframed board stack still produces only the host's own IFCWALL",
+    (bothOut.match(/=IFCWALL\(/g) ?? []).length === 1);
+  check("and still no IFCRELCONNECTSELEMENTS", !bothOut.includes("=IFCRELCONNECTSELEMENTS("));
+  check("a clad-and-built-up wall is unframed too, same regression",
+    (cladBuildOut.match(/=IFCWALL\(/g) ?? []).length === 1 && !cladBuildOut.includes("=IFCRELCONNECTSELEMENTS("));
+
+  // ── voorzetwand (issue #73): a framed face exports as a wall of its own ──
+  {
+    const vDoc = emptyDoc();
+    const vf = vDoc.floors[0]!;
+    const vn0 = nodeAt(vf, v(0, 0)).id, vn1 = nodeAt(vf, v(4000, 0)).id;
+    const hostWall: Wall = {
+      id: newId("w"), a: vn0, b: vn1, thickness: 150, bulge: 0,
+      openings: [{ id: "o-door", kind: "door", t: 2000, width: 900, sashes: [{ action: "turn", hinge: "a" }] }],
+      material: "masonry",
+      buildUp: {
+        left: {
+          frame: { gapMm: 0, depthMm: 70, material: "timber", insulated: true, postMm: 600 },
+          boards: [{ kind: "gypsum", mm: 12 }],
+        },
+      },
+    };
+    vf.walls.push(hostWall);
+    const vSeed = vDoc.guid ?? "";
+    const vOut = toIfc(vDoc);
+    const vCount = (type: string): number => (vOut.match(new RegExp(`=${type}\\(`, "g")) ?? []).length;
+
+    check("a framed face yields one extra IFCWALL", vCount("IFCWALL") === 2, String(vCount("IFCWALL")));
+    check("and exactly one IFCRELCONNECTSELEMENTS", vCount("IFCRELCONNECTSELEMENTS") === 1);
+    check("one extra IFCOPENINGELEMENT (the host's own plus the leaf's own)", vCount("IFCOPENINGELEMENT") === 2);
+    check("one extra IFCRELVOIDSELEMENT to match", vCount("IFCRELVOIDSELEMENT") === 2);
+    check("still exactly one door", vCount("IFCDOOR") === 1);
+    check("still exactly one IFCRELFILLSELEMENT", vCount("IFCRELFILLSELEMENT") === 1);
+    check("the voorzetwand is named", vOut.includes("'Voorzetwand'"));
+
+    const vLines = vOut.split("\n").filter(l => l.startsWith("#"));
+    const lineOf = (id: number): string | undefined => vLines.find(l => l.startsWith(`#${id}=`));
+    const refsOf = (line: string): number[] =>
+      [...line.slice(line.indexOf("=") + 1).matchAll(/#(\d+)/g)].map(m => Number(m[1]));
+
+    // The door still fills only the HOST's own opening -- never the leaf's.
+    // IfcRelFillsElement's refs, in order: OwnerHistory, RelatingOpeningElement,
+    // RelatedBuildingElement -- the opening is the second, not the first.
+    const fillLine = vLines.find(l => l.includes("=IFCRELFILLSELEMENT("))!;
+    const filledOpeningLine = lineOf(refsOf(fillLine)[1]!)!;
+    const hostOpeningGuid = ifcGuid(vSeed, "o-door");
+    const leafOpeningGuid = ifcGuid(vSeed, "o-door~left");
+    check("the filled opening is the host's own (by GlobalId), not the leaf's",
+      filledOpeningLine.includes(`'${hostOpeningGuid}'`) && !filledOpeningLine.includes(`'${leafOpeningGuid}'`));
+
+    // PredefinedType NOTDEFINED on the voorzetwand's own IFCWALL line.
+    const leafWallLine = vLines.find(l => l.includes("'Voorzetwand'"))!;
+    check("the voorzetwand states PredefinedType NOTDEFINED", leafWallLine.trim().endsWith(".NOTDEFINED.);"));
+    const leafWallId = Number(leafWallLine.match(/^#(\d+)=/)![1]);
+
+    // Pset_WallCommon on the voorzetwand states both facts outright, unlike
+    // the host wall above, where an absent fact stays absent.
+    const leafPsetRel = vLines.find(l =>
+      l.includes("=IFCRELDEFINESBYPROPERTIES(") && refsOf(l).includes(leafWallId)
+      && refsOf(l).some(id => lineOf(id)?.includes("'Pset_WallCommon'")))!;
+    const leafPsetLine = lineOf(refsOf(leafPsetRel).find(id => lineOf(id)?.includes("'Pset_WallCommon'"))!)!;
+    const leafPropLines = refsOf(leafPsetLine).map(id => lineOf(id)).filter((l): l is string => l !== undefined);
+    check("LoadBearing is stated false outright on the voorzetwand",
+      leafPropLines.some(l => l.includes("'LoadBearing'") && l.includes("IFCBOOLEAN(.F.)")));
+    check("IsExternal is stated false outright on the voorzetwand",
+      leafPropLines.some(l => l.includes("'IsExternal'") && l.includes("IFCBOOLEAN(.F.)")));
+
+    // Material: the stud zone, then its one board -- see boardLayer()/the
+    // voorzetwand material block in io/ifc.ts.
+    check("the voorzetwand's own layer set states its stud zone",
+      /=IFCMATERIALLAYER\(#\d+,70\.,\$,'Structure'/.test(vOut));
+    check("then its board", /=IFCMATERIALLAYER\(#\d+,12\.,\$,'Board'/.test(vOut));
+  }
 }
 
 // ── sloped walls (issue #55): clipping representation ──────────────────────

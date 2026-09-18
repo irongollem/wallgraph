@@ -55,6 +55,14 @@ export const DOOR_COLOR: Rgb = [0.78, 0.71, 0.6];
 export const GLASS_COLOR: Rgb = [0.875, 0.91, 0.933];
 /** Sandwich-panel wall bodies: the 2D panelFill's warm band, opaque. */
 export const PANEL_COLOR: Rgb = [0.906, 0.882, 0.827];
+/** A face's board stack: pale plasterboard, told from the masonry body it is
+ *  fixed to. One flat tone for every board kind — see mesh.ts's build-up
+ *  massing note. */
+export const BOARD_COLOR: Rgb = [0.88, 0.85, 0.78];
+/** A voorzetwand's own stud zone: massing only, not the individual studs a
+ *  takeoff or elevation draws — a darker timber tone than a door leaf so the
+ *  frame reads as structure standing off the wall behind it. */
+export const FRAME_COLOR: Rgb = [0.65, 0.55, 0.42];
 /** Steel structure: a cool mid grey, told from the masonry it carries. */
 export const STEEL_COLOR: Rgb = [0.62, 0.64, 0.67];
 /** Fit-out casework: cabinet carcasses, fronts, table tops, shelving. */
@@ -220,6 +228,15 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
         emitWallPrism(acc, p.poly, elev, p.z0, z1, ax, spans, bodyColor, glass, top);
       }
       for (const p of w.posts) emitWallPrism(acc, p.poly, elev, p.z0, seat(p.z1), ax, spans, WALL_COLOR, false);
+      // A face's board stack and its voorzetwand's own frame zone: massing
+      // outside the structural body, cut by the same stair shadow and seated
+      // against the same plate above, one flat colour per part (no per-board
+      // texture, no individual studs — see core/solids.ts's buildUpPrisms()).
+      for (const p of w.buildUp) {
+        const top = p.top?.map(seat);
+        const z1 = top ? Math.max(...top) : seat(p.z1);
+        emitWallPrism(acc, p.poly, elev, p.z0, z1, ax, spans, p.part === "frame" ? FRAME_COLOR : BOARD_COLOR, false, top);
+      }
       // The resolved pieces are the solid intervals BETWEEN openings, cut at
       // full wall height. The band below a sill and the band above a head put
       // that material back, so a wall with a window is exact without CSG.

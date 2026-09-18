@@ -14,7 +14,7 @@
 // floorElevation(doc, floorIndex).
 import {
   PlanDoc, Floor, Id, OpeningKind, Wall, wallHeight, floorHeight, openingSill, openingHeight, videsOf,
-  stairsOf, type WallMaterial,
+  stairsOf, frameOf, type WallMaterial, type BoardKind,
 } from "../model/doc";
 import { wallTopAt, wallTopPolyline } from "../model/profile";
 import { roofPlanesOf, roofThicknessOf } from "../model/roof";
@@ -24,7 +24,7 @@ import {
 } from "../geometry/vec";
 import { arcInfo, arcPointAt, arcTangentAt, sweepOf } from "../geometry/arc";
 import { stairwellHole } from "./stair3d";
-import { resolveFloor, type ResolvedWall } from "./resolve";
+import { resolveFloor, type ResolvedWall, type SolidPiece } from "./resolve";
 import { detectRooms, outerBoundary } from "./rooms";
 import { planeUndersideAt } from "./roof";
 import { videBox } from "./vide";
@@ -55,6 +55,20 @@ export interface OpeningVoid {
   above?: Prism[];
 }
 
+/**
+ * A build-up prism: a board of a face's stack, or one piece of a
+ * voorzetwand's own stud zone (massing — see buildUpPrisms()). `Prism` itself
+ * carries no tag, so this follows `FurnishingPart.material`'s precedent for a
+ * solid that needs one — here so a 3D view can colour the skin apart from the
+ * structural body it stands on.
+ */
+export interface BuildUpPrism extends Prism {
+  part: "boards" | "frame";
+  side: "left" | "right";
+  /** The board's own kind, absent on a frame zone. */
+  kind?: BoardKind;
+}
+
 export interface WallSolid {
   wallId: Id;
   body: Prism[];
@@ -66,6 +80,12 @@ export interface WallSolid {
    * body is filled with.
    */
   posts: Prism[];
+  /**
+   * Board stacks and voorzetwand stud zones on both faces, from
+   * ResolvedWall.boards / .frame — see buildUpPrisms(). Empty where neither
+   * face states a build-up.
+   */
+  buildUp: BuildUpPrism[];
 }
 
 export interface SpaceSolid { name?: string; poly: Vec[]; z0: 0; z1: number }
@@ -151,7 +171,8 @@ export function floorSolids(doc: PlanDoc, floorIndex: number): FloorSolids | nul
       const s = projectS(rw.a, rw.b, rw.wall.bulge, rw.length, mid(pm.a, pm.b));
       posts.push({ poly: pm.poly, z0: 0, z1: wallTopAt(f, rw.wall, s) });
     }
-    walls.push({ wallId: rw.wall.id, body, voids, posts });
+    const buildUp: BuildUpPrism[] = buildUpPrisms(f, rw);
+    walls.push({ wallId: rw.wall.id, body, voids, posts, buildUp });
   }
 
   const fh = floorHeight(f);
@@ -234,28 +255,94 @@ export function floorSolids(doc: PlanDoc, floorIndex: number): FloorSolids | nul
  * its own projection onto the centerline.
  */
 function wallBodyPrisms(f: Floor, rw: ResolvedWall): Prism[] {
+  return extrudeToTop(f, rw, rw.pieces, undefined);
+}
+
+/**
+ * The extrude-and-split shared by the structural body (wallBodyPrisms()) and
+ * a face's build-up (buildUpPrisms()): each piece is split at every profile
+ * breakpoint strictly inside its own span, and every resulting vertex gets
+ * the wall's own top at its projection onto the centerline — `cap`, where
+ * given, lowers that further to a flat ceiling (FaceFrame.heightMm), the way
+ * a voorzetwand can stop below the wall it stands against. A wall stating no
+ * profile stays flat at `wallHeight()` (or `cap`, if lower), with no `top`
+ * field — unchanged from before build-ups or profiles existed.
+ */
+function extrudeToTop(f: Floor, rw: ResolvedWall, pieces: readonly SolidPiece[], cap: number | undefined): Prism[] {
   const w = rw.wall;
   if (!w.profile || w.profile.length === 0) {
     const h = wallHeight(f, w);
-    return rw.pieces.map(p => ({ poly: p.poly, z0: 0, z1: h }));
+    const z1 = cap !== undefined ? Math.min(h, cap) : h;
+    return pieces.map(p => ({ poly: p.poly, z0: 0, z1 }));
   }
   const L = rw.length;
   const breaks = wallTopPolyline(f, w, L).map(p => p.s).filter(s => s > 0.5 && s < L - 0.5);
   const out: Prism[] = [];
-  for (const piece of rw.pieces) {
+  for (const piece of pieces) {
     for (const poly of splitAtBreaks(piece.poly, rw.a, rw.b, w.bulge, L, breaks)) {
-      const top = poly.map(p => wallTopAt(f, w, projectS(rw.a, rw.b, w.bulge, L, p)));
+      const top = poly.map(p => {
+        const h = wallTopAt(f, w, projectS(rw.a, rw.b, w.bulge, L, p));
+        return cap !== undefined ? Math.min(h, cap) : h;
+      });
       out.push({ poly, z0: 0, z1: Math.max(...top), top });
     }
   }
   return out;
 }
 
-/** `poly` cut at every `s` in `breaks` by the line through the wall's
- *  centerline point there, perpendicular to the wall (arc-aware: the normal
- *  is the outgoing tangent at that point, so the cut follows the local width
- *  direction rather than the chord). Degenerate slivers are dropped. */
-function splitAtBreaks(poly: Vec[], A: Vec, B: Vec, bulge: number, L: number, breaks: readonly number[]): Vec[][] {
+/**
+ * Every board and voorzetwand-frame prism on both faces of one wall:
+ * ResolvedWall.boards and .frame are already split at the wall's own
+ * openings (skinBandFor() loops the same `intervals` the structural `pieces`
+ * are built from), so extrudeToTop() needs no opening handling of its own —
+ * a door already cuts a gap in every band, structural and skin alike.
+ *
+ * A frame zone is massing: one prism per piece (ResolvedWall.frame), not the
+ * individual studs a takeoff or an elevation would draw. Both the frame zone
+ * and the boards stacked on it are capped at the SAME `FaceFrame.heightMm`
+ * where that face states a voorzetwand — the boards are hung on the frame, so
+ * they cannot stand taller than what carries them. A face with boards and no
+ * frame (cladding straight on the structural face) follows the wall's own
+ * top uncapped, exactly like the body it is fixed to.
+ *
+ * Reads only the host ResolvedWall: the leaf floor's own profile
+ * (core/leaf.ts's mapProfile()) is the same host top re-parameterised onto
+ * the leaf's centerline and capped the same way, and projectS() here already
+ * projects each world-space vertex onto the HOST centerline the way
+ * wallBodyPrisms() does for the structural face -- so reading the host's own
+ * wallTopAt() with the cap applied gives the identical height a leaf lookup
+ * would, without needing a LeafFloor built (and resolved) just for this.
+ */
+function buildUpPrisms(f: Floor, rw: ResolvedWall): BuildUpPrism[] {
+  const w = rw.wall;
+  const out: BuildUpPrism[] = [];
+  for (const side of ["left", "right"] as const) {
+    const idx = side === "left" ? 0 : 1;
+    const cap = frameOf(w, side)?.heightMm;
+    for (const band of rw.boards[idx]) {
+      for (const p of extrudeToTop(f, rw, band.pieces, cap)) {
+        out.push({ ...p, part: "boards", side, kind: band.kind });
+      }
+    }
+    for (const p of extrudeToTop(f, rw, rw.frame[idx], cap)) {
+      out.push({ ...p, part: "frame", side });
+    }
+  }
+  return out;
+}
+
+/**
+ * `poly` cut at every `s` in `breaks` by the line through the wall's
+ * centerline point there, perpendicular to the wall (arc-aware: the normal
+ * is the outgoing tangent at that point, so the cut follows the local width
+ * direction rather than the chord). Degenerate slivers are dropped.
+ *
+ * Exported for io/ifc.ts's voorzetwand export, which needs to split a leaf
+ * wall's own body pieces at its own mapped profile's breakpoints the same
+ * way wallBodyPrisms() splits a host wall's -- the identical rule, not a
+ * second one, since a stud frame's cut lines have to agree with the 3D view.
+ */
+export function splitAtBreaks(poly: Vec[], A: Vec, B: Vec, bulge: number, L: number, breaks: readonly number[]): Vec[][] {
   if (breaks.length === 0 || L <= 0) return poly.length >= 3 ? [poly] : [];
   const out: Vec[][] = [];
   let remainder = poly;
@@ -298,11 +385,17 @@ export function projectS(A: Vec, B: Vec, bulge: number, L: number, p: Vec): numb
   return t * L;
 }
 
-/** The lowest point of the wall's own top over [s0, s1] -- a piecewise-linear
- *  function's minimum over an interval is always at one of its breakpoints or
- *  the interval's own ends. Mirrors core/surface.ts's localTop() without the
- *  ceiling cap, which is a finish concern this module has no notion of. */
-function minTopOver(f: Floor, w: Wall, L: number, s0: number, s1: number): number {
+/**
+ * The lowest point of the wall's own top over [s0, s1] -- a piecewise-linear
+ * function's minimum over an interval is always at one of its breakpoints or
+ * the interval's own ends. Mirrors core/surface.ts's localTop() without the
+ * ceiling cap, which is a finish concern this module has no notion of.
+ *
+ * Exported for io/ifc.ts's voorzetwand export, which clamps a leaf opening's
+ * head against the leaf wall's own top the same way a host opening's head is
+ * clamped here -- the identical rule, read off the leaf wall instead.
+ */
+export function minTopOver(f: Floor, w: Wall, L: number, s0: number, s1: number): number {
   const lo = Math.max(0, Math.min(s0, s1)), hi = Math.min(L, Math.max(s0, s1));
   let m = Math.min(wallTopAt(f, w, lo), wallTopAt(f, w, hi));
   for (const p of wallTopPolyline(f, w, L)) if (p.s > lo && p.s < hi) m = Math.min(m, p.h);

@@ -478,5 +478,122 @@ function emptyDocWith(f: Floor): ReturnType<typeof emptyDoc> {
   check("a flat wall's void carries no band of its own", flatVoid.above === undefined);
 }
 
+// ── build-ups: boards and the voorzetwand frame zone (issue #73) ───────────
+
+/** Perpendicular distance from `p` to the infinite line through A-B, mm. */
+function perpDist(p: { x: number; y: number }, A: { x: number; y: number }, B: { x: number; y: number }): number {
+  const abx = B.x - A.x, aby = B.y - A.y;
+  const apx = p.x - A.x, apy = p.y - A.y;
+  const len = Math.hypot(abx, aby) || 1;
+  return Math.abs(abx * apy - aby * apx) / len;
+}
+
+{
+  // A two-board stack on the right face of a 100mm wall, no opening and no
+  // frame: one piece per board (the wall's whole length), each at its own
+  // cumulative offset from the centerline -- half (50) for the structural
+  // face, then +12 for the gypsum's own outer edge, then +15 more for the
+  // osb's, regardless of the plain neighbour it corners into (see
+  // surface.test.ts's case 1 caveat -- the board band's own offset still
+  // solves a real corner at that depth).
+  const f = rectFloor();
+  const w = f.walls[0]!; // (0,0) -> (4000,0)
+  const A = v(0, 0), B = v(4000, 0);
+  w.buildUp = { right: { boards: [{ kind: "gypsum", mm: 12 }, { kind: "osb", mm: 15 }] } };
+  const fs = floorSolids(emptyDocWith(f), 0)!;
+  const solid = fs.walls.find(x => x.wallId === w.id)!;
+  const boards = solid.buildUp.filter(p => p.part === "boards");
+
+  check("a two-board stack yields one prism per board per piece",
+    boards.length === 2, String(boards.length));
+  check("all boards prisms are tagged with their side",
+    boards.every(p => p.side === "right"));
+  check("boards keep their own kind, innermost first",
+    boards[0]?.kind === "gypsum" && boards[1]?.kind === "osb",
+    JSON.stringify(boards.map(p => p.kind)));
+
+  const gypsum = boards[0]!, osb = boards[1]!;
+  const distsOf = (p: typeof gypsum) => p.poly.map(pt => perpDist(pt, A, B));
+  check("the gypsum board runs from the structural face (50) to 62",
+    distsOf(gypsum).every(d => near(d, 50, 0.5) || near(d, 62, 0.5)), JSON.stringify(distsOf(gypsum)));
+  check("the osb board runs from 62 to 77, stacked outward on the gypsum",
+    distsOf(osb).every(d => near(d, 62, 0.5) || near(d, 77, 0.5)), JSON.stringify(distsOf(osb)));
+  check("the left face, stating no build-up, contributes nothing",
+    solid.buildUp.every(p => p.side !== "left"));
+}
+
+{
+  // A door in the wall's own body cuts every band it carries -- structural
+  // pieces, a voorzetwand's own frame zone, and the board stacked on it.
+  const f = rectFloor();
+  const w = f.walls[0]!;
+  w.openings.push(opening({ kind: "door", t: 1000, width: 830 }));
+  w.buildUp = {
+    right: {
+      frame: { gapMm: 20, depthMm: 50, material: "timber" },
+      boards: [{ kind: "gypsum", mm: 12 }],
+    },
+  };
+  const fs = floorSolids(emptyDocWith(f), 0)!;
+  const solid = fs.walls.find(x => x.wallId === w.id)!;
+  const frame = solid.buildUp.filter(p => p.part === "frame");
+  const boards = solid.buildUp.filter(p => p.part === "boards");
+
+  check("the door leaves the structural body in two pieces",
+    solid.body.length === 2, String(solid.body.length));
+  check("the door also cuts the frame zone in two",
+    frame.length === 2, String(frame.length));
+  check("...and the board stacked on it",
+    boards.length === 2, String(boards.length));
+}
+
+{
+  // A voorzetwand's own heightMm caps its zone and the board it carries,
+  // while the wall's own structural body (which knows nothing of a frame it
+  // carries) keeps the full storey height.
+  const f = rectFloor();
+  const w = f.walls[0]!;
+  w.buildUp = {
+    right: {
+      frame: { gapMm: 20, depthMm: 50, material: "timber", heightMm: 2000 },
+      boards: [{ kind: "gypsum", mm: 12 }],
+    },
+  };
+  const fs = floorSolids(emptyDocWith(f), 0)!;
+  const solid = fs.walls.find(x => x.wallId === w.id)!;
+
+  check("every build-up prism is capped at the frame's own heightMm",
+    solid.buildUp.length > 0 && solid.buildUp.every(p => near(p.z1, 2000, 1)),
+    JSON.stringify(solid.buildUp.map(p => p.z1)));
+  check("the structural body stays at the full storey height, uncapped",
+    solid.body.every(p => near(p.z1, FLOOR_HEIGHT_DEFAULT, 1)),
+    JSON.stringify(solid.body.map(p => p.z1)));
+}
+
+{
+  // A gable's build-up follows the same profile its host wall does: the
+  // board carries a top array and no vertex rises past the ridge.
+  const f = rectFloor();
+  const gable = f.walls[0]!;
+  const base = wallHeight(f, gable);
+  gable.profile = [{ t: 2000, height: base + 1000 }];
+  gable.buildUp = { right: { boards: [{ kind: "gypsum", mm: 12 }] } };
+  const fs = floorSolids(emptyDocWith(f), 0)!;
+  const solid = fs.walls.find(x => x.wallId === gable.id)!;
+  const boards = solid.buildUp.filter(p => p.part === "boards");
+
+  check("a profiled wall's build-up prisms carry a top array",
+    boards.length > 0 && boards.every(p => p.top !== undefined),
+    JSON.stringify(boards.map(p => p.top)));
+  check("no vertex of the board rises above the ridge",
+    boards.every(p => p.top!.every(h => h <= base + 1000 + 1)),
+    JSON.stringify(boards.map(p => p.top)));
+  const peakVerts = boards.flatMap(p => p.poly.map((pt, i) => ({ x: pt.x, h: p.top![i]! })))
+    .filter(pv => near(pv.x, 2000, 1));
+  check("the board is split at the ridge, meeting the peak height",
+    peakVerts.length >= 2 && peakVerts.every(pv => near(pv.h, base + 1000, 1)),
+    JSON.stringify(peakVerts));
+}
+
 console.log(failures === 0 ? "ALL SOLIDS TESTS PASSED" : `${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

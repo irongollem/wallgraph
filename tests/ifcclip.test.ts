@@ -359,6 +359,93 @@ async function run(): Promise<void> {
       near.length > 0 && Math.abs(midGot - midExpected) < Math.abs(midGot - h),
       `${midGot} vs ${midExpected} (wall height ${h})`);
   }
+
+  // ── issue #73: a voorzetwand's own volume is its frame plus its boards ───
+  //
+  // A framed face exports as its own IFCWALL (io/ifc.ts), so wallVolumesM3()
+  // picks up both it and the host's own body. No openings here -- this
+  // checks the massing arithmetic, not the sill/lintel bands #59 already
+  // covers on the host wall path the voorzetwand's own frame body reuses.
+  {
+    const doc = emptyDoc();
+    const f = doc.floors[0]!;
+    f.nodes.push({ id: "n1", x: 0, y: 0 }, { id: "n2", x: 4000, y: 0 });
+    const wall: Wall = {
+      id: "w-vz", a: "n1", b: "n2", thickness: 150, bulge: 0, openings: [],
+      material: "masonry",
+      buildUp: {
+        left: {
+          frame: { gapMm: 0, depthMm: 70, material: "timber", insulated: true },
+          boards: [{ kind: "gypsum", mm: 12 }],
+        },
+      },
+    };
+    f.walls.push(wall);
+    const h = floorHeight(f);
+    // Isolated, square-capped ends (no neighbouring wall to miter against),
+    // so the leaf's own length equals the host's and every depth's mitered
+    // length is the same 4000 mm -- the frame zone and the board band are
+    // each a plain box.
+    const hostVolM3 = (150 * 4000 * h) / 1e9;
+    const voorzetwandVolM3 = (70 * 4000 * h + 12 * 4000 * h) / 1e9; // stud zone + one board
+    const vols = wallVolumesM3(api, toIfc(doc, 0));
+    check("exactly two wall bodies (host + voorzetwand)", vols.length === 2, JSON.stringify(vols));
+    const closestTo = (target: number): number =>
+      vols.reduce((best, x) => Math.abs(x - target) < Math.abs(best - target) ? x : best, Infinity);
+    const gotHost = closestTo(hostVolM3), gotLeaf = closestTo(voorzetwandVolM3);
+    check("the host wall's own volume is undisturbed by the voorzetwand in front of it",
+      Math.abs(gotHost - hostVolM3) < 0.01, `${gotHost} vs ${hostVolM3}`);
+    check("the voorzetwand's own volume matches its frame plus its boards",
+      Math.abs(gotLeaf - voorzetwandVolM3) < 0.01, `${gotLeaf} vs ${voorzetwandVolM3}, all ${JSON.stringify(vols)}`);
+  }
+
+  // ── issue #73 (correction): a voorzetwand's board bands follow a sloped
+  //    profile too, not a flat extrusion to a piece's own local maximum ─────
+  //
+  // The stud zone already went through slopedPieceSolid(); only the board
+  // bands were wrong. A symmetric gable tent over an isolated (square-capped,
+  // unmitered) wall keeps the arithmetic exact: buildUpPrisms() splits each
+  // board band at the single interior breakpoint (t = 2000) into two equal
+  // halves, each averaging (base + peak) / 2 over its own span -- and by the
+  // tent's own symmetry that average equals the average over the WHOLE span
+  // too, so the correct figure is volume = avgHeight * length * depth. The
+  // bug this replaces extruded each half flat to ITS OWN local maximum, which
+  // for this symmetric tent is exactly the wall's own peak on both halves --
+  // i.e. exactly the flat-to-peak figure, kept here as the value the fix must
+  // NOT produce.
+  {
+    const doc = emptyDoc();
+    const f = doc.floors[0]!;
+    f.nodes.push({ id: "n1", x: 0, y: 0 }, { id: "n2", x: 4000, y: 0 });
+    const h = floorHeight(f);
+    const peak = h + 1600;
+    const wall: Wall = {
+      id: "w-gable-vz", a: "n1", b: "n2", thickness: 150, bulge: 0, openings: [],
+      material: "masonry",
+      profile: [{ t: 0, height: h }, { t: 2000, height: peak }, { t: 4000, height: h }],
+      buildUp: {
+        left: {
+          frame: { gapMm: 0, depthMm: 70, material: "timber" },
+          boards: [{ kind: "gypsum", mm: 12 }],
+        },
+      },
+    };
+    f.walls.push(wall);
+    const avgHeight = h + (peak - h) / 2; // the tent's own average, whole span and each half alike
+    const hostVolM3 = (avgHeight * 4000 * 150) / 1e9;
+    const correctVolM3 = (avgHeight * 4000 * (70 + 12)) / 1e9; // frame + board, following the profile
+    const flatVolM3 = (peak * 4000 * (70 + 12)) / 1e9;         // the pre-fix bug: flat to each half's own local max
+    const vols = wallVolumesM3(api, toIfc(doc, 0));
+    check("gable voorzetwand: exactly two wall bodies (host + voorzetwand)", vols.length === 2, JSON.stringify(vols));
+    const closestTo = (target: number): number =>
+      vols.reduce((best, x) => Math.abs(x - target) < Math.abs(best - target) ? x : best, Infinity);
+    const gotHost = closestTo(hostVolM3), gotLeaf = closestTo(correctVolM3);
+    check("gable voorzetwand: the host wall's own volume follows the gable profile",
+      Math.abs(gotHost - hostVolM3) < 0.01, `${gotHost} vs ${hostVolM3}`);
+    check("gable voorzetwand: the voorzetwand's own volume follows the profile (frame + boards), not the flat box",
+      Math.abs(gotLeaf - correctVolM3) < 0.01 && Math.abs(gotLeaf - flatVolM3) > 0.05,
+      `${gotLeaf} vs correct ${correctVolM3}, flat-bug would have been ${flatVolM3}, all ${JSON.stringify(vols)}`);
+  }
 }
 
 await run();

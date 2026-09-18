@@ -7,6 +7,7 @@ import { floorSolids, SLAB_DEFAULT_MM } from "../src/core/solids";
 import {
   buildSceneMesh, Mesh3D, WALL_COLOR, SLAB_COLOR, STAIR_COLOR,
   DOOR_COLOR, GLASS_COLOR, PANEL_COLOR, PLATE_SEAT_MM, STAIR_CLEAR_MM,
+  BOARD_COLOR, FRAME_COLOR,
 } from "../src/render3d/mesh";
 import { triangulatePolygon, triangulateWithHoles } from "../src/render3d/triangulate";
 import { v, Vec, polygonArea } from "../src/geometry/vec";
@@ -634,6 +635,64 @@ const RING_AREA = 1400000;
   const upperVol = volumeOf(m, WALL_COLOR, elev);
   check("the sloped wall's volume on the upper storey equals the single-storey figure",
     near(upperVol, expectedVolume, expectedVolume * 1e-4), `${upperVol} vs ${expectedVolume}`);
+}
+
+// ── build-up prisms in the mesh (issue #73) ─────────────────────────────────
+
+{
+  // A two-board stack (no frame) on one face: the mesh's BOARD_COLOR volume
+  // must equal the sum of the derived prisms' own footprint area x height --
+  // the same volumeOf()-against-floorSolids() pattern the plain wall body is
+  // checked with above.
+  const f = rectFloor();
+  const w = f.walls[0]!;
+  w.buildUp = { right: { boards: [{ kind: "gypsum", mm: 12 }, { kind: "osb", mm: 15 }] } };
+  const doc = emptyDocWith(f);
+  const fs = floorSolids(doc, 0)!;
+  const solid = fs.walls.find(x => x.wallId === w.id)!;
+  let expected = 0;
+  for (const p of solid.buildUp) expected += Math.abs(polygonArea(p.poly)) * (p.z1 - p.z0);
+  check("build-up prisms exist for a board-only face", solid.buildUp.length > 0,
+    String(solid.buildUp.length));
+
+  const m = buildSceneMesh(doc);
+  const boardVol = volumeOf(m, BOARD_COLOR);
+  check("boards reach the mesh at BOARD_COLOR, matching their own volume",
+    nearRel(boardVol, expected), `${boardVol} vs ${expected}`);
+  check("no frame prisms without a voorzetwand", volumeOf(m, FRAME_COLOR) === 0);
+  check("the wall body's own volume is unaffected by the board on its face",
+    nearRel(volumeOf(m, WALL_COLOR), rectWallVol, 1e-3));
+}
+
+{
+  // A voorzetwand (frame + one board) on one face: both FRAME_COLOR and
+  // BOARD_COLOR must appear, each at its own derived volume.
+  const f = rectFloor();
+  const w = f.walls[0]!;
+  w.buildUp = {
+    right: {
+      frame: { gapMm: 20, depthMm: 50, material: "timber" },
+      boards: [{ kind: "gypsum", mm: 12 }],
+    },
+  };
+  const doc = emptyDocWith(f);
+  const fs = floorSolids(doc, 0)!;
+  const solid = fs.walls.find(x => x.wallId === w.id)!;
+  let expectedFrame = 0, expectedBoards = 0;
+  for (const p of solid.buildUp) {
+    const vol = Math.abs(polygonArea(p.poly)) * (p.z1 - p.z0);
+    if (p.part === "frame") expectedFrame += vol; else expectedBoards += vol;
+  }
+  check("a voorzetwand derives both a frame zone and a board", expectedFrame > 0 && expectedBoards > 0,
+    `${expectedFrame} / ${expectedBoards}`);
+
+  const m = buildSceneMesh(doc);
+  const frameVol = volumeOf(m, FRAME_COLOR);
+  const boardVol = volumeOf(m, BOARD_COLOR);
+  check("the frame zone reaches the mesh at FRAME_COLOR, matching its own volume",
+    nearRel(frameVol, expectedFrame), `${frameVol} vs ${expectedFrame}`);
+  check("the board on it reaches the mesh at BOARD_COLOR, matching its own volume",
+    nearRel(boardVol, expectedBoards), `${boardVol} vs ${expectedBoards}`);
 }
 
 console.log(failures === 0 ? "ALL MESH3D TESTS PASSED" : `${failures} FAILURES`);
