@@ -4,9 +4,10 @@
 // rather than re-deriving them. See tests/materials.test.ts for the count
 // and length assertions this exercises geometrically.
 import {
-  emptyDoc, newId, type Floor, type Opening, type PlanDoc, type Wall,
+  emptyDoc, newId, type FaceFrame, type Floor, type Opening, type PlanDoc, type Wall,
 } from "../src/model/doc";
 import { resolveFloor } from "../src/core/resolve";
+import { resolveLeaves } from "../src/core/leaf";
 import { detectRooms } from "../src/core/rooms";
 import { floorSurface } from "../src/core/surface";
 import { floorMaterials } from "../src/core/materials";
@@ -344,6 +345,61 @@ function elevationOf(f: Floor, w: Wall) {
   const wt = materials.walls.find(x => x.wallId === w.id)!;
 
   check("frameLayout's aggregated members deep-equal floorMaterials()'s WallTakeoff.members",
+    JSON.stringify(aggregated) === JSON.stringify(wt.members),
+    `${JSON.stringify(aggregated)} vs ${JSON.stringify(wt.members)}`);
+}
+
+// ---- a leaf's wallElevation() agrees with its own WallTakeoff.members ------
+//
+// Same comparison as the frame-vs-takeoff case above, but for a voorzetwand
+// leaf: floorMaterials() derives the leaf itself (core/leaf.ts) and appends
+// its WallTakeoff with `host` set (see core/materials.ts's own comment on why
+// a leaf nests into the SAME bySystem entry as an ordinary partition).
+
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.height = H;
+  const n1 = newId("n"), n2 = newId("n");
+  f.nodes = [{ id: n1, x: 0, y: 0 }, { id: n2, x: LEN, y: 0 }];
+  const frame: FaceFrame = {
+    gapMm: 20, depthMm: 50, material: "timber", postMm: POST_MM, postWidthMm: POST_WIDTH, noggingRows: 1,
+  };
+  const door = opening({ kind: "door", t: 1000, width: 900, sillHeight: 0, height: 2315 });
+  const win = opening({ kind: "window", t: 3000, width: 900, sillHeight: 900, height: 1200 });
+  const host: Wall = {
+    id: newId("w"), a: n1, b: n2, thickness: FRAME_TH, bulge: 0, openings: [door, win],
+    buildUp: { left: { frame, boards: [] } },
+  };
+  f.walls = [host];
+
+  const resolved = resolveFloor(f);
+  const leaves = resolveLeaves(f, resolved);
+  const leafWall = leaves.leaf.leafOf(host.id, "left")!;
+  const rw = leaves.resolved.walls.get(leafWall.id)!;
+  const elevation = wallElevation(leaves.leaf.floor, leafWall, rw);
+
+  interface AggMember {
+    name: string; sectionMm: { w: number; d: number }; lengthMm: number; count: number; spliceable: boolean;
+  }
+  function aggregate(members: readonly PlacedMember[]): AggMember[] {
+    const out: AggMember[] = [];
+    for (const m of members) {
+      const existing = out.find(x => x.name === m.name && x.spliceable === m.spliceable && x.lengthMm === m.lengthMm
+        && x.sectionMm.w === m.sectionMm.w && x.sectionMm.d === m.sectionMm.d);
+      if (existing) existing.count += m.count;
+      else out.push({ name: m.name, sectionMm: { ...m.sectionMm }, lengthMm: m.lengthMm, count: m.count, spliceable: m.spliceable });
+    }
+    return out;
+  }
+  const aggregated = aggregate(elevation.members);
+
+  const rooms = detectRooms(f);
+  const surface = floorSurface(f, resolved, rooms);
+  const materials = floorMaterials(doc, f, resolved, surface);
+  const wt = materials.walls.find(x => x.host?.wallId === host.id && x.host.side === "left")!;
+
+  check("a leaf's wallElevation() aggregated members deep-equal its own WallTakeoff.members",
     JSON.stringify(aggregated) === JSON.stringify(wt.members),
     `${JSON.stringify(aggregated)} vs ${JSON.stringify(wt.members)}`);
 }

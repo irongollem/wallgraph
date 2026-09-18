@@ -20,6 +20,8 @@
 import type { Id, PlanDoc, Floor, OpeningKind, WallMaterial } from "../model/doc";
 import { decksOf, structureOf, projectOf, openingBearing, openingHead } from "../model/doc";
 import { wallTopAt } from "../model/profile";
+import { resolveFloor } from "../core/resolve";
+import { resolveLeaves } from "../core/leaf";
 import { bearingOf } from "../model/deck";
 import { deckSpanMm } from "../core/deck";
 import { trimDeck } from "../core/trimmer";
@@ -90,6 +92,12 @@ export interface SheetLintelRow {
   aboveMm: number;
   lintelLoadKNm?: number;
   result: CheckResult;
+  /** Present only for a voorzetwand's own opening: the host wall it stands
+   *  on and the face, plus the host's own length (mm, the mitered face
+   *  length ui/materials.ts's wallLabel() reads) -- a leaf cannot be
+   *  selected on the plan, so this is what names it on the sheet instead of
+   *  a wallId nobody drew. */
+  host?: { wallId: Id; side: "left" | "right"; hostLengthMm: number };
 }
 
 export interface SheetStorey {
@@ -162,6 +170,30 @@ function sheetStorey(doc: PlanDoc, f: Floor): SheetStorey {
         wallMaterial: w.material, wallThicknessMm: w.thickness, aboveMm,
         lintelLoadKNm: o.lintelLoadKNm,
         result: lintelCheck(doc, f, w, o),
+      });
+    }
+  }
+
+  // Every voorzetwand's own openings, checked the same way over the LEAF's
+  // own wall and floor (core/leaf.ts) -- its own boards and studs are what
+  // spans the opening, not the host's structure. A leaf cannot be selected on
+  // the plan, so this sheet is the only place its own lintel is reported;
+  // `host` is what names it, since the leaf's wallId draws nothing itself.
+  const resolved = resolveFloor(f);
+  const leaves = resolveLeaves(f, resolved);
+  for (const leafWall of leaves.leaf.floor.walls) {
+    const host = leaves.leaf.hostOf.get(leafWall.id)!;
+    const hostRw = resolved.walls.get(host.wallId);
+    const hostLengthMm = hostRw ? Math.round((hostRw.faces.left + hostRw.faces.right) / 2) : 0;
+    for (const o of leafWall.openings) {
+      const aboveMm = Math.max(0, wallTopAt(leaves.leaf.floor, leafWall, o.t) - openingHead(o));
+      lintels.push({
+        id: o.id, wallId: leafWall.id, kind: o.kind, widthMm: o.width,
+        spanMm: o.width + openingBearing(o), bearingMm: openingBearing(o),
+        wallMaterial: leafWall.material, wallThicknessMm: leafWall.thickness, aboveMm,
+        lintelLoadKNm: o.lintelLoadKNm,
+        result: lintelCheck(doc, leaves.leaf.floor, leafWall, o),
+        host: { wallId: host.wallId, side: host.side, hostLengthMm },
       });
     }
   }
@@ -420,8 +452,18 @@ function beamTitle(row: SheetBeamRow): string {
   return row.label !== "" ? `${t("panel.structureBeam")} — ${row.label}` : t("panel.structureBeam");
 }
 
+/** A voorzetwand's own row is prefixed with its host wall and face --
+ *  "muur 3400 mm, voorzetwand links van a→b — Deur — 900 mm" -- since the
+ *  leaf itself is never drawn on the plan and a bare wallId would name
+ *  nothing a reader could find. Mirrors ui/materials.ts's own leafLabel(),
+ *  duplicated rather than imported: io/ does not reach into ui/ (see the
+ *  FLAG_KEY note above). */
 function lintelTitle(row: SheetLintelRow): string {
-  return `${t("panel." + row.kind)} — ${mm(row.widthMm)}`;
+  const opening = `${t("panel." + row.kind)} — ${mm(row.widthMm)}`;
+  if (!row.host) return opening;
+  const side = row.host.side === "left" ? t("panel.facadeLeft") : t("panel.facadeRight");
+  const host = t("assumptions.lintelHost", { wall: t("materials.wallLabel", { mm: row.host.hostLengthMm }), side });
+  return `${host} — ${opening}`;
 }
 
 /** `w × d mm` for a check that ran against a rectangular timber section --

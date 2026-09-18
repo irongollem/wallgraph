@@ -6,9 +6,10 @@
 // calling it again after mutating the document and checking the result
 // tracks the change.
 import {
-  emptyDoc, newId, Wall, Opening, Floor, PlanDoc, Id,
+  emptyDoc, newId, Wall, Opening, Floor, PlanDoc, Id, type FaceFrame,
 } from "../src/model/doc";
-import { resolveFloor } from "../src/core/resolve";
+import { resolveFloor, postPositions } from "../src/core/resolve";
+import { resolveLeaves } from "../src/core/leaf";
 import { detectRooms } from "../src/core/rooms";
 import { floorSurface, type FloorSurface } from "../src/core/surface";
 import { floorMaterials, type WallTakeoff } from "../src/core/materials";
@@ -606,6 +607,212 @@ function backingCountOf(walls: WallTakeoff[]): number {
     stud.lengthMm > 6000, String(stud.lengthMm));
   check("suggestedBreaksMm proposes the smallest break that would make every stud fit: 3500",
     JSON.stringify(wt.suggestedBreaksMm) === JSON.stringify([3500]), JSON.stringify(wt.suggestedBreaksMm));
+}
+
+// ---- voorzetwand (leaf) takeoff --------------------------------------------
+//
+// A voorzetwand is derived by core/leaf.ts's resolveLeaves() from a host
+// wall's stated FaceFrame and appears in floorMaterials()'s own `walls`
+// array carrying `host: { wallId, side }` -- these cases exercise it through
+// the same public entry point every other case in this file uses.
+
+function leafFrame(over: Partial<FaceFrame> = {}): FaceFrame {
+  return { gapMm: 20, depthMm: 50, material: "timber", postMm: 600, postWidthMm: 45, ...over };
+}
+
+{
+  // A 4000mm framed face at 600 grid / 45mm studs, with a door at t=2000
+  // (jambs 1550/2450) mapped straight across -- an isolated host wall offsets
+  // its leaf with no along-length shift, so the leaf's own openings and
+  // length equal the host's exactly (see leaf.test.ts's own opening-mapping
+  // case). Grid candidates fall at 600/1200/1800/2400/3000/3600; cut around
+  // the door's own run leaves 600/1200 in [0,1550] and 3000/3600 in
+  // [2450,4000] -- 4 interior posts -- plus an end stud at each end (both
+  // jambs stand well clear of the wall's own ends), a king either side of the
+  // door and two jacks under its header, the same rule an ordinary wall's
+  // frame follows (see tests/frame.test.ts).
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.height = H;
+  const n1 = newId("n"), n2 = newId("n");
+  f.nodes = [{ id: n1, x: 0, y: 0 }, { id: n2, x: W, y: 0 }];
+  const door = opening({ kind: "door", t: 2000, width: 900, sillHeight: 0, height: 2315 });
+  const host: Wall = {
+    id: newId("w"), a: n1, b: n2, thickness: 100, bulge: 0, openings: [door],
+    buildUp: { left: { frame: leafFrame(), boards: [] } },
+  };
+  f.walls = [host];
+
+  const resolved = resolveFloor(f);
+  const leaves = resolveLeaves(f, resolved);
+  const leafWall = leaves.leaf.leafOf(host.id, "left")!;
+  const rw = leaves.resolved.walls.get(leafWall.id)!;
+  const pp = postPositions(leafWall, rw.length, rw.intervals);
+  check("postPositions() on the leaf finds the 4 interior grid posts either side of the door",
+    pp.length === 4, JSON.stringify(pp));
+  check("rw.posts agrees with postPositions()", rw.posts.length === pp.length,
+    `${rw.posts.length} vs ${pp.length}`);
+
+  const { m } = materialsOf(doc, f);
+  const wt = m.walls.find(w => w.host?.wallId === host.id && w.host.side === "left")!;
+  check("the leaf takeoff is classified framed-timber", wt.system === "framed-timber", wt.system);
+
+  const stud = wt.members.find(x => x.name === "stud")!;
+  check("stud count is postPositions() plus one at each end (4 + 2 = 6)",
+    stud.count === pp.length + 2, String(stud.count));
+  check("stud count is also rw.posts.length + 2", stud.count === rw.posts.length + 2,
+    `${stud.count} vs ${rw.posts.length} + 2`);
+
+  const king = wt.members.find(x => x.name === "king")!;
+  check("one mapped door yields two king studs", king !== undefined && king.count === 2, String(king?.count));
+  const jack = wt.members.find(x => x.name === "jack")!;
+  check("one mapped door yields two jack studs", jack !== undefined && jack.count === 2, String(jack?.count));
+}
+
+// ---- backing at an inside corner of two leaves -----------------------------
+
+{
+  // Two voorzetwand leaves meeting at an inside corner: computeBacking()
+  // (core/frame.ts) runs on the leaf floor exactly as it does on an ordinary
+  // one (see the "corner and junction backing" section above), attributing
+  // the corner's one backing stud to whichever leaf's own id sorts lower.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.height = H;
+  const n1 = newId("n"), n2 = newId("n"), n3 = newId("n");
+  f.nodes = [{ id: n1, x: 0, y: 0 }, { id: n2, x: 4000, y: 0 }, { id: n3, x: 4000, y: 3000 }];
+  const h1: Wall = {
+    id: newId("w"), a: n1, b: n2, thickness: 100, bulge: 0, openings: [],
+    buildUp: { left: { frame: leafFrame(), boards: [] } },
+  };
+  const h2: Wall = {
+    id: newId("w"), a: n2, b: n3, thickness: 100, bulge: 0, openings: [],
+    buildUp: { left: { frame: leafFrame(), boards: [] } },
+  };
+  f.walls = [h1, h2];
+
+  const resolved = resolveFloor(f);
+  const leaves = resolveLeaves(f, resolved);
+  const leaf1 = leaves.leaf.leafOf(h1.id, "left")!;
+  const leaf2 = leaves.leaf.leafOf(h2.id, "left")!;
+
+  const { m } = materialsOf(doc, f);
+  check("an inside corner of two leaves yields exactly one backing stud, total",
+    backingCountOf(m.walls) === 1, String(backingCountOf(m.walls)));
+
+  const lowerId = leaf1.id < leaf2.id ? leaf1.id : leaf2.id;
+  const holder = m.walls.find(w => (w.members.find(x => x.name === "backing")?.count ?? 0) > 0);
+  check("the backing is attributed to the lower of the two leaf ids",
+    holder !== undefined && holder.wallId === lowerId, `${holder?.wallId} vs ${lowerId}`);
+}
+
+// ---- nesting mixes a partition and a leaf of the same system --------------
+
+{
+  // A partition (an ordinary framed-timber wall) and a voorzetwand leaf of
+  // the same system nest into one bySystem entry, not two.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.height = H;
+  const n1 = newId("n"), n2 = newId("n"), n3 = newId("n"), n4 = newId("n");
+  f.nodes = [
+    { id: n1, x: 0, y: 0 }, { id: n2, x: 4000, y: 0 },
+    { id: n3, x: 0, y: 1000 }, { id: n4, x: 4000, y: 1000 },
+  ];
+  const partition = framedWall(n3, n4);
+  const host: Wall = {
+    id: newId("w"), a: n1, b: n2, thickness: 100, bulge: 0, openings: [],
+    buildUp: { left: { frame: leafFrame(), boards: [] } },
+  };
+  f.walls = [partition, host];
+
+  const { m } = materialsOf(doc, f);
+  const framedEntries = m.bySystem.filter(s => s.system === "framed-timber");
+  check("the partition and the leaf nest into one framed-timber entry, not two",
+    framedEntries.length === 1, String(framedEntries.length));
+  check("that entry counts both the partition and the leaf",
+    framedEntries[0]!.walls === 2, String(framedEntries[0]!.walls));
+}
+
+// ---- insulation and board area read the leaf's own room face --------------
+
+{
+  // Framing H1's face at an L corner (H2 meets it at (4000,0), also framed)
+  // makes the leaf's own two mitered faces genuinely unequal, so a wrong
+  // implementation -- min(faces), or the host's own structural face -- cannot
+  // agree with the right one by coincidence.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.height = H;
+  const n1 = newId("n"), n2 = newId("n"), n3 = newId("n");
+  f.nodes = [{ id: n1, x: 0, y: 0 }, { id: n2, x: 4000, y: 0 }, { id: n3, x: 4000, y: 3000 }];
+  const h1: Wall = {
+    id: newId("w"), a: n1, b: n2, thickness: 100, bulge: 0, openings: [],
+    buildUp: { right: { frame: leafFrame({ insulated: true }), boards: [{ kind: "gypsum", mm: 12 }] } },
+  };
+  const h2: Wall = {
+    id: newId("w"), a: n2, b: n3, thickness: 100, bulge: 0, openings: [],
+    buildUp: { right: { frame: leafFrame(), boards: [] } },
+  };
+  f.walls = [h1, h2];
+
+  const resolved = resolveFloor(f);
+  const leaves = resolveLeaves(f, resolved);
+  const leaf1 = leaves.leaf.leafOf(h1.id, "right")!;
+  const leafRooms = detectRooms(leaves.leaf.floor);
+  const leafSurface = floorSurface(leaves.leaf.floor, leaves.resolved, leafRooms);
+  const leafWsurf = leafSurface.walls.find(s => s.wallId === leaf1.id)!;
+  check("the corner makes the leaf's own two faces genuinely unequal",
+    Math.abs(leafWsurf.faces[0].netMm2 - leafWsurf.faces[1].netMm2) > 1000,
+    JSON.stringify(leafWsurf.faces.map(x => x.netMm2)));
+
+  const { surface, m } = materialsOf(doc, f);
+  const leafWt = m.walls.find(w => w.host?.wallId === h1.id && w.host.side === "right")!;
+  const roomFace = leafWsurf.faces[1].netMm2; // host side "right" -> the leaf's own right face
+  const minFace = Math.min(leafWsurf.faces[0].netMm2, leafWsurf.faces[1].netMm2);
+  check("the leaf's room face is not its own smaller face (the fixture is discriminating)",
+    !near(roomFace, minFace, 1));
+  check("insulation is the leaf's own room face area",
+    near(leafWt.insulationMm2, roomFace, 1), `${leafWt.insulationMm2} vs ${roomFace}`);
+  check("insulation is NOT the smaller of the leaf's two faces",
+    !near(leafWt.insulationMm2, minFace, 1));
+
+  const hostWt = m.walls.find(w => w.wallId === h1.id)!;
+  const hostWsurf = surface.walls.find(s => s.wallId === h1.id)!;
+  const gypsum = hostWt.boards.find(b => b.kind === "gypsum")!;
+  check("the board area is measured on the leaf's own room face",
+    near(gypsum.areaMm2, roomFace, 1), `${gypsum.areaMm2} vs ${roomFace}`);
+  check("the board area is NOT the host's own structural face area",
+    !near(gypsum.areaMm2, hostWsurf.faces[1].netMm2, 1),
+    `${gypsum.areaMm2} vs ${hostWsurf.faces[1].netMm2}`);
+}
+
+// ---- a frame with no postMm reports rather than vanishing ------------------
+
+{
+  // leafSystemOf() classifies by MATERIAL alone (unlike systemOf(), which
+  // falls to "other" when a wall states no postMm -- see the "incomplete
+  // markers" section above), so a voorzetwand with no post grid still names a
+  // framed-* system and carries the "postWidth" incomplete token instead of
+  // silently dropping every member.
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.height = H;
+  const n1 = newId("n"), n2 = newId("n");
+  f.nodes = [{ id: n1, x: 0, y: 0 }, { id: n2, x: 4000, y: 0 }];
+  const host: Wall = {
+    id: newId("w"), a: n1, b: n2, thickness: 100, bulge: 0, openings: [],
+    buildUp: { left: { frame: { gapMm: 20, depthMm: 50, material: "timber" }, boards: [] } },
+  };
+  f.walls = [host];
+
+  const { m } = materialsOf(doc, f);
+  const wt = m.walls.find(w => w.host?.wallId === host.id && w.host.side === "left")!;
+  check("a leaf with no postMm is still classified framed-timber, not \"other\"",
+    wt.system === "framed-timber", wt.system);
+  check("no members without a post grid", wt.members.length === 0);
+  check("the leaf reports the \"postWidth\" incomplete token",
+    wt.incomplete.includes("postWidth"), JSON.stringify(wt.incomplete));
 }
 
 // ---- stockPresetOf: which named preset the document's stock list matches --

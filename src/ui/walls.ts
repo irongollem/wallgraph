@@ -25,7 +25,7 @@ import { foldOut } from "./foldout";
 import { icon, type IconName } from "./icons";
 import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
-import { renderFaceBuildUp, withFaceBuildUp, wallHasBuildUp } from "./buildup";
+import { renderFaceBuildUp, withFaceBuildUp, wallHasBuildUp, faceLabel } from "./buildup";
 
 /** Thicknesses a plan is ordinarily drawn at, mm. Anything else is typed. */
 const THICKNESSES: readonly number[] = [70, 100, 150, 200, 300];
@@ -125,8 +125,7 @@ export function renderWallTool(
   // of one -- so neither face can yet carry it, and the note branch never
   // fires here.
   for (const side of ["left", "right"] as const) {
-    const label = side === "left" ? t("panel.facadeLeft") : t("panel.facadeRight");
-    renderFaceBuildUp(rows, label, false, tools.wallBuildUp?.[side],
+    renderFaceBuildUp(rows, faceLabel(side), false, tools.wallBuildUp?.[side],
       fu => tools.setWallPen({ wallBuildUp: withFaceBuildUp(tools.wallBuildUp, side, fu) }));
   }
   if (isBlockMaterial(tools.wallMaterial ?? undefined)) {
@@ -264,7 +263,7 @@ export function renderWallSurface(rows: PaneRows, s: WallSurface, hasBuildUp = f
   const lowered = s.faces.some(x => x.heightMm < s.heightMm);
   if (lowered) {
     for (const face of s.faces) {
-      rows.infoRow(faceLabel(face),
+      rows.infoRow(roomFaceLabel(face),
         t("panel.wallSurfaceFaceValue", { area: sqm(face.finishMm2), mm: face.heightMm }));
     }
   }
@@ -275,8 +274,10 @@ export function renderWallSurface(rows: PaneRows, s: WallSurface, hasBuildUp = f
 }
 
 /** What to call one face: the room it looks into, named or not, or the outside
- *  where it looks into no room at all. */
-function faceLabel(face: WallSurface["faces"][number]): string {
+ *  where it looks into no room at all -- unrelated to buildup.ts's own
+ *  faceLabel(), which names a face by its side (left/right of a→b) rather
+ *  than by what it looks into. */
+function roomFaceLabel(face: WallSurface["faces"][number]): string {
   if (face.roomName !== undefined) return face.roomName;
   return face.roomKey === undefined
     ? t("panel.wallSurfaceFaceOutside")

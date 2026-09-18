@@ -8,7 +8,7 @@
 // gets built, only what the drawn construction implies.
 import type { Floor, Id, PlanDoc, Wall, BoardKind } from "../model/doc";
 import {
-  isBlockMaterial, isFramedMaterial, buildUpOf, BOARD_KINDS, wallPostMm, decksOf,
+  isBlockMaterial, isFramedMaterial, buildUpOf, frameOf, BOARD_KINDS, wallPostMm, decksOf,
 } from "../model/doc";
 import { wallTopRange } from "../model/profile";
 import { type Deck, bearingOf } from "../model/deck";
@@ -16,7 +16,9 @@ import { deckAcrossMm, deckSpanMm } from "./deck";
 import { trimDeck } from "./trimmer";
 import { kerfMm, sheetOf, stockLengths, wastePct } from "../model/materials";
 import type { Resolved, ResolvedWall } from "./resolve";
-import type { FloorSurface } from "./surface";
+import { floorSurface, type FloorSurface, type WallSurface } from "./surface";
+import { detectRooms } from "./rooms";
+import { resolveLeaves } from "./leaf";
 import { nest, type NestResult, type Piece } from "./stock";
 import { computeBacking, frameLayoutOf, wallElevation, type PlacedMember, type WallBacking } from "./frame";
 
@@ -35,6 +37,21 @@ function systemOf(w: Wall): WallSystem {
     if (wallPostMm(w) === undefined) return "other";
     return w.material === "steel" ? "framed-steel" : "framed-timber";
   }
+  if (isBlockMaterial(w.material)) return "block";
+  if (w.material === "sandwich") return "sandwich";
+  return "other";
+}
+
+/**
+ * A leaf's system, unlike systemOf(): a voorzetwand is a frame regardless of
+ * whether it states `postMm`. systemOf() falls to "other" -- silently
+ * dropping every member -- for exactly the wall a document-stated frame
+ * would report as incomplete instead. A leaf's material is always "timber"
+ * or "steel" (FaceFrame), so the block/sandwich branches never fire; they
+ * are kept only so this stays systemOf()'s obvious counterpart.
+ */
+function leafSystemOf(w: Wall): WallSystem {
+  if (isFramedMaterial(w.material)) return w.material === "steel" ? "framed-steel" : "framed-timber";
   if (isBlockMaterial(w.material)) return "block";
   if (w.material === "sandwich") return "sandwich";
   return "other";
@@ -61,6 +78,13 @@ export interface Member {
 
 export interface WallTakeoff {
   wallId: Id;
+  /**
+   * The host wall and face this takeoff's voorzetwand stands on, absent on a
+   * wall the document itself states. `wallId` stays the id of the wall the
+   * figures are OF, so a leaf can be looked up; this is what says whose face
+   * it is.
+   */
+  host?: { wallId: Id; side: "left" | "right" };
   system: WallSystem;
   /** Frame length: mean of the two mitered face lengths from resolveFloor(). */
   lengthMm: number;
@@ -165,11 +189,30 @@ function framedMembers(
   return { members, suggestedBreaksMm: layout.suggestedBreaksMm };
 }
 
+/**
+ * `leaf`, present only when `w` is itself a voorzetwand leaf: the host face
+ * it stands on (carried into `WallTakeoff.host`) and where its ROOM face
+ * sits. A leaf's own tangent runs the same direction as its host's (see
+ * leaf.ts's buildLeafWall(): its `a`/`b` are the host's mapped `a`/`b`, not
+ * swapped), so its "left"/"right" split by invariant 2 lines up with the
+ * host's -- a leaf derived from the host's `left` face stands further along
+ * +perp(tangent) than the host's own left face, i.e. further from the host
+ * and so still facing the same room, on the leaf's own `left`. A leaf derived
+ * from `right` is room-side on its own `right` the same way.
+ *
+ * `leafSurfaceOf`, present only when `w` is a HOST wall, looks up the
+ * WallSurface of the leaf standing on one of its faces (undefined where that
+ * face states no frame), for the board-area rule below.
+ */
 function wallTakeoffOf(
   f: Floor, w: Wall, rw: ResolvedWall, surface: FloorSurface, waste: number,
   backing: ReadonlyMap<Id, WallBacking>, maxStockMm: number,
+  opts: {
+    leaf?: { host: { wallId: Id; side: "left" | "right" } };
+    leafSurfaceOf?: (wallId: Id, side: "left" | "right") => WallSurface | undefined;
+  } = {},
 ): WallTakeoff {
-  const system = systemOf(w);
+  const system = opts.leaf ? leafSystemOf(w) : systemOf(w);
   // Whole mm: a cut length, and what nest() and the member merge compare exactly.
   const lengthMm = Math.round((rw.faces.left + rw.faces.right) / 2);
   const heightMm = wallTopRange(f, w, rw.length).max;
@@ -213,13 +256,26 @@ function wallTakeoffOf(
   // board's own thickness, so a kind stacked twice on one face -- or once on
   // each -- counts twice. #71 moves this to each board's own face; today
   // every board on a face shares that face's one structural-face figure.
+  //
+  // A face that carries a frame (frameOf() set) is hung on the LEAF, not on
+  // the host's own structural face -- the boards stand on the studs, at a
+  // stand-off in front of the wall they are drawn against. An unframed face
+  // is unchanged (#71 is what refines the finish face for those).
   const boardAreas = new Map<BoardKind, number>();
   let boardsIncomplete = false;
   for (const side of ["left", "right"] as const) {
     const fu = buildUpOf(w, side);
     if (!fu) continue;
-    if (!wsurf) { boardsIncomplete = true; continue; }
-    const area = wsurf.faces[side === "left" ? 0 : 1].netMm2;
+    let area: number | undefined;
+    if (frameOf(w, side)) {
+      const leafSurf = opts.leafSurfaceOf?.(w.id, side);
+      // Room face = same side letter as the host frame side, see the
+      // function comment above.
+      area = leafSurf?.faces[side === "left" ? 0 : 1].netMm2;
+    } else {
+      area = wsurf?.faces[side === "left" ? 0 : 1].netMm2;
+    }
+    if (area === undefined) { boardsIncomplete = true; continue; }
     for (const b of fu.boards) boardAreas.set(b.kind, (boardAreas.get(b.kind) ?? 0) + area);
   }
   if (boardsIncomplete) incomplete.push("boards");
@@ -227,12 +283,18 @@ function wallTakeoffOf(
     .filter(kind => boardAreas.has(kind))
     .map(kind => ({ kind, areaMm2: boardAreas.get(kind)! }));
 
-  // The cavity's own area: one face's net area, the smaller of the two for
-  // the same reason the block body reads one face -- see above.
-  const insulationMm2 = w.insulated && wsurf ? Math.min(wsurf.faces[0].netMm2, wsurf.faces[1].netMm2) : 0;
+  // The cavity's own area: one face's net area. A host wall reads the
+  // smaller of the two, the same conservative choice the block body makes --
+  // see above. A leaf's two faces are not two room faces (one looks into the
+  // room, the other at the stand-off against the host), so a leaf reads its
+  // own room face instead -- see the function comment above.
+  const insulationMm2 = !w.insulated || !wsurf ? 0
+    : opts.leaf ? wsurf.faces[opts.leaf.host.side === "left" ? 0 : 1].netMm2
+    : Math.min(wsurf.faces[0].netMm2, wsurf.faces[1].netMm2);
 
   return {
-    wallId: w.id, system, lengthMm, heightMm, members, suggestedBreaksMm: framed.suggestedBreaksMm,
+    wallId: w.id, ...(opts.leaf ? { host: opts.leaf.host } : {}),
+    system, lengthMm, heightMm, members, suggestedBreaksMm: framed.suggestedBreaksMm,
     boards, insulationMm2, blocks, blockMm2, panels, incomplete,
   };
 }
@@ -287,12 +349,39 @@ export function floorMaterials(doc: PlanDoc, f: Floor, resolved: Resolved, surfa
   const stockList = stockLengths(doc);
   const maxStockMm = stockList.length > 0 ? stockList[stockList.length - 1]! : Infinity;
 
+  // The leaf floor is derived here rather than taken as a parameter, unlike
+  // `resolved`/`surface`: those are the caller's own revision-cached
+  // geometry of THIS floor, but an optional or caller-supplied leaf floor
+  // would let a consumer hand in one that disagrees with the plan this
+  // takeoff was otherwise drawn from. Deriving it from the same `resolved`
+  // this function already received keeps the two in agreement by
+  // construction.
+  const leaves = resolveLeaves(f, resolved);
+  const leafRooms = detectRooms(leaves.leaf.floor);
+  const leafSurface = floorSurface(leaves.leaf.floor, leaves.resolved, leafRooms);
+  const leafBacking = computeBacking(leaves.leaf.floor);
+  const leafSurfaceOf = (wallId: Id, side: "left" | "right"): WallSurface | undefined => {
+    const leafWall = leaves.leaf.leafOf(wallId, side);
+    if (!leafWall) return undefined;
+    return leafSurface.walls.find(s => s.wallId === leafWall.id);
+  };
+
   const backing = computeBacking(f);
   const walls: WallTakeoff[] = [];
   for (const w of f.walls) {
     const rw = resolved.walls.get(w.id);
     if (!rw) continue;
-    walls.push(wallTakeoffOf(f, w, rw, surface, waste, backing, maxStockMm));
+    walls.push(wallTakeoffOf(f, w, rw, surface, waste, backing, maxStockMm, { leafSurfaceOf }));
+  }
+  // Every voorzetwand leaf as one more wall of its own system, appended into
+  // the same array: bySystem below groups everything in `walls` by
+  // systemOf()'s key regardless of where it came from, so a leaf's members
+  // nest into the SAME stock buy as an ordinary partition of that system.
+  for (const w of leaves.leaf.floor.walls) {
+    const rw = leaves.resolved.walls.get(w.id);
+    if (!rw) continue;
+    const host = leaves.leaf.hostOf.get(w.id)!;
+    walls.push(wallTakeoffOf(leaves.leaf.floor, w, rw, leafSurface, waste, leafBacking, maxStockMm, { leaf: { host } }));
   }
 
   interface SystemEntry {

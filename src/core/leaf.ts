@@ -110,7 +110,15 @@ function mapOpenings(
     const width = Math.round(clampedTo - clampedFrom);
     if (width < 100) continue;
     const t = Math.round((clampedFrom + clampedTo) / 2);
-    out.push({ ...o, id: `${o.id}~${side}`, t, width });
+    // The host's own lintel is not this frame's header. `lintel` states a
+    // section someone chose for the wall above the opening and
+    // `lintelLoadKNm` a floor bearing on that wall; a voorzetwand carries
+    // neither, so copying them would let core/checks.ts's lintelCheck() pass
+    // the host's section off as a header nobody specified, against a load a
+    // stud frame does not take. Dropped, so the check reports incomplete with
+    // a proposal instead.
+    const { lintel: _lintel, lintelLoadKNm: _lintelLoad, ...rest } = o;
+    out.push({ ...rest, id: `${o.id}~${side}`, t, width });
   }
   return out;
 }

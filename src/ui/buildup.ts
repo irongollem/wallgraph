@@ -19,6 +19,16 @@ export function wallHasBuildUp(w: Wall): boolean {
   return w.buildUp?.left !== undefined || w.buildUp?.right !== undefined;
 }
 
+/** "links van a→b" / "rechts van a→b" -- the one place this wording is
+ *  written, reused everywhere a wall's face is named by its side rather than
+ *  by the room it looks into (that is ui/walls.ts's own faceLabel(), a
+ *  different question). Shared by the facade-side picker, the per-face
+ *  build-up heading and the voorzetwand rows in ui/materials.ts and
+ *  ui/frame.ts, so the wording cannot drift between them. */
+export function faceLabel(side: "left" | "right"): string {
+  return side === "left" ? t("panel.facadeLeft") : t("panel.facadeRight");
+}
+
 /**
  * One face's editor: a heading (the same left/right wording the facade-side
  * control uses, since both name a side of the same wall), the voorzetwand

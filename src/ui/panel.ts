@@ -44,7 +44,7 @@ import { Palette } from "./palette";
 import { categoriesIn, getSymbol, type SymbolCategory } from "../render/symbols";
 import { LAYER_KEYS, LAYER_OF_CATEGORY, type LayerKey } from "../render/layers";
 import { renderStairTool, renderStairProps, renderStairBulk, type PaneRows } from "./stairs";
-import { renderFaceBuildUp, wallHasBuildUp } from "./buildup";
+import { renderFaceBuildUp, wallHasBuildUp, faceLabel } from "./buildup";
 import { routeTakesSymbol } from "../core/attach";
 import { incompleteDevices } from "../core/port";
 import { renderFurnishingTool, renderFurnishingProps } from "./furnishing";
@@ -70,7 +70,7 @@ import {
 import { topMismatches } from "../core/profile";
 import { deckMeetsWall } from "../core/deck";
 import { envelopeTakeoff, type EnvelopeTakeoff } from "../core/energy";
-import { floorMaterials, type FloorMaterials } from "../core/materials";
+import { floorMaterials, type FloorMaterials, type WallTakeoff } from "../core/materials";
 import {
   planWallJoin, applyWallJoin, isJoinPlan,
   applyNodeDissolve, isDissolvePlan, planWallMerge, planNodeRemoval, removeNode,
@@ -2300,10 +2300,9 @@ export class Panel {
       rows.noteRow(t("panel.facadeHelp"));
     }
     for (const side of ["left", "right"] as const) {
-      const label = side === "left" ? t("panel.facadeLeft") : t("panel.facadeRight");
       const facadeHere = walls.every(w => w.facadeMm !== undefined && facadeSideOf(w) === side);
       const mixed = isMixed(walls, w => JSON.stringify(buildUpOf(w, side) ?? null));
-      renderFaceBuildUp(rows, label, facadeHere, buildUpOf(first, side),
+      renderFaceBuildUp(rows, faceLabel(side), facadeHere, buildUpOf(first, side),
         fu => mutAll(w => setFaceBuildUp(w, side, fu)), { mixed });
     }
     if (walls.every(w => isBlockMaterial(w.material))) {
@@ -2856,8 +2855,14 @@ export class Panel {
       // after the build-up fields it summarises rather than above them.
       // No caching here, either, for the same reason the surface figure has
       // none: see renderWallMaterial.
-      const wallMaterials = floorMaterials(this.store.doc, f, resolved, floorSurf)
-        .walls.find(x => x.wallId === sel.id);
+      const wallMaterialsAll = floorMaterials(this.store.doc, f, resolved, floorSurf);
+      const wallMaterials = wallMaterialsAll.walls.find(x => x.wallId === sel.id);
+      // Every voorzetwand standing on this wall, so its own board-and-stud
+      // figures show up in the wall's pane and not only in the storey-wide
+      // fold-out -- see renderWallMaterial().
+      const leafMaterials = wallMaterialsAll.walls
+        .filter((x): x is WallTakeoff & { host: NonNullable<WallTakeoff["host"]> } => x.host?.wallId === sel.id)
+        .map(x => ({ side: x.host.side, wt: x }));
       // Tri-state: "" is not stated, not the same fact as "no" for IFC.
       selRow(t("panel.loadBearing"), w.loadBearing === undefined ? "" : w.loadBearing ? "yes" : "no",
         [["", t("panel.loadBearingUnknown")], ["yes", t("panel.loadBearingYes")], ["no", t("panel.loadBearingNo")]],
@@ -2993,9 +2998,8 @@ export class Panel {
       // Board build-up on each face, outside the structural thickness like
       // the facade -- the face carrying the facade shows a note instead.
       for (const side of ["left", "right"] as const) {
-        const label = side === "left" ? t("panel.facadeLeft") : t("panel.facadeRight");
         const facadeHere = w.facadeMm !== undefined && facadeSideOf(w) === side;
-        renderFaceBuildUp(rows, label, facadeHere, buildUpOf(w, side), fu => this.store.mutate(d => {
+        renderFaceBuildUp(rows, faceLabel(side), facadeHere, buildUpOf(w, side), fu => this.store.mutate(d => {
           const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
           if (wall) setFaceBuildUp(wall, side, fu);
         }));
@@ -3050,7 +3054,7 @@ export class Panel {
       // The takeoff for this wall alone, under a "Materiaal" head -- after
       // every build-up field above it, the way a summary follows what it
       // summarises rather than leading it.
-      renderWallMaterial(rows, wallMaterials);
+      renderWallMaterial(rows, wallMaterials, leafMaterials);
       // The elevation, right under the takeoff it draws the same members
       // from -- see ui/frame.ts. Always present: every wall has a face to
       // draw, whatever its material.

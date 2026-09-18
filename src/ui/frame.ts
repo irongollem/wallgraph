@@ -14,8 +14,9 @@
 // drawing the face and gains a note in the legend instead, since the fact
 // that would complete it is one field away.
 import { Store } from "../model/store";
-import type { Id } from "../model/doc";
+import { frameOf, type Id, type Wall } from "../model/doc";
 import { resolveFloor } from "../core/resolve";
+import { resolveLeaves } from "../core/leaf";
 import { wallElevation, type WallElevation } from "../core/frame";
 import type { MemberName } from "../core/materials";
 import { drawElevation } from "../render/frame";
@@ -23,7 +24,12 @@ import { exportFrameSvg } from "../io/frame";
 import { Viewport } from "../render/viewport";
 import { v, type Vec } from "../geometry/vec";
 import { COLORS } from "../render/draw";
+import { faceLabel } from "./buildup";
 import { t } from "../i18n";
+
+/** structure, or the voorzetwand on one face -- what the dialog's own face
+ *  select picks between (see openFrameDialog()). */
+type ElevationFace = "structure" | "left" | "right";
 
 function el(tag: string, cls?: string): HTMLElement {
   const e = document.createElement(tag);
@@ -159,6 +165,24 @@ export function openFrameDialog(store: Store, wallId: Id): void {
   const head = el("div", "frame-head");
   head.append(Object.assign(el("div", "props-title"), { textContent: t("frame.title") }));
 
+  // The face select: structure, or one of the wall's own voorzetwanden --
+  // built here as raw DOM like the rest of the dialog rather than through
+  // PaneRows, which this overlay does not use. Only mounted once there is an
+  // actual choice (syncFaceOptions() below) -- a wall with no voorzetwand at
+  // all has nothing to pick between.
+  const faceRow = el("label", "prop-row frame-face-row");
+  faceRow.append(Object.assign(el("span"), { textContent: t("frame.face") }));
+  const faceSelect = el("select") as HTMLSelectElement;
+  faceRow.append(faceSelect);
+  let faceRowMounted = false;
+  let face: ElevationFace = "structure";
+  faceSelect.onchange = () => {
+    if (faceSelect.value === "left" || faceSelect.value === "right" || faceSelect.value === "structure") {
+      face = faceSelect.value;
+    }
+    redraw();
+  };
+
   const canvasWrap = el("div", "frame-canvas-wrap");
   const canvas = el("canvas") as HTMLCanvasElement;
   canvasWrap.append(canvas);
@@ -178,13 +202,57 @@ export function openFrameDialog(store: Store, wallId: Id): void {
 
   let current: WallElevation | null = null;
 
+  /** Rebuilds the select's own options from the wall's current faces, and
+   *  falls back to "structure" once the face `face` names stops stating a
+   *  frame -- a build-up edited away while the dialog stays open. Mounts the
+   *  row only while there is a real choice, unmounts it the moment there is
+   *  not, so a plain wall's dialog never shows a select with nothing to pick. */
+  const syncFaceOptions = (wall: Wall): void => {
+    const options: ElevationFace[] = ["structure"];
+    if (frameOf(wall, "left")) options.push("left");
+    if (frameOf(wall, "right")) options.push("right");
+    if (!options.includes(face)) face = "structure";
+
+    if (options.length <= 1) {
+      if (faceRowMounted) { faceRow.remove(); faceRowMounted = false; }
+      return;
+    }
+    faceSelect.replaceChildren();
+    for (const opt of options) {
+      const o = el("option") as HTMLOptionElement;
+      o.value = opt;
+      o.textContent = opt === "structure" ? t("frame.faceStructure") : t("frame.faceLeaf", { side: faceLabel(opt) });
+      if (opt === face) o.selected = true;
+      faceSelect.append(o);
+    }
+    if (!faceRowMounted) { dialog.insertBefore(faceRow, canvasWrap); faceRowMounted = true; }
+  };
+
   const redraw = (): void => {
     const wall = store.floor.walls.find(w => w.id === wallId);
     if (!wall) { close(); return; }
+    syncFaceOptions(wall);
     const resolved = resolveFloor(store.floor);
     const rw = resolved.walls.get(wallId);
     if (!rw) { close(); return; }
-    const elevation = wallElevation(store.floor, wall, rw);
+
+    // The structure's own elevation, or -- once a voorzetwand is picked --
+    // the LEAF's: a real Wall/Floor/ResolvedWall of its own (see
+    // core/leaf.ts), not a band on the host's resolve. A face that states a
+    // frame but derives no leaf at all (a host wall short enough that its two
+    // miters meet -- core/leaf.ts's own note on that) falls back to the
+    // structure rather than drawing nothing.
+    let elevation: WallElevation;
+    if (face === "structure") {
+      elevation = wallElevation(store.floor, wall, rw);
+    } else {
+      const leaves = resolveLeaves(store.floor, resolved);
+      const leafWall = leaves.leaf.leafOf(wallId, face);
+      const leafRw = leafWall ? leaves.resolved.walls.get(leafWall.id) : undefined;
+      elevation = leafWall && leafRw
+        ? wallElevation(leaves.leaf.floor, leafWall, leafRw)
+        : wallElevation(store.floor, wall, rw);
+    }
     current = elevation;
 
     legend.replaceChildren(...legendRows(elevation));
@@ -235,7 +303,12 @@ export function openFrameDialog(store: Store, wallId: Id): void {
   closeBtn.onclick = () => close();
   svgBtn.onclick = () => {
     if (!current) return;
-    void exportFrameSvg(current, String(Math.round(current.lengthMm)));
+    // The filename names whatever face is currently drawn -- a plain
+    // wall-length label is ambiguous once a voorzetwand can be exported from
+    // the same dialog. Not user-facing prose, so plain ASCII rather than a
+    // translated word.
+    const label = String(Math.round(current.lengthMm)) + (face !== "structure" ? `-${face}` : "");
+    void exportFrameSvg(current, label);
   };
 
   redraw();

@@ -928,6 +928,7 @@ export const resources = {
         studsNote:
           "Stijlen tellen ook de wandeinden, beide zijden van elke sparing, de stijlen onder elke latei en de hoek- en aansluitstijlen mee; het aantal ligt dus hoger dan de getekende stijlposities.",
         wallLabel: "muur {{mm}} mm",
+        leafWallLabel: "voorzetwand op {{wall}} ({{face}})",
         decksHead: "Balklagen",
         deckLabel: "{{label}} {{w}} × {{d}} mm",
         deckingArea: "Vloerplaat",
@@ -950,6 +951,7 @@ export const resources = {
         suggestBreakField:
           "stijlen van {{length}} mm passen op geen standaardlengte; een framebreuk op {{at}} zou ze laten passen",
         wallHead: "Materiaal",
+        leafHead: "Voorzetwand, {{face}}",
         closingNote:
           "Een schatting uit de getekende constructie, op basis van de opgegeven aannames. Gemeld, geen bestellijst.",
         timberClass: "Houtsterkteklasse",
@@ -1070,6 +1072,9 @@ export const resources = {
         openTitle: "Aanzicht van dit regelwerk openen",
         legend: "Onderdelen",
         svg: "SVG downloaden",
+        face: "Vlak",
+        faceStructure: "Constructie",
+        faceLeaf: "Voorzetwand ({{side}})",
         legendBlocks: "{{n}} hele blokken",
         legendCut: "{{n}} pasblokken",
         legendPanels: "{{n}} panelen",
@@ -1132,6 +1137,7 @@ export const resources = {
           "Balkdragers, bevestigingen en verbindingen bij de kopbalk en de wisselbalken rond een uitsparing in een balklaag — dat de balken zelf zijn ingekort en de kopbalk en wisselbalken zijn doorgerekend, staat hierboven bij de balklaag; de verbindingen daartussen niet.",
         noElements: "Dit document bevat geen balklagen, balken of lateien.",
         aboveHead: "Hoogte muur boven latei",
+        lintelHost: "{{wall}}, voorzetwand {{side}}",
         steelFy: "Vloeigrens staal (f_y)",
         missingSpan: "de overspanning",
         missingSpanHeader: "de overspanning van de kopbalk",
@@ -2507,6 +2513,7 @@ export const resources = {
         studsNote:
           "Studs also count the wall ends, both sides of every opening, the studs under each header, and corner and junction backing; the figure runs higher than the drawn post positions.",
         wallLabel: "wall {{mm}} mm",
+        leafWallLabel: "lining wall on {{wall}} ({{face}})",
         decksHead: "Decks",
         deckLabel: "{{label}} {{w}} × {{d}} mm",
         deckingArea: "Decking",
@@ -2527,6 +2534,7 @@ export const resources = {
         suggestBreakField:
           "studs of {{length}} mm fit no stock length; a frame break at {{at}} would make them fit",
         wallHead: "Material",
+        leafHead: "Lining wall, {{face}}",
         closingNote:
           "An estimate from the drawn construction, under the stated assumptions. Reported, not an order.",
         timberClass: "Timber strength class",
@@ -2645,6 +2653,9 @@ export const resources = {
         openTitle: "Open this frame's elevation",
         legend: "Members",
         svg: "Download SVG",
+        face: "Face",
+        faceStructure: "Structure",
+        faceLeaf: "Lining wall ({{side}})",
         legendBlocks: "{{n}} whole blocks",
         legendCut: "{{n}} cut blocks",
         legendPanels: "{{n}} panels",
@@ -2702,6 +2713,7 @@ export const resources = {
           "Joist hangers, fastenings and connections at the header and trimmers around an opening in a deck — that the joists themselves are shortened and the header and trimmers are sized and checked is stated above, at the deck; the connections between them are not.",
         noElements: "This document contains no decks, beams or lintels.",
         aboveHead: "Wall height above the lintel",
+        lintelHost: "{{wall}}, lining wall {{side}}",
         steelFy: "Steel yield strength (f_y)",
         missingSpan: "the span",
         missingSpanHeader: "the header's span",

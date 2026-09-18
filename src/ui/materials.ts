@@ -8,6 +8,7 @@ import { Store } from "../model/store";
 import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
 import { sqm } from "./walls";
+import { faceLabel } from "./buildup";
 import {
   stockLengths, stockPresetOf, STOCK_PRESETS, kerfMm, wastePct, sheetOf,
   timberOf, timberClassOf, applyTimberClass, TIMBER_CLASSES, TIMBER_DEFAULT,
@@ -18,7 +19,7 @@ import {
 import type { StockPreset } from "../model/materials";
 import { driftValue } from "./checks";
 import type { Member, MemberName, WallSystem, WallTakeoff, DeckTakeoff, FloorMaterials } from "../core/materials";
-import { decksOf, BOARD_KINDS, type BoardKind } from "../model/doc";
+import { decksOf, BOARD_KINDS, type BoardKind, type Id } from "../model/doc";
 import type { NestResult } from "../core/stock";
 
 /** materials.system.* key for each WallSystem id -- the id itself carries a
@@ -57,6 +58,29 @@ function deckLabeller(store: Store): (dt: DeckTakeoff) => string {
 
 function wallLabel(lengthMm: number): string {
   return t("materials.wallLabel", { mm: Math.round(lengthMm) });
+}
+
+/** Every host wall's own length (WallTakeoff.lengthMm, the mitered face
+ *  length wallLabel() reads), keyed by id -- what a voorzetwand's own row
+ *  names its host by, since WallTakeoff.host carries the host's id but not
+ *  its figures. */
+function hostLengths(walls: readonly WallTakeoff[]): Map<Id, number> {
+  const m = new Map<Id, number>();
+  for (const w of walls) if (!w.host) m.set(w.wallId, w.lengthMm);
+  return m;
+}
+
+/** A voorzetwand named by its host wall and face -- "voorzetwand op muur
+ *  3400 mm (links van a→b)" -- rather than by the leaf's own length, which
+ *  would read as a wall that is not on the drawing. */
+function leafLabel(host: NonNullable<WallTakeoff["host"]>, lengths: ReadonlyMap<Id, number>): string {
+  return t("materials.leafWallLabel", { wall: wallLabel(lengths.get(host.wallId) ?? 0), face: faceLabel(host.side) });
+}
+
+/** A takeoff row's own label: an ordinary wall by its length, a voorzetwand
+ *  by its host wall and face -- see leafLabel(). */
+function rowLabel(w: WallTakeoff, lengths: ReadonlyMap<Id, number>): string {
+  return w.host ? leafLabel(w.host, lengths) : wallLabel(w.lengthMm);
 }
 
 function memberLabel(name: MemberName): string {
@@ -375,6 +399,7 @@ export function renderMaterialTakeoff(
     return;
   }
 
+  const hostLens = hostLengths(takeoff.walls);
   let shown = false;
   for (const sys of takeoff.bySystem) {
     // "other" walls carry no member shapes and, absent a board build-up or
@@ -391,6 +416,12 @@ export function renderMaterialTakeoff(
     for (const m of sys.members) memberRow(rows, m);
     nestRows(rows, sys.nested);
     figureRows(rows, sys);
+    // Every voorzetwand nested into this system's own buy, named by its host
+    // wall and face rather than shown as a wall of its own -- it draws on the
+    // host, not beside it.
+    for (const w of takeoff.walls) {
+      if (w.host && w.system === sys.system) rows.noteRow(leafLabel(w.host, hostLens));
+    }
   }
 
   const decks = takeoff.decks;
@@ -427,21 +458,21 @@ export function renderMaterialTakeoff(
       if (!m.spliceable && m.lengthMm > max) {
         shown = true;
         rows.warnRow(t("materials.unfit",
-          { wall: wallLabel(w.lengthMm), member: memberLabel(m.name), length: Math.round(m.lengthMm) }));
+          { wall: rowLabel(w, hostLens), member: memberLabel(m.name), length: Math.round(m.lengthMm) }));
       }
     }
   }
   for (const w of takeoff.walls) {
     for (const field of w.incomplete) {
       shown = true;
-      rows.warnRow(t("materials.incomplete", { wall: wallLabel(w.lengthMm), field: t(INCOMPLETE_FIELD_KEY[field]) }));
+      rows.warnRow(t("materials.incomplete", { wall: rowLabel(w, hostLens), field: t(INCOMPLETE_FIELD_KEY[field]) }));
     }
   }
   for (const w of takeoff.walls) {
     if (w.suggestedBreaksMm && w.suggestedBreaksMm.length > 0) {
       shown = true;
       rows.warnRow(t("materials.suggestBreak", {
-        wall: wallLabel(w.lengthMm), length: Math.round(worstStudLength(w.members)),
+        wall: rowLabel(w, hostLens), length: Math.round(worstStudLength(w.members)),
         at: breaksLabel(w.suggestedBreaksMm),
       }));
     }
@@ -449,24 +480,22 @@ export function renderMaterialTakeoff(
   if (!shown) rows.noteRow(t("materials.nothing"));
 }
 
-/**
- * The selected wall's own members and figures, under a "Materiaal" head --
- * the wall-pane counterpart of the storey-wide takeoff above. Nothing to
- * nest here: stock is bought per storey/system, not per wall, so this reads
- * `wt.members` as drawn rather than running them through `nest()` again.
- * Renders nothing for a wall with no figures at all (an unframed, unlined,
- * unblocked, unpanelled wall -- "other" with nothing stated).
- */
-export function renderWallMaterial(
+/** One takeoff's own members and figures under `head` -- the shared body
+ *  renderWallMaterial() calls once for the wall itself and once per
+ *  voorzetwand standing on it. Renders nothing for a takeoff with no figures
+ *  at all (an unframed, unlined, unblocked, unpanelled wall -- "other" with
+ *  nothing stated). */
+function renderOneWallMaterial(
   rows: Pick<PaneRows, "secHead" | "infoRow" | "noteRow" | "warnRow">,
   wt: WallTakeoff | undefined,
+  head: string,
 ): void {
   if (!wt) return;
   const hasFigures = wt.members.length > 0 || wt.boards.length > 0 || wt.insulationMm2 > 0
     || wt.blocks > 0 || wt.panels > 0 || wt.incomplete.length > 0;
   if (!hasFigures) return;
 
-  rows.secHead(t("materials.wallHead"), { later: true });
+  rows.secHead(head, { later: true });
   if (wt.system === "framed-timber" || wt.system === "framed-steel") {
     rows.noteRow(t("materials.studsNote"));
   }
@@ -479,5 +508,26 @@ export function renderWallMaterial(
     rows.warnRow(t("materials.suggestBreakField", {
       length: Math.round(worstStudLength(wt.members)), at: breaksLabel(wt.suggestedBreaksMm),
     }));
+  }
+}
+
+/**
+ * The selected wall's own members and figures, under a "Materiaal" head --
+ * the wall-pane counterpart of the storey-wide takeoff above. Nothing to
+ * nest here: stock is bought per storey/system, not per wall, so this reads
+ * `wt.members` as drawn rather than running them through `nest()` again.
+ * `leaves` is every voorzetwand standing on THIS wall (WallTakeoff.host.wallId
+ * matching the selected wall), each under its own head naming only its face --
+ * the wall itself is already the pane's own subject, so the host does not
+ * need repeating the way ui/materials.ts's storey-wide rows repeat it.
+ */
+export function renderWallMaterial(
+  rows: Pick<PaneRows, "secHead" | "infoRow" | "noteRow" | "warnRow">,
+  wt: WallTakeoff | undefined,
+  leaves: readonly { side: "left" | "right"; wt: WallTakeoff }[] = [],
+): void {
+  renderOneWallMaterial(rows, wt, t("materials.wallHead"));
+  for (const leaf of leaves) {
+    renderOneWallMaterial(rows, leaf.wt, t("materials.leafHead", { face: faceLabel(leaf.side) }));
   }
 }

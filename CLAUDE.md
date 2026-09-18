@@ -247,8 +247,24 @@ profile map onto the leaf by one rule — shifted by the leaf's own start along 
 ratio of the two lengths, which is 1 on a straight wall and the radius ratio on an arc — and
 `FaceFrame.heightMm` caps the result. The canvas, the SVG's `frames` group and the DXF's `FRAMES`
 layer draw the zone and the leaf's own posts, the stand-off staying empty; a click in the zone selects
-the HOST, since a leaf cannot be selected or edited. The frame's own takeoff is #69. Verified by
-[tests/leaf.test.ts](tests/leaf.test.ts) and [tests/core.test.ts](tests/core.test.ts).
+the HOST, since a leaf cannot be selected or edited.
+
+`floorMaterials()` derives the leaf floor itself rather than taking it, so a takeoff cannot disagree with
+the plan it was drawn from, and runs the ordinary per-wall takeoff over the leaves: they group into
+`bySystem` by the same `systemOf()` key and nest with ordinary partitions of the same system in one
+`nest()` call, which is what a builder orders. A leaf takeoff carries `host` (the wall and face it stands
+on) while its `wallId` stays its own, so the leaf remains findable. Two rules differ from a wall the
+document states: a leaf's cavity is its ROOM face, not `min(faces)` — its other face looks at the
+stand-off, not into a room — and a leaf takes a framed system from its material even with no `postMm`,
+so a frame with no centres reports `incomplete` instead of falling to `"other"` and contributing
+nothing. A board stack on a framed face is measured on the leaf's room face too, the boards being hung
+there and not on the structure. The aanzicht offers the faces that state a frame and draws the leaf's own
+`wallElevation()`; the engineer's package checks a leaf's header, whose load is the frame's own boards by
+`wallLineLoadNmm()`'s framed branch. A leaf's mapped opening drops the host's `lintel` and
+`lintelLoadKNm`: those state a section chosen for the wall above and a floor bearing on it, and a
+voorzetwand carries neither. Verified by [tests/leaf.test.ts](tests/leaf.test.ts),
+[tests/core.test.ts](tests/core.test.ts), [tests/materials.test.ts](tests/materials.test.ts) and
+[tests/frame.test.ts](tests/frame.test.ts).
 
 **A sloped wall states its top; nothing derives it.** `Wall.profile` is heights at points along the
 centerline, `t` in mm from node `a` like an opening's, so moving, splitting, flipping and merging a wall
@@ -691,11 +707,11 @@ before changing one:
 - Varying-thickness walls; a wall is one thickness, not a layered cross-section. A facade and a
   face build-up (board stacks, and the voorzetwand they hang on) are skins outside that thickness,
   not layers within it.
-- A voorzetwand is drawn, measured into the net room area and selected through its host, and nothing
-  more yet: its own studs, plates and noggings are not in the materials takeoff or the elevation
-  (#69), no service runs on or inside it (#72), and it has no body in 3D or IFC (#73). Wall surface
-  still measures the structural face under it (#71). A column protruding into one is not reported
-  (#70), and a frame runs the whole face — it cannot stop short or box a column in (#74).
+- A voorzetwand is drawn, counted, elevated and selected through its host, and no further yet: no
+  service runs on or inside it (#72), and it has no body in 3D or IFC (#73). Wall surface still
+  measures the structural face under it (#71). A column protruding into one is not reported (#70), and
+  a frame runs the whole face — it cannot stop short or box a column in (#74). Its header is checked
+  under its own boards only; nothing asks whether a frame at that stand-off is fixed back to the wall.
 - A wall's top profile is read by the wall surface, 3D, IFC, energy, the frame and the materials
   takeoff. A roof plane over it is a separate statement: a wall that pierces the roof's underside, or
   states a profile that disagrees with it, is reported (`roofWallMismatches()`) and never repaired; a

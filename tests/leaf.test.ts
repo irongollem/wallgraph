@@ -12,6 +12,7 @@ import { nodeAt, splitWall, flipWall } from "../src/model/ops";
 import { resolveFloor } from "../src/core/resolve";
 import { leafFloor, resolveLeaves } from "../src/core/leaf";
 import { detectRooms } from "../src/core/rooms";
+import { lintelCheck } from "../src/core/checks";
 import { wallTopAt } from "../src/model/profile";
 import { v, dist } from "../src/geometry/vec";
 import { arcInfo, arcLength, sweepOf } from "../src/geometry/arc";
@@ -352,6 +353,52 @@ function opening(over: Partial<Opening> & Pick<Opening, "kind" | "t" | "width">)
     const rw = resolved.walls.get(leafWall.id);
     check("the leaf resolves to at least one solid piece", (rw?.pieces.length ?? 0) >= 1);
   }
+}
+
+// ---- a mapped opening drops the host's own lintel and its floor load ------
+//
+// A voorzetwand's opening carries neither `lintel` (the host's own chosen
+// section) nor `lintelLoadKNm` (a floor bearing on the HOST wall above it) --
+// see leaf.ts's mapOpenings(). lintelCheck() (core/checks.ts) then reports
+// the leaf opening as incomplete with its own proposal, rather than passing
+// the host's section off as a header nobody specified for a stud frame that
+// does not take the floor's load at all.
+
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  const door = opening({
+    kind: "door", t: 2000, width: 900, sillHeight: 0, height: 2315,
+    lintel: { w: 89, d: 140 }, lintelLoadKNm: 3,
+  });
+  const w: Wall = {
+    id: "H", a: nodeAt(f, v(0, 0)).id, b: nodeAt(f, v(4000, 0)).id,
+    thickness: 100, bulge: 0, material: "masonry",
+    buildUp: { left: { frame: frame(), boards: [] } },
+    openings: [door],
+  };
+  f.walls.push(w);
+
+  const resolved = resolveFloor(f);
+  const leaf = leafFloor(f, resolved);
+  const leafWall = leaf.leafOf("H", "left")!;
+  const leafOpening = leafWall.openings[0]!;
+
+  check("the leaf's mapped opening carries no lintel", leafOpening.lintel === undefined,
+    JSON.stringify(leafOpening.lintel));
+  check("the leaf's mapped opening carries no lintelLoadKNm", leafOpening.lintelLoadKNm === undefined,
+    String(leafOpening.lintelLoadKNm));
+
+  const hostResult = lintelCheck(doc, f, w, door);
+  check("the host's own opening, with a stated lintel and load, checks ok",
+    hostResult.status === "ok", hostResult.status);
+
+  const leafResult = lintelCheck(doc, leaf.floor, leafWall, leafOpening);
+  check("the leaf's own opening is incomplete -- it states no lintel section",
+    leafResult.status === "incomplete" && leafResult.missing.includes("lintelSection"),
+    JSON.stringify(leafResult));
+  check("lintelCheck still proposes a section for the leaf, from the frame's own self-weight",
+    leafResult.proposal !== null && leafResult.proposal !== undefined, JSON.stringify(leafResult.proposal));
 }
 
 console.log(failures === 0 ? "ok" : `FAIL (${failures} failures)`);
