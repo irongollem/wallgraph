@@ -14,6 +14,21 @@ export function ogSvg(source = readFileSync("assets/og.svg", "utf8")): string {
     .replaceAll("{{OPENING_TYPE_COUNT}}", String(OPENING_TYPE_COUNT));
 }
 
+// assets/og.png is a committed raster rendered by hand, so it goes stale the
+// moment a symbol is added. Recording the counts it was rendered with is what
+// lets tests/site.test.ts fail on that drift rather than the card advertising
+// a figure the editor no longer has.
+export const OG_STAMP_PATH = "assets/og.counts.json";
+export type OgStamp = { symbols: number; openingTypes: number };
+
+export function ogStamp(): OgStamp {
+  return { symbols: SYMBOLS.length, openingTypes: OPENING_TYPE_COUNT };
+}
+
+export function renderedStamp(): OgStamp {
+  return JSON.parse(readFileSync(OG_STAMP_PATH, "utf8")) as OgStamp;
+}
+
 function run(command: string, args: string[]): void {
   const result = spawnSync(command, args, { stdio: "inherit" });
   if (result.error) throw result.error;
@@ -30,6 +45,7 @@ export function renderOg(): void {
     run("rsvg-convert", ["-w", "1200", "-h", "630", svg, "-o", png]);
     run("magick", [png, "-strip", "-colors", "64", `PNG8:${optimized}`]);
     renameSync(optimized, "assets/og.png");
+    writeFileSync(OG_STAMP_PATH, JSON.stringify(ogStamp()) + "\n");
   } finally {
     rmSync(work, { recursive: true, force: true });
   }

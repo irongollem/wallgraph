@@ -34,10 +34,13 @@
     <path d="M920 360V470"/>
   </g>
 
-  <!-- door in the interior wall: leaf + quarter swing -->
+  <!-- Door in the interior wall: leaf + quarter swing. A swing is an arc of the
+       leaf's own radius ABOUT THE HINGE, from the open leaf tip to the far jamb.
+       The sweep flag picks which of the two candidate centres the arc takes; the
+       other centre bows the mark backwards. -->
   <g fill="none" stroke="#3d4148" stroke-width="3" clip-path="url(#shell)">
     <path d="M920 360H850"/>
-    <path d="M850 360a70 70 0 0 0 70-70"/>
+    <path d="M850 360a70 70 0 0 1 70-70"/>
   </g>
 
   <!-- front door in the bottom wall, swinging inward -->
