@@ -61,7 +61,8 @@
 // cannot collide with that element's own id.
 import {
   PlanDoc, Floor, Wall, projectOf, floorElevation, floorHeight, areaModeOf, dimModeOf, DimMode, Sash, sashSpecsOf,
-  openingHeight, videsOf, stairsOf, structureOf, furnishingsOf, routesOf, SymbolInstance, fireLabel,
+  openingHeight, frameMaterialOf, leafMaterialOf, type OpeningFrameMaterial, type DoorLeafMaterial,
+  videsOf, stairsOf, structureOf, furnishingsOf, routesOf, SymbolInstance, fireLabel,
   WallMaterial, wallPostMm, wallFacadeMm, buildUpOf, frameOf, facadeSideOf, decksOf, type Board, type BoardKind,
 } from "../model/doc";
 import { deckSolids, type DeckPart } from "../core/deck";
@@ -462,6 +463,13 @@ function wallIsExternal(floor: Floor, wall: Wall, roomPolys: readonly Vec[][]): 
  * is the honest statement, and it keeps voids, fillers and containment uniform
  * across every wall.
  */
+const FRAME_MATERIAL_NAME: Record<OpeningFrameMaterial, string> = {
+  timber: "Wood", hardwood: "Hardwood", aluminium: "Aluminium", pvc: "PVC", steel: "Steel",
+};
+const LEAF_MATERIAL_NAME: Record<DoorLeafMaterial, string> = {
+  honeycomb: "Honeycomb core", tubularChipboard: "Tubular chipboard", solidTimber: "Solid timber", steel: "Steel",
+};
+
 const IFC_MATERIAL_NAME: Record<WallMaterial, string> = {
   masonry: "Masonry", concrete: "Concrete", timber: "Wood", steel: "Steel", glass: "Glass",
   sandwich: "SandwichPanel", aerated: "AeratedConcrete", calciumsilicate: "CalciumSilicate",
@@ -1340,6 +1348,25 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
           }
           const fillPsetName = opening.kind === "door" ? "Pset_DoorCommon" : "Pset_WindowCommon";
           attachPropertySet(fillEntity, `${opening.id}:fillpset`, fillPsetName, fillProps);
+
+          // Material constituents, named by the IFC4 door/window part keywords:
+          // Lining is the kozijn, Framing the door leaf, Glazing the glass.
+          const frameMat = frameMaterialOf(opening);
+          const leafMat = leafMaterialOf(opening);
+          if (frameMat !== undefined || leafMat !== undefined) {
+            const constituent = (name: string, material: string): number =>
+              w.entity("IFCMATERIALCONSTITUENT",
+                [str(name), UNSET, ref(materialEntity(material)), UNSET, UNSET]);
+            const parts: number[] = [];
+            if (frameMat !== undefined) parts.push(constituent("Lining", FRAME_MATERIAL_NAME[frameMat]));
+            if (leafMat !== undefined) parts.push(constituent("Framing", LEAF_MATERIAL_NAME[leafMat]));
+            if (opening.kind === "window" || opening.glazed) parts.push(constituent("Glazing", "Glass"));
+            const set = w.entity("IFCMATERIALCONSTITUENTSET",
+              [str(opening.kind === "door" ? "Door" : "Window"), UNSET, list(...parts.map(ref))]);
+            w.entity("IFCRELASSOCIATESMATERIAL",
+              [str(ifcGuid(seed, `${opening.id}:fillmaterial`)), ref(ownerHistory), UNSET, UNSET,
+                list(ref(fillEntity)), ref(set)]);
+          }
         }
       }
 
@@ -1458,10 +1485,9 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
           // Wallgraph_Construction: the frame's own facts, the same fields the
           // host wall's own construction pset states, read off FaceFrame rather
           // than Wall. Insulated is stated here, as a plain boolean property,
-          // rather than as an IFCMATERIALCONSTITUENT: that entity (and
-          // IFCMATERIALLAYERSETUSAGE) appear nowhere else in this file, and
-          // introducing a constituent set for one boolean would add a
-          // vocabulary the rest of the export does not speak, where this file
+          // rather than as an IFCMATERIALCONSTITUENT: constituent sets
+          // appear only on doors and windows, and introducing one for a
+          // single boolean would add vocabulary to walls, where this file
           // already has a working precedent -- Wall.insulated is surfaced the
           // same way, two lines above this one's own use, on the host wall.
           const leafConstructionProps: IfcArg[] = [];

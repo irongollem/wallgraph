@@ -82,6 +82,13 @@ export interface Sash {
  */
 export interface ProfilePoint { t: number; height: number }
 
+/** What the kozijn (the fixed frame of a door or window) is made of. */
+export type OpeningFrameMaterial = "timber" | "hardwood" | "aluminium" | "pvc" | "steel";
+export const OPENING_FRAME_MATERIALS: readonly OpeningFrameMaterial[] = ["timber", "hardwood", "aluminium", "pvc", "steel"];
+/** How a door leaf is built. */
+export type DoorLeafMaterial = "honeycomb" | "tubularChipboard" | "solidTimber" | "steel";
+export const DOOR_LEAF_MATERIALS: readonly DoorLeafMaterial[] = ["honeycomb", "tubularChipboard", "solidTimber", "steel"];
+
 export interface Opening {
   id: Id;
   kind: OpeningKind;
@@ -103,6 +110,10 @@ export interface Opening {
    * sash — a double door has one rating, not two. See FireKind.
    */
   fireRating?: FireRating;
+  /** Material of the kozijn, doors and windows. Absent means not stated; read via frameMaterialOf(). */
+  frameMaterial?: OpeningFrameMaterial;
+  /** Construction of the door leaf, doors only. Absent means not stated; read via leafMaterialOf(). */
+  leafMaterial?: DoorLeafMaterial;
   /** mm above the floor. Windows default to WINDOW_SILL_DEFAULT; read via openingSill(). */
   sillHeight?: number;
   /** mm. Absent means the kind's default; read via openingHeight(). */
@@ -1221,6 +1232,23 @@ export const WINDOW_SILL_DEFAULT = 900;
  *  is not the floor itself. */
 export function openingSill(o: Opening): number {
   return o.kind === "window" ? o.sillHeight ?? WINDOW_SILL_DEFAULT : o.sillHeight ?? 0;
+}
+
+/** The stated kozijn material of a door or window; undefined for a passage or an unrecognised value. */
+export function frameMaterialOf(o: Opening): OpeningFrameMaterial | undefined {
+  if (o.kind === "passage") return undefined;
+  return OPENING_FRAME_MATERIALS.find(m => m === o.frameMaterial);
+}
+
+/** The stated leaf construction of a door; undefined for anything else or an unrecognised value. */
+export function leafMaterialOf(o: Opening): DoorLeafMaterial | undefined {
+  if (o.kind !== "door") return undefined;
+  return DOOR_LEAF_MATERIALS.find(m => m === o.leafMaterial);
+}
+
+/** True when a honeycomb-core leaf carries a fire rating. Reported only. */
+export function leafFireConcern(o: Opening): boolean {
+  return leafMaterialOf(o) === "honeycomb" && o.fireRating !== undefined;
 }
 
 /** An opening's height, mm, defaulted per kind when not stated. */

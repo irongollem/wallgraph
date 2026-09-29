@@ -23,6 +23,8 @@ import { seedDoc } from "../seed";
 import {
   emptyDoc, areaModeOf, dimModeOf, mountMarksOn, floorHeight, storeyCeiling, CEILING_DEFAULT_MM,
   wallHeight, openingSill, openingHeight, projectOf,
+  OPENING_FRAME_MATERIALS, DOOR_LEAF_MATERIALS, frameMaterialOf, leafMaterialOf, leafFireConcern,
+  type OpeningFrameMaterial, type DoorLeafMaterial,
   sashesOf, sashSpecsOf, windowKindOf, WINDOW_KINDS,
   doorKindOf, DOOR_KINDS, widthsFor, DOOR_WIDTHS_DOUBLE, FIRE_KINDS, FIRE_MINUTES,
   FIRE_MINUTES_DEFAULT, routesOf, furnishingsOf, decksOf, WALL_MATERIALS, POST_WIDTH_DEFAULT,
@@ -1303,6 +1305,21 @@ export class Panel {
     if (o.kind !== "passage") {
       rows.checkRow(t("panel.glazed"), o.glazed ?? false,
         b => mutOpening(o2 => { o2.glazed = b || undefined; }));
+      rows.selRow(t("panel.frameMaterial"), frameMaterialOf(o) ?? "",
+        [["", t("panel.materialNotStated")],
+          ...OPENING_FRAME_MATERIALS.map(m => [m, t("panel.frameMat_" + m)] as [string, string])],
+        value => mutOpening(o2 => {
+          if (value) o2.frameMaterial = value as OpeningFrameMaterial; else delete o2.frameMaterial;
+        }));
+      if (o.kind === "door") {
+        rows.selRow(t("panel.leafMaterial"), leafMaterialOf(o) ?? "",
+          [["", t("panel.materialNotStated")],
+            ...DOOR_LEAF_MATERIALS.map(m => [m, t("panel.leafMat_" + m)] as [string, string])],
+          value => mutOpening(o2 => {
+            if (value) o2.leafMaterial = value as DoorLeafMaterial; else delete o2.leafMaterial;
+          }));
+        if (leafFireConcern(o)) rows.noteRow(t("panel.leafFireConcern"));
+      }
       rows.checkRow(t("panel.powered"), o.powered ?? false,
         b => mutOpening(o2 => { o2.powered = b || undefined; }));
       rows.selRow(t("panel.fireRating"), o.fireRating?.kind ?? "",

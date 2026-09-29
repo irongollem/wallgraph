@@ -532,6 +532,14 @@ export function planSchema(siteUrl: string): JsonSchema {
           powered: { type: "boolean", description: "Electrically operated." },
           selfClosing: { type: "boolean", description: "Self-closing, as a fire door must be." },
           fireRating: { $ref: "#/$defs/fireRating", description: "A double door has one rating, not two." },
+          frameMaterial: {
+            enum: ["timber", "hardwood", "aluminium", "pvc", "steel"],
+            description: "Material of the kozijn (door or window frame). Absent means not stated.",
+          },
+          leafMaterial: {
+            enum: ["honeycomb", "tubularChipboard", "solidTimber", "steel"],
+            description: "Construction of the door leaf. Doors only; absent means not stated.",
+          },
           sillHeight: mm(
             "mm above the floor. Only meaningful for a window; absent means 900 " +
             "(borstwering) for a window, 0 for a door or passage.",

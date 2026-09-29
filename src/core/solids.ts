@@ -13,8 +13,8 @@
 // level, positive up; a caller placing a storey in the building adds
 // floorElevation(doc, floorIndex).
 import {
-  PlanDoc, Floor, Id, Opening, OpeningKind, Wall, wallHeight, floorHeight, openingSill, openingHeight, videsOf, sashesOf,
-  stairsOf, frameOf, frameZoneOf, boardsStartMm, faceRunsOf, normalizeFaceRuns, type WallMaterial, type BoardKind,
+  PlanDoc, Floor, Id, Opening, OpeningKind, Wall, wallHeight, floorHeight, openingSill, openingHeight, leafMaterialOf, type DoorLeafMaterial, videsOf, sashesOf,
+  stairsOf, frameOf, frameZoneOf, boardsStartMm, wallFacadeMm, facadeSideOf, faceRunsOf, normalizeFaceRuns, type WallMaterial, type BoardKind,
 } from "../model/doc";
 import { wallTopAt, wallTopPolyline } from "../model/profile";
 import { roofPlanesOf, roofThicknessOf } from "../model/roof";
@@ -57,6 +57,8 @@ export interface OpeningVoid {
    *  one per sash, or one over the whole width where it states none. Absent on
    *  anything but a glazed door. */
   glazedLeaves?: Array<{ s0: number; s1: number }>;
+  /** A door's stated leaf construction; absent where not stated. */
+  leafMaterial?: DoorLeafMaterial;
 }
 
 /**
@@ -71,6 +73,8 @@ export interface BuildUpPrism extends Prism {
   side: "left" | "right";
   /** The board's own kind, absent on a frame zone. */
   kind?: BoardKind;
+  /** True on the outermost board of the face: the one whose visible face an authored appearance states. */
+  outermost?: true;
 }
 
 export interface WallSolid {
@@ -90,6 +94,13 @@ export interface WallSolid {
    * face states a build-up.
    */
   buildUp: BuildUpPrism[];
+  /**
+   * The cladding band from ResolvedWall.facade, extruded to the wall's top
+   * (a sloped wall's facade follows its profile), plus the band below each
+   * sill and above each head over the opening's span. Empty where the wall
+   * states no facade.
+   */
+  facade: Prism[];
 }
 
 export interface SpaceSolid { name?: string; poly: Vec[]; z0: 0; z1: number }
@@ -152,7 +163,7 @@ export function floorSolids(doc: PlanDoc, floorIndex: number): FloorSolids | nul
       posts.push({ poly: pm.poly, z0: 0, z1: wallTopAt(f, rw.wall, s) });
     }
     const buildUp: BuildUpPrism[] = buildUpPrisms(f, rw);
-    walls.push({ wallId: rw.wall.id, body, voids, posts, buildUp });
+    walls.push({ wallId: rw.wall.id, body, voids, posts, buildUp, facade: facadePrisms(f, rw) });
   }
 
   const fh = floorHeight(f);
@@ -259,7 +270,11 @@ export function openingVoid(f: Floor, rw: ResolvedWall, og: OpeningGeom): Openin
     sub(og.p1, scale(og.n1, og.half)),
     sub(og.p0, scale(og.n0, og.half)),
   ];
-  const glazed = o.kind === "door" && o.glazed ? { glazedLeaves: leafFractions(o) } : {};
+  const leafMaterial = leafMaterialOf(o);
+  const glazed = {
+    ...(o.kind === "door" && o.glazed ? { glazedLeaves: leafFractions(o) } : {}),
+    ...(leafMaterial ? { leafMaterial } : {}),
+  };
   if (!rw.wall.profile || rw.wall.profile.length === 0) return { openingId: o.id, kind: o.kind, poly, z0, z1, ...glazed };
   const L = rw.length;
   const breaks = wallTopPolyline(f, rw.wall, L).map(p => p.s).filter(b => b > 0.5 && b < L - 0.5);
@@ -369,7 +384,7 @@ function extrudeToTop(f: Floor, rw: ResolvedWall, pieces: readonly SolidPiece[],
  * ResolvedWall.boards and .frame are already split at the wall's own
  * openings (skinBandFor() loops the same `intervals` the structural `pieces`
  * are built from), so those pieces run between openings at full height, and
- * openingBuildUpPrisms() adds each band below a sill and above a head.
+ * openingBandPrisms() adds each band below a sill and above a head.
  *
  * A frame zone is massing: one prism per piece (ResolvedWall.frame), not the
  * individual studs a takeoff or an elevation would draw. Both the frame zone
@@ -397,23 +412,45 @@ function buildUpPrisms(f: Floor, rw: ResolvedWall): BuildUpPrism[] {
     const zone = frameZoneOf(w, side);
     if (zone && rw.frame[idx].length > 0) layers.push({ ...zone, part: "frame" });
     let depth = boardsStartMm(w, side);
-    for (const band of rw.boards[idx]) {
+    const bands = rw.boards[idx];
+    for (const [bi, band] of bands.entries()) {
+      const outer = bi === bands.length - 1;
       for (const p of extrudeToTop(f, rw, band.pieces, cap)) {
-        out.push({ ...p, part: "boards", side, kind: band.kind });
+        out.push({ ...p, part: "boards", side, kind: band.kind, ...(outer ? { outermost: true as const } : {}) });
       }
-      layers.push({ from: depth, to: depth + band.mm, part: "boards", kind: band.kind });
+      layers.push({ from: depth, to: depth + band.mm, part: "boards", kind: band.kind, ...(outer ? { outer: true } : {}) });
       depth += band.mm;
     }
     for (const p of extrudeToTop(f, rw, rw.frame[idx], cap)) {
       out.push({ ...p, part: "frame", side });
     }
-    out.push(...openingBuildUpPrisms(f, rw, side, layers, cap));
+    for (const { layer, ...p } of openingBandPrisms(f, rw, side, layers, cap)) {
+      out.push({
+        ...p, part: layer.part, side,
+        ...(layer.kind !== undefined ? { kind: layer.kind } : {}),
+        ...(layer.outer ? { outermost: true as const } : {}),
+      });
+    }
   }
   return out;
 }
 
-/** One band of a face's build-up, as depths past the structural face. */
-interface BuildUpLayer { from: number; to: number; part: "boards" | "frame"; kind?: BoardKind }
+/**
+ * The facade band and the facade over each opening's span. Empty where the
+ * wall states no facade. The facade side carries no build-up, so it has no
+ * face runs and no cap.
+ */
+function facadePrisms(f: Floor, rw: ResolvedWall): Prism[] {
+  const mm = wallFacadeMm(rw.wall);
+  if (mm === undefined) return [];
+  const out = extrudeToTop(f, rw, rw.facade, undefined);
+  const layers: BuildUpLayer[] = [{ from: 0, to: mm, part: "boards" }];
+  for (const { layer: _layer, ...p } of openingBandPrisms(f, rw, facadeSideOf(rw.wall), layers, undefined)) out.push(p);
+  return out;
+}
+
+/** One band of a face's skin, as depths past the structural face. */
+interface BuildUpLayer { from: number; to: number; part: "boards" | "frame"; kind?: BoardKind; outer?: boolean }
 
 /**
  * The build-up below each opening's sill and above its head. The bands built
@@ -423,15 +460,15 @@ interface BuildUpLayer { from: number; to: number; part: "boards" | "frame"; kin
  * the face's runs cover (FaceBuildUp.runs), and capped at `cap` like the rest
  * of the face.
  */
-function openingBuildUpPrisms(
+function openingBandPrisms(
   f: Floor, rw: ResolvedWall, side: "left" | "right", layers: readonly BuildUpLayer[], cap: number | undefined,
-): BuildUpPrism[] {
+): Array<Prism & { layer: BuildUpLayer }> {
   const w = rw.wall, L = rw.length;
   if (layers.length === 0 || L <= 0) return [];
   const sgn = side === "left" ? 1 : -1;
   const runs = faceRunsOf(w, side);
   const covered = runs ? normalizeFaceRuns(runs, L) : [{ fromMm: 0, toMm: L }];
-  const out: BuildUpPrism[] = [];
+  const out: Array<Prism & { layer: BuildUpLayer }> = [];
   for (const og of rw.openings) {
     const o = og.opening;
     const { z0: sill, z1: head } = openingRange(f, rw, o);
@@ -445,10 +482,9 @@ function openingBuildUpPrisms(
       for (const layer of layers) {
         const at = (p: Vec, n: Vec, d: number): Vec => add(p, scale(n, sgn * (og.half + d)));
         const poly = [at(p0, n0, layer.from), at(p1, n1, layer.from), at(p1, n1, layer.to), at(p0, n0, layer.to)];
-        const tag = { part: layer.part, side, ...(layer.kind !== undefined ? { kind: layer.kind } : {}) };
-        if (sillTop > 0.5) out.push({ poly, z0: 0, z1: sillTop, ...tag });
+        if (sillTop > 0.5) out.push({ poly, z0: 0, z1: sillTop, layer });
         for (const p of extrudeToTop(f, rw, [{ poly }], cap)) {
-          if (p.z1 > head + 0.5) out.push({ ...p, z0: head, ...tag });
+          if (p.z1 > head + 0.5) out.push({ ...p, z0: head, layer });
         }
       }
     }

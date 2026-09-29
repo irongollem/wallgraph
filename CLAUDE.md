@@ -400,6 +400,16 @@ wherever it appears and is not an NTA 8800 energiebehoefte; the disclaimer says 
 writes the resulting U as `ThermalTransmittance` on the wall, window and door psets so attested software
 can read it. Verified by [tests/energy.test.ts](tests/energy.test.ts).
 
+**A door or window states its materials; nothing infers them.** `Opening.frameMaterial` (the kozijn)
+and, on a door, `Opening.leafMaterial` are read only through `frameMaterialOf()` / `leafMaterialOf()`,
+which drop a value the lists do not hold and a leaf on anything but a door. The IFC export writes them as
+an `IfcMaterialConstituentSet` on the IfcDoor or IfcWindow under the IFC4 part keywords — Lining for the
+kozijn, Framing for the leaf, and Glazing (Glass) for a window or a glazed door, the last only when one of
+the first two is stated. The 3D view shows only a steel leaf, in the steel colour; the kozijn is not
+modelled in 3D. `leafFireConcern()` notes a honeycomb leaf under a fire rating in the inspector and
+enforces nothing, and the energy estimate does not read either field. Verified by
+[tests/openingmaterial.test.ts](tests/openingmaterial.test.ts).
+
 **`floorMaterials()`** — the wall takeoff, counted off the construction facts on each wall and the
 geometry already derived: frame length is the mean of the two mitered faces from `resolveFloor()`,
 board, insulation and block areas are the per-face `netMm2` from `floorSurface()`.

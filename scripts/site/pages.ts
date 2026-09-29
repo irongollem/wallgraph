@@ -567,6 +567,9 @@ maat blijft intypbaar. <code>width</code> is de dagmaat van het kozijn, niet het
 <p>Brandwerendheid wordt genoteerd zoals op een tekening: <b>WBDBO</b> met het aantal minuten, en
 daarnaast WBD en WRD. Het aanzetten van een waardering zet de deur meteen op zelfsluitend. De aanduiding
 komt op de plattegrond en in elke export.</p>
+<p>Het kozijnmateriaal en, bij een deur, de opbouw van het deurblad kunnen worden opgegeven. Ze worden in de
+IFC-export als materiaalonderdelen van de deur of het raam geschreven en in 3D alleen getoond als de kleur van
+een stalen deurblad. Een deurblad met honingraatvulling onder een brandwerendheid wordt gemeld.</p>
 <p>Een opening blijft aan de bijbehorende muur gekoppeld en verplaatst met die muur mee.</p>
 
 <h2 id="symbolen">Symbolen</h2>
@@ -1116,6 +1119,9 @@ of one edit at a time afterwards. The widths offered are the standard Dutch inte
 <p>Fire resistance is written the way a drawing writes it: <b>WBDBO</b> with the rating in minutes,
 alongside WBD and WRD. Setting a rating marks the door self-closing. The annotation reaches the plan
 and every export.</p>
+<p>The frame material and, on a door, the leaf construction can be stated. They are written to the IFC
+export as the door or window's material constituents and drawn in 3D only as the colour of a steel leaf.
+A honeycomb-core leaf under a fire rating is reported.</p>
 <p>An opening remains associated with its wall and moves when that wall moves.</p>
 
 <h2 id="symbols">Symbols</h2>
