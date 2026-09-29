@@ -1449,6 +1449,19 @@ function addSquare(f: Floor, offset: number, size = 4000): void {
     check("the voorzetwand states PredefinedType NOTDEFINED", leafWallLine.trim().endsWith(".NOTDEFINED.);"));
     const leafWallId = Number(leafWallLine.match(/^#(\d+)=/)![1]);
 
+    // The body carries the stud zone and the board over the door's head too:
+    // two pieces beside the door and one above it, for each of the two.
+    const leafPds = refsOf(leafWallLine).map(id => lineOf(id)).find(l => l?.includes("=IFCPRODUCTDEFINITIONSHAPE("))!;
+    const leafRep = lineOf(refsOf(leafPds)[0]!)!;
+    const leafSolids = refsOf(leafRep).slice(1).map(id => lineOf(id)!);
+    const solidZ0 = (l: string): number => {
+      const pos = lineOf(refsOf(l)[1]!)!;
+      return Number(lineOf(refsOf(pos)[0]!)!.match(/,([-\d.]+)\)\);$/)![1]);
+    };
+    check("the voorzetwand body has six solids with the door", leafSolids.length === 6, String(leafSolids.length));
+    check("two of them stand above the door's head",
+      leafSolids.filter(l => solidZ0(l) > 0).length === 2, JSON.stringify(leafSolids.map(solidZ0)));
+
     // Pset_WallCommon on the voorzetwand states both facts outright, unlike
     // the host wall above, where an absent fact stays absent.
     const leafPsetRel = vLines.find(l =>

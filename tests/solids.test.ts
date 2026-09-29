@@ -1,7 +1,7 @@
 // Derived 3D solids: wall bodies with opening voids, room spaces, and the
 // storey slab, built from the same resolved 2D geometry the exporters use.
 import {
-  emptyDoc, newId, floorHeight, wallHeight, FLOOR_HEIGHT_DEFAULT,
+  emptyDoc, newId, floorHeight, wallHeight, FLOOR_HEIGHT_DEFAULT, openingHeight,
   Wall, Opening, Floor,
 } from "../src/model/doc";
 import { detectRooms } from "../src/core/rooms";
@@ -539,12 +539,71 @@ function perpDist(p: { x: number; y: number }, A: { x: number; y: number }, B: {
   const frame = solid.buildUp.filter(p => p.part === "frame");
   const boards = solid.buildUp.filter(p => p.part === "boards");
 
+  const fullHeight = (ps: typeof frame) => ps.filter(p => p.z0 === 0 && near(p.z1, FLOOR_HEIGHT_DEFAULT));
   check("the door leaves the structural body in two pieces",
     solid.body.length === 2, String(solid.body.length));
   check("the door also cuts the frame zone in two",
-    frame.length === 2, String(frame.length));
+    fullHeight(frame).length === 2, String(fullHeight(frame).length));
   check("...and the board stacked on it",
-    boards.length === 2, String(boards.length));
+    fullHeight(boards).length === 2, String(fullHeight(boards).length));
+  const head = openingHeight(w.openings[0]!);
+  check("the frame zone and the board continue above the door's head",
+    frame.filter(p => near(p.z0, head)).length === 1 && boards.filter(p => near(p.z0, head)).length === 1,
+    JSON.stringify(solid.buildUp.map(p => [p.part, p.z0, p.z1])));
+  check("nothing is built below a door's sill at the floor",
+    solid.buildUp.every(p => p.z0 > 0 || near(p.z1, FLOOR_HEIGHT_DEFAULT)));
+}
+
+{
+  // A window: the voorzetwand runs below its sill and above its head, over
+  // the window's own span and at the band's own depth.
+  const f = rectFloor();
+  const w = f.walls[0]!; // (0,0) -> (4000,0), right face at y < 0
+  w.openings.push(opening({ kind: "window", t: 2000, width: 1200, sillHeight: 900, height: 1200 }));
+  w.buildUp = {
+    right: {
+      frame: { gapMm: 20, depthMm: 50, material: "timber" },
+      boards: [{ kind: "gypsum", mm: 12 }],
+    },
+  };
+  const solid = floorSolids(emptyDocWith(f), 0)!.walls.find(x => x.wallId === w.id)!;
+  const sill = solid.buildUp.filter(p => p.z0 === 0 && near(p.z1, 900));
+  const over = solid.buildUp.filter(p => near(p.z0, 2100) && near(p.z1, FLOOR_HEIGHT_DEFAULT));
+  check("below the sill: one frame prism and one board prism",
+    sill.length === 2 && sill.some(p => p.part === "frame") && sill.some(p => p.part === "boards" && p.kind === "gypsum"),
+    JSON.stringify(solid.buildUp.map(p => [p.part, p.z0, p.z1])));
+  check("above the head: one frame prism and one board prism",
+    over.length === 2 && over.some(p => p.part === "frame") && over.some(p => p.part === "boards"));
+  const xs = [...sill, ...over].flatMap(p => p.poly.map(q => q.x));
+  check("the sill and head bands span the window's jambs",
+    xs.every(x => near(x, 1400, 0.5) || near(x, 2600, 0.5)), JSON.stringify(xs));
+  const frameYs = sill.find(p => p.part === "frame")!.poly.map(q => q.y);
+  check("the frame band below the sill stands 20..70 off the right face",
+    frameYs.every(y => near(y, -70, 0.5) || near(y, -120, 0.5)), JSON.stringify(frameYs));
+  const boardYs = sill.find(p => p.part === "boards")!.poly.map(q => q.y);
+  check("the board below the sill is stacked on the front of the frame",
+    boardYs.every(y => near(y, -120, 0.5) || near(y, -132, 0.5)), JSON.stringify(boardYs));
+}
+
+{
+  // A capped voorzetwand stops at its own height over a window too: below a
+  // head that is higher than the cap nothing is added above it, and a run
+  // that stops short of the window leaves its span bare.
+  const f = rectFloor();
+  const w = f.walls[0]!;
+  w.openings.push(opening({ kind: "window", t: 2000, width: 1200, sillHeight: 900, height: 1200 }));
+  w.buildUp = { right: { frame: { gapMm: 20, depthMm: 50, material: "timber", heightMm: 1800 }, boards: [] } };
+  const capped = floorSolids(emptyDocWith(f), 0)!.walls.find(x => x.wallId === w.id)!;
+  check("a cap below the head adds nothing above the head",
+    capped.buildUp.every(p => p.z1 <= 1800 + 0.5), JSON.stringify(capped.buildUp.map(p => [p.z0, p.z1])));
+  check("...and still fills below the sill",
+    capped.buildUp.some(p => p.z0 === 0 && near(p.z1, 900)));
+
+  w.buildUp = { right: { frame: { gapMm: 20, depthMm: 50, material: "timber" }, boards: [], runs: [{ fromMm: 0, toMm: 1000 }] } };
+  const partial = floorSolids(emptyDocWith(f), 0)!.walls.find(x => x.wallId === w.id)!;
+  check("a run that stops before the window adds nothing over its span",
+    partial.buildUp.every(p => p.poly.every(q => q.x <= 1000 + 0.5)),
+    JSON.stringify(partial.buildUp.map(p => p.poly.map(q => q.x))));
 }
 
 {

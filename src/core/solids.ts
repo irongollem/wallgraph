@@ -13,8 +13,8 @@
 // level, positive up; a caller placing a storey in the building adds
 // floorElevation(doc, floorIndex).
 import {
-  PlanDoc, Floor, Id, OpeningKind, Wall, wallHeight, floorHeight, openingSill, openingHeight, videsOf,
-  stairsOf, frameOf, type WallMaterial, type BoardKind,
+  PlanDoc, Floor, Id, Opening, OpeningKind, Wall, wallHeight, floorHeight, openingSill, openingHeight, videsOf,
+  stairsOf, frameOf, frameZoneOf, boardsStartMm, faceRunsOf, normalizeFaceRuns, type WallMaterial, type BoardKind,
 } from "../model/doc";
 import { wallTopAt, wallTopPolyline } from "../model/profile";
 import { roofPlanesOf, roofThicknessOf } from "../model/roof";
@@ -24,7 +24,7 @@ import {
 } from "../geometry/vec";
 import { arcInfo, arcPointAt, arcTangentAt, sweepOf } from "../geometry/arc";
 import { stairwellHole } from "./stair3d";
-import { resolveFloor, type ResolvedWall, type SolidPiece } from "./resolve";
+import { resolveFloor, type ResolvedWall, type SolidPiece, type OpeningGeom } from "./resolve";
 import { detectRooms, outerBoundary } from "./rooms";
 import { planeUndersideAt } from "./roof";
 import { videBox } from "./vide";
@@ -140,31 +140,7 @@ export function floorSolids(doc: PlanDoc, floorIndex: number): FloorSolids | nul
   const walls: WallSolid[] = [];
   for (const rw of resolved.walls.values()) {
     const body: Prism[] = wallBodyPrisms(f, rw);
-    const voids: OpeningVoid[] = rw.openings.map(og => {
-      const o = og.opening;
-      const sill = openingSill(o);
-      // Clipped to the lowest point of the wall's own top over the opening's
-      // span, not to the flat height -- a void above a sloped top is not there.
-      const top = minTopOver(f, rw.wall, rw.length, o.t - o.width / 2, o.t + o.width / 2);
-      const z1 = Math.min(sill + openingHeight(o), top);
-      const z0 = Math.min(sill, z1);
-      // Same quad the wall's own pieces are built from: left side (+half)
-      // start->end, then right side (-half) end->start.
-      const poly: Vec[] = [
-        add(og.p0, scale(og.n0, og.half)),
-        add(og.p1, scale(og.n1, og.half)),
-        sub(og.p1, scale(og.n1, og.half)),
-        sub(og.p0, scale(og.n0, og.half)),
-      ];
-      if (!rw.wall.profile || rw.wall.profile.length === 0) return { openingId: o.id, kind: o.kind, poly, z0, z1 };
-      const L = rw.length;
-      const breaks = wallTopPolyline(f, rw.wall, L).map(p => p.s).filter(b => b > 0.5 && b < L - 0.5);
-      const above: Prism[] = splitAtBreaks(poly, rw.a, rw.b, rw.wall.bulge, L, breaks).map(part => {
-        const tops = part.map(p => wallTopAt(f, rw.wall, projectS(rw.a, rw.b, rw.wall.bulge, L, p)));
-        return { poly: part, z0: z1, z1: Math.max(...tops), top: tops };
-      });
-      return { openingId: o.id, kind: o.kind, poly, z0, z1, above };
-    });
+    const voids: OpeningVoid[] = rw.openings.map(og => openingVoid(f, rw, og));
     const posts: Prism[] = [];
     for (const pm of rw.posts) {
       if (!pm.poly) continue;
@@ -259,6 +235,44 @@ function wallBodyPrisms(f: Floor, rw: ResolvedWall): Prism[] {
 }
 
 /**
+ * One opening's void through the wall body: the quad between its jambs across
+ * the full thickness, from the sill to the head. The head is clipped to the
+ * lowest point of the wall's own top over the opening's span, not to the flat
+ * height -- a void above a sloped top is not there. On a sloped wall `above`
+ * carries the wall over the head, split at the profile breakpoints.
+ *
+ * Exported for io/ifc.ts's voorzetwand export, which builds a leaf wall's
+ * voids and the bands around them by the same rule.
+ */
+export function openingVoid(f: Floor, rw: ResolvedWall, og: OpeningGeom): OpeningVoid {
+  const o = og.opening;
+  const { z0, z1 } = openingRange(f, rw, o);
+  // Same quad the wall's own pieces are built from: left side (+half)
+  // start->end, then right side (-half) end->start.
+  const poly: Vec[] = [
+    add(og.p0, scale(og.n0, og.half)),
+    add(og.p1, scale(og.n1, og.half)),
+    sub(og.p1, scale(og.n1, og.half)),
+    sub(og.p0, scale(og.n0, og.half)),
+  ];
+  if (!rw.wall.profile || rw.wall.profile.length === 0) return { openingId: o.id, kind: o.kind, poly, z0, z1 };
+  const L = rw.length;
+  const breaks = wallTopPolyline(f, rw.wall, L).map(p => p.s).filter(b => b > 0.5 && b < L - 0.5);
+  const above: Prism[] = splitAtBreaks(poly, rw.a, rw.b, rw.wall.bulge, L, breaks).map(part => {
+    const tops = part.map(p => wallTopAt(f, rw.wall, projectS(rw.a, rw.b, rw.wall.bulge, L, p)));
+    return { poly: part, z0: z1, z1: Math.max(...tops), top: tops };
+  });
+  return { openingId: o.id, kind: o.kind, poly, z0, z1, above };
+}
+
+/** An opening's sill and head, the head clipped to the wall's own top over its span. */
+function openingRange(f: Floor, rw: ResolvedWall, o: Opening): { z0: number; z1: number } {
+  const top = minTopOver(f, rw.wall, rw.length, o.t - o.width / 2, o.t + o.width / 2);
+  const z1 = Math.min(openingSill(o) + openingHeight(o), top);
+  return { z0: Math.min(openingSill(o), z1), z1 };
+}
+
+/**
  * The extrude-and-split shared by the structural body (wallBodyPrisms()) and
  * a face's build-up (buildUpPrisms()): each piece is split at every profile
  * breakpoint strictly inside its own span, and every resulting vertex gets
@@ -294,8 +308,8 @@ function extrudeToTop(f: Floor, rw: ResolvedWall, pieces: readonly SolidPiece[],
  * Every board and voorzetwand-frame prism on both faces of one wall:
  * ResolvedWall.boards and .frame are already split at the wall's own
  * openings (skinBandFor() loops the same `intervals` the structural `pieces`
- * are built from), so extrudeToTop() needs no opening handling of its own —
- * a door already cuts a gap in every band, structural and skin alike.
+ * are built from), so those pieces run between openings at full height, and
+ * openingBuildUpPrisms() adds each band below a sill and above a head.
  *
  * A frame zone is massing: one prism per piece (ResolvedWall.frame), not the
  * individual studs a takeoff or an elevation would draw. Both the frame zone
@@ -319,13 +333,64 @@ function buildUpPrisms(f: Floor, rw: ResolvedWall): BuildUpPrism[] {
   for (const side of ["left", "right"] as const) {
     const idx = side === "left" ? 0 : 1;
     const cap = frameOf(w, side)?.heightMm;
+    const layers: BuildUpLayer[] = [];
+    const zone = frameZoneOf(w, side);
+    if (zone && rw.frame[idx].length > 0) layers.push({ ...zone, part: "frame" });
+    let depth = boardsStartMm(w, side);
     for (const band of rw.boards[idx]) {
       for (const p of extrudeToTop(f, rw, band.pieces, cap)) {
         out.push({ ...p, part: "boards", side, kind: band.kind });
       }
+      layers.push({ from: depth, to: depth + band.mm, part: "boards", kind: band.kind });
+      depth += band.mm;
     }
     for (const p of extrudeToTop(f, rw, rw.frame[idx], cap)) {
       out.push({ ...p, part: "frame", side });
+    }
+    out.push(...openingBuildUpPrisms(f, rw, side, layers, cap));
+  }
+  return out;
+}
+
+/** One band of a face's build-up, as depths past the structural face. */
+interface BuildUpLayer { from: number; to: number; part: "boards" | "frame"; kind?: BoardKind }
+
+/**
+ * The build-up below each opening's sill and above its head. The bands built
+ * by resolveFloor() stop at the jambs over the full height, like the wall's
+ * own pieces; this puts back the material over the opening's own span, the
+ * way OpeningVoid's bands do for the structural body. Limited to the stretches
+ * the face's runs cover (FaceBuildUp.runs), and capped at `cap` like the rest
+ * of the face.
+ */
+function openingBuildUpPrisms(
+  f: Floor, rw: ResolvedWall, side: "left" | "right", layers: readonly BuildUpLayer[], cap: number | undefined,
+): BuildUpPrism[] {
+  const w = rw.wall, L = rw.length;
+  if (layers.length === 0 || L <= 0) return [];
+  const sgn = side === "left" ? 1 : -1;
+  const runs = faceRunsOf(w, side);
+  const covered = runs ? normalizeFaceRuns(runs, L) : [{ fromMm: 0, toMm: L }];
+  const out: BuildUpPrism[] = [];
+  for (const og of rw.openings) {
+    const o = og.opening;
+    const { z0: sill, z1: head } = openingRange(f, rw, o);
+    const sillTop = cap !== undefined ? Math.min(sill, cap) : sill;
+    for (const r of covered) {
+      const s0 = Math.max(o.t - o.width / 2, r.fromMm), s1 = Math.min(o.t + o.width / 2, r.toMm);
+      if (s1 <= s0 + 0.5) continue;
+      const p0 = arcPointAt(rw.a, rw.b, w.bulge, s0 / L), p1 = arcPointAt(rw.a, rw.b, w.bulge, s1 / L);
+      const n0 = perp(arcTangentAt(rw.a, rw.b, w.bulge, s0 / L));
+      const n1 = perp(arcTangentAt(rw.a, rw.b, w.bulge, s1 / L));
+      for (const layer of layers) {
+        const at = (p: Vec, n: Vec, d: number): Vec => add(p, scale(n, sgn * (og.half + d)));
+        const poly = [at(p0, n0, layer.from), at(p1, n1, layer.from), at(p1, n1, layer.to), at(p0, n0, layer.to)];
+        const tag = { part: layer.part, side, ...(layer.kind !== undefined ? { kind: layer.kind } : {}) };
+        if (sillTop > 0.5) out.push({ poly, z0: 0, z1: sillTop, ...tag });
+        for (const p of extrudeToTop(f, rw, [{ poly }], cap)) {
+          if (p.z1 > head + 0.5) out.push({ ...p, z0: head, ...tag });
+        }
+      }
     }
   }
   return out;
@@ -390,12 +455,8 @@ export function projectS(A: Vec, B: Vec, bulge: number, L: number, p: Vec): numb
  * function's minimum over an interval is always at one of its breakpoints or
  * the interval's own ends. Mirrors core/surface.ts's localTop() without the
  * ceiling cap, which is a finish concern this module has no notion of.
- *
- * Exported for io/ifc.ts's voorzetwand export, which clamps a leaf opening's
- * head against the leaf wall's own top the same way a host opening's head is
- * clamped here -- the identical rule, read off the leaf wall instead.
  */
-export function minTopOver(f: Floor, w: Wall, L: number, s0: number, s1: number): number {
+function minTopOver(f: Floor, w: Wall, L: number, s0: number, s1: number): number {
   const lo = Math.max(0, Math.min(s0, s1)), hi = Math.min(L, Math.max(s0, s1));
   let m = Math.min(wallTopAt(f, w, lo), wallTopAt(f, w, hi));
   for (const p of wallTopPolyline(f, w, L)) if (p.s > lo && p.s < hi) m = Math.min(m, p.h);

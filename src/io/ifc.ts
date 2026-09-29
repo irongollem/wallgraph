@@ -61,7 +61,7 @@
 // cannot collide with that element's own id.
 import {
   PlanDoc, Floor, Wall, projectOf, floorElevation, floorHeight, areaModeOf, dimModeOf, DimMode, Sash, sashSpecsOf,
-  openingHeight, openingSill, videsOf, stairsOf, structureOf, furnishingsOf, routesOf, SymbolInstance, fireLabel,
+  openingHeight, videsOf, stairsOf, structureOf, furnishingsOf, routesOf, SymbolInstance, fireLabel,
   WallMaterial, wallPostMm, wallFacadeMm, buildUpOf, frameOf, facadeSideOf, decksOf, type Board, type BoardKind,
 } from "../model/doc";
 import { deckSolids, type DeckPart } from "../core/deck";
@@ -76,7 +76,7 @@ import { arcFlatten } from "../geometry/arc";
 import { ifcGuid } from "../model/guid";
 import { wallLength } from "../model/ops";
 import { wallTopAt, wallTopRange, wallTopPolyline, wallAreaUnder } from "../model/profile";
-import { floorSolids, videHole, projectS, splitAtBreaks, minTopOver } from "../core/solids";
+import { floorSolids, videHole, projectS, splitAtBreaks, openingVoid } from "../core/solids";
 import { detectRooms, roomSize, sizeLabel, Room, roomArea } from "../core/rooms";
 import { resolveFloor, type ResolvedWall } from "../core/resolve";
 import { floorSurface } from "../core/surface";
@@ -1375,6 +1375,20 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
             ? leafBodyPieces(leafFloorS, leafWall, leafRw)
                 .map(poly => slopedPieceSolid(leafFloorS, leafWall, poly, leafMaxH, leafA, leafB, leafLengthMm))
             : leafRw.pieces.map(p => extrudedSolid(p.poly, 0, leafMaxH));
+          // The leaf's pieces run between its openings, like a host wall's:
+          // the frame below each sill and above each head is added the way
+          // the host body's bands are.
+          const leafVoids = leafRw.openings.map(og => openingVoid(leafFloorS, leafRw, og));
+          for (const og of leafVoids) {
+            if (og.z0 > 0.5) frameBodyIds.push(extrudedSolid(og.poly, 0, og.z0));
+            if (og.above) {
+              for (const p of og.above) {
+                frameBodyIds.push(slopedPieceSolid(leafFloorS, leafWall, p.poly, leafMaxH, leafA, leafB, leafLengthMm, og.z1));
+              }
+            } else if (leafMaxH > og.z1 + 0.5) {
+              frameBodyIds.push(extrudedSolid(og.poly, og.z1, leafMaxH));
+            }
+          }
           // Board bands (ws.buildUp, "boards" on this side): massing -- one
           // prism per piece rather than individual boards drawn edge to edge --
           // but NOT flattened to the wall's own maximum on a sloped face. A
@@ -1383,10 +1397,10 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
           // wall's own (already-capped, see core/leaf.ts's mapProfile()) top --
           // not the host's, so a face-frame's own FaceFrame.heightMm cap
           // (baked into the leaf's profile already) does not have to be
-          // re-applied here. A flat leaf keeps buildUpPrisms()'s own flat
-          // z0/z1 unchanged, the cheapest correct case.
+          // re-applied here. A flat leaf, and a piece below a sill (which
+          // carries no `top`), keep buildUpPrisms()'s own flat z0/z1.
           const boardBodyIds: (number | null)[] = boardPiecesForRun(runIndex)
-            .map(bp => leafHasProfile
+            .map(bp => leafHasProfile && bp.top
               ? slopedPieceSolid(leafFloorS, leafWall, bp.poly, leafMaxH, leafA, leafB, leafLengthMm, bp.z0)
               : extrudedSolid(bp.poly, bp.z0, bp.z1));
 
@@ -1462,23 +1476,12 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
           // One IFCOPENINGELEMENT per host opening, voiding the voorzetwand at
           // its own mapped position -- never a second IFCRELFILLSELEMENT: the
           // door or window leaf stays on the HOST's own opening only, above.
-          for (const leafOg of leafRw.openings) {
-            const o = leafOg.opening;
-            const sill = openingSill(o);
-            const topHere = minTopOver(leafFloorS, leafWall, leafLengthMm, o.t - o.width / 2, o.t + o.width / 2);
-            const z1 = Math.min(sill + openingHeight(o), topHere);
-            const z0 = Math.min(sill, z1);
-            const poly: Vec[] = [
-              add(leafOg.p0, scale(leafOg.n0, leafOg.half)),
-              add(leafOg.p1, scale(leafOg.n1, leafOg.half)),
-              sub(leafOg.p1, scale(leafOg.n1, leafOg.half)),
-              sub(leafOg.p0, scale(leafOg.n0, leafOg.half)),
-            ];
+          for (const { openingId, kind, poly, z0, z1 } of leafVoids) {
             const leafOpeningEntity = w.entity("IFCOPENINGELEMENT",
-              [str(ifcGuid(seed, o.id)), ref(ownerHistory), str(o.kind[0]!.toUpperCase() + o.kind.slice(1)), UNSET, UNSET,
+              [str(ifcGuid(seed, openingId)), ref(ownerHistory), str(kind[0]!.toUpperCase() + kind.slice(1)), UNSET, UNSET,
                 ref(levelPlacement), bodyShape([extrudedSolid(poly, z0, z1)]), UNSET, UNSET]);
             w.entity("IFCRELVOIDSELEMENT",
-              [str(ifcGuid(seed, `${o.id}:void`)), ref(ownerHistory), UNSET, UNSET,
+              [str(ifcGuid(seed, `${openingId}:void`)), ref(ownerHistory), UNSET, UNSET,
                 ref(leafEntity), ref(leafOpeningEntity)]);
           }
         });
