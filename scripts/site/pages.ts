@@ -311,14 +311,14 @@ constructie. Twee naastliggende platenopbouwen versnijden plaat op plaat in een 
 gevelbekleding dat doet. Het wandoppervlak (stucwerk, verf, behang) wordt gemeten tot de buitenste plaat
 van de opbouw, niet tot de constructie erachter; het paneel meldt dat apart waar een wandzijde een
 platenopbouw draagt. Voor een blokopbouw (cellenbeton, kalkzandsteen) is het blokformaat vast te
-leggen; op een spant het aantal rijen klossen en of de spouw is geïsoleerd; op een sandwichwand de
+leggen; op een houten spant het aantal rijen klossen, op elk spant of de spouw is geïsoleerd; op een sandwichwand de
 paneelbreedte. Blokformaat, klossen, isolatie en paneelbreedte veranderen niets aan de tekening — ze
 worden vastgelegd voor de materiaalstaat.</p>
 
 <p>Op zo'n wandzijde is ook een <b>voorzetwand</b> te zetten: stijlen op een tussenruimte vóór het
 constructieve vlak, die de platen van die zijde dragen. Vastgelegd worden de tussenruimte, de
-stijldiepte, hout of metalstud, desgewenst een eigen hart-op-hart-maat en stijlbreedte, het aantal
-rijen klossen en de spouwisolatie; zonder eigen hoogte volgt de voorzetwand de bovenkant van de muur
+stijldiepte, hout of metalstud, desgewenst een eigen hart-op-hart-maat en stijlbreedte, bij hout het
+aantal rijen klossen, en de spouwisolatie; zonder eigen hoogte volgt de voorzetwand de bovenkant van de muur
 zelf. De positie wordt nooit opgeslagen: hartlijn, einden en hoeken volgen bij elke wijziging opnieuw
 uit de muur en haar buren, zodat verplaatsen, splitsen, spiegelen of samenvoegen de voorzetwand
 vanzelf meeneemt — de muurgraaf, de vlakkenwandeling van de ruimtedetectie, het oppervlak op de
@@ -441,7 +441,10 @@ doorlopende aansluiting telt niet mee). Onder een sparing komt een latei met twe
 verdubbeld op de kant, gedragen door een onderstijl aan elke kant, met een onderdorpel onder een raam en
 kortstijlen tussen de latei of de onderdorpel en de regel. Een stalen spant levert dezelfde stijlen —
 kozijnstijl en aansluitstijl inbegrepen — onder de namen regel en stijl, maar zonder klossen, latei of
-onderstijl: een deurkozijn is daar een eigen bouwdeel. Een blokopbouw levert een aantal blokken uit het
+onderstijl: een deurkozijn is daar een eigen bouwdeel. Waar de eerste plaat op de stijlen lager is dan het
+spant, krijgt elke horizontale plaatnaad een naadregel tussen elke twee stijlen, op hout en op staal; de
+hoogte volgt uit de plaatmaat van die soort, met hele platen vanaf de vloer, en een klos binnen een
+stijlbreedte van de naad vervalt. Een blokopbouw levert een aantal blokken uit het
 blokformaat; een sandwichwand een aantal panelen uit de paneelbreedte. Een platenopbouw levert, per plaat
 en per platensoort, vierkante meters en platen op tegen de plaatmaat van die soort, over de kant van de
 muur die geen gevel draagt; spouwisolatie levert vierkante meters op dezelfde kant. De staat is per bouwsysteem
@@ -870,15 +873,15 @@ under the <b>net</b> area mode the room boundary is measured to the outermost bo
 structure. Two neighbouring build-ups miter board line against board line, the way the cladding miters
 at a corner. Wall surface (stucco, paint, wallpaper) is measured to the outermost board of the build-up,
 not to the structure behind it; the pane notes this separately wherever a face carries a build-up. On a
-block-built body (aerated concrete, calcium silicate) the block format can be stated; on a frame the
-number of nogging rows and whether the cavity is insulated; on a sandwich wall the panel width. None of
+block-built body (aerated concrete, calcium silicate) the block format can be stated; on a timber frame
+the number of nogging rows, and on any frame whether the cavity is insulated; on a sandwich wall the panel width. None of
 the block format, nogging rows, insulation or panel width change the drawing — they are recorded for the
 materials takeoff.</p>
 
 <p>That same face can also carry a <b>lining wall</b>: studs standing at a stand-off in front of the
 structural face, carrying that face's boards. What is recorded is the stand-off, the stud depth,
-timber or metal stud, an optional post spacing and post width of its own, the number of nogging rows
-and the cavity insulation; without a stated height the lining wall follows the top of the wall itself.
+timber or metal stud, an optional post spacing and post width of its own, on timber the number of
+nogging rows, and the cavity insulation; without a stated height the lining wall follows the top of the wall itself.
 Its position is never stored: the centreline, its ends and its corners are recomputed from the wall
 and its neighbours on every change, so moving, splitting, flipping or merging the wall carries the
 lining wall with it — the wall graph, room detection's own face walk, the centreline area and the
@@ -997,7 +1000,10 @@ width meet (one at a corner, two at a T or a crossing; a straight run split into
 Under an opening a header carries two post widths extra, doubled on edge, carried on a jack stud on each
 side, with a sill under a window and cripples between the header or the sill and the plate. A steel frame
 yields the same studs — king and backing included — under the names rail and stud, but no noggings, header
-or jack stud: a door frame is its own element there. A block wall yields a number of blocks from the block
+or jack stud: a door frame is its own element there. Where the first board fixed to the studs is shorter
+than the frame, every horizontal board joint gets a row of joint backing between each pair of studs, on
+timber and steel alike; its height follows from that board kind's sheet size, with whole sheets from the
+floor, and a nogging row within a post width of the joint is left out. A block wall yields a number of blocks from the block
 format; a sandwich wall a number of panels from the panel width. A build-up yields, per board and per
 board kind, square metres and sheets at that kind's own sheet size, over the side of the wall that
 carries no facade; cavity insulation yields square metres on the same side. The takeoff is grouped by
@@ -1380,8 +1386,8 @@ window.wallgraph.load(doc)
 // The current plan, as a deep copy.
 const doc = window.wallgraph.save()
 
-// A shareable link to this page carrying the current plan.
-window.wallgraph.link()
+// A shareable link to this page carrying the current plan (compressed).
+await window.wallgraph.link()
 
 // Read or switch the interface language ("nl" | "en").
 window.wallgraph.language("en")
@@ -1433,6 +1439,9 @@ plak het in de editor via het menu, of laad het via een link.</p>
 <p>Het document kan als JSON in een <code>base64url</code>-string achter <code>#plan=</code> worden geplaatst.
 De URL-fragmentwaarde wordt niet in een HTTP-verzoek naar de server opgenomen. Iedereen met de link
 kan de ingesloten plattegrond openen.</p>
+<p>De deelknop en <code>link()</code> schrijven een gecomprimeerde vorm: <code>z.</code> gevolgd door
+de <code>base64url</code> van het met raw DEFLATE (RFC 1951) gecomprimeerde JSON-document. Beide vormen
+worden gelezen.</p>
 <pre><code>${origin}/#plan=&lt;base64url van het JSON-document&gt;
 
 # en optioneel de taal erbij:
@@ -1490,6 +1499,8 @@ through the editor menu or a plan link.</p>
 <h3>1. A plan in a link</h3>
 <p>The document JSON can be placed in a <code>base64url</code> string after <code>#plan=</code>. URL fragment
 values are not included in HTTP requests to the server. Anyone with the link can open the embedded plan.</p>
+<p>The share button and <code>link()</code> write a compressed form: <code>z.</code> followed by the
+<code>base64url</code> of the JSON document compressed with raw DEFLATE (RFC 1951). Both forms are read.</p>
 <pre><code>${origin}/#plan=&lt;base64url of the JSON document&gt;
 
 # optionally with the language:

@@ -1,10 +1,12 @@
 // One framed wall's members placed in the wall's own plane. The takeoff
 // (core/materials.ts) counts this layout and the elevation (render/frame.ts)
 // draws it, so the drawing and the order cannot disagree.
-import type { Floor, Id, Opening, Wall } from "../model/doc";
+import type { Floor, Id, Opening, PlanDoc, Wall } from "../model/doc";
 import {
-  isBlockMaterial, isFramedMaterial, openingHeight, openingSill, wallPostMm, wallPostWidthMm, postLayoutOf,
+  buildUpOf, isBlockMaterial, isFramedMaterial, openingHeight, openingSill, wallPostMm, wallPostWidthMm,
+  postLayoutOf,
 } from "../model/doc";
+import { sheetOf } from "../model/materials";
 import { wallTopAt, wallTopPolyline, wallTopRange } from "../model/profile";
 import type { MemberName } from "./materials";
 import { postBays, postPositions, type ResolvedWall, type WallRun } from "./resolve";
@@ -373,9 +375,9 @@ function suggestBreaks(topMax: number, pw: number, maxStockMm: number): number[]
  * what gets placed.
  */
 export function frameLayout(
-  f: Floor, w: Wall, rw: ResolvedWall, maxStockMm = Infinity,
+  f: Floor, w: Wall, rw: ResolvedWall, maxStockMm = Infinity, sheetHeightsMm: readonly number[] = [],
 ): FrameLayout | null {
-  return layoutWithBacking(f, w, rw, computeBacking(f).get(w.id) ?? EMPTY_BACKING, maxStockMm);
+  return layoutWithBacking(f, w, rw, computeBacking(f).get(w.id) ?? EMPTY_BACKING, maxStockMm, sheetHeightsMm);
 }
 
 /**
@@ -386,12 +388,51 @@ export function frameLayout(
  */
 export function frameLayoutOf(
   f: Floor, w: Wall, rw: ResolvedWall, backing: ReadonlyMap<Id, WallBacking>, maxStockMm = Infinity,
+  sheetHeightsMm: readonly number[] = [],
 ): FrameLayout | null {
-  return layoutWithBacking(f, w, rw, backing.get(w.id) ?? EMPTY_BACKING, maxStockMm);
+  return layoutWithBacking(f, w, rw, backing.get(w.id) ?? EMPTY_BACKING, maxStockMm, sheetHeightsMm);
+}
+
+/**
+ * Sheet heights of the boards fixed directly to a frame's studs, mm, for
+ * frameLayout()'s joint backing: the first board of each face stack the frame
+ * carries, at that kind's sheetOf() size. On a wall the document states, that
+ * is each face whose build-up has no voorzetwand of its own; on a voorzetwand
+ * leaf, `host` names the face it stands on. A later board layer is laid with
+ * its joints offset and fixed through the first, and is not backed here.
+ */
+export function frameSheetHeightsMm(
+  doc: PlanDoc, w: Wall, host?: { wall: Wall; side: "left" | "right" },
+): number[] {
+  const stacks = host
+    ? [buildUpOf(host.wall, host.side)]
+    : (["left", "right"] as const).map(side => buildUpOf(w, side)).filter(fu => !fu?.frame);
+  const heights: number[] = [];
+  for (const fu of stacks) {
+    const first = fu?.boards[0];
+    if (first) heights.push(sheetOf(doc, first.kind).height);
+  }
+  return [...new Set(heights)].sort((a, b) => a - b);
+}
+
+/** Every height below `topMax` at which a board of one of `sheetHeightsMm`
+ *  ends, sheets standing full height from the floor. Heights within a post
+ *  width of a lower one share its row. */
+function jointHeights(sheetHeightsMm: readonly number[], topMax: number, pw: number): number[] {
+  const all: number[] = [];
+  for (const h of sheetHeightsMm) {
+    if (!Number.isFinite(h) || h <= 0) continue;
+    for (let y = h; y < topMax; y += h) all.push(y);
+  }
+  all.sort((a, b) => a - b);
+  const out: number[] = [];
+  for (const y of all) if (out.length === 0 || y - out[out.length - 1]! >= pw) out.push(y);
+  return out;
 }
 
 function layoutWithBacking(
   f: Floor, w: Wall, rw: ResolvedWall, backing: WallBacking, maxStockMm: number,
+  sheetHeightsMm: readonly number[],
 ): FrameLayout | null {
   if (!isFramedMaterial(w.material) || wallPostMm(w) === undefined) return null;
   const pw = wallPostWidthMm(w);
@@ -574,6 +615,66 @@ function layoutWithBacking(
     return { lengthMm: Lf, heightMm: topMax, topLine, members, openings, openingsAcrossBreak, suggestedBreaksMm };
   };
 
+  // Level rows of pieces between one band's full-height members, one piece
+  // per bay: noggings and joint backing both. A row is kept in a bay only
+  // where its own top (centre + half a post) sits at least a post width below
+  // the top at BOTH of that bay's edges -- the lower edge governs -- dropped,
+  // never shortened: a short bay near the eaves then carries no piece, which
+  // is normal for short studs.
+  const placeRows = (band: Band, rowCenters: readonly number[], name: MemberName): void => {
+    if (rowCenters.length === 0) return;
+    const piece = (x0: number, cutW: number, topAt0: number, topAt1: number): void => {
+      if (cutW <= 0) return;
+      const bound = Math.min(topAt0, topAt1) - pw;
+      for (const centerY of rowCenters) {
+        if (centerY + pw / 2 > bound) continue;
+        members.push({
+          name, x: clampX(x0, cutW), y: centerY - pw / 2, w: cutW, h: pw,
+          sectionMm: section, lengthMm: cutW, count: 1, spliceable: false,
+        });
+      }
+    };
+    if (grid) {
+      // Per actual gap between consecutive full-height members THIS band
+      // placed (end studs, kings, grid studs, backing -- bandFullCenters,
+      // gathered above; a cripple does not count, it stops at the header
+      // or the sill) -- a builder's own noggings run stud to stud,
+      // whatever the two studs either side of a gap happen to be, not to
+      // an equal bay. A gap is skipped unless some run holds it whole:
+      // that is what keeps a king-to-king gap across a door from getting
+      // one piece spanning the opening's own hole.
+      const runs = bandIntervals.get(band)!;
+      const centers = [...new Set(bandFullCenters.get(band) ?? [])].sort((a, b) => a - b);
+      for (let i = 0; i + 1 < centers.length; i++) {
+        const c1 = centers[i]!, c2 = centers[i + 1]!;
+        if (!runs.some(r => c1 >= r.from - 0.5 && c2 <= r.to + 0.5)) continue;
+        const cutW = Math.round(c2 - c1 - pw);
+        if (cutW < 100) continue;
+        piece(c1 + pw / 2, cutW, band.top ?? wallTopAt(f, w, c1), band.top ?? wallTopAt(f, w, c2));
+      }
+    } else {
+      for (const bay of postBays(w, bandIntervals.get(band)!)) {
+        for (let j = 0; j < bay.bays; j++) {
+          const cellStart = bay.from + bay.widthMm * j;
+          piece(cellStart + pw / 2, Math.round(bay.widthMm - pw),
+            band.top ?? wallTopAt(f, w, cellStart), band.top ?? wallTopAt(f, w, cellStart + bay.widthMm));
+        }
+      }
+    }
+  };
+
+  // Joint backing: a row wherever a board fixed to the studs ends below the
+  // top, so both board edges are screwed to something -- timber and steel
+  // alike. A joint within half a post of a plate is backed by the plate.
+  const joints = jointHeights(sheetHeightsMm, topMax, pw);
+  const bandJoints = new Map<Band, number[]>();
+  for (const band of bands) {
+    const top = band.top ?? topMax;
+    const rows = joints.filter(j => j - pw / 2 >= band.bottom + pw && j + pw / 2 <= top - pw);
+    bandJoints.set(band, rows);
+    placeRows(band, rows, "jointBacking");
+  }
+
   if (steel) return finish(); // no noggings, headers or jacks; a door frame is its own trade
 
   const spacing = wallPostMm(w)!; // defined: the guard at the top would not have gotten here otherwise
@@ -601,57 +702,19 @@ function layoutWithBacking(
     // heights are spaced over the band's own bandHeight: its flat top on a
     // flat band, or the band's own HIGHEST top (topMax) on the top band of a
     // sloped wall, so rows are spread over the full height of the gable. A
-    // row is kept in a bay only where its own top (centre + half a post)
-    // sits at least a post width below the top at BOTH of that bay's edges
-    // -- the lower edge governs -- dropped, never shortened: a short bay
-    // near the eaves then carries no nogging, which is normal for short
-    // studs.
+    // row within a post width of a joint-backing row is left out: the joint
+    // row stands in its place.
     if (w.noggingRows && w.noggingRows > 0) {
       const bandHeight = band.top ?? topMax;
       const clear = bandHeight - band.bottom - 2 * pw;
       if (clear > 0) {
+        const jointRows = bandJoints.get(band) ?? [];
         const rowCenters: number[] = [];
         for (let r = 1; r <= w.noggingRows; r++) {
-          rowCenters.push(band.bottom + pw + r * clear / (w.noggingRows + 1));
+          const c = band.bottom + pw + r * clear / (w.noggingRows + 1);
+          if (!jointRows.some(j => Math.abs(j - c) < pw)) rowCenters.push(c);
         }
-        const nogging = (x0: number, cutW: number, topAt0: number, topAt1: number): void => {
-          if (cutW <= 0) return;
-          const bound = Math.min(topAt0, topAt1) - pw;
-          for (const centerY of rowCenters) {
-            if (centerY + pw / 2 > bound) continue;
-            members.push({
-              name: "nogging", x: clampX(x0, cutW), y: centerY - pw / 2, w: cutW, h: pw,
-              sectionMm: section, lengthMm: cutW, count: 1, spliceable: false,
-            });
-          }
-        };
-        if (grid) {
-          // Per actual gap between consecutive full-height members THIS band
-          // placed (end studs, kings, grid studs, backing -- bandFullCenters,
-          // gathered above; a cripple does not count, it stops at the header
-          // or the sill) -- a builder's own noggings run stud to stud,
-          // whatever the two studs either side of a gap happen to be, not to
-          // an equal bay. A gap is skipped unless some run holds it whole:
-          // that is what keeps a king-to-king gap across a door from getting
-          // one nogging spanning the opening's own hole.
-          const runs = bandIntervals.get(band)!;
-          const centers = [...new Set(bandFullCenters.get(band) ?? [])].sort((a, b) => a - b);
-          for (let i = 0; i + 1 < centers.length; i++) {
-            const c1 = centers[i]!, c2 = centers[i + 1]!;
-            if (!runs.some(r => c1 >= r.from - 0.5 && c2 <= r.to + 0.5)) continue;
-            const cutW = Math.round(c2 - c1 - pw);
-            if (cutW < 100) continue;
-            nogging(c1 + pw / 2, cutW, band.top ?? wallTopAt(f, w, c1), band.top ?? wallTopAt(f, w, c2));
-          }
-        } else {
-          for (const bay of postBays(w, bandIntervals.get(band)!)) {
-            for (let j = 0; j < bay.bays; j++) {
-              const cellStart = bay.from + bay.widthMm * j;
-              nogging(cellStart + pw / 2, Math.round(bay.widthMm - pw),
-                band.top ?? wallTopAt(f, w, cellStart), band.top ?? wallTopAt(f, w, cellStart + bay.widthMm));
-            }
-          }
-        }
+        placeRows(band, rowCenters, "nogging");
       }
     }
 
@@ -871,7 +934,9 @@ function panelEdgePositions(Lf: number, panelMm: number): number[] {
  * `topLine`/`openings` are read the same way for every kind, the same
  * centerline mm frameLayout() itself reads member positions against.
  */
-export function wallElevation(f: Floor, w: Wall, rw: ResolvedWall): WallElevation {
+export function wallElevation(
+  f: Floor, w: Wall, rw: ResolvedWall, sheetHeightsMm: readonly number[] = [],
+): WallElevation {
   const L = rw.length;
   const Lf = Math.round((rw.faces.left + rw.faces.right) / 2);
   const topMax = wallTopRange(f, w, L).max;
@@ -882,7 +947,7 @@ export function wallElevation(f: Floor, w: Wall, rw: ResolvedWall): WallElevatio
   const base = { lengthMm: Lf, heightMm: topMax, topLine, openings };
 
   if (isFramedMaterial(w.material)) {
-    const layout = frameLayout(f, w, rw);
+    const layout = frameLayout(f, w, rw, Infinity, sheetHeightsMm);
     const notes: WallElevation["notes"] = layout
       ? []
       : wallPostMm(w) === undefined ? ["posts"] : ["postWidth"];

@@ -2282,9 +2282,12 @@ export class Panel {
       }
     }
     if (walls.every(w => wallPostMm(w) !== undefined)) {
-      rows.numRow(t("panel.noggingRows"), first.noggingRows ?? 0, n => mutAll(w => {
-        w.noggingRows = clampNoggingRows(n) || undefined;
-      }), 1, { mixed: isMixed(walls, w => w.noggingRows ?? 0) });
+      // Only a timber frame carries noggings (core/frame.ts).
+      if (walls.every(w => w.material === "timber")) {
+        rows.numRow(t("panel.noggingRows"), first.noggingRows ?? 0, n => mutAll(w => {
+          w.noggingRows = clampNoggingRows(n) || undefined;
+        }), 1, { mixed: isMixed(walls, w => w.noggingRows ?? 0) });
+      }
       rows.checkRow(t("panel.insulated"), first.insulated === true, on => mutAll(w => {
         if (on) w.insulated = true; else delete w.insulated;
       }), { mixed: isMixed(walls, w => w.insulated === true) });
@@ -3065,12 +3068,15 @@ export class Panel {
           }), 50);
         }
       }
-      // Noggings and cavity insulation, only meaningful on a framed wall.
+      // Noggings and cavity insulation, only meaningful on a framed wall;
+      // only a timber frame carries noggings (core/frame.ts).
       if (wallPostMm(w) !== undefined) {
-        numRow(t("panel.noggingRows"), w.noggingRows ?? 0, n => this.store.mutate(d => {
-          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
-          if (wall) wall.noggingRows = clampNoggingRows(n) || undefined;
-        }), 1);
+        if (w.material === "timber") {
+          numRow(t("panel.noggingRows"), w.noggingRows ?? 0, n => this.store.mutate(d => {
+            const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+            if (wall) wall.noggingRows = clampNoggingRows(n) || undefined;
+          }), 1);
+        }
         checkRow(t("panel.insulated"), w.insulated === true, on => this.store.mutate(d => {
           const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
           if (!wall) return;

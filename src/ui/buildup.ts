@@ -118,12 +118,15 @@ export function renderFaceBuildUp(
       v => withFrame({ ...frame, postLayout: v === "even" ? "even" : "grid" }));
     rows.numRow(t("panel.buildUpFramePostWidth"), frame.postWidthMm ?? frame.depthMm,
       n => withFrame({ ...frame, postWidthMm: Math.max(10, Math.round(n)) }), 5);
-    rows.numRow(t("panel.buildUpFrameNoggings"), frame.noggingRows ?? 0, n => {
-      const rowsCount = clampNoggingRows(n);
-      const next = { ...frame };
-      if (rowsCount > 0) next.noggingRows = rowsCount; else delete next.noggingRows;
-      withFrame(next);
-    }, 1);
+    // A metal stud frame carries no noggings (core/frame.ts).
+    if (frame.material === "timber") {
+      rows.numRow(t("panel.buildUpFrameNoggings"), frame.noggingRows ?? 0, n => {
+        const rowsCount = clampNoggingRows(n);
+        const next = { ...frame };
+        if (rowsCount > 0) next.noggingRows = rowsCount; else delete next.noggingRows;
+        withFrame(next);
+      }, 1);
+    }
     rows.checkRow(t("panel.buildUpFrameInsulated"), frame.insulated === true, on => {
       const next = { ...frame };
       if (on) next.insulated = true; else delete next.insulated;

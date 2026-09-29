@@ -23,7 +23,7 @@ import { resolveFloor } from "../core/resolve";
 import { permitSheet } from "./permit";
 import { assumptionsSheet, buildScene } from "./assumptions";
 import { materialsHeaderRow, materialsRows, type MaterialsRow } from "./materials";
-import { wallElevation, type WallElevation } from "../core/frame";
+import { frameSheetHeightsMm, wallElevation, type WallElevation } from "../core/frame";
 import { drawElevation } from "../render/frame";
 import { recordSymbol } from "./record";
 import { group, line, place, rect, text, type Item } from "./scene";
@@ -327,7 +327,7 @@ function elevationPages(doc: PlanDoc): PdfPage[] {
     for (const w of f.walls) {
       const rw = resolved.walls.get(w.id);
       if (!rw) continue;
-      const e = wallElevation(f, w, rw);
+      const e = wallElevation(f, w, rw, frameSheetHeightsMm(doc, w));
       if (e.kind === "plain") { skipped++; continue; }
       drawn++;
       walls.push(elevationPage(f.name, e));

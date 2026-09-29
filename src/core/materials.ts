@@ -22,7 +22,9 @@ import { floorSurface, type FloorSurface } from "./surface";
 import { detectRooms } from "./rooms";
 import { resolveLeaves } from "./leaf";
 import { nest, type NestResult, type Piece } from "./stock";
-import { computeBacking, frameLayoutOf, wallElevation, type PlacedMember, type WallBacking } from "./frame";
+import {
+  computeBacking, frameLayoutOf, frameSheetHeightsMm, wallElevation, type PlacedMember, type WallBacking,
+} from "./frame";
 
 /** What a wall's frame is built as -- decides which members and quantities
  *  the takeoff counts, not just what draws as poché. */
@@ -68,7 +70,7 @@ function leafSystemOf(w: Wall): WallSystem {
  *  trimmer position), so its section is the single, undoubled joist size. */
 export type MemberName =
   | "stud" | "plate" | "nogging" | "header" | "sill" | "cripple" | "rail"
-  | "king" | "jack" | "backing" | "joist" | "rim" | "deckHeader" | "trimmer";
+  | "king" | "jack" | "backing" | "jointBacking" | "joist" | "rim" | "deckHeader" | "trimmer";
 
 export interface Member {
   name: MemberName;
@@ -92,7 +94,7 @@ export interface WallTakeoff {
   lengthMm: number;
   heightMm: number;
   /** Studs, plates/rails, noggings, headers, sills, cripples, king studs,
-   *  jack studs and backing -- empty for "block", "sandwich" and "other". */
+   *  jack studs, backing and joint backing -- empty for "block", "sandwich" and "other". */
   members: Member[];
   /** core/frame.ts's FrameLayout.suggestedBreaksMm for this wall -- present
    *  only where the current frame already orders a stud, king or backing
@@ -199,9 +201,9 @@ function asMember(p: PlacedMember): Member {
  */
 function framedMembers(
   f: Floor, w: Wall, rw: ResolvedWall, backing: ReadonlyMap<Id, WallBacking>,
-  incomplete: WallTakeoff["incomplete"], maxStockMm: number,
+  incomplete: WallTakeoff["incomplete"], maxStockMm: number, sheetHeightsMm: readonly number[],
 ): { members: Member[]; suggestedBreaksMm?: number[] } {
-  const layout = frameLayoutOf(f, w, rw, backing, maxStockMm);
+  const layout = frameLayoutOf(f, w, rw, backing, maxStockMm, sheetHeightsMm);
   if (!layout) {
     incomplete.push("postWidth");
     return { members: [] };
@@ -232,7 +234,7 @@ function framedMembers(
  */
 function wallTakeoffOf(
   f: Floor, w: Wall, rw: ResolvedWall, surface: FloorSurface, waste: number,
-  backing: ReadonlyMap<Id, WallBacking>, maxStockMm: number,
+  backing: ReadonlyMap<Id, WallBacking>, maxStockMm: number, sheetHeightsMm: readonly number[],
   opts: {
     leaf?: { host: { wallId: Id; side: "left" | "right" } };
     leafSurfaceOf?: (wallId: Id, side: "left" | "right") => { netMm2: number; lengthMm: number } | undefined;
@@ -245,7 +247,7 @@ function wallTakeoffOf(
   const incomplete: WallTakeoff["incomplete"] = [];
 
   const framed = system === "framed-timber" || system === "framed-steel"
-    ? framedMembers(f, w, rw, backing, incomplete, maxStockMm)
+    ? framedMembers(f, w, rw, backing, incomplete, maxStockMm, sheetHeightsMm)
     : { members: [] as Member[] };
   const members = framed.members;
 
@@ -440,7 +442,8 @@ export function floorMaterials(doc: PlanDoc, f: Floor, resolved: Resolved, surfa
   for (const w of f.walls) {
     const rw = resolved.walls.get(w.id);
     if (!rw) continue;
-    walls.push(wallTakeoffOf(f, w, rw, surface, waste, backing, maxStockMm, { leafSurfaceOf }));
+    walls.push(wallTakeoffOf(f, w, rw, surface, waste, backing, maxStockMm, frameSheetHeightsMm(doc, w),
+      { leafSurfaceOf }));
   }
   // Every voorzetwand leaf as one more wall of its own system, appended into
   // the same array: bySystem below groups everything in `walls` by
@@ -450,7 +453,10 @@ export function floorMaterials(doc: PlanDoc, f: Floor, resolved: Resolved, surfa
     const rw = leaves.resolved.walls.get(w.id);
     if (!rw) continue;
     const host = leaves.leaf.hostOf.get(w.id)!;
-    walls.push(wallTakeoffOf(leaves.leaf.floor, w, rw, leafSurface, waste, leafBacking, maxStockMm, { leaf: { host } }));
+    const hostWall = f.walls.find(x => x.id === host.wallId)!;
+    const sheets = frameSheetHeightsMm(doc, w, { wall: hostWall, side: host.side });
+    walls.push(wallTakeoffOf(leaves.leaf.floor, w, rw, leafSurface, waste, leafBacking, maxStockMm, sheets,
+      { leaf: { host } }));
   }
 
   const wallList = [...resolved.walls.values()];

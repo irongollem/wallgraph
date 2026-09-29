@@ -479,6 +479,19 @@ exactly. An opening confined to an upper band would break it for the lowest band
 of equal-height breaks that would let every stud fit `stockLengths()`'s longest entry, at the profile's
 worst case — reported beside the unfit members, never applied.
 
+**A board shorter than its frame is backed where it ends.** `frameLayout()` takes the sheet heights of
+the boards fixed to the studs (`frameSheetHeightsMm()`: the FIRST board of each face stack the frame
+carries, at `sheetOf()`'s size — a wall's own faces without a voorzetwand, or a leaf's host face) and
+places a `jointBacking` row, one piece per bay, at every whole multiple of a sheet height below the top:
+sheets stand full height from the floor, so the rows are where the joints fall, and staggering the sheets
+moves a row within a bay without changing the count. A row within half a post of a plate is left to the
+plate, and a nogging row within a post width of a joint row is dropped for it. Timber and steel both
+carry it — a metal stud frame has no noggings, but a horizontal joint still needs a length of track
+behind it. The sheet heights are a parameter rather than read inside the layout because a leaf's boards
+are stated on its host; every caller of `frameLayout()`/`wallElevation()` that draws or counts passes
+them, which is what keeps the aanzicht and the takeoff agreeing. Verified by
+[tests/jointbacking.test.ts](tests/jointbacking.test.ts).
+
 **A deck is the vide's counterpart: floor put where the storey has none.** `Floor.decks`
 ([model/deck.ts](src/model/deck.ts)) is a rectangle placed at its centre whose box is the clear span
 between the supports. `deckJoistsLocal()` in [core/deck.ts](src/core/deck.ts) sets the joists out from
@@ -532,6 +545,23 @@ into the room is not dimensioned. The canvas (and so the PNG), the SVG's `setout
 `SETOUT` layer draw them; the permit sheet does not. The ray intersection is `rayHits()` in
 [geometry/ray.ts](src/geometry/ray.ts), shared with the tape measure. Verified by
 [tests/setout.test.ts](tests/setout.test.ts).
+
+**A compartment boundary is derived; only the rating is stored.** `Wall.fireRating` states what one
+wall achieves; `fireRuns()` in [fire.ts](src/core/fire.ts) chains the rated walls into the polylines a
+sheet draws. Two walls join only where they share a node AND state the same `kind` and `minutes` — the
+rule `planNodeDissolve()` already applies when it refuses to merge two walls that disagree — so a
+WBDBO 30 wall meeting a WBDBO 60 wall is two boundaries. An unrated wall between two rated ones breaks
+the run, and a node where three or more same-rated walls meet ends the runs there, a run being a
+polyline rather than a branch; a closed compartment comes back as one run whose last point is its
+first. `fireLabels()` repeats `fireLabel()` along each run every `FIRE_LABEL_MM`, offset clear of the
+line by a figure sized against the label's WIDTH rather than its height, the text being drawn upright
+whatever direction the run takes. Whether any of it is drawn is `PlanDoc.fireMarks` (`fireMarksOn()`),
+a drawing convention beside `areaMode`, `dimMode` and `mountMarks` and absent by default: a dashed line
+over the fabric interferes with reading the bouwkundig plan. It is stored rather than held as editor
+state so the canvas, the PNG, the SVG's `fire` group and the DXF's `FIRE` layer cannot disagree about
+it. The boundary reports what the document states and checks nothing — WBDBO is a property of the
+boundary between two spaces, not of one wall. Verified by [tests/fire.test.ts](tests/fire.test.ts),
+[tests/svg.test.ts](tests/svg.test.ts) and [tests/dxf.test.ts](tests/dxf.test.ts).
 
 ## Adding a symbol
 
@@ -819,8 +849,9 @@ before changing one:
 - End, king, jack and backing studs are totals only: unlike the drawn posts (`rw.posts`/`PostMark`),
   none carries a position on the plan. Header sizing is not engineered — a header is two post widths of
   the frame section, on edge, whatever the span — and every frame member, backing included, shares the
-  post's own section rather than one chosen for its span. Blocking behind a fixture and an extra stud at
-  a build-up board joint are not counted, nor are mortar, adhesive, fixings, or floor, roof and finish
+  post's own section rather than one chosen for its span. Blocking behind a fixture, an extra stud at a
+  vertical board joint, and joint backing above a header or below a sill are not counted, nor is backing
+  behind a second board layer's joints, nor are mortar, adhesive, fixings, or floor, roof and finish
   materials. The takeoff checks no member; the span checks below do, preliminarily.
 - Wall surface counts the two faces of a wall plus the reveals through it. A reveal is measured over
   the structural thickness plus each face's own build-up; cladding makes it deeper still, but that is

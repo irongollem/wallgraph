@@ -139,8 +139,10 @@ export function renderWallTool(
     }
   }
   if (tools.wallPostMm !== null) {
-    rows.numRow(t("panel.noggingRows"), tools.wallNoggingRows ?? 0,
-      n => tools.setWallPen({ wallNoggingRows: clampNoggingRows(n) || null }), 1);
+    if (tools.wallMaterial === "timber") {
+      rows.numRow(t("panel.noggingRows"), tools.wallNoggingRows ?? 0,
+        n => tools.setWallPen({ wallNoggingRows: clampNoggingRows(n) || null }), 1);
+    }
     rows.checkRow(t("panel.insulated"), tools.wallInsulated,
       on => tools.setWallPen({ wallInsulated: on }));
   }

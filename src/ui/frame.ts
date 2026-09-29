@@ -18,7 +18,7 @@ import { frameOf, type Id, type Wall } from "../model/doc";
 import { resolveFloor, type ResolvedWall } from "../core/resolve";
 import { resolveLeaves, type Leaves } from "../core/leaf";
 import { projectS } from "../core/solids";
-import { wallElevation, type WallElevation } from "../core/frame";
+import { frameSheetHeightsMm, wallElevation, type WallElevation } from "../core/frame";
 import type { MemberName } from "../core/materials";
 import { drawElevation } from "../render/frame";
 import { exportFrameSvg } from "../io/frame";
@@ -293,14 +293,15 @@ export function openFrameDialog(store: Store, wallId: Id): void {
     // back to the structure rather than drawing nothing.
     let elevation: WallElevation;
     if (face === "structure") {
-      elevation = wallElevation(store.floor, wall, rw);
+      elevation = wallElevation(store.floor, wall, rw, frameSheetHeightsMm(store.doc, wall));
       currentFaceTag = null;
     } else {
       const leafWall = leaves.leaf.floor.walls.find(w => w.id === face);
       const leafRw = leafWall ? leaves.resolved.walls.get(leafWall.id) : undefined;
+      const host = leafWall ? leaves.leaf.hostOf.get(leafWall.id) : undefined;
       if (leafWall && leafRw) {
-        elevation = wallElevation(leaves.leaf.floor, leafWall, leafRw);
-        const host = leaves.leaf.hostOf.get(leafWall.id);
+        const sheets = host ? frameSheetHeightsMm(store.doc, leafWall, { wall, side: host.side }) : [];
+        elevation = wallElevation(leaves.leaf.floor, leafWall, leafRw, sheets);
         if (host) {
           const siblings = leaves.leaf.leavesOf(host.wallId, host.side);
           const idx = siblings.findIndex(w => w.id === leafWall.id);
@@ -309,7 +310,7 @@ export function openFrameDialog(store: Store, wallId: Id): void {
           currentFaceTag = null;
         }
       } else {
-        elevation = wallElevation(store.floor, wall, rw);
+        elevation = wallElevation(store.floor, wall, rw, frameSheetHeightsMm(store.doc, wall));
         currentFaceTag = null;
       }
     }
