@@ -21,10 +21,13 @@ import {
   toiletMark, urinalMark, urinalTroughMark, bidetMark, basinMark, basinTroughMark,
   bathMark, showerMark, showerHeadMark,
 } from "./sanitary";
-import { bedMark, seatMark, tableMark, tableRoundMark, deskMark, rackMark } from "./furniture";
+import { bedMark, seatMark, chairMark, chairClearanceMark, tableMark, tableRoundMark, deskMark, rackMark } from "./furniture";
 
 /** Grab margin around the footprint, mm — the symbols' and stairs' figure. */
 const FRAME = 30;
+
+/** Dash pattern for a reserved clearance, in mm. */
+const CLEARANCE_DASH = [60, 60];
 
 /** Dash pattern for overhead work, in mm. */
 const OVERHEAD_DASH = [90, 60];
@@ -53,6 +56,7 @@ const MARKS: Record<Furnishing["form"], (ctx: CanvasRenderingContext2D, f: Furni
   "shower-head": showerHeadMark,
   bed: bedMark,
   seat: seatMark,
+  chair: chairMark,
   table: tableMark,
   "table-round": tableRoundMark,
   desk: deskMark,
@@ -67,6 +71,18 @@ export function furnishingMark(ctx: CanvasRenderingContext2D, f: Furnishing): vo
   withCtx(ctx, () => {
     if (furnishingOverhead(f)) ctx.setLineDash(OVERHEAD_DASH);
     MARKS[f.form](ctx, f);
+  });
+}
+
+/**
+ * The reserved zone a piece carries, in its own millimetres, or nothing. Split
+ * from furnishingMark() because it is dashed and must not join the body's
+ * geometry in an export.
+ */
+export function furnishingClearanceMark(ctx: CanvasRenderingContext2D, f: Furnishing): void {
+  withCtx(ctx, () => {
+    ctx.setLineDash(CLEARANCE_DASH);
+    chairClearanceMark(ctx, f);
   });
 }
 
@@ -87,6 +103,7 @@ export function drawFurnishing(
   ctx.strokeStyle = paint.ink;
   ctx.fillStyle = ctx.strokeStyle;
   furnishingMark(ctx, f);
+  furnishingClearanceMark(ctx, f);
 
   if (paint.selected && paint.select) {
     ctx.strokeStyle = paint.select;
@@ -124,5 +141,6 @@ export function drawFurnishingGhost(
   ctx.strokeStyle = ink;
   ctx.fillStyle = ctx.strokeStyle;
   furnishingMark(ctx, f);
+  furnishingClearanceMark(ctx, f);
   ctx.restore();
 }

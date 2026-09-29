@@ -30,13 +30,13 @@ export type FurnishingForm =
   | "toilet" | "urinal" | "urinal-trough" | "bidet"
   | "basin" | "basin-trough" | "bath" | "shower" | "shower-head"
   // Loose furniture, and the open shelving a bedrijfsruimte is fitted with.
-  | "bed" | "seat" | "table" | "table-round" | "desk" | "rack";
+  | "bed" | "seat" | "chair" | "table" | "table-round" | "desk" | "rack";
 
 export const FURNISHING_FORMS: readonly FurnishingForm[] = [
   "cabinet", "appliance", "counter",
   "toilet", "urinal", "urinal-trough", "bidet",
   "basin", "basin-trough", "bath", "shower", "shower-head",
-  "bed", "seat", "table", "table-round", "desk", "rack",
+  "bed", "seat", "chair", "table", "table-round", "desk", "rack",
 ];
 
 /**
@@ -81,6 +81,7 @@ const CLASS_OF: Record<FurnishingForm, FurnishingClass> = {
   "shower-head": "sanitary",
   bed: "furniture",
   seat: "furniture",
+  chair: "furniture",
   table: "furniture",
   "table-round": "furniture",
   desk: "furniture",
@@ -208,6 +209,13 @@ export interface Furnishing {
   /** Only read when form is "shower". Absent reads as "none". */
   tray?: ShowerTray;
 
+  /* ── furniture ── */
+  /**
+   * Space behind a chair's backrest kept clear to push the chair back and stand
+   * up, mm. Only read when form is "chair"; absent reads as CHAIR_PULL_OUT_MM.
+   */
+  pullOutMm?: number;
+
   /** What the piece is called on the drawing. Absent means no annotation. */
   label?: string;
   /** Pen colour "#rrggbb"; absent means the plan's default ink. */
@@ -236,6 +244,7 @@ export interface FurnishingSpec {
   rails: boolean;
   basins: number;
   tray: ShowerTray;
+  pullOutMm: number;
 }
 
 /**
@@ -262,11 +271,17 @@ export const FORM_WIDTHS: Partial<Record<FurnishingForm, readonly number[]>> = {
   basin: [400, 500, 600, 800, 1200],
   bath: [1600, 1700, 1800],
   shower: [800, 900, 1000, 1200],
+  chair: [400, 450, 500, 550],
   bed: [900, 1200, 1400, 1600, 1800],
   table: [1200, 1400, 1600, 1800, 2200],
   "table-round": [900, 1100, 1200, 1400],
   desk: [1200, 1400, 1600, 1800],
   rack: [1000, 2000, 2700, 3600],
+};
+
+/** Depths offered for a form whose depth is a stock figure too. */
+export const FORM_DEPTHS: Partial<Record<FurnishingForm, readonly number[]>> = {
+  chair: [450, 500, 550],
 };
 
 /** Depths that go with each cabinet height class. Offered, not enforced. */
@@ -289,6 +304,20 @@ const KIND_DEFAULTS: Record<CabinetKind, { depth: number; height: number }> = {
 };
 
 /**
+ * The default pull-out space behind a chair's backrest, mm. An indicative
+ * figure from common interior-planning practice: with the chair front at the
+ * table edge, a 500 deep chair and 300 behind it put the reserved line about
+ * 800 mm from the table. It is authored per chair, never derived.
+ */
+export const CHAIR_PULL_OUT_MM = 300;
+
+/** Upper bound of an authored pull-out space, mm. */
+const CHAIR_PULL_OUT_MAX_MM = 1500;
+
+/** Seat height of a chair, mm; `height` is the top of the backrest. */
+export const CHAIR_SEAT_MM = 450;
+
+/**
  * What each form is built to when nothing else is said: the size it is placed
  * at and the height it stands. Ordinary Dutch figures -- a 600 appliance slot,
  * a 1700 bath, a 750 table.
@@ -308,6 +337,8 @@ const FORM_DEFAULTS: Record<FurnishingForm, { width: number; depth: number; heig
   "shower-head": { width: 400, depth: 400, height: 2100 },
   bed: { width: 900, depth: 2000, height: 500 },
   seat: { width: 2000, depth: 900, height: 800 },
+  // The height is the backrest; the seat is at CHAIR_SEAT_MM.
+  chair: { width: 450, depth: 500, height: 900 },
   table: { width: 1600, depth: 900, height: 750 },
   "table-round": { width: 1200, depth: 1200, height: 750 },
   desk: { width: 1400, depth: 700, height: 750 },
@@ -322,6 +353,7 @@ export function furnishingDefaults(form: FurnishingForm): FurnishingSpec {
     // A base unit carries the worktop; a wall or tall unit does not.
     worktop: form === "cabinet",
     mark: "none", cistern: "exposed", rails: false, basins: 1, tray: "none",
+    pullOutMm: CHAIR_PULL_OUT_MM,
   };
 }
 
@@ -421,6 +453,7 @@ export const FURNISHING_PRESETS: readonly FurnishingPreset[] = [
   preset("tweepersoonsbed", "meubels", "bed", { width: 1600 }),
   preset("bank", "meubels", "seat"),
   preset("fauteuil", "meubels", "seat", { width: 900, depth: 850 }),
+  preset("stoel", "meubels", "chair"),
   preset("tafel", "meubels", "table"),
   preset("ronde-tafel", "meubels", "table-round"),
   preset("bureau", "meubels", "desk"),
@@ -450,7 +483,8 @@ export function furnishingPresetOf(f: Furnishing): FurnishingPreset | null {
     && p.cistern === toiletCistern(f)
     && p.rails === !!f.rails
     && p.basins === furnishingBasins(f)
-    && p.tray === showerTray(f)) ?? null;
+    && p.tray === showerTray(f)
+    && p.pullOutMm === chairPullOutMm(f)) ?? null;
 }
 
 /* ── defaulted reads. Never touch the optional field directly: an absent one
@@ -539,6 +573,12 @@ function appliancePorts(mark: ApplianceMark): ServicePort[] {
 export const toiletCistern = (f: Furnishing): ToiletCistern => f.cistern ?? "exposed";
 export const showerTray = (f: Furnishing): ShowerTray => f.tray ?? "none";
 
+/** The pull-out space behind a chair, whole mm in 0..1500. Only a chair has one. */
+export const chairPullOutMm = (f: Furnishing): number =>
+  f.form === "chair" && f.pullOutMm !== undefined
+    ? clampInt(f.pullOutMm, 0, CHAIR_PULL_OUT_MAX_MM)
+    : CHAIR_PULL_OUT_MM;
+
 /** Height, defaulted from the form -- and, for a cabinet, its height class. */
 export const furnishingHeight = (f: Furnishing): number =>
   f.height ?? (f.form === "cabinet"
@@ -590,6 +630,7 @@ export function clampFurnishing(s: FurnishingSpec): FurnishingSpec {
     height: clampInt(s.height, 50, 6000),
     drawers: clampInt(s.drawers, 1, 8),
     basins: clampInt(s.basins, 1, 2),
+    pullOutMm: clampInt(s.pullOutMm, 0, CHAIR_PULL_OUT_MAX_MM),
   };
 }
 
@@ -605,6 +646,7 @@ export function furnishingSpecOf(f: Furnishing): FurnishingSpec {
     drawers: furnishingDrawers(f), corner: !!f.corner, worktop: !!f.worktop,
     mark: applianceMark(f), cistern: toiletCistern(f), rails: !!f.rails,
     basins: furnishingBasins(f), tray: showerTray(f),
+    pullOutMm: chairPullOutMm(f),
   };
 }
 
@@ -631,6 +673,7 @@ export function writeSpec(f: Furnishing, s: FurnishingSpec): void {
   flag(f, "rails", s.form === "toilet" && s.rails);
   optional(f, "basins", s.form === "basin" || s.form === "counter" ? s.basins : undefined, 1);
   optional(f, "tray", s.form === "shower" ? s.tray : undefined, "none");
+  optional(f, "pullOutMm", s.form === "chair" ? s.pullOutMm : undefined, CHAIR_PULL_OUT_MM);
 }
 
 /** Set an optional field, or delete it when it is absent or at its default. */

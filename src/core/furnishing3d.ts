@@ -19,7 +19,7 @@
 import {
   Furnishing, applianceMark, bedPlaces, furnishingBasins, furnishingDrawers,
   furnishingFront, furnishingHeight, furnishingKind, furnishingOverhead, rackBays, showerTray,
-  toiletCistern,
+  toiletCistern, CHAIR_SEAT_MM,
 } from "../model/furnishing";
 import { Vec, v, clipHalfPlane, polygonArea } from "../geometry/vec";
 import { worldPoint } from "./placed";
@@ -127,6 +127,7 @@ function localParts(f: Furnishing): LocalPart[] {
     case "shower-head": return showerHeadParts(f);
     case "bed": return bedParts(f);
     case "seat": return seatParts(f);
+    case "chair": return chairParts(f);
     case "table": return tableParts(f);
     case "table-round": return tableRoundParts(f);
     case "desk": return deskParts(f);
@@ -576,6 +577,23 @@ function seatParts(f: Furnishing): LocalPart[] {
     { poly: rect(armX, backY, b.x1, b.y1), z0: 0, z1: h * 0.7, material: "soft" },
     { poly: rect(-armX, backY, armX, b.y1), z0: 0, z1: h * 0.55, material: "soft" },
   ];
+}
+
+/** Stoel: the seat slab at CHAIR_SEAT_MM on four legs, and the backrest along
+ *  the back edge (-y) up to the stored height. The pull-out zone has no body. */
+function chairParts(f: Furnishing): LocalPart[] {
+  const b = furnishingBox(f);
+  const h = furnishingHeight(f);
+  const seat = Math.min(CHAIR_SEAT_MM, h);
+  const seatBottom = Math.max(0, seat - PLATE_MM * 2);
+  const out: LocalPart[] = [
+    { poly: rect(b.x0, b.y0, b.x1, b.y1), z0: seatBottom, z1: seat, material: "soft" },
+    { poly: rect(b.x0, b.y0, b.x1, b.y0 + POST_MM), z0: seat, z1: h, material: "casework" },
+  ];
+  for (const p of legs(b.x0, b.y0, b.x1, b.y1, POST_MM)) {
+    out.push({ poly: p, z0: 0, z1: seatBottom, material: "casework" });
+  }
+  return out;
 }
 
 /** Tafel: the top on four legs. */

@@ -36,7 +36,7 @@ import { deckPrims } from "./deck";
 import { deckRaised } from "../core/deck";
 import { structurePrims } from "./structure";
 import { columnCasingPieces } from "../core/structure";
-import { furnishingPrims } from "./furnishing";
+import { furnishingPrims, furnishingClearancePrims } from "./furnishing";
 import { furnishingClass, furnishingOverhead, type FurnishingClass } from "../model/furnishing";
 import { resolveStair } from "../core/stair";
 import { resolveRoutes } from "../core/route";
@@ -155,6 +155,9 @@ const LAYER = {
   appliancesOverhead: "APPLIANCES-OVERHEAD",
   sanitary: "SANITARY",
   furniture: "FURNITURE",
+  // Reserved space beside a piece (a chair's pull-out zone): a reservation, not
+  // furniture, and dashed on the canvas, which a layer states instead.
+  furnishingClearance: "FURNISHING-CLEARANCE",
 } as const;
 
 /** The layer a furnishing lands on: its trade, and whether it is overhead. */
@@ -507,6 +510,7 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
     for (const fn of furnishingsOf(floor)) {
       const layer = FURNISHING_LAYER[furnishingClass(fn.form)];
       emitPrims(w, furnishingOverhead(fn) ? layer.overhead : layer.solid, furnishingPrims(fn));
+      emitPrims(w, LAYER.furnishingClearance, furnishingClearancePrims(fn));
     }
 
     // Symbols, replayed through the recorder at their placed transform, with

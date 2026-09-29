@@ -17,7 +17,7 @@ import {
   Furnishing, FurnishingSpec, FurnishingGroup, FURNISHING_GROUPS, FURNISHING_PRESETS,
   CabinetKind, CabinetFront, ApplianceMark, ToiletCistern, ShowerTray,
   CABINET_KINDS, CABINET_FRONTS, CABINET_DEPTHS, APPLIANCE_MARKS, TOILET_CISTERNS,
-  SHOWER_TRAYS, FORM_WIDTHS,
+  SHOWER_TRAYS, FORM_WIDTHS, FORM_DEPTHS,
   cabinetDefaults, furnishingPresetOf, furnishingSpecOf,
   furnishingHeight, furnishingWallMounted, clampFurnishing, writeSpec,
 } from "../model/furnishing";
@@ -221,6 +221,8 @@ function specRows(rows: PaneRows, spec: FurnishingSpec, commit: (next: Furnishin
   const widths = FORM_WIDTHS[spec.form];
   if (widths) rows.chipRow(t("panel.furnishingWidth"), widths, spec.width, n => set({ width: n }));
   rows.numRow(t("panel.furnishingDepth"), spec.depth, n => set({ depth: n }), 50);
+  const depths = FORM_DEPTHS[spec.form];
+  if (depths) rows.chipRow(t("panel.furnishingDepth"), depths, spec.depth, n => set({ depth: n }));
   if (spec.form === "cabinet") {
     rows.chipRow(t("panel.furnishingDepth"), CABINET_DEPTHS[spec.kind], spec.depth,
       n => set({ depth: n }));
@@ -260,6 +262,9 @@ function specRows(rows: PaneRows, spec: FurnishingSpec, commit: (next: Furnishin
   }
   if (spec.form === "basin" || spec.form === "counter") {
     rows.numRow(t("panel.furnishingBasins"), spec.basins, n => set({ basins: n }), 1);
+  }
+  if (spec.form === "chair") {
+    rows.numRow(t("panel.furnishingPullOut"), spec.pullOutMm, n => set({ pullOutMm: n }), 50);
   }
   if (spec.form === "shower") {
     rows.selRow(t("panel.showerTray"), spec.tray,

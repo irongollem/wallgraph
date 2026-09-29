@@ -13,7 +13,7 @@ import { stairCorners, resolveStair } from "./stair";
 import { videCorners } from "./vide";
 import { deckCorners } from "./deck";
 import { structureCorners } from "./structure";
-import { furnishingCorners } from "./furnishing";
+import { furnishingExtentCorners } from "./furnishing";
 import { resolveRoutePoints, resolveRoutes } from "./route";
 import { symbolFootprintCorners } from "./placed";
 import { arcFlatten } from "../geometry/arc";
@@ -65,7 +65,7 @@ export function planBounds(floor: Floor, resolved: Resolved): Bounds | null {
   for (const vd of videsOf(floor)) for (const c of videCorners(vd)) b.add(c.x, c.y);
   for (const dk of decksOf(floor)) for (const c of deckCorners(dk)) b.add(c.x, c.y);
   for (const el of structureOf(floor)) for (const c of structureCorners(el)) b.add(c.x, c.y);
-  for (const fn of furnishingsOf(floor)) for (const c of furnishingCorners(fn)) b.add(c.x, c.y);
+  for (const fn of furnishingsOf(floor)) for (const c of furnishingExtentCorners(fn)) b.add(c.x, c.y);
   // Resolved, so a run following a moved symbol crops where it is actually
   // drawn, and the corridor fan (core/route.ts) never crops off a lane.
   // Bulged segments are flattened so the arc's bow past the chord is

@@ -854,3 +854,6 @@ before changing one:
 - The energy figure is transmission-only at one fixed degree-day figure. The insulation and glazing
   presets are indicative table values, not a per-year tabulation of the regulations, and nothing
   checks a stated Rc or U against what the Bbl requires.
+- A chair's pull-out zone (`Furnishing.pullOutMm`, indicative default 300 behind the backrest) is drawn
+  dashed and included in `planBounds()`, but nothing checks it against walls or other furniture.
+- Setting-out dimensions are for symbols only; a furnishing or a loose route point cannot yet ask for them.

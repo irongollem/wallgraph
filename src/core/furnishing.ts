@@ -4,6 +4,7 @@
 // all follow from the anchor, the rotation and the stored dimensions.
 import {
   Furnishing, furnishingHinge, furnishingDrawers, furnishingFront, furnishingWallMounted,
+  chairPullOutMm,
 } from "../model/furnishing";
 import { Vec, v } from "../geometry/vec";
 import { boxCorners, boxHit, worldPoint, type LocalBox } from "./placed";
@@ -27,6 +28,30 @@ export function furnishingCorners(f: Furnishing): Vec[] {
 
 export function furnishingHit(f: Furnishing, p: Vec, margin = 0): boolean {
   return boxHit(f, furnishingBox(f), p, margin);
+}
+
+/**
+ * The space kept clear behind a chair's backrest, in the chair's own frame: its
+ * width wide, from the back edge out to `pullOutMm` further along -y. A
+ * reservation rather than furniture, so it is not part of furnishingBox() and
+ * is not what a click selects: the drawn footprint is the chair, and a hit in
+ * the zone would select a chair from empty floor beside a table. Null for any
+ * other form and for a zero pull-out.
+ */
+export function furnishingClearance(f: Furnishing): LocalBox | null {
+  if (f.form !== "chair") return null;
+  const pull = chairPullOutMm(f);
+  if (pull <= 0) return null;
+  const b = furnishingBox(f);
+  return { x0: b.x0, y0: b.y0 - pull, x1: b.x1, y1: b.y0 };
+}
+
+/** What the piece occupies on the drawing: the footprint and any clearance zone. */
+export function furnishingExtentCorners(f: Furnishing): Vec[] {
+  const z = furnishingClearance(f);
+  return z
+    ? boxCorners(f, { x0: z.x0, y0: z.y0, x1: z.x1, y1: furnishingBox(f).y1 })
+    : furnishingCorners(f);
 }
 
 /** Thickness of a cabinet front panel, mm. Ordinary cabinet front stock. */

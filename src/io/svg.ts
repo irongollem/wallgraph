@@ -44,7 +44,7 @@ import { deckRaised } from "../core/deck";
 import { structurePrims } from "./structure";
 import { BEAM_DASH } from "../render/structure";
 import { columnCasingPieces } from "../core/structure";
-import { furnishingPrims } from "./furnishing";
+import { furnishingPrims, furnishingClearancePrims } from "./furnishing";
 import { furnishingOverhead } from "../model/furnishing";
 import { videBox } from "../core/vide";
 import { resolveStair } from "../core/stair";
@@ -559,6 +559,19 @@ export function planScene(
     }));
     out.push(group(items,
       { fill: "none", width: W_SYMBOL, cap: "round", join: "round" }, "furnishings"));
+
+    // A reserved zone is dashed, and the recorder discards dashes, so the group
+    // carries it (as for a wall unit above).
+    const zones: Item[] = [];
+    for (const c of furnishings) {
+      const prims = furnishingClearancePrims(c);
+      if (prims.length > 0) zones.push(group(prims, { ink: symbolInk(c) }));
+    }
+    if (zones.length > 0) {
+      out.push(group(zones, {
+        fill: "none", width: W_SYMBOL, cap: "round", join: "round", dash: [60, 60],
+      }, "furnishing-clearance"));
+    }
   }
 
   const symbols: Item[] = [];

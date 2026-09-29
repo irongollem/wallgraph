@@ -1074,7 +1074,7 @@ export function planSchema(siteUrl: string): JsonSchema {
               "cabinet", "appliance", "counter",
               "toilet", "urinal", "urinal-trough", "bidet",
               "basin", "basin-trough", "bath", "shower", "shower-head",
-              "bed", "seat", "table", "table-round", "desk", "rack",
+              "bed", "seat", "chair", "table", "table-round", "desk", "rack",
             ],
             description:
               "What the piece is, and so which mark is drawn. Everything from \"cabinet\" " +
@@ -1148,6 +1148,14 @@ export function planSchema(siteUrl: string): JsonSchema {
             description:
               "What a shower stands in: the bare wet area, a tray, or a tray drained by " +
               "a goot. Read only when form is \"shower\"; absent means none.",
+          },
+          pullOutMm: {
+            type: "integer", minimum: 0, maximum: 1500,
+            description:
+              "Space kept clear behind a chair's backrest to push the chair back and stand " +
+              "up, in mm. Drawn as a dashed zone as wide as the chair; nothing checks it " +
+              "against walls or other furniture. Read only when form is \"chair\"; absent " +
+              "means 300.",
           },
           label: { type: "string", description: "What the piece is called on the drawing." },
           color: {

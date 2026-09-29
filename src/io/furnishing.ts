@@ -6,8 +6,8 @@
 // furnishing's own frame.
 import { Prim, recordSymbol } from "./record";
 import { Furnishing } from "../model/furnishing";
-import { furnishingLabelAt, FURNISHING_LABEL_SIZE } from "../core/furnishing";
-import { furnishingMark } from "../render/furnishing";
+import { furnishingClearance, furnishingLabelAt, FURNISHING_LABEL_SIZE } from "../core/furnishing";
+import { furnishingMark, furnishingClearanceMark } from "../render/furnishing";
 
 export function furnishingPrims(f: Furnishing): Prim[] {
   const out = recordSymbol(
@@ -18,4 +18,17 @@ export function furnishingPrims(f: Furnishing): Prim[] {
     out.push({ kind: "text", at: furnishingLabelAt(f), size: FURNISHING_LABEL_SIZE, text: f.label });
   }
   return out;
+}
+
+/**
+ * The reserved zone beside the piece, apart from its body: the recorder drops
+ * the dash, so the SVG carries it on a group and the DXF on its own layer.
+ * Empty for a form with no clearance.
+ */
+export function furnishingClearancePrims(f: Furnishing): Prim[] {
+  if (!furnishingClearance(f)) return [];
+  return recordSymbol(
+    { draw: ctx => furnishingClearanceMark(ctx, f) },
+    f.x, f.y, f.rotation, !!f.mirrored,
+  );
 }

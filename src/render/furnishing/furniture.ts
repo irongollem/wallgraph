@@ -5,6 +5,7 @@
 // draw about the origin; the rack stands against a wall and runs y in [0, d].
 import type { Furnishing } from "../../model/furnishing";
 import { bedPlaces, rackBays } from "../../model/furnishing";
+import { furnishingClearance } from "../../core/furnishing";
 import { rounded } from "../symbols/defs";
 
 /**
@@ -55,6 +56,32 @@ export function seatMark(ctx: CanvasRenderingContext2D, f: Furnishing): void {
     ctx.moveTo(x, backY);
     ctx.lineTo(x, front);
   }
+  ctx.stroke();
+}
+
+/** Height of the backrest band along a chair's back edge, mm. */
+const CHAIR_BACK_MM = 60;
+
+/**
+ * Stoel: the seat, and the backrest as a band along the back edge (-y). No
+ * arms. The pull-out space behind it is drawn separately, dashed -- see
+ * chairClearanceMark().
+ */
+export function chairMark(ctx: CanvasRenderingContext2D, f: Furnishing): void {
+  const w = f.width, d = f.depth;
+  ctx.rect(-w / 2, -d / 2, w, d);
+  ctx.rect(-w / 2, -d / 2, w, Math.min(CHAIR_BACK_MM, d));
+  ctx.stroke();
+}
+
+/**
+ * The reserved pull-out space behind a chair. Dashed on the canvas; the SVG and
+ * DXF get the dash from their group and layer, since the recorder discards it.
+ */
+export function chairClearanceMark(ctx: CanvasRenderingContext2D, f: Furnishing): void {
+  const z = furnishingClearance(f);
+  if (!z) return;
+  ctx.rect(z.x0, z.y0, z.x1 - z.x0, z.y1 - z.y0);
   ctx.stroke();
 }
 
