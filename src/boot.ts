@@ -6,7 +6,7 @@
 // stays free of it: an app embedding the editor owns its own URL and its own
 // globals, and would not thank us for a `window.wallgraph` appearing beside it.
 import { mountWallgraph } from "./main";
-import { planFromHash, encodePlan, hashWithoutPlan, PLAN_PARAM } from "./io/link";
+import { planFromHash, planLink, hashWithoutPlan } from "./io/link";
 import { changeLanguage, language, LANGUAGES, type Lang } from "./i18n";
 import type { PlanDoc } from "./model/doc";
 
@@ -29,7 +29,7 @@ export interface WallgraphGlobal {
   load(doc: PlanDoc): boolean;
   save(): PlanDoc;
   /** A shareable link to this page carrying the current plan. */
-  link(): string;
+  link(): Promise<string>;
   /** Read the UI language, or switch it. */
   language(code?: Lang): Lang;
 }
@@ -62,8 +62,8 @@ const editor = mountWallgraph(document.getElementById("app")!);
 // A plan in the fragment replaces the autosave. Undoably — Ctrl+Z gets the
 // visitor's own drawing back, which is the difference between a link that
 // shows you something and a link that eats your work.
-const linked = planFromHash(location.hash);
-if (linked) {
+void planFromHash(location.hash).then(linked => {
+  if (!linked) return;
   editor.load(linked);
   // ...and the plan comes out of the URL once it is in the editor, because the
   // replacement would otherwise happen again on every refresh: an hour of
@@ -73,14 +73,14 @@ if (linked) {
     history.replaceState(null, "",
       location.pathname + location.search + hashWithoutPlan(location.hash));
   } catch { /* a sandboxed frame may refuse; the plan is loaded either way */ }
-}
+});
 
 window.wallgraph = {
   version: VERSION,
   schema: new URL("/wallgraph.schema.json", location.href).href,
   load: doc => editor.load(doc),
   save: () => editor.save(),
-  link: () => `${location.origin}${location.pathname}#${PLAN_PARAM}=${encodePlan(editor.save())}`,
+  link: () => planLink(editor.save(), location.origin + location.pathname),
   language: code => {
     if (code) changeLanguage(code);
     return language();

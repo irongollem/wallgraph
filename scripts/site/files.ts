@@ -87,8 +87,10 @@ Wallgraph provides two client-side automation channels. Neither requires an acco
 
 - **A plan in a URL.** Put the document's JSON in a base64url string after \`#plan=\`:
   \`${url("/")}#plan=<base64url>\`. Add \`&lang=en\` to set the interface language. The fragment
-  never reaches the server. Loading the plan creates an undoable document step.
-- **\`window.wallgraph\` on the hosted page.** \`load(doc)\`, \`save()\`, \`link()\`,
+  never reaches the server. Loading the plan creates an undoable document step. The share button
+  and \`link()\` write \`z.\` plus the base64url of the raw-DEFLATE (RFC 1951) compressed JSON;
+  both forms are read.
+- **\`window.wallgraph\` on the hosted page.** \`load(doc)\`, \`save()\`, \`link()\` (a promise),
   \`language(code)\`, plus \`version\` and \`schema\`. These methods can be called through
   \`page.evaluate\`.
 

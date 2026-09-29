@@ -40,7 +40,8 @@ import type { Discipline } from "../model/route";
 import { t, language, changeLanguage, allTranslations, LANGUAGES, on as onI18n, type Lang } from "../i18n";
 import { COLORS, INKS } from "../render/draw";
 import { icon, type IconName } from "./icons";
-import { docHref, DOC_IDS } from "../links";
+import { docHref, DOC_IDS, editorHref } from "../links";
+import { sharePlan } from "../io/link";
 import { openMenu, type MenuEntry } from "./menu";
 import { Palette } from "./palette";
 import { categoriesIn, getSymbol, type SymbolCategory } from "../render/symbols";
@@ -163,6 +164,9 @@ export class Panel {
   private historyEl: HTMLElement;
   private head: HTMLElement;
   private docBtn: HTMLButtonElement;
+  private shareBtn: HTMLButtonElement;
+  /** The header's button pair in the wide layout; see mountShell(). */
+  private headActions: HTMLElement;
   private root: HTMLElement;
   private mode: LayoutMode;
   /** Built on the first compact mount and kept, so its detent survives a mode flip. */
@@ -272,8 +276,16 @@ export class Panel {
     docBtn.setAttribute("aria-label", t("action.document"));
     docBtn.append(icon("dots"));
     docBtn.onclick = () => openMenu(docBtn, this.documentMenuEntries());
-    this.head.append(h1, docBtn);
+    const shareBtn = el("button", "rail-btn") as HTMLButtonElement;
+    shareBtn.type = "button";
+    shareBtn.title = t("action.shareTitle");
+    shareBtn.setAttribute("aria-label", t("action.share"));
+    shareBtn.append(icon("share"));
+    shareBtn.onclick = () => { void this.shareLink(); };
+    this.headActions = el("div", "head-actions");
+    this.head.append(h1, this.headActions);
     this.docBtn = docBtn;
+    this.shareBtn = shareBtn;
 
     this.rail = el("div", "rail");
     this.toolsEl = el("div", "rail-group");
@@ -355,11 +367,11 @@ export class Panel {
     this.tools.touchUi = touch;
 
     if (!compact) {
-      // The compact shell moves the document button into its top bar, and a
+      // The compact shell moves the document and share buttons into its top bar, and a
       // move is not undone by re-parenting the header it came from: without
       // this, a window dragged narrow and back leaves the sidebar with a
       // wordmark and no way into the menu until the page is reloaded.
-      this.head.append(this.docBtn);
+      this.headActions.replaceChildren(this.shareBtn, this.docBtn);
       this.rail.replaceChildren(this.toolsEl, el("hr", "rail-sep"), this.modesEl,
         el("div", "rail-spacer"), this.historyEl);
       const sideBody = el("div", "side-body");
@@ -376,7 +388,7 @@ export class Panel {
     // the pane goes into the sheet above a labelled tool bar.
     const sheet = this.sheet ?? (this.sheet = new Sheet(t("panel.sheetHandle")));
     const top = el("div", "wg-top");
-    top.append(this.docBtn, this.storeyEl, this.historyEl);
+    top.append(this.docBtn, this.shareBtn, this.storeyEl, this.historyEl);
     const modes = el("div", "wg-modes");
     modes.append(this.modesEl);
     const toolbar = el("div", "wg-toolbar");
@@ -645,6 +657,15 @@ export class Panel {
         options: LANGUAGES.map(l => [l.code, l.label] as [string, string]),
         onPick: value => changeLanguage(value as Lang) },
     ];
+  }
+
+  /** Keys spelled out rather than built from the result, so they stay greppable. */
+  private async shareLink(): Promise<void> {
+    const result = await sharePlan(this.store.doc, editorHref());
+    if (result === "cancelled") return;
+    this.flash(t(result === "shared" ? "status.linkShared"
+      : result === "copied" ? "status.linkCopied"
+      : "status.shareFailed"));
   }
 
   /** Replace the plan and reframe whichever canvas is currently visible. */

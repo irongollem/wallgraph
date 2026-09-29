@@ -162,8 +162,8 @@ const sampleUnderlay = (): Underlay => ({
 {
   const doc = emptyDoc();
   doc.floors[0]!.underlay = sampleUnderlay();
-  const payload = encodePlan(doc);
-  const decoded = decodePlan(payload);
+  const payload = await encodePlan(doc);
+  const decoded = await decodePlan(payload);
   check("encodePlan's payload decodes", decoded !== null);
   check("the decoded document carries no underlay",
     decoded !== null && decoded.floors[0]!.underlay === undefined);
@@ -173,7 +173,7 @@ const sampleUnderlay = (): Underlay => ({
   // by the stripping path.
   const plain = seedDoc();
   check("a document with no underlay round-trips exactly",
-    JSON.stringify(decodePlan(encodePlan(plain))) === JSON.stringify(plain));
+    JSON.stringify(await decodePlan(await encodePlan(plain))) === JSON.stringify(plain));
 }
 
 /* ── JSON export/import keeps it verbatim (io/json.ts's parseDoc) ── */

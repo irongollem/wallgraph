@@ -31,7 +31,8 @@ export type IconName =
   | "gridSnap" | "angleSnap" | "dimensions" | "view3d"
   | "undo" | "redo" | "dots" | "grip" | "chevron" | "plus" | "minus" | "close"
   | "trash" | "search" | "floors" | "backspace" | "confirm"
-  | "docNew" | "docDemo" | "docOpen" | "docSave" | "docPng" | "docDxf" | "docSvg" | "docCsv" | "docCopy" | "docPaste";
+  | "docNew" | "docDemo" | "docOpen" | "docSave" | "docPng" | "docDxf" | "docSvg" | "docCsv" | "docCopy" | "docPaste"
+  | "share";
 
 const ICONS: Record<IconName, Shape[]> = {
   select: [P("M5.5 3.2 L5.5 15.4 L8.7 12.4 L10.9 17 L13.2 16 L11 11.4 L15.2 11.2 Z")],
@@ -159,6 +160,13 @@ const ICONS: Record<IconName, Shape[]> = {
   docPaste: [
     P("M7.8 4.6 H5.4 a1.2 1.2 0 0 0 -1.2 1.2 V16.4 a1.2 1.2 0 0 0 1.2 1.2 H14.6 a1.2 1.2 0 0 0 1.2 -1.2 V5.8 a1.2 1.2 0 0 0 -1.2 -1.2 H12.2"),
     R(7.8, 2.9, 4.4, 3.4, 1),
+  ],
+  // The common share mark: three nodes joined by two edges.
+  share: [
+    C(14.5, 4.5, 2.2),
+    C(5.5, 10, 2.2),
+    C(14.5, 15.5, 2.2),
+    P("M7.4 8.85 L12.6 5.65 M7.4 11.15 L12.6 14.35"),
   ],
 };
 

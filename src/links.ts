@@ -52,3 +52,12 @@ export const DOC_IDS = Object.keys(DOC_PATHS) as DocId[];
  */
 export const docHref = (id: DocId, lang: "nl" | "en"): string =>
   (servesOwnDocs() ? "" : SITE_ORIGIN) + DOC_PATHS[id][lang];
+
+/**
+ * The editor a share link opens: this page when it came from a site build over
+ * http, the canonical editor otherwise -- a file:// path or an embedder's page
+ * does not load a plan from its fragment.
+ */
+export function editorHref(): string {
+  return servesOwnDocs() ? location.href.split("#")[0]! : SITE_ORIGIN + "/";
+}
