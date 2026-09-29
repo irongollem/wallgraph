@@ -756,6 +756,9 @@ export const resources = {
           "klik twee punten met een bekende afstand op de onderlegger, typ daarna de echte afstand",
         underlayOpacity: "Doorzichtigheid (%)",
         underlayShow: "Onderlegger tonen",
+        underlaySummaryNone: "geen",
+        underlaySummaryHidden: "verborgen",
+        planSummary: "{{h}} mm hoog",
         underlayRemove: "Onderlegger verwijderen",
         // The wall's own Rc and the opening's own U: a tri-state over the
         // plan-wide assumption in the Energie section, mirrored between the
@@ -866,6 +869,9 @@ export const resources = {
       },
       roof: {
         title: "Dak",
+        summaryNone: "geen",
+        summaryOne: "1 dakvlak",
+        summaryMany: "{{n}} dakvlakken",
         suggest: "Voorstel uit muren",
         suggestSummary: "{{n}} dakvlakken, {{pitch}}°, dakrand {{eave}} mm",
         suggestSummaryOne: "1 dakvlak, {{pitch}}°, dakrand {{eave}} mm",
@@ -2357,6 +2363,9 @@ export const resources = {
           "click two points a known distance apart on the underlay, then type the real distance",
         underlayOpacity: "Opacity (%)",
         underlayShow: "Show underlay",
+        underlaySummaryNone: "none",
+        underlaySummaryHidden: "hidden",
+        planSummary: "{{h}} mm high",
         underlayRemove: "Remove underlay",
         // The wall's own Rc and the opening's own U: a tri-state over the
         // plan-wide assumption in the Energy section, mirrored between the
@@ -2467,6 +2476,9 @@ export const resources = {
       },
       roof: {
         title: "Roof",
+        summaryNone: "none",
+        summaryOne: "1 plane",
+        summaryMany: "{{n}} planes",
         suggest: "Suggest from walls",
         suggestSummary: "{{n}} roof planes, {{pitch}}°, eave {{eave}} mm",
         suggestSummaryOne: "1 roof plane, {{pitch}}°, eave {{eave}} mm",

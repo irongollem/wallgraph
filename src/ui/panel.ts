@@ -53,11 +53,12 @@ import { renderFurnishingTool, renderFurnishingProps } from "./furnishing";
 import { renderZoomTool, type RoomEdit } from "./zoom";
 import { renderOpeningTool } from "./openings";
 import { renderWallTool, renderWallSurface, renderPostLayout } from "./walls";
-import { renderEnergyAssumptions, renderEnergyTakeoff } from "./energy";
+import { renderEnergyAssumptions, renderEnergyTakeoff, energySummary } from "./energy";
 import {
   renderRoof, renderRoofTakeoff, roofHeadroomTotals, type RoofProposal, type RoofTakeoffData,
 } from "./roof";
 import { roofPlanesOf } from "../model/roof";
+import { stockPresetOf } from "../model/materials";
 import { roofWallMismatches, roofStoreyClashes } from "../core/roof";
 import type { RoofSuggestion } from "../core/roofsuggest";
 import { renderMaterialAssumptions, renderMaterialTakeoff, renderWallMaterial, renderStructureAssumptions } from "./materials";
@@ -189,6 +190,10 @@ export class Panel {
   private energyEl: HTMLElement;
   private roofEl: HTMLElement;
   private materialsEl: HTMLElement;
+  /** The fold-out sections' own scroller at the foot of the pane, wide layout only. */
+  private readonly dockEl = el("div", "plan-dock");
+  /** Each fold-out header's summary line, by section, refreshed on every pass. */
+  private readonly summaries = new Map<string, { el: HTMLElement; text: () => string }>();
   /** Everything the pane's structure depends on; a change rebuilds it. */
   private lastPaneSig = "";
   /** Selection alone — drives the fade, so a grid tweak does not flash. */
@@ -359,8 +364,9 @@ export class Panel {
         el("div", "rail-spacer"), this.historyEl);
       const sideBody = el("div", "side-body");
       sideBody.append(this.rail, this.pane);
-      this.pane.replaceChildren(this.storeyEl, this.paneScroll, this.planEl, this.underlayEl, this.permitEl,
-        this.energyEl, this.roofEl, this.materialsEl);
+      this.dockEl.replaceChildren(this.planEl, this.underlayEl, this.permitEl, this.energyEl, this.roofEl,
+        this.materialsEl);
+      this.pane.replaceChildren(this.storeyEl, this.paneScroll, this.dockEl);
       this.root.replaceChildren(this.head, sideBody, this.status, this.foot);
       return;
     }
@@ -848,6 +854,10 @@ export class Panel {
     this.syncEnergyTakeoff();
     this.syncRoofTakeoff();
     this.syncMaterialsTakeoff();
+    for (const { el: sum, text } of this.summaries.values()) {
+      const next = text();
+      if (sum.textContent !== next) { sum.textContent = next; sum.title = next; }
+    }
 
     const swap = selSig !== this.lastSelSig;
     this.lastSelSig = selSig;
@@ -1654,6 +1664,40 @@ export class Panel {
   }
 
   /**
+   * One fold-out section under the context area. The header toggles the body
+   * by class on the live nodes, so the fold animates, and carries a one-line
+   * summary of the section's state that reads while it is closed; the
+   * summaries refresh on every pass (see refresh()), so they must be cheap.
+   * `onToggle` records the new state and syncs whatever the section computes
+   * only while it is open.
+   */
+  private foldout(
+    id: string, label: string, open: boolean, summary: () => string, onToggle: (open: boolean) => void,
+  ): { wrap: HTMLElement; inner: HTMLElement } {
+    const wrap = el("div", "plan-sec");
+    const head = el("button", "plan-head") as HTMLButtonElement;
+    head.type = "button";
+    head.setAttribute("aria-expanded", String(open));
+    const chev = el("span", "chev");
+    chev.append(icon("chevron", 14));
+    const text = summary();
+    const sum = Object.assign(el("span", "plan-sum"), { textContent: text, title: text });
+    head.append(chev, Object.assign(el("span", "sec-label"), { textContent: label }), sum);
+    const body = el("div", "plan-body" + (open ? " is-open" : ""));
+    const inner = el("div", "plan-rows");
+    body.append(inner);
+    head.onclick = () => {
+      const next = !body.classList.contains("is-open");
+      body.classList.toggle("is-open", next);
+      head.setAttribute("aria-expanded", String(next));
+      onToggle(next);
+    };
+    wrap.append(head, body);
+    this.summaries.set(id, { el: sum, text: summary });
+    return { wrap, inner };
+  }
+
+  /**
    * Plan settings live in ONE place: a section under the context area, present
    * in every state -- including while the symbol palette is open, which is
    * exactly when the grid and "dikte nieuwe muur" matter. Always pinned to the
@@ -1662,23 +1706,9 @@ export class Panel {
    * classes on the live nodes rather than re-rendering, so the fold animates.
    */
   private buildPlanSection(): HTMLElement {
-    const open = this.planOpen;
-    const wrap = el("div", "plan-sec");
-    const head = el("button", "plan-head") as HTMLButtonElement;
-    head.type = "button";
-    head.setAttribute("aria-expanded", String(open));
-    const chev = el("span", "chev");
-    chev.append(icon("chevron", 14));
-    head.append(chev, Object.assign(el("span", "sec-label"), { textContent: t("panel.plan") }));
-    const body = el("div", "plan-body" + (open ? " is-open" : ""));
-    const inner = el("div", "plan-rows");
-    body.append(inner);
-    head.onclick = () => {
-      const next = !body.classList.contains("is-open");
-      this.planOpen = next;
-      body.classList.toggle("is-open", next);
-      head.setAttribute("aria-expanded", String(next));
-    };
+    const { wrap, inner } = this.foldout("plan", t("panel.plan"), this.planOpen,
+      () => t("panel.planSummary", { h: floorHeight(this.store.floor) }),
+      next => { this.planOpen = next; });
 
     const { numRow, selRow, noteRow, checkRow } = this.rowKit(inner);
     numRow(t("panel.grid"), this.store.doc.gridMm, n => this.store.mutate(d => { d.gridMm = Math.max(1, n); }), 10);
@@ -1770,7 +1800,6 @@ export class Panel {
       }
     }
 
-    wrap.append(head, body);
     return wrap;
   }
 
@@ -1782,23 +1811,13 @@ export class Panel {
    * the load/paste affordances show until an underlay actually exists.
    */
   private buildUnderlaySection(): HTMLElement {
-    const open = this.underlayOpen;
-    const wrap = el("div", "plan-sec");
-    const head = el("button", "plan-head") as HTMLButtonElement;
-    head.type = "button";
-    head.setAttribute("aria-expanded", String(open));
-    const chev = el("span", "chev");
-    chev.append(icon("chevron", 14));
-    head.append(chev, Object.assign(el("span", "sec-label"), { textContent: t("panel.underlay") }));
-    const body = el("div", "plan-body" + (open ? " is-open" : ""));
-    const inner = el("div", "plan-rows");
-    body.append(inner);
-    head.onclick = () => {
-      const next = !body.classList.contains("is-open");
-      this.underlayOpen = next;
-      body.classList.toggle("is-open", next);
-      head.setAttribute("aria-expanded", String(next));
-    };
+    const { wrap, inner } = this.foldout("underlay", t("panel.underlay"), this.underlayOpen,
+      () => {
+        const u = this.store.floor.underlay;
+        if (!u) return t("panel.underlaySummaryNone");
+        return this.tools.showUnderlay ? `${Math.round(u.opacity * 100)}%` : t("panel.underlaySummaryHidden");
+      },
+      next => { this.underlayOpen = next; });
 
     const { numRow, btnRow, noteRow, checkRow } = this.rowKit(inner);
     const underlay = this.store.floor.underlay;
@@ -1828,7 +1847,6 @@ export class Panel {
       });
     }
 
-    wrap.append(head, body);
     return wrap;
   }
 
@@ -1848,24 +1866,9 @@ export class Panel {
    * behaviour, because it is plan-wide state rather than a selection's.
    */
   private buildPermitSection(): HTMLElement {
-    const open = this.permitOpen;
-    const wrap = el("div", "plan-sec");
-    const head = el("button", "plan-head") as HTMLButtonElement;
-    head.type = "button";
-    head.setAttribute("aria-expanded", String(open));
-    const chev = el("span", "chev");
-    chev.append(icon("chevron", 14));
-    head.append(chev, Object.assign(el("span", "sec-label"), { textContent: t("panel.permit") }));
-    const body = el("div", "plan-body" + (open ? " is-open" : ""));
-    const inner = el("div", "plan-rows");
-    body.append(inner);
-    head.onclick = () => {
-      const next = !body.classList.contains("is-open");
-      this.permitOpen = next;
-      body.classList.toggle("is-open", next);
-      head.setAttribute("aria-expanded", String(next));
-      this.syncPermitChecks();
-    };
+    const { wrap, inner } = this.foldout("permit", t("panel.permit"), this.permitOpen,
+      () => projectOf(this.store.doc).name ?? "",
+      next => { this.permitOpen = next; this.syncPermitChecks(); });
 
     const { numRow, textRow, noteRow, btnRow, checkRow } = this.rowKit(inner);
     const meta = projectOf(this.store.doc);
@@ -1901,7 +1904,6 @@ export class Panel {
     checkRow(t("package.optionElevations"), this.pkgElevations, on => { this.pkgElevations = on; });
     btnRow(t("package.export"), () => { void this.saveEngineerPackage(); });
 
-    wrap.append(head, body);
     this.syncPermitChecks();
     return wrap;
   }
@@ -1953,24 +1955,9 @@ export class Panel {
    * syncPermitChecks uses for the checklist above.
    */
   private buildEnergySection(): HTMLElement {
-    const open = this.energyOpen;
-    const wrap = el("div", "plan-sec");
-    const head = el("button", "plan-head") as HTMLButtonElement;
-    head.type = "button";
-    head.setAttribute("aria-expanded", String(open));
-    const chev = el("span", "chev");
-    chev.append(icon("chevron", 14));
-    head.append(chev, Object.assign(el("span", "sec-label"), { textContent: t("energy.title") }));
-    const body = el("div", "plan-body" + (open ? " is-open" : ""));
-    const inner = el("div", "plan-rows");
-    body.append(inner);
-    head.onclick = () => {
-      const next = !body.classList.contains("is-open");
-      this.energyOpen = next;
-      body.classList.toggle("is-open", next);
-      head.setAttribute("aria-expanded", String(next));
-      this.syncEnergyTakeoff();
-    };
+    const { wrap, inner } = this.foldout("energy", t("energy.title"), this.energyOpen,
+      () => energySummary(this.store.doc.energy),
+      next => { this.energyOpen = next; this.syncEnergyTakeoff(); });
 
     const { numRow, selRow, noteRow } = this.rowKit(inner);
     renderEnergyAssumptions({ numRow, selRow }, this.store);
@@ -1980,7 +1967,6 @@ export class Panel {
 
     noteRow(t("energy.closingNote"));
 
-    wrap.append(head, body);
     this.syncEnergyTakeoff();
     return wrap;
   }
@@ -2033,24 +2019,12 @@ export class Panel {
    * syncEnergyTakeoff uses above.
    */
   private buildRoofSection(): HTMLElement {
-    const open = this.roofOpen;
-    const wrap = el("div", "plan-sec");
-    const head = el("button", "plan-head") as HTMLButtonElement;
-    head.type = "button";
-    head.setAttribute("aria-expanded", String(open));
-    const chev = el("span", "chev");
-    chev.append(icon("chevron", 14));
-    head.append(chev, Object.assign(el("span", "sec-label"), { textContent: t("roof.title") }));
-    const body = el("div", "plan-body" + (open ? " is-open" : ""));
-    const inner = el("div", "plan-rows");
-    body.append(inner);
-    head.onclick = () => {
-      const next = !body.classList.contains("is-open");
-      this.roofOpen = next;
-      body.classList.toggle("is-open", next);
-      head.setAttribute("aria-expanded", String(next));
-      this.syncRoofTakeoff();
-    };
+    const { wrap, inner } = this.foldout("roof", t("roof.title"), this.roofOpen,
+      () => {
+        const n = roofPlanesOf(this.store.floor).length;
+        return n === 0 ? t("roof.summaryNone") : n === 1 ? t("roof.summaryOne") : t("roof.summaryMany", { n });
+      },
+      next => { this.roofOpen = next; this.syncRoofTakeoff(); });
 
     const { numRow, checkRow, infoRow, noteRow, warnRow, btnRow } = this.rowKit(inner);
     renderRoof({ secHead: this.secHeadLater(inner), numRow, checkRow, infoRow, noteRow, warnRow, btnRow },
@@ -2060,7 +2034,6 @@ export class Panel {
     inner.append(this.roofTakeoffEl);
     noteRow(t("roof.closingNote"));
 
-    wrap.append(head, body);
     this.syncRoofTakeoff();
     return wrap;
   }
@@ -2103,24 +2076,12 @@ export class Panel {
    * place, the same split buildEnergySection/syncEnergyTakeoff uses above.
    */
   private buildMaterialsSection(): HTMLElement {
-    const open = this.materialsOpen;
-    const wrap = el("div", "plan-sec");
-    const head = el("button", "plan-head") as HTMLButtonElement;
-    head.type = "button";
-    head.setAttribute("aria-expanded", String(open));
-    const chev = el("span", "chev");
-    chev.append(icon("chevron", 14));
-    head.append(chev, Object.assign(el("span", "sec-label"), { textContent: t("materials.title") }));
-    const body = el("div", "plan-body" + (open ? " is-open" : ""));
-    const inner = el("div", "plan-rows");
-    body.append(inner);
-    head.onclick = () => {
-      const next = !body.classList.contains("is-open");
-      this.materialsOpen = next;
-      body.classList.toggle("is-open", next);
-      head.setAttribute("aria-expanded", String(next));
-      this.syncMaterialsTakeoff();
-    };
+    const { wrap, inner } = this.foldout("materials", t("materials.title"), this.materialsOpen,
+      () => {
+        const preset = stockPresetOf(this.store.doc);
+        return preset ? t("materials.stockPreset_" + preset) : t("materials.custom");
+      },
+      next => { this.materialsOpen = next; this.syncMaterialsTakeoff(); });
 
     const { numRow, selRow, textRow, noteRow, btnRow } = this.rowKit(inner);
     renderMaterialAssumptions({ numRow, textRow, noteRow, btnRow }, this.store);
@@ -2133,7 +2094,6 @@ export class Panel {
     btnRow(t("action.csv"), () => { void this.saveMaterialsCsv(); }, "CSV");
     btnRow(t("action.assumptions"), () => { void this.saveAssumptions(); }, "PDF");
 
-    wrap.append(head, body);
     this.syncMaterialsTakeoff();
     return wrap;
   }

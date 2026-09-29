@@ -445,14 +445,22 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 
 /* Plan section: pinned under whatever the pane is showing, in every state.
    Same 0fr->1fr fold as the palette, including the visibility pairing that
-   keeps collapsed rows out of the tab order. */
+   keeps collapsed rows out of the tab order. The header reads like a row of a
+   drawing's title block: the section's name on the left, its current state on
+   the right, so a closed section still says what it holds. */
 .plan-sec { flex: none; margin-top: auto; border-top: 1px solid #eceadf; background: #fdfcfa; }
-.plan-head { width: 100%; display: flex; align-items: center; gap: 7px; padding: 8px 12px;
-  border: none; background: none; cursor: pointer; font: inherit; text-align: left; }
-.plan-head:hover .sec-label { color: #6b675c; }
-.plan-head .chev { color: #b5afa0; display: flex; transform: rotate(-90deg);
+.plan-head { width: 100%; display: flex; align-items: baseline; gap: 8px; padding: 9px 12px;
+  border: none; background: #fdfcfa; cursor: pointer; font: inherit; text-align: left; }
+.plan-head .sec-label { flex: none; font: 600 12.5px/1.3 system-ui, sans-serif; text-transform: none;
+  letter-spacing: 0; color: #4a4740; }
+.plan-head:hover .sec-label,
+.plan-head[aria-expanded="true"] .sec-label { color: #2b2e33; }
+.plan-head:focus-visible { outline: 2px solid #2d7de0; outline-offset: -2px; }
+.plan-head .chev { align-self: center; color: #b5afa0; display: flex; transform: rotate(-90deg);
   transition: transform var(--dur-base) var(--ease-out); }
 .plan-head[aria-expanded="true"] .chev { transform: none; color: #6b675c; }
+.plan-sum { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: right; font: 12px/1.3 system-ui, sans-serif; font-variant-numeric: tabular-nums; color: #736e62; }
 .plan-body { display: grid; grid-template-rows: 0fr;
   transition: grid-template-rows var(--dur-base) var(--ease-out); }
 .plan-body > * { overflow: hidden; min-height: 0; visibility: hidden;
@@ -461,21 +469,20 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 .plan-body.is-open > * { visibility: visible; transition-delay: 0s; }
 .plan-rows { display: flex; flex-direction: column; gap: 6px; padding: 0 12px 12px; }
 
-/* In the sidebar layout the sections sit outside the pane's scroller, so a
-   section taller than the pane (the Plattegrond grows a row per storey) must
-   shrink and scroll inside itself rather than be clipped at the pane's edge.
-   The header never shrinks, so a squeezed section is still recognisable and
-   closable. Scoped out of the compact layout, where the sheet body is the one
-   scroller and a shrinking section would collapse instead of scrolling. */
-.side:not(.is-compact) .plan-sec { flex: 0 1 auto; display: flex; flex-direction: column; }
-.side:not(.is-compact) .plan-head { flex: none; }
-.side:not(.is-compact) .plan-body { min-height: 0; }
-/* pane-scroll has flex-basis 0, so it carries none of the shrink weight above
-   and a section left to its natural height starves it to a sliver instead.
-   Capped so the inspector stays usable; the section scrolls internally past
-   the cap via the overflow-y below. */
-.side:not(.is-compact) .plan-body.is-open { max-height: 42vh; }
-.side:not(.is-compact) .plan-body.is-open > .plan-rows { overflow-y: auto; }
+/* In the sidebar layout the sections share one dock at the foot of the pane,
+   and the dock is their only scroller: a section never scrolls inside itself,
+   and an open section's header sticks to the top of the dock while its rows
+   pass under it. With something to inspect the dock takes at most 60% of the
+   pane and the inspector the rest; with nothing to inspect the empty inspector
+   yields its floor. Scoped out of the compact layout, where the sheet body is
+   the one scroller. */
+.side:not(.is-compact) .plan-dock { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  margin-top: auto; border-top: 1px solid #eceadf; }
+.side:not(.is-compact) .plan-dock > .plan-sec:first-child { border-top: none; }
+.side:not(.is-compact) .pane:has(.pane-body:not([hidden])) .plan-dock { max-height: 60%; }
+.side:not(.is-compact) .plan-dock .plan-head { position: sticky; top: 0; z-index: 1; }
+.side:not(.is-compact) .pane-scroll { min-height: min(160px, 20vh); }
+.side:not(.is-compact) .pane:has(.pane-body[hidden]) .pane-scroll { min-height: 0; }
 
 /* Drag-scrub: the field is a slider you can also type into, so it advertises
    the horizontal drag and drops the native spinners the gesture would fight. */

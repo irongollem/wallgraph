@@ -8,7 +8,7 @@ import { Store } from "../model/store";
 import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
 import { sqm } from "./walls";
-import type { AreaMode } from "../model/doc";
+import type { AreaMode, PlanDoc } from "../model/doc";
 import {
   INSULATION_CLASSES, GLAZING_TYPES, insulationClassOf, glazingTypeOf,
   applyInsulationClass, applyGlazingType, thermalValue, HEATING_DEGREE_DAYS,
@@ -29,6 +29,19 @@ function areaModeWord(mode: AreaMode): string {
   }
 }
 
+/** The insulation class the document's Rc figures match, "custom" where they
+ *  match none, "" where it states none. */
+function insulationIdOf(e: PlanDoc["energy"]): string {
+  return insulationClassOf(e)
+    ?? (e && (e.wallRc !== undefined || e.roofRc !== undefined || e.floorRc !== undefined) ? "custom" : "");
+}
+
+/** The Energie section's closed-header summary: the insulation class. */
+export function energySummary(e: PlanDoc["energy"]): string {
+  const id = insulationIdOf(e);
+  return id === "" ? t("energy.notStated") : id === "custom" ? t("energy.custom") : t("energy.insulation_" + id);
+}
+
 /**
  * Isolatie/beglazing presets and the Rc/U figures they set. "" clears the
  * three Rc fields (or the two U fields) and drops `d.energy` once it is
@@ -41,8 +54,7 @@ export function renderEnergyAssumptions(
 ): void {
   const e = store.doc.energy;
 
-  const insulationId = insulationClassOf(e)
-    ?? (e && (e.wallRc !== undefined || e.roofRc !== undefined || e.floorRc !== undefined) ? "custom" : "");
+  const insulationId = insulationIdOf(e);
   const insulationOptions: Array<[string, string]> = [
     ["", t("energy.notStated")],
     ...INSULATION_CLASSES.map(c => [c.id, t("energy.insulation_" + c.id)] as [string, string]),
