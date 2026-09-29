@@ -765,8 +765,8 @@ export const resources = {
         permitNorth: "Noordpijl",
         permitNorthDeg: "Noord (graden met de klok mee)",
         permitStoreys: "Verdiepingen in PDF",
-        permitStoreysActive: "Deze verdieping",
-        permitStoreysAll: "Alle verdiepingen ({{n}})",
+        permitStoreysActive: "Alleen deze",
+        permitStoreysAll: "Alle ({{n}})",
         permitExport: "Blad exporteren (PDF)",
         permitExportSvg: "Blad exporteren (SVG)",
         permitNote:
@@ -2408,8 +2408,8 @@ export const resources = {
         permitNorth: "North arrow",
         permitNorthDeg: "North (degrees clockwise)",
         permitStoreys: "Storeys in PDF",
-        permitStoreysActive: "This storey",
-        permitStoreysAll: "All storeys ({{n}})",
+        permitStoreysActive: "This one",
+        permitStoreysAll: "All ({{n}})",
         permitExport: "Export sheet (PDF)",
         permitExportSvg: "Export sheet (SVG)",
         permitNote:

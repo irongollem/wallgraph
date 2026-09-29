@@ -4,8 +4,8 @@
 // bookkeeping, the paper it declares, and the escaping that keeps a project
 // name from ending a string literal early.
 import { seedDoc } from "../src/seed";
-import { emptyDoc, newId } from "../src/model/doc";
-import { permitLayout } from "../src/core/permit";
+import { emptyDoc, newId, type PlanDoc } from "../src/model/doc";
+import { permitLayout, sharedSheet } from "../src/core/permit";
 import { permitPdf, permitSvg } from "../src/io/permit";
 import { pdfBytes, pdfText, textWidth } from "../src/io/pdf";
 import { stairDefaults } from "../src/model/stair";
@@ -18,9 +18,9 @@ function check(name: string, cond: boolean, detail = ""): void {
 
 const PT_PER_MM = 72 / 25.4;
 
-const pdf = permitPdf(seedDoc(), 0) ?? "";
+const pdf = permitPdf(seedDoc(), [0]) ?? "";
 check("a plan produces a PDF", pdf.length > 0);
-check("an empty document produces no PDF", permitPdf(emptyDoc(), 0) === null);
+check("an empty document produces no PDF", permitPdf(emptyDoc(), [0]) === null);
 
 // ── the file's own bookkeeping ───────────────────────────────────────────────
 
@@ -93,9 +93,43 @@ check("no NaN or Infinity in the content", !/NaN|Infinity/.test(pdf));
     f.walls.push({ id: newId("w"), a: ns[i]!.id, b: ns[(i + 1) % 4]!.id, thickness: 300, bulge: 0, openings: [] });
   check("a 60 m building takes 1:200", permitLayout(big, 0)?.scale === 200);
   check("a 1:200 sheet places the plan at 1/200",
-    (permitPdf(big, 0) ?? "").includes("0.005 0 0 0.005 "));
+    (permitPdf(big, [0]) ?? "").includes("0.005 0 0 0.005 "));
   check("its SVG twin scales the same",
     (permitSvg(big, 0) ?? "").includes("scale(0.005)"));
+}
+
+// ── every storey in one file ─────────────────────────────────────────────────
+
+// A set of storeys shares one sheet and one scale, so a small storey beside a
+// large one is drawn at the large one's scale rather than at its own.
+{
+  const doc: PlanDoc = seedDoc();
+  const wide = doc.floors[0]!;
+  const upper = { ...structuredClone(wide), id: "upper", name: "Zolder" };
+  const ns = [[0, 0], [60000, 0], [60000, 30000], [0, 30000]]
+    .map(([x, y]) => ({ id: newId("n"), x: x!, y: y! }));
+  upper.nodes = ns;
+  upper.walls = ns.map((n, i) => ({ id: newId("w"), a: n.id, b: ns[(i + 1) % 4]!.id, thickness: 300, bulge: 0, openings: [] }));
+  upper.symbols = []; upper.stairs = []; upper.roomNames = [];
+  doc.floors.push(upper);
+
+  check("a small storey alone takes 1:100", permitLayout(doc, 0)?.scale === 100);
+  const shared = sharedSheet(doc, [0, 1]);
+  check("the set takes the scale its largest storey needs", shared?.scale === 200, JSON.stringify(shared));
+
+  const set = permitPdf(doc, [0, 1]) ?? "";
+  check("the set is one page per storey", /\/Type \/Pages \/Kids \[[^\]]+\] \/Count 2/.test(set));
+  const boxes = [...set.matchAll(/\/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/g)].map(m => m[1] + "x" + m[2]);
+  check("both pages are the same paper", boxes.length === 2 && boxes[0] === boxes[1], boxes.join(" "));
+  check("both plans are placed at 1/200", (set.match(/0\.005 0 0 0\.005 /g) ?? []).length === 2);
+  check("no plan is placed at 1/100", !set.includes("0.01 0 0 0.01 "));
+  check("each sheet names its own storey", set.includes("(Zolder)") && set.includes(`(${wide.name})`));
+
+  const withEmpty = seedDoc();
+  withEmpty.floors.push({ ...emptyDoc().floors[0]!, id: "empty", name: "Leeg" });
+  check("a storey with nothing drawn gets no page",
+    /\/Count 1/.test(permitPdf(withEmpty, [0, 1]) ?? ""));
+  check("no shared sheet when nothing is drawn", sharedSheet(emptyDoc(), [0]) === null);
 }
 
 // ── text ─────────────────────────────────────────────────────────────────────
@@ -106,7 +140,7 @@ check("the core fonts are declared with the encoding they are measured in",
 {
   const doc = seedDoc();
   doc.project = { name: "Villa (T&J) \\ Co", address: "Dorpsstraat 1", author: "Jasmijn Ernst", number: "2026-01" };
-  const out = permitPdf(doc, 0) ?? "";
+  const out = permitPdf(doc, [0]) ?? "";
   // An unescaped bracket in a name would end the string literal early and
   // leave the rest of the title block as stray operators.
   check("a bracket in a project name is escaped", out.includes("Villa \\(T&J\\) \\\\ Co"));
@@ -120,7 +154,7 @@ check("the core fonts are declared with the encoding they are measured in",
 {
   const doc = seedDoc();
   doc.project = { name: "Café Zoetermeer", address: "Dorpsstraat 1" };
-  const out = permitPdf(doc, 0) ?? "";
+  const out = permitPdf(doc, [0]) ?? "";
   // WinAnsi puts e-acute at 0xE9; the content stream carries it as an octal
   // escape rather than as a raw byte the file would have to be read as UTF-8 for.
   check("an accented letter travels as its WinAnsi code", out.includes("Caf\\351"));
@@ -148,7 +182,7 @@ check("an accented letter measures as its base letter",
   doc.floors[0]!.stairs = [{
     id: newId("t"), kind: "steektrap", x: 3000, y: 2500, rotation: 0, ...stairDefaults("steektrap"),
   }];
-  const out = permitPdf(doc, 0) ?? "";
+  const out = permitPdf(doc, [0]) ?? "";
   check("a stair's wash becomes a graphics state", /\/ca 0\.4/.test(out));
   check("the wash is referenced from the content", /\/GS0 gs/.test(out));
 }

@@ -2,9 +2,10 @@
 //
 // A permit drawing is a plan at a standard scale on a standard sheet with the
 // pieces a submission expects: dimensions, room names, a north arrow, a title
-// block naming the project. This module decides how the active storey lands on
-// paper — which sheet, which scale, where the drawing area is — and reports
-// which of those pieces the document carries. It reports, it does not enforce:
+// block naming the project. This module decides how a storey lands on paper —
+// which sheet, which scale, where the drawing area is, and the one sheet and
+// scale a set of storeys shares — and reports which of those pieces the
+// document carries. It reports, it does not enforce:
 // Wallgraph draws what it is given (see the disclaimer), so an incomplete
 // checklist never blocks the export.
 import { PlanDoc, Floor, dimModeOf, projectOf } from "../model/doc";
@@ -63,13 +64,48 @@ function reachMm(chains: DimChain[], lift: number): number {
   return reach;
 }
 
-/**
- * How the active storey lands on paper, or null for a plan with nothing drawn.
- * Tries each sheet at each scale, preferred first, and falls back to the
- * largest at the coarsest scale with `fits: false` rather than refusing — the
- * checklist states the problem, the export still happens.
- */
-export function permitLayout(doc: PlanDoc, floorIndex: number): PermitLayout | null {
+/** A sheet and a scale, as permitLayout() chooses them. */
+export interface PaperChoice { paper: PaperName; landscape: boolean; scale: number }
+
+/** Every sheet, in the order permitLayout() tries them at each scale. */
+const CANDIDATES: ReadonlyArray<{ paper: PaperName; landscape: boolean }> = [
+  { paper: "a4", landscape: true }, { paper: "a4", landscape: false },
+  { paper: "a3", landscape: true }, { paper: "a3", landscape: false },
+];
+
+/** Where the drawing may land on a sheet, paper mm. */
+function sheetRects(paper: PaperName, landscape: boolean) {
+  const p = PAPER[paper];
+  const pageW = landscape ? p.h : p.w;
+  const pageH = landscape ? p.w : p.h;
+  const frame = { x: FRAME_MM, y: FRAME_MM, w: pageW - 2 * FRAME_MM, h: pageH - 2 * FRAME_MM };
+  const strip = { x: frame.x, y: frame.y + frame.h - STRIP_MM, w: frame.w, h: STRIP_MM };
+  const drawing = { x: frame.x, y: frame.y, w: frame.w, h: frame.h - STRIP_MM };
+  return { pageW, pageH, frame, drawing, strip };
+}
+
+type Extent = PermitLayout["extent"];
+
+const fitsOn = (extent: Extent, c: PaperChoice): boolean => {
+  const { drawing } = sheetRects(c.paper, c.landscape);
+  return extent.w / c.scale <= drawing.w && extent.h / c.scale <= drawing.h;
+};
+
+/** The first sheet and scale, preferred first, that holds every extent; the
+ *  largest sheet at the coarsest scale when none does. */
+function chooseSheet(extents: readonly Extent[]): PaperChoice & { fits: boolean } {
+  for (const scale of PERMIT_SCALES) {
+    for (const c of CANDIDATES) {
+      const choice = { ...c, scale };
+      if (extents.every(e => fitsOn(e, choice))) return { ...choice, fits: true };
+    }
+  }
+  return { paper: "a3", landscape: true, scale: PERMIT_SCALES[PERMIT_SCALES.length - 1] ?? 100, fits: false };
+}
+
+/** What one storey puts on paper: its world extent and the chains it draws. */
+function storeyExtent(doc: PlanDoc, floorIndex: number):
+  { extent: Extent; chains: PermitLayout["chains"] } | null {
   const floor: Floor | undefined = doc.floors[floorIndex] ?? doc.floors[0];
   if (!floor) return null;
   const resolved = resolveFloor(floor);
@@ -81,37 +117,47 @@ export function permitLayout(doc: PlanDoc, floorIndex: number): PermitLayout | n
   const clear = mode !== "centerline" ? dimensionChains(floor, "clear") : [];
   const centerline = mode !== "clear" ? dimensionChains(floor, "centerline") : [];
   const pad = Math.max(reachMm(clear, 0), reachMm(centerline, both ? CHAIN_LIFT_MM : 0));
-
-  const extent = {
-    minX: bounds.min.x - pad,
-    minY: bounds.min.y - pad,
-    w: bounds.max.x - bounds.min.x + 2 * pad,
-    h: bounds.max.y - bounds.min.y + 2 * pad,
+  return {
+    extent: {
+      minX: bounds.min.x - pad,
+      minY: bounds.min.y - pad,
+      w: bounds.max.x - bounds.min.x + 2 * pad,
+      h: bounds.max.y - bounds.min.y + 2 * pad,
+    },
+    chains: { clear, centerline },
   };
+}
 
-  const candidates: Array<{ paper: PaperName; landscape: boolean }> = [
-    { paper: "a4", landscape: true }, { paper: "a4", landscape: false },
-    { paper: "a3", landscape: true }, { paper: "a3", landscape: false },
-  ];
+/**
+ * How a storey lands on paper, or null for a storey with nothing drawn.
+ * Tries each sheet at each scale, preferred first, and falls back to the
+ * largest at the coarsest scale with `fits: false` rather than refusing — the
+ * checklist states the problem, the export still happens. `choice` imposes a
+ * sheet and scale instead, which is how a set of storeys shares one
+ * (sharedSheet()).
+ */
+export function permitLayout(doc: PlanDoc, floorIndex: number, choice?: PaperChoice): PermitLayout | null {
+  const storey = storeyExtent(doc, floorIndex);
+  if (!storey) return null;
+  const { extent, chains } = storey;
+  const c = choice ? { ...choice, fits: fitsOn(extent, choice) } : chooseSheet([extent]);
+  return { paper: c.paper, landscape: c.landscape, scale: c.scale, fits: c.fits,
+    ...sheetRects(c.paper, c.landscape), extent, chains };
+}
 
-  const lay = (paper: PaperName, landscape: boolean, scale: number, fits: boolean): PermitLayout => {
-    const p = PAPER[paper];
-    const pageW = landscape ? p.h : p.w;
-    const pageH = landscape ? p.w : p.h;
-    const frame = { x: FRAME_MM, y: FRAME_MM, w: pageW - 2 * FRAME_MM, h: pageH - 2 * FRAME_MM };
-    const strip = { x: frame.x, y: frame.y + frame.h - STRIP_MM, w: frame.w, h: STRIP_MM };
-    const drawing = { x: frame.x, y: frame.y, w: frame.w, h: frame.h - STRIP_MM };
-    return { paper, landscape, pageW, pageH, scale, fits, frame, drawing, strip, extent, chains: { clear, centerline } };
-  };
-
-  for (const scale of PERMIT_SCALES) {
-    for (const c of candidates) {
-      const trial = lay(c.paper, c.landscape, scale, true);
-      if (extent.w / scale <= trial.drawing.w && extent.h / scale <= trial.drawing.h) return trial;
-    }
-  }
-  const last = PERMIT_SCALES[PERMIT_SCALES.length - 1] ?? 100;
-  return lay("a3", true, last, false);
+/**
+ * One sheet and one scale for a set of storeys: the first, in permitLayout()'s
+ * own order, that holds every storey with something drawn, so the sheets of a
+ * set compare at the same scale. Null when no storey has anything drawn.
+ */
+export function sharedSheet(doc: PlanDoc, floorIndices: readonly number[]): PaperChoice | null {
+  const extents = floorIndices.flatMap(i => {
+    const s = storeyExtent(doc, i);
+    return s ? [s.extent] : [];
+  });
+  if (extents.length === 0) return null;
+  const { fits: _fits, ...choice } = chooseSheet(extents);
+  return choice;
 }
 
 export type PermitCheckId = "paper" | "title" | "north" | "dims" | "names";

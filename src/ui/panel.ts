@@ -235,6 +235,9 @@ export class Panel {
   private pkgAssumptions = true;
   private pkgMaterials = true;
   private pkgElevations = true;
+  /** Whether a PDF export carries every storey or only the active one. Editor
+   *  state, like the package options: it chooses an export, not the drawing. */
+  private pdfAllStoreys = false;
   /** The Energie takeoff's container; repopulated in place while open. */
   private energyTakeoffEl: HTMLElement | null = null;
   /** envelopeTakeoff() cache, keyed on paneCacheKey() -- it resolves every
@@ -705,7 +708,8 @@ export class Panel {
    * is for a sheet that goes on into a report or an illustrator.
    */
   private async savePermit(format: PermitFormat): Promise<void> {
-    const result = await exportPermit(this.store.doc, this.store.activeFloor, format);
+    const result = await exportPermit(this.store.doc,
+      format === "pdf" ? this.pdfStoreys() : [this.store.activeFloor], format);
     const suffix = format === "pdf" ? "Pdf" : "Svg";
     this.flash(t(result === "saved" ? `status.permitSaved${suffix}`
       : result === "empty" ? "status.permitEmpty"
@@ -720,9 +724,14 @@ export class Panel {
    * along; the permit sheet itself is never optional.
    */
   private async saveEngineerPackage(): Promise<void> {
-    const result = await exportEngineerPackage(this.store.doc, this.store.activeFloor,
+    const result = await exportEngineerPackage(this.store.doc, this.pdfStoreys(),
       { assumptions: this.pkgAssumptions, materials: this.pkgMaterials, elevations: this.pkgElevations });
     this.flash(t(result === "saved" ? "package.saved" : result === "empty" ? "package.empty" : "package.failed"));
+  }
+
+  /** The storeys a PDF export carries, bottom to top as the document lists them. */
+  private pdfStoreys(): number[] {
+    return this.pdfAllStoreys ? this.store.doc.floors.map((_, i) => i) : [this.store.activeFloor];
   }
 
   /** CAD export. Same shape as savePng: one flash, keys spelled out. */
@@ -1927,7 +1936,7 @@ export class Panel {
       () => projectOf(this.store.doc).name ?? "",
       next => { this.permitOpen = next; this.syncPermitChecks(); });
 
-    const { numRow, textRow, noteRow, btnRow, checkRow } = this.rowKit(inner);
+    const { numRow, textRow, noteRow, btnRow, checkRow, selRow } = this.rowKit(inner);
     const meta = projectOf(this.store.doc);
     const setMeta = (key: keyof ProjectMeta) => (value: string): void =>
       this.store.mutate(d => {
@@ -1953,6 +1962,13 @@ export class Panel {
     inner.append(this.permitChecksEl);
     noteRow(t("panel.permitNote"));
     noteRow(t("panel.permitEnergyNote"));
+    const storeys = this.store.doc.floors.length;
+    if (storeys > 1) {
+      selRow(t("panel.permitStoreys"), this.pdfAllStoreys ? "all" : "active", [
+        ["active", t("panel.permitStoreysActive")],
+        ["all", t("panel.permitStoreysAll", { n: storeys })],
+      ], v => { this.pdfAllStoreys = v === "all"; });
+    }
     btnRow(t("panel.permitExport"), () => { void this.savePermit("pdf"); });
     btnRow(t("panel.permitExportSvg"), () => { void this.savePermit("svg"); });
 

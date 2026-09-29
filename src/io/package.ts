@@ -20,7 +20,7 @@
 import type { PlanDoc } from "../model/doc";
 import { projectOf } from "../model/doc";
 import { resolveFloor } from "../core/resolve";
-import { permitSheet } from "./permit";
+import { permitSheets } from "./permit";
 import { assumptionsSheet, buildScene } from "./assumptions";
 import { materialsHeaderRow, materialsRows, type MaterialsRow } from "./materials";
 import { frameSheetHeightsMm, wallElevation, type WallElevation } from "../core/frame";
@@ -358,20 +358,20 @@ function withFooter(p: PdfPage, pageNum: number, total: number): PdfPage {
 // ── assembly ─────────────────────────────────────────────────────────────────
 
 /**
- * The whole package as a PDF file, as a Latin-1 string of bytes, or null for
- * a plan with nothing drawn -- same reading as io/permit.ts's permitPdf():
- * a document without even a floor to lay out has no permit sheet, and the
- * package cannot omit that page. A document with walls but no decks, beams
+ * The whole package as a PDF file, as a Latin-1 string of bytes, with a permit
+ * sheet for each storey in `floorIndices` that has something drawn, or null
+ * when none has -- same reading as io/permit.ts's permitPdf(): the package
+ * cannot omit that page. A document with walls but no decks, beams
  * or lintels still produces a full package: the uitgangspunten page states
  * that plainly (assumptionsSheet()'s own `hasElements`) rather than being
  * skipped.
  */
-export function engineerPackagePdf(doc: PlanDoc, floorIndex = 0, options: PackageOptions = {}): string | null {
+export function engineerPackagePdf(doc: PlanDoc, floorIndices: readonly number[], options: PackageOptions = {}): string | null {
   const opts = resolveOptions(options);
-  const sheet = permitSheet(doc, floorIndex);
-  if (!sheet) return null;
+  const sheets = permitSheets(doc, floorIndices);
+  if (sheets.length === 0) return null;
 
-  const pages: PdfPage[] = [coverPage(doc, opts), permitPage(sheet)];
+  const pages: PdfPage[] = [coverPage(doc, opts), ...sheets.map(permitPage)];
   if (opts.assumptions) pages.push(assumptionsPage(doc));
   if (opts.materials) pages.push(...materialsPages(doc));
   if (opts.elevations) pages.push(...elevationPages(doc));
@@ -384,8 +384,8 @@ export function engineerPackagePdf(doc: PlanDoc, floorIndex = 0, options: Packag
 
 export type PackageResult = "saved" | "empty" | "failed";
 
-export async function exportEngineerPackage(doc: PlanDoc, floorIndex = 0, options: PackageOptions = {}): Promise<PackageResult> {
-  const pdf = engineerPackagePdf(doc, floorIndex, options);
+export async function exportEngineerPackage(doc: PlanDoc, floorIndices: readonly number[], options: PackageOptions = {}): Promise<PackageResult> {
+  const pdf = engineerPackagePdf(doc, floorIndices, options);
   if (!pdf) return "empty";
   const filename = `${planBaseName(doc)}-pakket-constructeur.pdf`;
   if (await saveViaHost(filename, () => `data:application/pdf;base64,${btoa(pdf)}`)) return "saved";

@@ -91,7 +91,7 @@ const countPages = (pdf: string): number => (pdf.match(/\/Type \/Page[^s]/g) ?? 
 changeLanguage("nl");
 {
   const doc = buildDoc();
-  const pdf = engineerPackagePdf(doc, 0);
+  const pdf = engineerPackagePdf(doc, [0]);
   check("a plan with structural elements produces a PDF", pdf !== null && pdf.length > 0);
   const body = pdf ?? "";
 
@@ -118,8 +118,18 @@ changeLanguage("nl");
 }
 
 {
+  // Every storey: one permit sheet per storey with something drawn, after the cover.
   const doc = buildDoc();
-  const pdf = engineerPackagePdf(doc, 0, { assumptions: false, materials: false, elevations: false }) ?? "";
+  doc.floors.push({ ...structuredClone(doc.floors[0]!), id: "upper", name: "Verdieping 2" });
+  const opts = { assumptions: false, materials: false, elevations: false };
+  const both = engineerPackagePdf(doc, [0, 1], opts) ?? "";
+  check("every storey adds its own permit sheet", countPages(both) === 3, String(countPages(both)));
+  check("the second sheet names its own storey", both.includes("Verdieping 2"));
+}
+
+{
+  const doc = buildDoc();
+  const pdf = engineerPackagePdf(doc, [0], { assumptions: false, materials: false, elevations: false }) ?? "";
   check("unticking every option leaves only the cover and the permit sheet",
     countPages(pdf) === 2, String(countPages(pdf)));
   check("the uitgangspunten heading is omitted", !pdf.includes(t("assumptions.assumptionsHeading")));
@@ -127,8 +137,8 @@ changeLanguage("nl");
   check("the elevations section is omitted", !pdf.includes(t("package.contentsElevations")));
 }
 
-check("a document with nothing drawn produces no package", engineerPackagePdf(emptyDoc(), 0) === null
-  || (() => { const d = emptyDoc(); d.floors[0]!.nodes = []; d.floors[0]!.walls = []; return engineerPackagePdf(d, 0) === null; })());
+check("a document with nothing drawn produces no package", engineerPackagePdf(emptyDoc(), [0]) === null
+  || (() => { const d = emptyDoc(); d.floors[0]!.nodes = []; d.floors[0]!.walls = []; return engineerPackagePdf(d, [0]) === null; })());
 
 // ── the statement, on the cover and in every footer, both languages ────────
 
@@ -149,7 +159,7 @@ const FOOTER_PREFIX: Record<"nl" | "en", string> = {
 for (const lang of ["nl", "en"] as const) {
   changeLanguage(lang);
   const doc = buildDoc();
-  const pdf = engineerPackagePdf(doc, 0) ?? "";
+  const pdf = engineerPackagePdf(doc, [0]) ?? "";
   check(`${lang}: the full statement appears on the cover`, pdf.includes(STATEMENT_PREFIX[lang]));
   const pages = countPages(pdf);
   const footerHits = (pdf.match(new RegExp(FOOTER_PREFIX[lang].replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) ?? []).length;
@@ -161,7 +171,7 @@ changeLanguage("nl");
 
 {
   const doc = buildBareDoc();
-  const pdf = engineerPackagePdf(doc, 0);
+  const pdf = engineerPackagePdf(doc, [0]);
   check("a document without a deck, beam or lintel still produces a package", pdf !== null);
   const body = pdf ?? "";
   check("the cover is present", body.includes(t("package.title")));

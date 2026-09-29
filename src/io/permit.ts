@@ -23,7 +23,7 @@
 import { PlanDoc, Floor, projectOf, areaModeOf, dimModeOf } from "../model/doc";
 import { resolveFloor } from "../core/resolve";
 import { resolveLeaves } from "../core/leaf";
-import { permitLayout, PermitLayout, CHAIN_OVERALL_MM, CHAIN_LIFT_MM } from "../core/permit";
+import { permitLayout, sharedSheet, PermitLayout, PaperChoice, CHAIN_OVERALL_MM, CHAIN_LIFT_MM } from "../core/permit";
 import { DimChain } from "../core/dimensions";
 import { planScene, sceneSvg } from "./svg";
 import { Item, circle, group, line, place, poly, rect, text, turn } from "./scene";
@@ -146,12 +146,10 @@ function cell(x: number, y: number, w: number, h: number,
   ];
 }
 
-/** The active storey as a permit sheet, or null for a plan with nothing drawn.
- *  Exported so io/package.ts can lay the same sheet into a multi-page PDF
- *  rather than building a second one -- see pdfDocument()'s own multi-page
- *  support in io/pdf.ts. */
-export function permitSheet(doc: PlanDoc, floorIndex: number): Sheet | null {
-  const layout: PermitLayout | null = permitLayout(doc, floorIndex);
+/** A storey as a permit sheet, or null for a storey with nothing drawn. `choice`
+ *  imposes a sheet and scale; see permitSheets(). */
+export function permitSheet(doc: PlanDoc, floorIndex: number, choice?: PaperChoice): Sheet | null {
+  const layout: PermitLayout | null = permitLayout(doc, floorIndex, choice);
   const floor: Floor | undefined = doc.floors[floorIndex] ?? doc.floors[0];
   if (!layout || !floor) return null;
   const resolved = resolveFloor(floor);
@@ -219,6 +217,20 @@ export function permitSheet(doc: PlanDoc, floorIndex: number): Sheet | null {
   return { widthMm: pageW, heightMm: pageH, title: named, scene };
 }
 
+/**
+ * One sheet per storey in `floorIndices` that has something drawn, in that
+ * order. More than one storey shares one sheet size and scale (sharedSheet()),
+ * so the sheets of a set compare directly. Exported so io/package.ts lays the
+ * same sheets into its own PDF rather than building second ones.
+ */
+export function permitSheets(doc: PlanDoc, floorIndices: readonly number[]): Sheet[] {
+  const choice = floorIndices.length > 1 ? sharedSheet(doc, floorIndices) ?? undefined : undefined;
+  return floorIndices.flatMap(i => {
+    const sheet = permitSheet(doc, i, choice);
+    return sheet ? [sheet] : [];
+  });
+}
+
 /** The sheet as an SVG document, sized in paper millimetres. */
 export function permitSvg(doc: PlanDoc, floorIndex = 0): string | null {
   const sheet = permitSheet(doc, floorIndex);
@@ -233,29 +245,33 @@ export function permitSvg(doc: PlanDoc, floorIndex = 0): string | null {
   ].join("\n") + "\n";
 }
 
-/** The sheet as a PDF file, as a Latin-1 string of bytes. */
-export function permitPdf(doc: PlanDoc, floorIndex = 0): string | null {
-  const sheet = permitSheet(doc, floorIndex);
-  if (!sheet) return null;
-  return pdfDocument({
+/** The storeys' sheets as one PDF file, a page each, as a Latin-1 string of
+ *  bytes; null when none of them has anything drawn. */
+export function permitPdf(doc: PlanDoc, floorIndices: readonly number[]): string | null {
+  const sheets = permitSheets(doc, floorIndices);
+  const first = sheets[0];
+  if (!first) return null;
+  const title = sheets.length > 1 ? projectOf(doc).name || first.title : first.title;
+  return pdfDocument(sheets.map(sheet => ({
     widthMm: sheet.widthMm, heightMm: sheet.heightMm,
     background: PAPER_WHITE, scene: sheet.scene,
-  }, sheet.title);
+  })), title);
 }
 
 const FILENAME = { pdf: "floorplan-sheet.pdf", svg: "floorplan-sheet.svg" };
 
+/** The PDF carries every storey in `floorIndices`; an SVG is one sheet, the first. */
 export async function exportPermit(
-  doc: PlanDoc, floorIndex = 0, format: PermitFormat = "pdf",
+  doc: PlanDoc, floorIndices: readonly number[], format: PermitFormat = "pdf",
 ): Promise<PermitResult> {
   const name = FILENAME[format];
   if (format === "svg") {
-    const body = permitSvg(doc, floorIndex);
+    const body = permitSvg(doc, floorIndices[0] ?? 0);
     if (!body) return "empty";
     if (await saveViaHost(name, () => body)) return "saved";
     return downloadBlob(name, new Blob([body], { type: "image/svg+xml" })) ? "saved" : "failed";
   }
-  const body = permitPdf(doc, floorIndex);
+  const body = permitPdf(doc, floorIndices);
   if (!body) return "empty";
   // The hosted downloads capability takes a string, so the bytes travel as a
   // data URL there and as a Blob down the ordinary link.
