@@ -2,7 +2,7 @@
 // this scale render in well under a frame). Layers: grid, rooms, walls,
 // opening decorations, routes, furnishings, symbols, stairs, selection, labels
 // (labels in screen space).
-import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, videsOf, decksOf, furnishingsOf, structureOf, fireLabel, Underlay, Wall, Id, wallInfill, BoardKind } from "../model/doc";
+import { Floor, SymbolInstance, AreaMode, DimMode, Sash, sashesOf, stairsOf, videsOf, decksOf, furnishingsOf, structureOf, fireLabel, Underlay, Wall, Id, wallInfill, BoardKind, WallMaterial } from "../model/doc";
 import { belowCutPlane, type Column } from "../model/structure";
 import { buildUpClashes } from "../core/leafclash";
 import { Resolved, OpeningGeom, Junction, ResolvedWall, PostMark } from "../core/resolve";
@@ -38,6 +38,7 @@ import { LAYER_OF_CATEGORY, layerAlpha, type LayerFlags, type LayerKey } from ".
 import { mountMarkOf } from "../core/mount";
 import { resolveBoard, BOARD_TYPE } from "../core/board";
 import { worldPoint } from "../core/placed";
+import { hatchFor, hatchVisible, wallHatch, hatchSegments, hatchLegend, hatchedFill, junctionHatch } from "./hatch";
 
 export const COLORS = {
   bg: "#f4f2ec",
@@ -357,6 +358,15 @@ export interface DrawExtras {
    */
   showClashMarks?: boolean;
   /**
+   * False to hide the renvooi (the wall-hatch legend, drawn beside the grid
+   * legend). Absent means shown, the same default showGrid and
+   * showClashMarks use. The legend already disappears on its own once
+   * hatchVisible(px) is false or the storey has no hatched material; this
+   * flag is for a caller that wants the drawing without the key even while
+   * the hatch itself would otherwise qualify.
+   */
+  showRenvooi?: boolean;
+  /**
    * True to draw the floor's trace-over image (Tools.showUnderlay, the
    * editor's own visibility toggle). Absent/false excludes it -- the default
    * is OFF rather than mirroring showGrid's "on unless told otherwise",
@@ -586,19 +596,43 @@ export function drawScene(
     }
   }
 
-  // Walls.
+  // Walls. The per-material hatch (hatchFor/wallHatch, src/render/hatch.ts) is
+  // gated on zoom once here rather than per wall: below hatchVisible's
+  // threshold the lines would be too fine to read, so no pattern is even
+  // looked up and no segment is generated.
+  const hatchOn = hatchVisible(px);
   for (const rw of resolved.walls.values()) {
     const wallSel = isSel("wall", rw.wall.id);
     const pen = wallPen(rw.wall);
     const line = wallSel ? COLORS.select : pen.stroke;
+    const pattern = hatchOn ? wallHatch(rw.wall) : null;
+    // A hatched body stands on paper instead of poché (hatchedFill): below the
+    // zoom threshold this is the solid wall the plan has always drawn, above it
+    // the outlined-and-hatched body a larger scale shows.
+    const body = pattern ? { ...pen, fill: hatchedFill(pen, COLORS.bg) } : pen;
     for (const piece of rw.pieces) {
       ctx.beginPath();
       tracePoly(ctx, piece.poly);
-      ctx.fillStyle = wallSel ? selectedFill(pen) : pen.fill;
+      ctx.fillStyle = wallSel ? selectedFill(body) : body.fill;
       ctx.fill();
       ctx.strokeStyle = line;
       ctx.lineWidth = (wallSel ? 2 : 1) * px;
       ctx.stroke();
+      // Hatch inside the same body, over the fill and outline. Drawn in the
+      // wall's own stroke colour rather than the selection colour: a
+      // selected wall's tint comes from selectedFill() above, and keeping
+      // the hatch in the material's ink leaves that tint readable between
+      // the lines instead of a solid orange field of them.
+      if (pattern) {
+        ctx.beginPath();
+        for (const seg of hatchSegments(piece.poly, pattern)) {
+          ctx.moveTo(seg.a.x, seg.a.y);
+          ctx.lineTo(seg.b.x, seg.b.y);
+        }
+        ctx.strokeStyle = pen.stroke;
+        ctx.lineWidth = 0.5 * px;
+        ctx.stroke();
+      }
     }
     // Posts, over the body they divide. Empty where the wall states no frame.
     // A stated profile is a member with a footprint, so it is filled at the size
@@ -631,11 +665,27 @@ export function drawScene(
   // Junction fill goes on top of the wall pieces: it closes the wedge a T-shaped
   // junction leaves between two slanted end-caps, and covers the seam strokes
   // that bounded it. Fill only — every edge of it is interior to the masonry.
+  // The wedge follows its neighbours into paper and, where they all state the
+  // same material, continues their hatch through the corner (junctionHatch()).
   for (const j of resolved.junctions) {
+    const jpen = junctionPen(j, resolved.walls);
+    const jw = j.walls.map(id => resolved.walls.get(id)?.wall).filter(w => w !== undefined);
+    const jh = hatchOn && jw.length === j.walls.length
+      ? junctionHatch(jw) : { paper: false, pattern: null };
     ctx.beginPath();
     tracePoly(ctx, j.poly);
-    ctx.fillStyle = junctionPen(j, resolved.walls).fill;
+    ctx.fillStyle = jh.paper ? hatchedFill(jpen, COLORS.bg) : jpen.fill;
     ctx.fill();
+    if (jh.pattern) {
+      ctx.beginPath();
+      for (const seg of hatchSegments(j.poly, jh.pattern)) {
+        ctx.moveTo(seg.a.x, seg.a.y);
+        ctx.lineTo(seg.b.x, seg.b.y);
+      }
+      ctx.strokeStyle = jpen.stroke;
+      ctx.lineWidth = 0.5 * px;
+      ctx.stroke();
+    }
   }
 
   // Structure, over the masonry: a column is cut like a wall and takes the
@@ -881,6 +931,13 @@ export function drawScene(
   }
 
   if (steps) drawGridLegend(ctx, canvasH, gridMm, steps, areaMode, dimMode);
+  // Renvooi: appears and disappears with the hatch itself -- gone below
+  // hatchVisible's threshold or once the storey has no hatched material --
+  // and can additionally be turned off on its own (DrawExtras.showRenvooi).
+  if (hatchOn && extras.showRenvooi !== false) {
+    const materials = hatchLegend(Array.from(resolved.walls.values(), rw => rw.wall));
+    drawRenvooiLegend(ctx, canvasH, materials);
+  }
   if (extras.selectMode) drawSelectModeBadge(ctx, canvasW, extras.selectMode);
 
   // Selected node handle & wall handles drawn by tools layer via preview.
@@ -961,6 +1018,67 @@ function drawGridLegend(
     t(areaMode === "net" ? "hint.areaLegendNet" : "hint.areaLegendCenterline") + " · " +
     t(`hint.dimLegend${dimMode[0]!.toUpperCase()}${dimMode.slice(1)}`);
   ctx.fillText(text, 10, h - 10);
+}
+
+/**
+ * Renvooi: the wall-hatch key, stacked directly above the grid legend at the
+ * same left margin and in the same screen space, tail of drawScene after the
+ * world transform is restored -- same convention as drawGridLegend and
+ * drawSelectModeBadge. One row per material actually drawn on the storey
+ * (hatchLegend()), title row on top; rows are built top-down but anchored to
+ * the grid legend's own baseline (h - 10) so the block grows upward rather
+ * than pushing that line. Each swatch reuses hatchSegments() on its own small
+ * box, so the key cannot show a pattern the wall bodies do not draw.
+ *
+ * Not adjusted for the compact layout's floating sheet (Panel.canvasInsets):
+ * neither is drawGridLegend, which sits at the same corner already: an open
+ * bottom sheet can cover both today, and this does not add a new case.
+ */
+function drawRenvooiLegend(
+  ctx: CanvasRenderingContext2D, h: number, materials: readonly WallMaterial[],
+): void {
+  if (materials.length === 0) return;
+  const rowH = 16, swatch = 12, swatchGap = 6, legendGap = 8;
+  const blockH = (materials.length + 1) * rowH; // +1 for the title row
+  let y = h - 10 - legendGap - blockH + rowH / 2;
+  ctx.font = "11px system-ui, sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = COLORS.hud;
+  ctx.fillText(t("hint.renvooiTitle"), 10, y);
+  y += rowH;
+  for (const m of materials) {
+    const pattern = hatchFor(m);
+    ctx.strokeStyle = COLORS.hud;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(10, y - swatch / 2, swatch, swatch);
+    if (pattern) {
+      // Box sized to the pattern's own widest line spacing, so a coarse
+      // hatch still shows a line or two at swatch scale instead of vanishing
+      // inside a fixed-size box.
+      const boxMm = Math.max(...pattern.lines.map(l => l.spacingMm)) * 2;
+      const s = swatch / boxMm;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(10, y - swatch / 2, swatch, swatch);
+      ctx.clip();
+      ctx.translate(10, y - swatch / 2);
+      ctx.scale(s, s);
+      ctx.strokeStyle = COLORS.hud;
+      ctx.lineWidth = 0.5 / s;
+      ctx.beginPath();
+      const box = [v(0, 0), v(boxMm, 0), v(boxMm, boxMm), v(0, boxMm)];
+      for (const seg of hatchSegments(box, pattern)) {
+        ctx.moveTo(seg.a.x, seg.a.y);
+        ctx.lineTo(seg.b.x, seg.b.y);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.fillStyle = COLORS.hud;
+    ctx.fillText(t("panel.material_" + m), 10 + swatch + swatchGap, y);
+    y += rowH;
+  }
 }
 
 /**

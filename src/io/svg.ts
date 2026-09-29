@@ -26,6 +26,7 @@ import { ROOF_DASH } from "../render/roof";
 import { getSymbol } from "../render/symbols";
 import { mountMarkOf } from "../core/mount";
 import { COLORS, routeInk, routeMapLabel, symbolInk, wallPen, junctionPen, type WallPen } from "../render/draw";
+import { wallHatch, hatchSegments, hatchedFill, junctionHatch } from "../render/hatch";
 import {
   ROUTE_DATA_DASH, ROUTE_AFVOER_DASH, ROUTE_AFVOER_EXTRA_MM, ROUTE_VENT_EXTRA_MM, LINE_WIDTH_MM,
   routeBandMm, routeBandInk,
@@ -62,6 +63,7 @@ const MARGIN_MM = 500;
 const W_WALL = 12;
 const W_OPENING = 12;
 const W_SYMBOL = 16;
+const W_HATCH = 4;
 
 /** Label size in mm: about 12 px at the zoom the editor opens on, and still
  *  legible when the drawing is printed small. */
@@ -382,7 +384,11 @@ export function planScene(
   const posts: Item[] = [];
   for (const rw of resolved.walls.values()) {
     const pen = wallPen(rw.wall);
-    const b = bucketFor(pen);
+    // A hatched body stands on paper instead of poché (hatchedFill), the same
+    // as on the canvas above its zoom threshold. Bucketing on the adjusted pen
+    // rather than the wall's own is what puts a hatched wall and an unhatched
+    // one of the same ink in separate groups, which is the fill difference.
+    const b = bucketFor(wallHatch(rw.wall) ? { ...pen, fill: hatchedFill(pen, COLORS.bg) } : pen);
     for (const piece of rw.pieces) b.pieces.push(poly(piece.poly, true));
     const stijlen = postMarks(rw);
     // A post with a stated profile is a member, so it is filled at the size it
@@ -393,8 +399,17 @@ export function planScene(
     }
   }
   // Junction fill closes the wedge a T-junction leaves; no stroke, its edges are
-  // interior to the masonry.
-  for (const j of resolved.junctions) bucketFor(junctionPen(j, resolved.walls)).wedges.push(poly(j.poly, true));
+  // interior to the masonry. The wedge follows its neighbours into paper, and
+  // its hatch (below) continues theirs where they all state one material.
+  const wedgeHatch: { pattern: NonNullable<ReturnType<typeof junctionHatch>["pattern"]>; poly: Vec[] }[] = [];
+  for (const j of resolved.junctions) {
+    const jpen = junctionPen(j, resolved.walls);
+    const jw = j.walls.map(id => resolved.walls.get(id)?.wall).filter(w => w !== undefined);
+    const jh = jw.length === j.walls.length ? junctionHatch(jw) : { paper: false, pattern: null };
+    bucketFor(jh.paper ? { ...jpen, fill: hatchedFill(jpen, COLORS.bg) } : jpen)
+      .wedges.push(poly(j.poly, true));
+    if (jh.pattern) wedgeHatch.push({ pattern: jh.pattern, poly: j.poly });
+  }
   const walls: Item[] = [];
   for (const b of buckets.values()) {
     const items: Item[] = [...b.pieces];
@@ -402,6 +417,42 @@ export function planScene(
     walls.push(group(items, { fill: b.pen.fill, ink: b.pen.stroke }));
   }
   out.push(group(walls, { fill: COLORS.wallFill, ink: COLORS.wallStroke, width: W_WALL }, "walls"));
+
+  // Per-material hatching, over the poché the "walls" group just drew. The
+  // canvas hides this below a zoom threshold, but a vector file has no fixed
+  // scale for that threshold to be measured against -- the reader decides how
+  // far to zoom -- so SVG and DXF always emit it. Nested material -> wall ->
+  // segment, the same shape as "boards" above: the wall-level group carries
+  // the stroke (a coloured wall's hatch follows its own pen), and each
+  // segment still tags its own material so it can be picked out on its own.
+  // A junction wedge belongs to no single wall, so it takes no hatch.
+  const hatchByMaterial = new Map<string, Item[]>();
+  for (const rw of resolved.walls.values()) {
+    const pattern = wallHatch(rw.wall);
+    if (!pattern) continue;
+    // Unstated material hatches as masonry (hatchFor), so it is tagged as
+    // masonry too -- a consumer picking out one material must not miss the
+    // walls drawing that same mark without naming it.
+    const material = rw.wall.material ?? "masonry";
+    const segs: Item[] = [];
+    for (const piece of rw.pieces)
+      for (const seg of hatchSegments(piece.poly, pattern))
+        segs.push(poly([seg.a, seg.b], false, { material }));
+    if (segs.length === 0) continue;
+    const arr = hatchByMaterial.get(material) ?? [];
+    arr.push(group(segs, { ink: wallPen(rw.wall).stroke }));
+    hatchByMaterial.set(material, arr);
+  }
+  for (const { pattern, poly: wp } of wedgeHatch) {
+    const segs = hatchSegments(wp, pattern).map(seg => poly([seg.a, seg.b], false));
+    if (segs.length === 0) continue;
+    const arr = hatchByMaterial.get("junction") ?? [];
+    arr.push(group(segs, { ink: COLORS.wallStroke }));
+    hatchByMaterial.set("junction", arr);
+  }
+  if (hatchByMaterial.size > 0)
+    out.push(group([...hatchByMaterial.values()].map(items => group(items)),
+      { fill: "none", width: W_HATCH }, "hatch"));
 
   // The frame, over the body it divides, in its own group: the wall groups
   // above carry a body fill that has nothing to do with a member's own.

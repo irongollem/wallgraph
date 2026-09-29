@@ -505,6 +505,23 @@ standards edition is named as the ruleset. Nothing is stored: the proposal butto
 way the pane would. Verified by [tests/timber.test.ts](tests/timber.test.ts) against hand-worked figures
 and [tests/checks.test.ts](tests/checks.test.ts).
 
+**A hatch is a drawing, not a document field, and it replaces the poché rather than covering it.**
+`Wall.material` already states what a wall is built from; [hatch.ts](src/render/hatch.ts) turns that into a
+mark — one or two families of parallel lines, generated as an infinite lattice anchored to the WORLD origin
+and clipped to each `SolidPiece` at draw time, so two pieces of one wall split by an opening, and two
+abutting walls of the same material, land on the same lines rather than each starting its own phase. A
+hatched body stands on paper (`hatchedFill()`): the poché and the ink around it differ by a few percent of
+luminance, so lines drawn in one over the other are invisible, and a drawing large enough to hatch is one
+that outlines the wall rather than filling it. The canvas gates the whole thing on zoom (`hatchVisible()`,
+the idiom `detailFor()` uses) — below the threshold the plan is the solid poché it always drew, above it the
+outlined and hatched body a larger scale shows — while the SVG and DXF have no fixed scale to gate on and
+always emit it. A junction wedge belongs to no single wall, so `junctionHatch()` continues a hatch only
+where every wall at the node states the same material, and otherwise takes the paper without a pattern. The
+patterns are this repository's own figures, named by the renvooi the canvas draws beside the grid legend:
+they follow common Dutch drawing conventions and claim conformance to no standard. Verified by
+[tests/hatch.test.ts](tests/hatch.test.ts), [tests/svg.test.ts](tests/svg.test.ts) and
+[tests/dxf.test.ts](tests/dxf.test.ts).
+
 ## Adding a symbol
 
 Symbols live in `src/render/symbols/<category>.ts` and are aggregated by
@@ -807,6 +824,16 @@ before changing one:
   deck bears.
 - A block course under a sloped wall top is cut to the lower of its two edge heights, not to the
   diagonal; the drawn course and the block count are short by that triangle.
+- A wall hatch is a line lattice in WORLD space, so a wall running at a pattern's own angle is hatched
+  parallel to its own faces; this is how a CAD hatch behaves and is not corrected. The eight patterns are
+  distinguishable from each other but several differ only in spacing or in the direction of one diagonal,
+  which is what the renvooi is for. Only wall bodies and junction wedges hatch — a column, a beam, a facade
+  band, a build-up board and a frame zone keep the fill they had.
+- A compartment boundary draws the ratings the walls state and checks none of them: nothing asks whether
+  a wall's construction achieves its rating, whether the compartments a plan draws are closed, or whether
+  a door in a rated wall carries a rating of its own. Labels repeat at a fixed interval with no regard to
+  what lies under them, so one can land on a room name or a fixture, and they are upright rather than
+  turned along the run, as every other label in this codebase is.
 - The energy figure is transmission-only at one fixed degree-day figure. The insulation and glazing
   presets are indicative table values, not a per-year tabulation of the regulations, and nothing
   checks a stated Rc or U against what the Bbl requires.

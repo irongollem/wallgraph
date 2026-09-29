@@ -44,6 +44,7 @@ import { routeHeat, routeKind, routeWater, routeVent, type Discipline } from "..
 import { saveViaHost, downloadBlob } from "./save";
 import { t } from "../i18n";
 import { routeMapLabel, junctionPen } from "../render/draw";
+import { wallHatch, hatchSegments } from "../render/hatch";
 
 export type DxfResult = "saved" | "empty" | "failed";
 
@@ -117,6 +118,27 @@ const LAYER = {
   beams: "BEAMS",
   railings: "RAILINGS",
   rooms: "ROOMS",
+  /**
+   * Per-material hatching (see render/hatch.ts). One layer for every
+   * material, not one per material as the SVG groups by: DXF colour and
+   * on/off are per-layer, and the hatch lines themselves already carry the
+   * material distinction visually (their own angle and spacing), so a second
+   * axis of per-material layers would only duplicate what BOARDS already
+   * decided against for its own board kinds. A CAD reader turns the whole
+   * hatch off in one place, the way a hand-drafted plan's hatch layer works.
+   *
+   * The canvas hides hatching below a zoom threshold; DXF has no such
+   * threshold to gate on, since a CAD reader chooses its own zoom, so it is
+   * always emitted -- see the SVG export for the same reasoning.
+   *
+   * Emitted as exploded LINE entities rather than a HATCH entity: a HATCH
+   * needs a pattern definition that this file's minimal AC1015 structure has
+   * no table for (no BLOCKS/OBJECTS section, no pattern library), and the
+   * exploded lines are exactly what a HATCH entity resolves to for a reader
+   * anyway. `tests/dxf.test.ts` also fixes the file at exactly three
+   * sections, which a HATCH entity's supporting tables would violate.
+   */
+  hatch: "HATCH",
   // The fit-out splits by trade, because that is how a reader of the drawing
   // uses it: a plumber turns the sanitair layer on, a kitchen fitter the
   // cabinets. Overhead work splits again -- base and tall units are cut or
@@ -195,6 +217,9 @@ const LAYER_COLOR: Record<string, number> = {
   WALLS: 7, GLAZING: 4, PANELS: 8, POSTS: 7, FACADE: 8, LINING: 8, FRAMES: 8, ROOF: 8, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, DECKS: 3, "DECKS-OVERHEAD": 3, ROOMS: 8,
   COLUMNS: 7, BEAMS: 7, RAILINGS: 8,
   CABINETS: 6, "CABINETS-OVERHEAD": 6,
+  // 9 (light grey) is otherwise unused: the hatch sits over the poché and
+  // must read as texture, not compete with the outlines drawn in 7/8.
+  HATCH: 9,
   "ROUTES-ELECTRICAL": 1, "ROUTES-WATER": 5, "ROUTES-VENT": 2, "ROUTES-GAS": 2,
   "ROUTES-HEATING": 6, "ROUTES-HEATING-RETOUR": 6,
   "ROUTES-ELECTRICAL-DATA": 1, "ROUTES-WATER-AFVOER": 5, "ROUTES-VENT-AFVOER": 2,
@@ -392,6 +417,13 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
       for (const band of [...rw.frame[0], ...rw.frame[1]]) w.polyline(LAYER.frames, band.poly, true);
       for (const band of [...rw.boards[0], ...rw.boards[1]]) {
         for (const piece of band.pieces) w.polyline(LAYER.boards, piece.poly, true);
+      }
+      // Hatching, over the body it fills. A junction wedge (below) belongs to
+      // no single wall and so takes none.
+      const pattern = wallHatch(rw.wall);
+      if (pattern) {
+        for (const piece of rw.pieces)
+          for (const seg of hatchSegments(piece.poly, pattern)) w.line(LAYER.hatch, seg.a, seg.b);
       }
     }
     // A column's own casing (Column.casing) goes on the same FRAMES/BOARDS

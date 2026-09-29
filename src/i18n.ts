@@ -1265,6 +1265,7 @@ export const resources = {
         dimLegendBoth: "maten dagmaat en hart-op-hart",
         dimTagClear: "dag",
         dimTagCenterline: "h.o.h.",
+        renvooiTitle: "Renvooi",
         touchSelect:
           "tik om te selecteren \u00b7 sleep punten, muren en symbolen \u00b7 houd iets ingedrukt om te beginnen met meer selecteren, tik daarna verder om toe te voegen \u00b7 tik de oppervlakte om de ruimte te benoemen",
         touchSelectFurnishing:
@@ -2862,6 +2863,7 @@ export const resources = {
         dimLegendBoth: "dimensions clear span and centerline",
         dimTagClear: "clear",
         dimTagCenterline: "c/c",
+        renvooiTitle: "Legend",
         touchSelect:
           "tap to select \u00b7 drag points, walls and symbols \u00b7 hold something to start selecting more, then tap others to add them \u00b7 tap a room's area figure to name it",
         touchSelectFurnishing:

@@ -157,5 +157,34 @@ for (const id of ["rooms", "walls", "openings", "symbols", "labels"])
   check("no NaN reaches a build-up wall's paths", !out.includes("NaN"));
 }
 
+// Per-material hatching (render/hatch.ts). SVG and DXF always emit it, unlike
+// the canvas which hides it below a zoom threshold: a vector file has no fixed
+// scale for that threshold to be measured against, since the reader decides
+// how far to zoom in.
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.nodes.push(
+    { id: "hn0", x: 0, y: 0 }, { id: "hn1", x: 4000, y: 0 }, { id: "hn2", x: 4000, y: 3000 },
+  );
+  f.walls.push(
+    { id: "hw0", a: "hn0", b: "hn1", thickness: 300, bulge: 0, openings: [], material: "masonry" },
+    { id: "hw1", a: "hn1", b: "hn2", thickness: 300, bulge: 0, openings: [], material: "timber" },
+  );
+  const out = toSvg(doc, 0) ?? "";
+  check("a hatch group is emitted for hatched materials", out.includes('id="hatch"'));
+  check("the hatch group follows the walls group in document order",
+    out.indexOf('id="walls"') >= 0 && out.indexOf('id="walls"') < out.indexOf('id="hatch"'));
+  check("no NaN reaches a hatched wall's paths", !out.includes("NaN") && !out.includes("Infinity"));
+
+  // Glass is an infill body, not poché -- no material to hatch.
+  const glassDoc = emptyDoc();
+  const gf = glassDoc.floors[0]!;
+  gf.nodes.push({ id: "gn0", x: 0, y: 0 }, { id: "gn1", x: 4000, y: 0 });
+  gf.walls.push({ id: "gw", a: "gn0", b: "gn1", thickness: 100, bulge: 0, openings: [], material: "glass" });
+  const glassOut = toSvg(glassDoc, 0) ?? "";
+  check("a plan of only glass walls emits no hatch group", !glassOut.includes('id="hatch"'));
+}
+
 console.log(failures === 0 ? "ALL SVG TESTS PASSED" : `${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

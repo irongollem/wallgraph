@@ -122,6 +122,34 @@ check("an empty document produces nothing", toDxf(emptyDoc(), 0) === null);
     String(onLayer(stackedOut, "BOARDS")));
 }
 
+// Per-material hatching (render/hatch.ts) lands on one HATCH layer for every
+// material -- DXF colour and on/off are per-layer, and the hatch lines
+// already carry the material distinction visually, so a per-material layer
+// would only duplicate the split BOARDS already decided against.
+{
+  const onLayer = (out: string, layer: string): number =>
+    out.split("\r\n").filter(l => l === layer).length;
+
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.nodes.push({ id: "kn0", x: 0, y: 0 }, { id: "kn1", x: 4000, y: 0 });
+  f.walls.push({
+    id: "kw", a: "kn0", b: "kn1", thickness: 300, bulge: 0, openings: [], material: "masonry",
+  });
+  const out = toDxf(doc, 0) ?? "";
+  check("HATCH is declared as a layer", out.includes("\r\nHATCH\r\n"));
+  check("a hatched wall puts entities on HATCH", onLayer(out, "HATCH") > 1, String(onLayer(out, "HATCH")));
+
+  // Glass is an infill body, not poché -- no material to hatch.
+  const glassDoc = emptyDoc();
+  const gf = glassDoc.floors[0]!;
+  gf.nodes.push({ id: "gn0", x: 0, y: 0 }, { id: "gn1", x: 4000, y: 0 });
+  gf.walls.push({ id: "gw", a: "gn0", b: "gn1", thickness: 100, bulge: 0, openings: [], material: "glass" });
+  const glassOut = toDxf(glassDoc, 0) ?? "";
+  check("a plan of only glass walls puts nothing on HATCH beyond the declaration",
+    onLayer(glassOut, "HATCH") === 1, String(onLayer(glassOut, "HATCH")));
+}
+
 const lines = (dxf ?? "").split("\r\n").filter(l => l !== "");
 
 // The whole format is (group code, value) pairs; a stray line shifts everything
