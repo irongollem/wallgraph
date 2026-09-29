@@ -116,6 +116,7 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
     () => derived().resolved, () => panel.refreshToolbar(), () => derived().rooms,
   );
   const panel = new Panel(side, store, tools);
+  panel.toastHost = canvasWrap;
 
   // The 3D extrusion view: its canvas covers the 2D one while the mode is on,
   // so the pointer is its own and the 2D tools go quiet without being told.

@@ -397,6 +397,14 @@ body { font: 13px/1.4 system-ui, sans-serif; color: #2b2e33; background: #f4f2ec
 
 .status { margin-top: auto; flex: none; padding: 8px 12px; border-top: 1px solid #eceadf; background: #fdfcfa; font: 11px/1.35 system-ui, sans-serif; color: #8a8577; }
 .status .grip { color: #e05d2d; }
+/* flash()'s confirmation, positioned by the panel inside the visible canvas. */
+.wg-toast {
+  position: absolute; z-index: 4; transform: translateX(-50%); max-width: calc(100% - 32px);
+  padding: 7px 14px; border-radius: 999px; background: #2b2e33; color: #fff;
+  font: 500 13px/1.3 system-ui, sans-serif; box-shadow: 0 4px 14px rgba(43,46,51,.25);
+  pointer-events: none; transition: opacity var(--dur-base) var(--ease-out);
+}
+.wg-toast.is-out { opacity: 0; }
 
 /* ---------- overlay / dialog ---------- */
 

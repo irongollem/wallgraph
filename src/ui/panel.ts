@@ -99,6 +99,8 @@ import { buildKeypad } from "./keypad";
  * rating's none) the way a plain "" sentinel would.
  */
 const MIXED_SENTINEL = "__mixed__";
+/** How long flash()'s message stays up, ms. */
+const FLASH_MS = 2000;
 
 /** Wording for lintelCheck()'s `missing` keys. "material" is the one case
  *  none of these three checks has on its own pane: a lintel's load comes from
@@ -146,6 +148,10 @@ export class Panel {
   private rail: HTMLElement;
   private pane: HTMLElement;
   private status: HTMLElement;
+  private toast: HTMLElement | null = null;
+  private toastTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Where flash() shows its message: the canvas's own container. */
+  toastHost: HTMLElement | null = null;
   private foot: HTMLElement;
   /** One palette per authoring section; see ui/palette.ts. Both stay mounted —
    *  removing one even for a frame drops focus out of its search box — and the
@@ -661,7 +667,7 @@ export class Panel {
 
   /** Keys spelled out rather than built from the result, so they stay greppable. */
   private async shareLink(): Promise<void> {
-    const result = await sharePlan(this.store.doc, editorHref());
+    const result = await sharePlan(this.store.doc, editorHref(), this.tools.touchUi);
     if (result === "cancelled") return;
     this.flash(t(result === "shared" ? "status.linkShared"
       : result === "copied" ? "status.linkCopied"
@@ -1458,9 +1464,22 @@ export class Panel {
     ta.focus();
   }
 
+  /**
+   * A short confirmation over the canvas, centred in the part the chrome leaves
+   * visible. It stays out of the hint line so that line keeps its height.
+   */
   private flash(msg: string): void {
-    this.status.textContent = msg;
-    setTimeout(() => this.renderStatus(), 1200);
+    const toast = this.toast ??= el("div", "wg-toast");
+    toast.setAttribute("role", "status");
+    toast.textContent = msg;
+    const host = this.toastHost ?? this.root;
+    const pad = this.canvasInsets();
+    toast.style.left = `${pad.left + (host.clientWidth - pad.left - pad.right) / 2}px`;
+    toast.style.bottom = `${pad.bottom + 40}px`;
+    host.append(toast);
+    toast.classList.remove("is-out");
+    clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => toast.classList.add("is-out"), FLASH_MS);
   }
 
   private renderStatus(): void {

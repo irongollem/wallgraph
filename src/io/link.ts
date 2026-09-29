@@ -144,19 +144,38 @@ export async function planLink(doc: PlanDoc, base: string): Promise<string> {
 export type ShareResult = "shared" | "copied" | "cancelled" | "failed";
 
 /**
- * Hands a plan link to the system share sheet where the browser offers one, and
- * to the clipboard otherwise. A dismissed sheet is `"cancelled"`, not a reason
- * to copy: the visitor chose not to share.
+ * Puts `text` on the clipboard. Safari grants clipboard access only within the
+ * click itself, and the link is still being compressed then, so the write is
+ * started synchronously with a ClipboardItem whose content is the pending text.
  */
-export async function sharePlan(doc: PlanDoc, base: string): Promise<ShareResult> {
-  const url = await planLink(doc, base);
-  if (typeof navigator.share === "function") {
-    try { await navigator.share({ url }); return "shared"; }
+async function copyText(text: Promise<string>): Promise<boolean> {
+  if (typeof ClipboardItem === "function" && typeof navigator.clipboard?.write === "function") {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({
+        "text/plain": text.then(t => new Blob([t], { type: "text/plain" })),
+      })]);
+      return true;
+    } catch { /* a browser without promised clipboard content: try plain text */ }
+  }
+  try { await navigator.clipboard.writeText(await text); return true; }
+  catch { return false; }
+}
+
+/**
+ * Copies a plan link to the clipboard, or with `sheet` hands it to the system
+ * share sheet where the browser offers one. A touch device's sheet carries its
+ * own copy action; the desktop sheets (macOS among them) may not, which is why
+ * a pointer-driven editor copies instead. A dismissed sheet is `"cancelled"`,
+ * not a reason to copy: the visitor chose not to share.
+ */
+export async function sharePlan(doc: PlanDoc, base: string, sheet: boolean): Promise<ShareResult> {
+  const url = planLink(doc, base);
+  if (sheet && typeof navigator.share === "function") {
+    try { await navigator.share({ url: await url }); return "shared"; }
     catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return "cancelled";
       // NotAllowedError in a sandboxed frame or without permission: fall through.
     }
   }
-  try { await navigator.clipboard.writeText(url); return "copied"; }
-  catch { return "failed"; }
+  return await copyText(url) ? "copied" : "failed";
 }
