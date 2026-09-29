@@ -8,7 +8,7 @@ import { Viewport } from "./render/viewport";
 import { drawScene, COLORS, type GhostFloor, PULSE_MS } from "./render/draw";
 import { Tools } from "./input/tools";
 import { Panel } from "./ui/panel";
-import { tryLoadAutosave, scheduleAutosave } from "./io/json";
+import { tryLoadAutosave, scheduleAutosave, watchAutosave } from "./io/json";
 import { seedDoc } from "./seed";
 import { areaModeOf, dimModeOf, mountMarksOn, PlanDoc } from "./model/doc";
 import { incompleteMarks } from "./core/port";
@@ -245,6 +245,9 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
   // Initial document: autosave if present, else the demo plan.
   const saved = tryLoadAutosave();
   store.replace(saved ?? seedDoc());
+  // A plan saved by another tab replaces this one before this tab can write
+  // its older copy over it. Undoable, so Ctrl+Z still reaches what was here.
+  watchAutosave(doc => store.replace(doc, true));
 
   // Frame the plan on open, and again whenever one arrives programmatically —
   // a plan from a link would otherwise land somewhere off screen. This is the
