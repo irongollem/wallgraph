@@ -79,6 +79,8 @@ import { wallTopAt, wallTopRange, wallTopPolyline, wallAreaUnder } from "../mode
 import { floorSolids, videHole, projectS, splitAtBreaks, openingVoid } from "../core/solids";
 import { detectRooms, roomSize, sizeLabel, Room, roomArea } from "../core/rooms";
 import { resolveFloor, type ResolvedWall } from "../core/resolve";
+import { routeGroupOf } from "../core/board";
+import { groupPoles } from "../model/board";
 import { floorSurface } from "../core/surface";
 import { resolveLeaves } from "../core/leaf";
 import { resolveStair, stairBox } from "../core/stair";
@@ -555,7 +557,7 @@ function routeSystemKey(route: Route): { id: string; name: string; predefined: s
 
 /** The service metadata a run states, as IFC properties. Absent stays absent:
  *  a run that named no groep says nothing about one. */
-function routeProps(route: Route): Array<{ name: string; value: string | number; kind: "label" | "count" | "length" | "real" }> {
+function routeProps(floor: Floor, route: Route): Array<{ name: string; value: string | number; kind: "label" | "count" | "length" | "real" }> {
   const out: Array<{ name: string; value: string | number; kind: "label" | "count" | "length" | "real" }> = [];
   const label = (name: string, value: string | undefined): void => {
     if (value && value.trim()) out.push({ name, value: value.trim(), kind: "label" });
@@ -566,6 +568,8 @@ function routeProps(route: Route): Array<{ name: string; value: string | number;
   if (route.discipline === "electrical") {
     label("Board", route.board);
     label("Group", route.group);
+    const poles = groupPoles(routeGroupOf(floor, route)?.group ?? { id: "", name: "" });
+    if (poles > 1) out.push({ name: "Poles", value: poles, kind: "count" });
     out.push({ name: "Kind", value: routeKind(route), kind: "label" });
     if (routeKind(route) === "power") out.push({ name: "Conductors", value: routeVeins(route), kind: "count" });
     else label("CableSpec", route.spec);
@@ -1911,7 +1915,7 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
       // One pset for the whole run rather than one per leg: every leg states
       // the same groep, diameter and design flow.
       attachPropertySet(legs, `${route.id}:pset`, "Pset_WallgraphService",
-        routeProps(route).map(prop => ref(propValue(prop.name,
+        routeProps(floor, route).map(prop => ref(propValue(prop.name,
           prop.kind === "label" ? labelValue(String(prop.value))
           : prop.kind === "count" ? typed("IFCCOUNTMEASURE", int(Number(prop.value)))
           : prop.kind === "length" ? typed("IFCPOSITIVELENGTHMEASURE", real(Number(prop.value)))

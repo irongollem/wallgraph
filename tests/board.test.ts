@@ -7,10 +7,11 @@
 import { emptyDoc, type SymbolInstance } from "../src/model/doc";
 import {
   boardOf, boardGroups, nextGroup, clampBoardName, groupLocalPoint, GROUP_PITCH_MM,
+  groupPoles, setGroupPoles,
 } from "../src/model/board";
 import {
   BOARD_TYPE, boardsOn, resolveBoard, resolveBoards, groupById,
-  routeGroupOf, routeGroup, routeBoard, groupNames, groupLoad,
+  routeGroupOf, routeGroup, routeBoard, groupNames, groupLoad, kookgroepIssues,
 } from "../src/core/board";
 import { resolveRoutePoints, routeGroupSummaries } from "../src/core/route";
 import { planSchema, validate } from "../scripts/site/schema";
@@ -231,12 +232,74 @@ function wired(): { doc: ReturnType<typeof emptyDoc>; route: Route } {
   }
 }
 
+/* ── kookgroep ── */
+
+{
+  const g = { id: "x", name: "1" };
+  check("groupPoles defaults to 1", groupPoles(g) === 1);
+  setGroupPoles(g, 3);
+  check("poles are stored for 2 or 3", groupPoles(g) === 3);
+  setGroupPoles(g, 1);
+  check("writing 1 deletes the field", !("poles" in g));
+}
+
+{
+  const { doc, route } = wired();
+  const f = doc.floors[0]!;
+  f.symbols.push({ id: "pl", type: "socket-perilex", x: 4000, y: 0, rotation: 0 });
+  route.points[1]!.anchor = "pl";
+  const issues = kookgroepIssues(f);
+  check("a perilex on a 1-pole groep is reported",
+    issues.length === 1 && issues[0]!.groupId === "g1" && issues[0]!.boardId === "mk"
+    && issues[0]!.deviceIds.join() === "pl");
+  f.symbols[0]!.board!.groups[1]!.poles = 3;
+  check("and not once the groep is 3-pole", kookgroepIssues(f).length === 0);
+  check("the summary carries the poles", routeGroupSummaries(f)[0]!.poles === 3);
+}
+
+{
+  const { doc, route } = wired();
+  const f = doc.floors[0]!;
+  f.symbols.push({ id: "so", type: "socket-single", x: 4000, y: 0, rotation: 0 });
+  route.points[1]!.anchor = "so";
+  check("an ordinary socket on a 1-pole groep is fine", kookgroepIssues(f).length === 0);
+  f.symbols[0]!.board!.groups[1]!.poles = 2;
+  check("a multi-pole groep feeding sockets is fine", kookgroepIssues(f).length === 0);
+}
+
+{
+  const { doc, route } = wired();
+  const f = doc.floors[0]!;
+  f.furnishings = [{
+    id: "hob", form: "appliance", mark: "cooktop", x: 4000, y: 0, rotation: 0, width: 600, depth: 600,
+  }];
+  route.points[1]!.anchor = "hob";
+  check("an electric cooktop on a 1-pole groep is reported",
+    kookgroepIssues(f).length === 1 && kookgroepIssues(f)[0]!.deviceIds.join() === "hob");
+  route.discipline = "gas";
+  check("a gas-fed cooktop is not", kookgroepIssues(f).length === 0);
+}
+
+{
+  const doc = emptyDoc();
+  const schema = planSchema("https://example.test");
+  const withGroup = (poles: number): unknown => {
+    const d = JSON.parse(JSON.stringify(doc));
+    d.floors[0].symbols.push({ ...kast(["1"]), board: { groups: [{ id: "g", name: "1", poles }] } });
+    return d;
+  };
+  check("the schema accepts poles: 3", validate(schema, withGroup(3)).length === 0,
+    validate(schema, withGroup(3)).join(" | "));
+  check("and rejects poles: 1", validate(schema, withGroup(1)).length > 0);
+}
+
 /* ── both languages name what the panel shows ── */
 
 {
   const keys = ["board", "boardName", "boardGroup", "boardGroupLabel", "boardGroupRuns",
     "boardGroupRunCount", "boardGroupEmpty", "boardGroupAdd", "boardGroupRemove",
-    "boardNote", "routeGroupFromBoard"];
+    "boardNote", "routeGroupFromBoard", "boardGroupPoles", "boardGroupPoles1", "boardGroupPoles2",
+    "boardGroupPoles3", "boardGroupKookgroep"];
   for (const lang of ["nl", "en"] as const) {
     const panel = resources[lang].translation.panel as Record<string, string>;
     check(`${lang} names every groepenkast field`,

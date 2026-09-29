@@ -19,6 +19,18 @@ export interface BoardGroup {
   name: string;
   /** What it feeds, for the schedule. Absent means nobody said. */
   label?: string;
+  /** Live conductors on this groep's breaker: 2 or 3 for a kookgroep. Absent means 1.
+   *  A 2-pole breaker covers two groepen on one phase and two phases alike: the
+   *  drawing states the breaker, not the supply. */
+  poles?: 2 | 3;
+}
+
+/** Live conductors on a groep's breaker. */
+export const groupPoles = (g: BoardGroup): 1 | 2 | 3 => g.poles ?? 1;
+
+/** Sets a groep's pole count; 1 is the default and is not stored. */
+export function setGroupPoles(g: BoardGroup, poles: 1 | 2 | 3): void {
+  if (poles === 1) delete g.poles; else g.poles = poles;
 }
 
 export interface BoardData {

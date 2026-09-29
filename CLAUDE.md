@@ -649,6 +649,12 @@ the SVG group and its own DXF layer instead.
   `required` only where a device demonstrably cannot work without it AND the model has
   that service; a rookmelder may be wired or on a battery, and the drawing cannot tell.
   `alt` is for the genuine either/or — a kookplaat is fed by gas OR by power.
+- **A groep's poles are its breaker, not its supply.** `BoardGroup.poles` (2 or 3, absent meaning 1) says
+  a groep is a kookgroep; 2-pole covers both two groepen on one phase and two phases. `kookgroepIssues()`
+  in [core/board.ts](src/core/board.ts) reports a single-pole groep whose connected runs reach a perilex
+  or an electric cooktop. It reports and never enforces. A wall-mounted symbol standing loose (no
+  `wallId`) rotates like a free-standing one (`canRotateSymbol()`), which is how a perilex is placed
+  inside a kookeiland.
 - **Authored data may ride on a placed object where its MARK is one fixed picture.** A
   groepenkast's plan mark does not change with the number of groepen, so its name and its
   groepen are fields on the `SymbolInstance` (`model/board.ts`), guarded by type the way

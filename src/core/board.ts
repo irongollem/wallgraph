@@ -5,7 +5,9 @@
 // point a circuit hangs off, and adding a groep re-fans the rest — the same
 // rule that keeps a room's boundary out of the document.
 import { Floor, Id, routesOf, type SymbolInstance } from "../model/doc";
-import { BoardGroup, boardGroups, boardOf, groupLocalPoint } from "../model/board";
+import { BoardGroup, boardGroups, boardOf, groupLocalPoint, groupPoles } from "../model/board";
+import { applianceMark } from "../model/furnishing";
+import { furnishingsOf } from "../model/doc";
 import type { Route } from "../model/route";
 import { getSymbol } from "../render/symbols";
 import { worldPoint } from "./placed";
@@ -98,6 +100,47 @@ export function groupNames(floor: Floor): string[] {
     if (name && !out.includes(name)) out.push(name);
   }
   return out;
+}
+
+/** Symbol types that need a kookgroep: two or three live conductors. */
+const KOOKGROEP_SYMBOLS: ReadonlySet<string> = new Set(["socket-perilex", "point-perilex"]);
+
+export interface KookgroepIssue {
+  groupId: Id;
+  boardId: Id;
+  /** The devices on this groep's runs that need more than one pole. */
+  deviceIds: Id[];
+}
+
+/**
+ * Groepen on a single-pole breaker whose runs end at a device that needs a
+ * kookgroep: a perilex socket or point, or an electric cooktop. The groep is
+ * the connected one (routeGroupOf), not the typed `route.group` string, and a
+ * gas run to a cooktop is not electrical and so not counted. Reported, never
+ * enforced; a multi-pole groep feeding ordinary sockets is not an issue.
+ */
+export function kookgroepIssues(floor: Floor): KookgroepIssue[] {
+  const furnishings = furnishingsOf(floor);
+  const found = new Map<Id, KookgroepIssue>();
+  for (const route of routesOf(floor)) {
+    if (route.discipline !== "electrical") continue;
+    const groep = routeGroupOf(floor, route);
+    if (!groep || groupPoles(groep.group) !== 1) continue;
+    for (const point of route.points) {
+      if (!point.anchor) continue;
+      const symbol = floor.symbols.find(s => s.id === point.anchor);
+      const furnishing = symbol ? undefined : furnishings.find(f => f.id === point.anchor);
+      const needs = symbol
+        ? KOOKGROEP_SYMBOLS.has(symbol.type)
+        : furnishing !== undefined && furnishing.form === "appliance" && applianceMark(furnishing) === "cooktop";
+      if (!needs) continue;
+      const issue = found.get(groep.group.id)
+        ?? { groupId: groep.group.id, boardId: groep.board.id, deviceIds: [] };
+      if (!issue.deviceIds.includes(point.anchor)) issue.deviceIds.push(point.anchor);
+      found.set(groep.group.id, issue);
+    }
+  }
+  return [...found.values()];
 }
 
 /**

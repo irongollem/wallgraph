@@ -26,8 +26,8 @@ import {
 } from "../core/route";
 import { nearestDeviceFor, routeLegsUnder } from "../core/attach";
 import { deviceServiceGaps, type Device } from "../core/port";
-import { groupLoad, groupNames, routeBoard, routeGroupOf } from "../core/board";
-import { boardOf, nextGroup, clampBoardName, type BoardData } from "../model/board";
+import { groupLoad, groupNames, kookgroepIssues, routeBoard, routeGroupOf } from "../core/board";
+import { boardOf, nextGroup, clampBoardName, groupPoles, setGroupPoles, type BoardData } from "../model/board";
 import type { SymbolInstance } from "../model/doc";
 import type { ServiceKey } from "../model/service";
 import {
@@ -498,6 +498,7 @@ export function boardRows(rows: RouteRows, store: Store, board: SymbolInstance):
   }));
 
   const load = groupLoad(store.floor, board);
+  const issues = new Set(kookgroepIssues(store.floor).map(i => i.groupId));
   for (let index = 0; index < data.groups.length; index++) {
     const group = data.groups[index]!;
     rows.textRow(t("panel.boardGroup", { n: index + 1 }), group.name, value => mut(d => {
@@ -510,6 +511,15 @@ export function boardRows(rows: RouteRows, store: Store, board: SymbolInstance):
       const label = value.trim();
       if (label) found.label = label; else delete found.label;
     }));
+    rows.selRow(t("panel.boardGroupPoles"), String(groupPoles(group)), [
+      ["1", t("panel.boardGroupPoles1")],
+      ["2", t("panel.boardGroupPoles2")],
+      ["3", t("panel.boardGroupPoles3")],
+    ], value => mut(d => {
+      const found = d.groups.find(g => g.id === group.id);
+      if (found) setGroupPoles(found, Number(value) as 1 | 2 | 3);
+    }));
+    if (issues.has(group.id)) rows.warnRow(t("panel.boardGroupKookgroep"));
     const runs = load.get(group.id) ?? 0;
     rows.infoRow(t("panel.boardGroupRuns"), runs === 0
       ? t("panel.boardGroupEmpty") : t("panel.boardGroupRunCount", { n: runs }));

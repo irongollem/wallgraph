@@ -9,7 +9,8 @@ import {
 } from "../model/route";
 import { symbolMountHeight } from "./mount";
 import { anchorPoint } from "./port";
-import { routeGroup } from "./board";
+import { routeGroup, routeGroupOf } from "./board";
+import { groupPoles } from "../model/board";
 import { Vec, v, add, sub, scale, cross, dot, dist, perp, distToSeg } from "../geometry/vec";
 import { arcLength, arcFlatten, arcPointAt, arcTangentAt } from "../geometry/arc";
 import { wallLength } from "../model/ops";
@@ -316,23 +317,28 @@ export interface RouteGroupSummary {
   group: string;
   lengthMm: number;
   devices: number;
+  /** Live conductors on the connected groep's breaker; 1 where unconnected. */
+  poles: 1 | 2 | 3;
 }
 
 export function routeGroupSummaries(floor: Floor): RouteGroupSummary[] {
-  const byGroup = new Map<string, { lengthMm: number; devices: Set<string> }>();
+  const byGroup = new Map<string, { lengthMm: number; devices: Set<string>; poles: 1 | 2 | 3 }>();
   for (const r of routesOf(floor)) {
     // The kast's own label where the run is connected to a groep, the typed
     // field otherwise -- so two runs on groep 3 of the meterkast are one line
     // of the takeoff whatever anyone typed. See core/board.ts.
     const group = routeGroup(floor, r);
     if (r.discipline !== "electrical" || !group) continue;
-    const entry = byGroup.get(group) ?? { lengthMm: 0, devices: new Set<string>() };
+    const entry = byGroup.get(group)
+      ?? { lengthMm: 0, devices: new Set<string>(), poles: 1 as 1 | 2 | 3 };
+    const connected = routeGroupOf(floor, r);
+    if (connected) entry.poles = Math.max(entry.poles, groupPoles(connected.group)) as 1 | 2 | 3;
     entry.lengthMm += routeTakeoffLength(floor, r);
     for (const p of r.points) if (p.anchor) entry.devices.add(p.anchor);
     byGroup.set(group, entry);
   }
   return [...byGroup.entries()]
-    .map(([group, e]) => ({ group, lengthMm: e.lengthMm, devices: e.devices.size }))
+    .map(([group, e]) => ({ group, lengthMm: e.lengthMm, devices: e.devices.size, poles: e.poles }))
     .sort((a, b) => a.group.localeCompare(b.group));
 }
 

@@ -1323,6 +1323,10 @@ export function planSchema(siteUrl: string): JsonSchema {
           id: { $ref: "#/$defs/id" },
           name: { type: "string", maxLength: 16, description: "What the kast labels it: \"1\", \"K1\"." },
           label: { type: "string", description: "What it feeds. Absent means nobody said." },
+          poles: {
+            enum: [2, 3],
+            description: "Live conductors on the groep's breaker, for a kookgroep. Absent means 1.",
+          },
         },
       },
     },

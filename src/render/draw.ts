@@ -37,6 +37,7 @@ import { gridSteps, GridSteps } from "./grid";
 import { LAYER_OF_CATEGORY, layerAlpha, type LayerFlags, type LayerKey } from "./layers";
 import { mountMarkOf } from "../core/mount";
 import { resolveBoard, BOARD_TYPE } from "../core/board";
+import { groupPoles } from "../model/board";
 import { worldPoint } from "../core/placed";
 import { hatchFor, hatchVisible, wallHatch, hatchSegments, hatchLegend, hatchedFill, junctionHatch } from "./hatch";
 
@@ -1599,7 +1600,8 @@ function drawBoardGroups(ctx: CanvasRenderingContext2D, board: SymbolInstance, s
     ctx.beginPath();
     ctx.arc(at.x, at.y, 45, 0, Math.PI * 2);
     ctx.fill();
-    if (group.name) ctx.fillText(group.name, at.x, at.y + 130);
+    const poles = groupPoles(group);
+    if (group.name) ctx.fillText(poles > 1 ? `${group.name} ${poles}p` : group.name, at.x, at.y + 130);
   }
   ctx.restore();
 }
