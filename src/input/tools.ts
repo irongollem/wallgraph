@@ -70,7 +70,7 @@ import { RESIZE_HANDLES, handleLocalPoint, resizeRect, type ResizeHandle } from 
 import { structureHit, structureCorners, columnBox, spanTurned } from "../core/structure";
 import { drawStructureGhost } from "../render/structure";
 import { furnishingHit, furnishingBox, furnishingCorners } from "../core/furnishing";
-import { turnAbout, worldPoint, localPoint } from "../core/placed";
+import { turnAbout, worldPoint, localPoint, canRotateSymbol } from "../core/placed";
 import { drawFurnishingGhost } from "../render/furnishing";
 import { planBounds, polyBounds, Bounds } from "../core/bounds";
 import { Room, roomAnchor, orphanedRoomNames } from "../core/rooms";
@@ -3983,7 +3983,7 @@ export class Tools {
     if (sel?.kind !== "symbol") return;
     this.store.mutate(doc => {
       const s = this.store.floorOf(doc).symbols.find(x => x.id === sel.id);
-      if (s && !getSymbol(s.type)?.wallMounted) s.rotation += Math.PI / 4;
+      if (s && canRotateSymbol(s)) s.rotation += Math.PI / 4;
     });
   }
 

@@ -1,4 +1,4 @@
-import { SymbolDef, withCtx } from "./defs";
+import { SymbolDef, dot, withCtx } from "./defs";
 
 // ---------------------------------------------------------------------------
 // Electrical symbols (Dutch NEN 5152-style installation drawing symbols),
@@ -57,6 +57,71 @@ const socketDouble = socket("socket-double", "Double socket", 2, false);
 const socketDoubleEarthed = socket("socket-double-earthed", "Double socket (earthed)", 2, true);
 const socketTriple = socket("socket-triple", "Triple socket", 3, false);
 const socketTripleEarthed = socket("socket-triple-earthed", "Triple socket (earthed)", 3, true);
+
+// Perilex: a 5-pin (L1, L2, L3, N, PE) connection for a kookgroep. The stem
+// carries the socket cup, or a filled circle for a fixed connection point,
+// and below it the conductor marking: five oblique strokes crossing the stem,
+// a bar for the protective conductor meeting the first stroke, and a dot on
+// the second and fourth. Symbol space runs from the wall (y = 0) into the room.
+const PERILEX_APEX = 440;      // stem end; cup apex or connection circle base
+const PERILEX_STROKES = 5;
+const PERILEX_STEP = 60;       // spacing of the strokes along the stem
+const PERILEX_HALF_X = 70;     // stroke half-width across the stem
+const PERILEX_HALF_Y = 30;     // stroke half-rise; the +x end sits nearer the cup
+const PERILEX_DOT_R = 18;
+const PERILEX_POINT_R = 70;
+
+function perilexMarks(ctx: CanvasRenderingContext2D): void {
+  const yAt = (i: number) => PERILEX_APEX - PERILEX_STEP * (i + 1);
+  for (let i = 0; i < PERILEX_STROKES; i++) {
+    ctx.moveTo(PERILEX_HALF_X, yAt(i) + PERILEX_HALF_Y);
+    ctx.lineTo(-PERILEX_HALF_X, yAt(i) - PERILEX_HALF_Y);
+  }
+  // Protective-conductor bar, parallel to the stem, ending on the first stroke.
+  ctx.moveTo(PERILEX_HALF_X, PERILEX_APEX);
+  ctx.lineTo(PERILEX_HALF_X, yAt(1));
+  ctx.stroke();
+  for (const i of [1, 3]) dot(ctx, PERILEX_HALF_X, yAt(i) + PERILEX_HALF_Y, PERILEX_DOT_R);
+}
+
+const socketPerilex: SymbolDef = {
+  type: "socket-perilex",
+  label: "Perilex socket",
+  category: "electrical",
+  wallMounted: true,
+  width: socketWidth(true),
+  depth: PERILEX_APEX + 2 * CUP_R,
+  ports: [{ key: "electrical:power", required: true }],
+  draw(ctx) {
+    withCtx(ctx, () => {
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, PERILEX_APEX);
+      ctx.moveTo(CUP_R, PERILEX_APEX + CUP_R);
+      ctx.arc(0, PERILEX_APEX + CUP_R, CUP_R, 0, Math.PI, true);
+      ctx.moveTo(-EARTH_HALF, PERILEX_APEX);
+      ctx.lineTo(EARTH_HALF, PERILEX_APEX);
+      perilexMarks(ctx);
+    });
+  },
+};
+
+const pointPerilex: SymbolDef = {
+  type: "point-perilex",
+  label: "Perilex connection point",
+  category: "electrical",
+  wallMounted: true,
+  width: 2 * (PERILEX_HALF_X + PERILEX_DOT_R) + 20,
+  depth: PERILEX_APEX + 2 * PERILEX_POINT_R,
+  ports: [{ key: "electrical:power", required: true }],
+  draw(ctx) {
+    withCtx(ctx, () => {
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, PERILEX_APEX);
+      perilexMarks(ctx);
+      dot(ctx, 0, PERILEX_APEX + PERILEX_POINT_R, PERILEX_POINT_R);
+    });
+  },
+};
 
 const socketShaver: SymbolDef = {
   type: "socket-shaver",
@@ -696,6 +761,8 @@ export const SYMBOLS_ELECTRICAL: SymbolDef[] = [
   socketDoubleEarthed,
   socketTriple,
   socketTripleEarthed,
+  socketPerilex,
+  pointPerilex,
   socketShaver,
   socketFloor,
   switchSingle,

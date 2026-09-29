@@ -83,3 +83,9 @@ export function symbolFootprintCorners(def: SymbolFootprintDef, p: Placed): Vec[
     worldPoint(p, v(box.x0, box.y1)),
   ];
 }
+
+/** A symbol turns unless it is snapped to a wall: a wall-mounted symbol standing
+ *  loose (an island's socket) rotates like a free-standing one. */
+export function canRotateSymbol(s: { wallId?: string }): boolean {
+  return s.wallId === undefined;
+}
