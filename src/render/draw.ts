@@ -1256,7 +1256,8 @@ function drawFold(
   ctx.setLineDash([]);
 }
 
-function drawWindow(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number, color: string): void {
+/** Exported for tests/sash.test.ts, which checks it against the export's own marks. */
+export function drawWindow(ctx: CanvasRenderingContext2D, og: OpeningGeom, px: number, color: string): void {
   const o = og.opening;
   const h = og.half;
   const w = dist(og.p0, og.p1);
@@ -1347,11 +1348,13 @@ function drawSash(
   if (sash.action === "turn" || sash.action === "turn-tilt" || sash.action === "turn-slide") {
     // A side-hung sash swings like a door: leaf perpendicular to the wall at the
     // hinge jamb, plus its quarter arc.
+    // The side comes from the wall's normal, as for a door leaf, never from
+    // perp(hinge -> other), which reverses with the hinge jamb.
     const hingeAtA = (sash.hinge ?? "a") !== "b";
     const hinge = hingeAtA ? a : b;
     const other = hingeAtA ? b : a;
-    const swing = outward ? scale(perp(scale(sub(other, hinge), 1 / w)), -1)
-                          : perp(scale(sub(other, hinge), 1 / w));
+    const across = perp(scale(sub(other, hinge), 1 / w));
+    const swing = across.x * face.x + across.y * face.y >= 0 ? across : scale(across, -1);
     const tip = add(hinge, scale(swing, w));
     ctx.lineWidth = 1.2 * px;
     ctx.setLineDash(dash);
