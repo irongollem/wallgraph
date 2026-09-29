@@ -13,13 +13,13 @@
 // level, positive up; a caller placing a storey in the building adds
 // floorElevation(doc, floorIndex).
 import {
-  PlanDoc, Floor, Id, Opening, OpeningKind, Wall, wallHeight, floorHeight, openingSill, openingHeight, videsOf,
+  PlanDoc, Floor, Id, Opening, OpeningKind, Wall, wallHeight, floorHeight, openingSill, openingHeight, videsOf, sashesOf,
   stairsOf, frameOf, frameZoneOf, boardsStartMm, faceRunsOf, normalizeFaceRuns, type WallMaterial, type BoardKind,
 } from "../model/doc";
 import { wallTopAt, wallTopPolyline } from "../model/profile";
 import { roofPlanesOf, roofThicknessOf } from "../model/roof";
 import {
-  Vec, v, add, sub, scale, dot, mid, pointInPolygon, distToSeg, clipHalfPlane, polygonArea, perp, norm, cross,
+  Vec, v, add, sub, scale, dot, mid, dist, pointInPolygon, distToSeg, clipHalfPlane, polygonArea, perp, norm, cross,
   angleOf,
 } from "../geometry/vec";
 import { arcInfo, arcPointAt, arcTangentAt, sweepOf } from "../geometry/arc";
@@ -53,6 +53,10 @@ export interface OpeningVoid {
    *  the profile breakpoints, from `z1` up to the top per vertex. Absent on a
    *  flat wall, where the band above a head ends at the wall's one height. */
   above?: Prism[];
+  /** A glazed door's leaves, as fractions of the void's length from its start:
+   *  one per sash, or one over the whole width where it states none. Absent on
+   *  anything but a glazed door. */
+  glazedLeaves?: Array<{ s0: number; s1: number }>;
 }
 
 /**
@@ -255,14 +259,70 @@ export function openingVoid(f: Floor, rw: ResolvedWall, og: OpeningGeom): Openin
     sub(og.p1, scale(og.n1, og.half)),
     sub(og.p0, scale(og.n0, og.half)),
   ];
-  if (!rw.wall.profile || rw.wall.profile.length === 0) return { openingId: o.id, kind: o.kind, poly, z0, z1 };
+  const glazed = o.kind === "door" && o.glazed ? { glazedLeaves: leafFractions(o) } : {};
+  if (!rw.wall.profile || rw.wall.profile.length === 0) return { openingId: o.id, kind: o.kind, poly, z0, z1, ...glazed };
   const L = rw.length;
   const breaks = wallTopPolyline(f, rw.wall, L).map(p => p.s).filter(b => b > 0.5 && b < L - 0.5);
   const above: Prism[] = splitAtBreaks(poly, rw.a, rw.b, rw.wall.bulge, L, breaks).map(part => {
     const tops = part.map(p => wallTopAt(f, rw.wall, projectS(rw.a, rw.b, rw.wall.bulge, L, p)));
     return { poly: part, z0: z1, z1: Math.max(...tops), top: tops };
   });
-  return { openingId: o.id, kind: o.kind, poly, z0, z1, above };
+  return { openingId: o.id, kind: o.kind, poly, z0, z1, above, ...glazed };
+}
+
+/** Stile and rail width around a glazed door leaf's pane, mm: massing, one
+ *  figure for all four sides. */
+export const GLAZED_RIM_MM = 100;
+
+/**
+ * A glazed door's leaves as solids: per leaf, two stiles and two rails of
+ * GLAZED_RIM_MM cut from `leaf` around a pane cut from `pane`, both thin
+ * slices of the opening's void along its length (OpeningVoid.glazedLeaves
+ * gives the leaves' fractions of that length). The rim narrows to a quarter
+ * of a leaf too small to carry it. The 3D view and the IFC export both build
+ * a glazed door from this.
+ */
+export function glazedLeafParts(
+  leaf: Vec[], pane: Vec[], leaves: ReadonlyArray<{ s0: number; s1: number }>, z0: number, z1: number,
+): { frame: Prism[]; glass: Prism[] } {
+  const frame: Prism[] = [], glass: Prism[] = [];
+  const len = dist(mid(leaf[0]!, leaf[3]!), mid(leaf[1]!, leaf[2]!));
+  if (!(len > 0) || !(z1 > z0)) return { frame, glass };
+  const rz = Math.min(GLAZED_RIM_MM, (z1 - z0) / 4);
+  for (const { s0, s1 } of leaves) {
+    const width = (s1 - s0) * len;
+    if (!(width > 0)) continue;
+    const rs = Math.min(GLAZED_RIM_MM, width / 4) / len;
+    frame.push(
+      { poly: quadSpan(leaf, s0, s0 + rs), z0, z1 },
+      { poly: quadSpan(leaf, s1 - rs, s1), z0, z1 },
+      { poly: quadSpan(leaf, s0 + rs, s1 - rs), z0, z1: z0 + rz },
+      { poly: quadSpan(leaf, s0 + rs, s1 - rs), z0: z1 - rz, z1 },
+    );
+    glass.push({ poly: quadSpan(pane, s0 + rs, s1 - rs), z0: z0 + rz, z1: z1 - rz });
+  }
+  return { frame, glass };
+}
+
+/** The part of a slice quad [start+, end+, end−, start−] between fractions
+ *  `s0` and `s1` of its length, in the same vertex order. */
+function quadSpan(q: Vec[], s0: number, s1: number): Vec[] {
+  const lerp = (a: Vec, b: Vec, s: number): Vec => add(a, scale(sub(b, a), s));
+  return [lerp(q[0]!, q[1]!, s0), lerp(q[0]!, q[1]!, s1), lerp(q[3]!, q[2]!, s1), lerp(q[3]!, q[2]!, s0)];
+}
+
+/** Each sash's span as fractions of the opening's width, a->b. */
+function leafFractions(o: Opening): Array<{ s0: number; s1: number }> {
+  const sashes = sashesOf(o, o.width);
+  const total = sashes.reduce((n, sh) => n + sh.width, 0);
+  if (sashes.length === 0 || !(total > 0)) return [{ s0: 0, s1: 1 }];
+  const out: Array<{ s0: number; s1: number }> = [];
+  let at = 0;
+  for (const sh of sashes) {
+    out.push({ s0: at / total, s1: (at + sh.width) / total });
+    at += sh.width;
+  }
+  return out;
 }
 
 /** An opening's sill and head, the head clipped to the wall's own top over its span. */

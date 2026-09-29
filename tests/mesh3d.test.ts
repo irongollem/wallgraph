@@ -3,7 +3,7 @@
 import {
   emptyDoc, newId, floorElevation, FLOOR_HEIGHT_DEFAULT, Wall, Opening, Floor,
 } from "../src/model/doc";
-import { floorSolids, SLAB_DEFAULT_MM } from "../src/core/solids";
+import { floorSolids, SLAB_DEFAULT_MM, GLAZED_RIM_MM } from "../src/core/solids";
 import {
   buildSceneMesh, Mesh3D, WALL_COLOR, SLAB_COLOR, STAIR_COLOR,
   DOOR_COLOR, GLASS_COLOR, PANEL_COLOR, PLATE_SEAT_MM, STAIR_CLEAR_MM,
@@ -222,6 +222,29 @@ const rectSlabVol = volumeOf(rectMesh, SLAB_COLOR);
     `${vol} vs ${rectWallVol - voidVol}`);
   const leaf = volumeOf(m, DOOR_COLOR);
   check("a door carries a leaf in the void", nearRel(leaf, 830 * 40 * 2315, 1e-3), String(leaf));
+}
+
+{
+  // A glazed door: a 100 mm timber rim around a glass pane, per leaf.
+  const f = rectFloor();
+  f.walls[0]!.openings.push(opening({ kind: "door", t: 1500, width: 830, glazed: true }));
+  const m = buildSceneMesh(emptyDocWith(f));
+  const r = GLAZED_RIM_MM;
+  const pane = volumeOf(m, GLASS_COLOR, -Infinity, "glass");
+  check("a glazed door carries a glass pane", nearRel(pane, (830 - 2 * r) * 30 * (2315 - 2 * r), 1e-3), String(pane));
+  const rim = volumeOf(m, DOOR_COLOR);
+  check("the rest of the leaf is its timber rim",
+    nearRel(rim, (830 * 2315 - (830 - 2 * r) * (2315 - 2 * r)) * 40, 1e-3), String(rim));
+
+  // Two sashes: each leaf is framed on its own, so a meeting stile pair stands in the middle.
+  const g = rectFloor();
+  g.walls[0]!.openings.push(opening({
+    kind: "door", t: 1500, width: 1600, glazed: true,
+    sashes: [{ action: "turn", hinge: "a" }, { action: "turn", hinge: "b" }],
+  }));
+  const pane2 = volumeOf(buildSceneMesh(emptyDocWith(g)), GLASS_COLOR, -Infinity, "glass");
+  check("a glazed double door has a pane per leaf",
+    nearRel(pane2, 2 * (800 - 2 * r) * 30 * (2315 - 2 * r), 1e-3), String(pane2));
 }
 
 {

@@ -845,6 +845,10 @@ before changing one:
 - The 3D fit-out is massing, not joinery: a front is one panel in the recess rather than a hung
   door, a bowl is a recess rather than a moulded basin, and nothing is cut against the fabric — a
   unit drawn through a wall renders through it, the way the plan draws it.
+- A glazed door is massing in 3D and IFC: every leaf is a `GLAZED_RIM_MM` rim around one pane
+  ([solids.ts](src/core/solids.ts)'s `glazedLeafParts()`), whatever the real door's stiles, rails or
+  divisions are. The IFC pane carries a translucent surface style and nothing more — no glazing fraction
+  or glass product is stated, since the document states neither.
 - The permit sheet is bouwkundig and carries no services at all.
 - End, king, jack and backing studs are totals only: unlike the drawn posts (`rw.posts`/`PostMark`),
   none carries a position on the plan. Header sizing is not engineered — a header is two post widths of

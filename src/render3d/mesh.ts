@@ -6,7 +6,7 @@
 // and uncached like the rest of the derived geometry — callers cache against
 // the store revision.
 import { PlanDoc, Floor, Id, floorElevation, floorHeight, stairsOf, furnishingsOf, decksOf, structureOf } from "../model/doc";
-import { floorSolids, FloorSolids, roofSlabSolids } from "../core/solids";
+import { floorSolids, FloorSolids, roofSlabSolids, glazedLeafParts } from "../core/solids";
 import { structureSolids, columnCasingPieces, columnHeight } from "../core/structure";
 import { resolveFloor } from "../core/resolve";
 import { deckSolids } from "../core/deck";
@@ -284,7 +284,12 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
         if (o.kind !== "passage") {
           const slice = fillerQuad(o.poly, o.kind === "door" ? DOOR_LEAF_MM : GLASS_MM);
           const fillTop = Math.min(o.z1, lid);
-          if (slice && fillTop > o.z0 + H_EPS) {
+          if (o.glazedLeaves) {
+            const pane = fillerQuad(o.poly, GLASS_MM);
+            if (slice && pane && fillTop > o.z0 + H_EPS) {
+              emitGlazedLeaves(acc, slice, pane, o.glazedLeaves, elev + o.z0, elev + fillTop);
+            }
+          } else if (slice && fillTop > o.z0 + H_EPS) {
             emitPrism(acc, slice, [], elev + o.z0, elev + fillTop,
               o.kind === "door" ? DOOR_COLOR : GLASS_COLOR, o.kind === "window");
           }
@@ -483,6 +488,15 @@ function fillerQuad(poly: Vec[], t: number): Vec[] | null {
     add(c0, scale(d0, t / 2)), add(c1, scale(d1, t / 2)),
     sub(c1, scale(d1, t / 2)), sub(c0, scale(d0, t / 2)),
   ];
+}
+
+/** A glazed door's leaves: timber rim, glass pane (core/solids.ts). */
+function emitGlazedLeaves(
+  acc: MeshAcc, leaf: Vec[], pane: Vec[], leaves: ReadonlyArray<{ s0: number; s1: number }>, z0: number, z1: number,
+): void {
+  const parts = glazedLeafParts(leaf, pane, leaves, z0, z1);
+  for (const p of parts.frame) emitPrism(acc, p.poly, [], p.z0, p.z1, DOOR_COLOR);
+  for (const p of parts.glass) emitPrism(acc, p.poly, [], p.z0, p.z1, GLASS_COLOR, true);
 }
 
 /** A wall's frame for the stair cuts: origin at node a, unit chord direction,

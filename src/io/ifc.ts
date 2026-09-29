@@ -76,7 +76,7 @@ import { arcFlatten } from "../geometry/arc";
 import { ifcGuid } from "../model/guid";
 import { wallLength } from "../model/ops";
 import { wallTopAt, wallTopRange, wallTopPolyline, wallAreaUnder } from "../model/profile";
-import { floorSolids, videHole, projectS, splitAtBreaks, openingVoid } from "../core/solids";
+import { floorSolids, videHole, projectS, splitAtBreaks, openingVoid, glazedLeafParts } from "../core/solids";
 import { detectRooms, roomSize, sizeLabel, Room, roomArea } from "../core/rooms";
 import { resolveFloor, type ResolvedWall } from "../core/resolve";
 import { routeGroupOf } from "../core/board";
@@ -694,6 +694,8 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
   /** 50 mm — deep enough to read as a leaf in a viewer, not a claim about a
    *  real door or window's actual thickness (out of scope for this export). */
   const FILLER_DEPTH_MM = 50;
+  /** A glazed door's pane, mm: thinner than the leaf so the rim reads round it. */
+  const PANE_DEPTH_MM = 20;
 
   /** Nominal box height for a symbol's placeholder extrusion, mm. States
    *  where a symbol sits, not a manufacturer's actual product height. */
@@ -985,7 +987,36 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
   }
 
   /**
-   * A void quad shrunk to FILLER_DEPTH_MM about its own centerline — the door
+   * One surface style for every glazed door pane in the file: the pale blue
+   * the 3D view draws glass in, 60 % transparent. Presentation only -- the
+   * export states no glass product.
+   */
+  let glassStyle: number | undefined;
+  const glassStyleEntity = (): number => {
+    if (glassStyle !== undefined) return glassStyle;
+    const colour = w.entity("IFCCOLOURRGB", [UNSET, real(0.875), real(0.91), real(0.933)]);
+    const rendering = w.entity("IFCSURFACESTYLERENDERING",
+      [ref(colour), real(0.6), UNSET, UNSET, UNSET, UNSET, UNSET, UNSET, enumv("NOTDEFINED")]);
+    glassStyle = w.entity("IFCSURFACESTYLE", [str("Glass"), enumv("BOTH"), list(ref(rendering))]);
+    return glassStyle;
+  };
+
+  /** A glazed door's body: core/solids.ts's rim and pane, each an extrusion,
+   *  every pane carrying the glass style. */
+  function glazedDoorSolids(
+    voidPoly: Vec[], leaves: ReadonlyArray<{ s0: number; s1: number }>, z0: number, z1: number,
+  ): (number | null)[] {
+    const parts = glazedLeafParts(fillerQuad(voidPoly), fillerQuad(voidPoly, PANE_DEPTH_MM), leaves, z0, z1);
+    const frame = parts.frame.map(p => extrudedSolid(p.poly, p.z0, p.z1));
+    const glass = parts.glass.map(p => extrudedSolid(p.poly, p.z0, p.z1));
+    for (const id of glass) {
+      if (id !== null) w.entity("IFCSTYLEDITEM", [ref(id), list(ref(glassStyleEntity())), UNSET]);
+    }
+    return [...frame, ...glass];
+  }
+
+  /**
+   * A void quad shrunk to `depth` (FILLER_DEPTH_MM) about its own centerline — the door
    * or window leaf's placeholder geometry. `voidPoly` is built the way
    * core/solids.ts builds it: [start+n0*half, end+n1*half, end-n1*half,
    * start-n0*half], so poly[0]/poly[3] straddle the opening's start-jamb
@@ -994,10 +1025,10 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
    * started on, keeps the panel centered on the wall regardless of thickness
    * or the jamb normals differing slightly across a bulged wall.
    */
-  function fillerQuad(voidPoly: Vec[]): Vec[] {
+  function fillerQuad(voidPoly: Vec[], depth = FILLER_DEPTH_MM): Vec[] {
     const m0 = mid(voidPoly[0]!, voidPoly[3]!);
     const m1 = mid(voidPoly[1]!, voidPoly[2]!);
-    const half = FILLER_DEPTH_MM / 2;
+    const half = depth / 2;
     // Only reached if a jamb pair coincides (zero-thickness wall): fall back
     // to a normal built from the opening's own direction.
     const fallback = perp(norm(sub(m1, m0)));
@@ -1272,7 +1303,11 @@ export function toIfc(doc: PlanDoc, nowMs = Date.now()): string {
         attachPropertySet(openingEntity, `${opening.id}:construction`, "Wallgraph_Construction", openingConstructionProps);
 
         if (opening.kind === "door" || opening.kind === "window") {
-          const fillerShape = bodyShape([extrudedSolid(fillerQuad(og.poly), og.z0, og.z1)]);
+          // A glazed door is its rim and its pane, the glass styled translucent
+          // so a viewer shows it as glass; anything else is one leaf.
+          const fillerShape = opening.kind === "door" && og.glazedLeaves
+            ? bodyShape(glazedDoorSolids(og.poly, og.glazedLeaves, og.z0, og.z1))
+            : bodyShape([extrudedSolid(fillerQuad(og.poly), og.z0, og.z1)]);
           const overallHeight = real(openingHeight(opening));
           const overallWidth = real(opening.width);
           const sashes = sashSpecsOf(opening);
