@@ -522,6 +522,17 @@ they follow common Dutch drawing conventions and claim conformance to no standar
 [tests/hatch.test.ts](tests/hatch.test.ts), [tests/svg.test.ts](tests/svg.test.ts) and
 [tests/dxf.test.ts](tests/dxf.test.ts).
 
+**A setting-out dimension is derived; asking for one is authored.** `SymbolInstance.setOut` states that
+an item is to be dimensioned to the walls; `setOutDims()` in [setout.ts](src/core/setout.ts) casts rays from
+its `x/y` along its own rotation and the three quarter turns, keeps the shorter hit of each opposite pair,
+and measures to the structural face on `ResolvedWall.outline` -- openings not carved, so a ray through a
+doorway still measures to the wall line, and no facade or build-up band, since a screed is set out before
+either exists. A wall-snapped item measures only along its host wall: the host is not a target and the axis
+into the room is not dimensioned. The canvas (and so the PNG), the SVG's `setout` group and the DXF's
+`SETOUT` layer draw them; the permit sheet does not. The ray intersection is `rayHits()` in
+[geometry/ray.ts](src/geometry/ray.ts), shared with the tape measure. Verified by
+[tests/setout.test.ts](tests/setout.test.ts).
+
 ## Adding a symbol
 
 Symbols live in `src/render/symbols/<category>.ts` and are aggregated by

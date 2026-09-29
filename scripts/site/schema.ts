@@ -1296,6 +1296,12 @@ export function planSchema(siteUrl: string): JsonSchema {
               "1050 for a schakelaar, the storey height for a light point -- and a type " +
               "with no convention reads as not stated rather than as zero.",
           },
+          setOut: {
+            const: true,
+            description:
+              "Dimension this item to the walls (uitzetmaten). Absent means off; the " +
+              "distances are derived and never stored.",
+          },
           board: { $ref: "#/$defs/board" },
         },
       },

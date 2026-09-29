@@ -26,6 +26,8 @@ import { resolveLeaves } from "../core/leaf";
 import { detectRooms, roomSize, sizeLabel, looseRoomNames, roomArea } from "../core/rooms";
 import { getSymbol } from "../render/symbols";
 import { mountMarkOf } from "../core/mount";
+import { setOutDims } from "../core/setout";
+import { setOutPrims } from "../render/setout";
 import { recordSymbol, Prim } from "./record";
 import { openingMarks, postMarks } from "./marks";
 import { stairPrims } from "./stair";
@@ -99,6 +101,8 @@ const LAYER = {
   roof: "ROOF",
   openings: "OPENINGS",
   symbols: "SYMBOLS",
+  /** Setting-out dimensions (uitzetmaten) from placed items to the walls. */
+  setOut: "SETOUT",
   stairs: "STAIRS",
   vides: "VOIDS",
   /**
@@ -214,7 +218,7 @@ const ROUTE_HEAT_RETOUR_LAYER = "ROUTES-HEATING-RETOUR";
 
 /** ACI colour indices — 7 is "by background", i.e. black on white paper. */
 const LAYER_COLOR: Record<string, number> = {
-  WALLS: 7, GLAZING: 4, PANELS: 8, POSTS: 7, FACADE: 8, LINING: 8, FRAMES: 8, ROOF: 8, OPENINGS: 7, SYMBOLS: 4, STAIRS: 3, VOIDS: 5, DECKS: 3, "DECKS-OVERHEAD": 3, ROOMS: 8,
+  WALLS: 7, GLAZING: 4, PANELS: 8, POSTS: 7, FACADE: 8, LINING: 8, FRAMES: 8, ROOF: 8, OPENINGS: 7, SYMBOLS: 4, SETOUT: 5, STAIRS: 3, VOIDS: 5, DECKS: 3, "DECKS-OVERHEAD": 3, ROOMS: 8,
   COLUMNS: 7, BEAMS: 7, RAILINGS: 8,
   CABINETS: 6, "CABINETS-OVERHEAD": 6,
   // 9 (light grey) is otherwise unused: the hatch sits over the poché and
@@ -515,6 +519,9 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
       if (mark) prims.push({ kind: "text", at: mark.at, size: mark.size, text: mark.text });
       emitPrims(w, LAYER.symbols, prims);
     }
+
+    for (const s of floor.symbols)
+      if (s.setOut) emitPrims(w, LAYER.setOut, setOutPrims(setOutDims(floor, resolved, s)));
 
     // Room areas, in the convention the document says it is using.
     const areaMode = areaModeOf(doc);

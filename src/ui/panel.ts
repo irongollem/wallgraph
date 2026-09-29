@@ -3189,6 +3189,11 @@ export class Panel {
           ? t("panel.symbolHeightNone")
           : t("panel.symbolHeightStandard", { mm: conventional }));
       }
+      checkRow(t("panel.symbolSetOut"), s.setOut === true, on => this.store.mutate(d => {
+        const s2 = this.store.floorOf(d).symbols.find(x => x.id === sel.id);
+        if (!s2) return;
+        if (on) s2.setOut = true; else delete s2.setOut;
+      }));
       // Changing a symbol's colour also arms the pen, the way editing a wall's
       // thickness sets the thickness of the next wall: recolouring one socket is
       // nearly always the first of a run of them.

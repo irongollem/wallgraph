@@ -16,8 +16,9 @@ import { structureCorners } from "./structure";
 import { furnishingCorners } from "./furnishing";
 import { resolveRoutePoints } from "./route";
 import { arcFlatten } from "../geometry/arc";
+import { rayHits } from "../geometry/ray";
 import {
-  Vec, v, add, sub, scale, dist, dot, cross, angleOf, fromAngle, distToSeg,
+  Vec, v, add, sub, scale, dist, dot, angleOf, fromAngle, distToSeg,
 } from "../geometry/vec";
 
 /** A segment a tape end can be laid along. */
@@ -186,15 +187,7 @@ function perpendicularFeet(edges: Edge[], from: Vec): Vec[] {
 /** Where the ray from `origin` along `dir` meets an edge, nearest to `near`. */
 function rayHit(edges: Edge[], origin: Vec, dir: Vec, near: Vec, tol: number): Vec | null {
   let best: { p: Vec; d: number } | null = null;
-  for (const [a, b] of edges) {
-    const seg = sub(b, a);
-    const den = cross(dir, seg);
-    if (Math.abs(den) < 1e-9) continue;
-    const q = sub(a, origin);
-    const s = cross(q, seg) / den;
-    const u = cross(q, dir) / den;
-    if (s <= 1 || u < 0 || u > 1) continue;
-    const p = add(origin, scale(dir, s));
+  for (const { p } of rayHits(edges, origin, dir, 1)) {
     const d = dist(p, near);
     if (d <= tol && (!best || d < best.d)) best = { p, d };
   }

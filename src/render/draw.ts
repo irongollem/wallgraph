@@ -36,6 +36,8 @@ import { t } from "../i18n";
 import { gridSteps, GridSteps } from "./grid";
 import { LAYER_OF_CATEGORY, layerAlpha, type LayerFlags, type LayerKey } from "./layers";
 import { mountMarkOf } from "../core/mount";
+import { setOutDims, SetOutDim } from "../core/setout";
+import { setOutLines } from "./setout";
 import { resolveBoard, BOARD_TYPE } from "../core/board";
 import { groupPoles } from "../model/board";
 import { worldPoint } from "../core/placed";
@@ -791,6 +793,7 @@ export function drawScene(
       if (s.type === BOARD_TYPE) drawBoardGroups(ctx, s, isSel("symbol", s.id));
       const gaps = extras.incomplete?.get(s.id);
       if (gaps) drawIncomplete(ctx, gaps, px, extras.pulse ?? 0);
+      if (s.setOut) drawSetOut(ctx, vp, px, setOutDims(floor, resolved, s));
       const mark = mountMarks ? mountMarkOf(floor, s) : null;
       if (!mark) return;
       ctx.save();
@@ -1672,6 +1675,39 @@ function drawSymbol(ctx: CanvasRenderingContext2D, s: SymbolInstance, px: number
     ctx.setLineDash([]);
   }
   ctx.restore();
+}
+
+/**
+ * Setting-out dimensions from a placed item to the walls: the line and an
+ * arrowhead at each end in world space, the figure in screen space on a paper
+ * pill so its size does not follow the zoom.
+ */
+function drawSetOut(ctx: CanvasRenderingContext2D, vp: Viewport, px: number, dims: SetOutDim[]): void {
+  for (const d of dims) {
+    ctx.save();
+    ctx.strokeStyle = COLORS.dimension;
+    ctx.lineWidth = 1.2 * px;
+    ctx.beginPath();
+    for (const p of setOutLines(d, 9 * px)) {
+      if (p.kind !== "line") continue;
+      ctx.moveTo(p.a.x, p.a.y); ctx.lineTo(p.b.x, p.b.y);
+    }
+    ctx.stroke();
+    ctx.restore();
+    const at = vp.toScreen(scale(add(d.from, d.to), 0.5));
+    ctx.save();
+    ctx.setTransform(vp.dpr, 0, 0, vp.dpr, 0, 0);
+    ctx.font = "600 11px system-ui, sans-serif";
+    const text = String(d.lengthMm);
+    const w = ctx.measureText(text).width;
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.fillRect(at.x - w / 2 - 3, at.y - 8, w + 6, 16);
+    ctx.fillStyle = COLORS.dimension;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, at.x, at.y);
+    ctx.restore();
+  }
 }
 
 /** Label helper for tools: draw text at world point in screen space. */

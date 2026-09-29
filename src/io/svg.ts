@@ -25,6 +25,8 @@ import { roofRidges, eaveSegment } from "../core/roof";
 import { ROOF_DASH } from "../render/roof";
 import { getSymbol } from "../render/symbols";
 import { mountMarkOf } from "../core/mount";
+import { setOutDims } from "../core/setout";
+import { setOutPrims } from "../render/setout";
 import { COLORS, routeInk, routeMapLabel, symbolInk, wallPen, junctionPen, type WallPen } from "../render/draw";
 import { wallHatch, hatchSegments, hatchedFill, junctionHatch } from "../render/hatch";
 import {
@@ -616,6 +618,19 @@ export function planScene(
   return out;
 }
 
+/**
+ * Setting-out dimensions of the items that ask for them, in their own group
+ * so a reader can lift them off the drawing. Outside planScene for the same
+ * reason routeScene is: the permit sheet does not carry them.
+ */
+export function setOutScene(floor: Floor, resolved: ReturnType<typeof resolveFloor>): Group[] {
+  const items: Item[] = [];
+  for (const s of floor.symbols)
+    if (s.setOut) items.push(group(setOutPrims(setOutDims(floor, resolved, s)), { ink: COLORS.dimension }));
+  return items.length === 0 ? []
+    : [group(items, { fill: COLORS.dimension, width: W_SYMBOL / 2, cap: "round" }, "setout")];
+}
+
 /** Route line weight in mm -- same figure render/route.ts draws with. */
 const W_ROUTE = LINE_WIDTH_MM;
 
@@ -742,6 +757,7 @@ export function toSvg(doc: PlanDoc, floorIndex = 0): string | null {
   parts.push(`<rect x="${n(minX)}" y="${n(minY)}" width="${n(w)}" height="${n(h)}" fill="${COLORS.bg}"/>`);
   parts.push(...sceneSvg([
     ...planScene(doc, floor, resolved, leaves), ...routeScene(floor, riserMarks(doc, floorIndex)),
+    ...setOutScene(floor, resolved),
   ]));
   parts.push(`</svg>`);
   return parts.join("\n") + "\n";

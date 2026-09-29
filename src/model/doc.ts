@@ -826,6 +826,11 @@ export interface SymbolInstance {
    */
   height?: number;
   /**
+   * Dimension this item to the walls (uitzetmaten). Absent means off; the
+   * distances are derived by core/setout.ts and never stored.
+   */
+  setOut?: true;
+  /**
    * What this kast is called and the groepen it distributes. Only read for
    * type "dist-board" — the same "a field the form has no use for is simply
    * not read" shape Furnishing uses for a toilet's cistern or a basin's bowl
