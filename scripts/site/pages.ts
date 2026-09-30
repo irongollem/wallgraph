@@ -15,6 +15,7 @@ import {
   WINDOW_KINDS, DOOR_KINDS, type Sash, type Floor, type OpeningKind,
 } from "../../src/model/doc";
 import { COLORS } from "../../src/render/draw";
+import { MIN_HZ_DEFAULT, MAX_POINT_MM_DEFAULT } from "../../src/model/materials";
 import { changeLanguage, t, type Lang } from "../../src/i18n";
 import { DOCS, SITE, type DocId } from "./meta";
 import { shell, esc, editorHref, type SiteCtx } from "./html";
@@ -508,7 +509,7 @@ indicatieve tabelwaarden. Zoals overal hier: gemeld, geen constructieberekening 
 gekwalificeerde constructeur.</p>
 <p>Een balklaag toont bij haar Constructie ook twee comfortcijfers naast de sterktetoets: de
 eigenfrequentie van de overspanning en de doorbuiging onder een puntlast van 1 kN, elk tegen een
-indicatieve grens — 8 Hz en 1 mm, onder Materialen te wijzigen. Een balklaag waarvan buiging,
+indicatieve grens — ${MIN_HZ_DEFAULT} Hz en ${String(MAX_POINT_MM_DEFAULT).replace(".", ",")} mm, onder Materialen te wijzigen. Een balklaag waarvan buiging,
 afschuiving en doorbuiging binnen de gestelde grenzen blijven kan nog steeds merkbaar meeveren; deze twee cijfers zijn gewone
 rekenformules zoals de sterktetoets zelf, geen tabel uit een norm. Ze gaan uit van de eigen massa van
 de balken en de vloerplaat plus de opgegeven permanente belasting, niet de veranderlijke belasting, en
@@ -1087,8 +1088,8 @@ and variable load, the deflection limit as a span fraction, and the list of sect
 from. Without a stated figure, indicative table values apply. As everywhere here: reported, not a
 constructieberekening (structural calculation) — that requires a qualified structural engineer.</p>
 <p>A deck's Structure head also shows two comfort figures beside the strength check: the span's
-fundamental frequency and its deflection under a 1 kN point load, each against an indicative limit — 8
-Hz and 1 mm, editable under Materials. A deck whose bending, shear and deflection stay within the stated
+fundamental frequency and its deflection under a 1 kN point load, each against an indicative limit — ${MIN_HZ_DEFAULT}
+Hz and ${MAX_POINT_MM_DEFAULT} mm, editable under Materials. A deck whose bending, shear and deflection stay within the stated
 limits can still feel noticeably lively; these two figures are ordinary engineering formulas the same way
 the strength check itself is, not a table from a standard. They read the joists' and decking's own mass plus
 the stated permanent load, not the variable load, and the stated joist section; without a stated permanent
