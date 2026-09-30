@@ -2,8 +2,14 @@
 // repeats its label.
 import { emptyDoc, fireLabel, type FireRating, type Floor } from "../src/model/doc";
 import { resolveFloor } from "../src/core/resolve";
-import { fireRuns, fireLabels, FIRE_LABEL_MM, FIRE_LABEL_OFFSET_MM } from "../src/core/fire";
-import { distToSeg, type Vec } from "../src/geometry/vec";
+import { detectRooms, type Room } from "../src/core/rooms";
+import {
+  fireRuns, fireLayout, readableAngleDeg, FIRE_LABEL_MM, FIRE_LABEL_SIZE_MM, type FireLabel,
+} from "../src/core/fire";
+import { textWidth } from "../src/render/textwidth";
+import { shapeOf, shapesOverlap } from "../src/geometry/overlap";
+import { seedDoc } from "../src/seed";
+import type { Vec } from "../src/geometry/vec";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ""): void {
@@ -119,28 +125,116 @@ const line = { n0: [0, 0], n1: [3000, 0], n2: [6000, 0], n3: [9000, 0] } as Reco
   check("an arc wall is longer than its chord", r.lengthMm > 4000, String(r.lengthMm));
 }
 
-{
-  const distToLine = (p: Vec, pts: Vec[]): number => {
-    let best = Infinity;
-    for (let i = 1; i < pts.length; i++) best = Math.min(best, distToSeg(p, pts[i - 1]!, pts[i]!).d);
-    return best;
-  };
-  const shortF = plan({ p: [0, 0], q: [1500, 0] }, [{ id: "s", a: "p", b: "q", rating: W60 }]);
-  const short = runsOf(shortF)[0]!;
-  const sl = fireLabels(short);
-  check("a run shorter than one interval gets exactly one label", sl.length === 1, String(sl.length));
-  check("that label sits near the middle", Math.abs(sl[0]!.at.x - 750) < 1e-6);
+const layoutOf = (f: Floor, rooms: readonly Room[] = []) => fireLayout(f, resolveFloor(f), rooms);
 
-  const longF = plan({ p: [0, 0], q: [FIRE_LABEL_MM * 3 + 500, 0] }, [{ id: "l", a: "p", b: "q", rating: W60 }]);
-  const long = runsOf(longF)[0]!;
-  const ll = fireLabels(long);
-  check("a long run gets more than one label", ll.length > 1, String(ll.length));
-  check("every label reads fireLabel(rating)", [...sl, ...ll].every(l => l.text === fireLabel(W60)));
-  check("labels are offset clear of the line",
-    ll.every(l => Math.abs(distToLine(l.at, long.pts) - FIRE_LABEL_OFFSET_MM) < 1e-6));
+/** A label's rectangle from the exported constants alone: no clearance, turned by angleDeg. */
+function rectOf(l: FireLabel, grow = 0) {
+  const hw = textWidth(l.text, false) * FIRE_LABEL_SIZE_MM / 2 + grow, hh = FIRE_LABEL_SIZE_MM / 2 + grow;
+  const a = l.angleDeg * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+  const pt = (x: number, y: number): Vec => ({ x: l.at.x + x * c - y * s, y: l.at.y + x * s + y * c });
+  return shapeOf([pt(-hw, -hh), pt(hw, -hh), pt(hw, hh), pt(-hw, hh)], true);
+}
+
+/** A room stand-in: only the centroid and name are read by the layout. */
+const fakeRoom = (x: number, y: number, name?: string): Room =>
+  ({ centroid: { x, y }, ...(name ? { name } : {}) }) as unknown as Room;
+
+{
+  const ang = (x: number, y: number) => readableAngleDeg({ x, y });
+  check("angle: +x is 0", ang(1, 0) === 0);
+  check("angle: -x is 0", ang(-1, 0) === 0, String(ang(-1, 0)));
+  check("angle: down is -90", ang(0, 1) === -90, String(ang(0, 1)));
+  check("angle: up is -90", ang(0, -1) === -90, String(ang(0, -1)));
+  check("angle: 45 degrees stays 45", Math.abs(ang(1, 1) - 45) < 1e-9);
+  check("angle: 135 degrees turns to -45", Math.abs(ang(-1, 1) + 45) < 1e-9, String(ang(-1, 1)));
+  const all = [ang(1, 0), ang(-1, 0), ang(0, 1), ang(0, -1), ang(1, 1), ang(-1, 1), ang(1, -1), ang(-1, -1)];
+  check("every angle lies in [-90, 90)", all.every(a => a >= -90 && a < 90));
+}
+
+{
+  const f = plan({ p: [0, 0], q: [FIRE_LABEL_MM * 3 + 500, 0] }, [{ id: "l", a: "p", b: "q", rating: W60 }]);
+  const { labels } = layoutOf(f);
+  check("an empty plan labels once per interval", labels.length === 3, String(labels.length));
+  check("labels read fireLabel(rating)", labels.every(l => l.text === fireLabel(W60)));
+  check("a horizontal run reads at 0 degrees", labels.every(l => l.angleDeg === 0));
+  check("nominal positions are kept where nothing is in the way",
+    labels.every((l, i) => Math.abs(l.at.x - (FIRE_LABEL_MM / 2 + i * FIRE_LABEL_MM)) < 1e-6));
+  const halfThick = 50;
+  check("a label sits beyond the wall face",
+    labels.every(l => Math.abs(l.at.y) - FIRE_LABEL_SIZE_MM / 2 >= halfThick));
+  const walls = [...resolveFloor(f).walls.values()].flatMap(w => w.pieces.map(p => shapeOf(p.poly, true)));
+  check("no label rectangle touches the wall body",
+    labels.every(l => walls.every(w => !shapesOverlap(rectOf(l), w))));
+
+  const short = layoutOf(plan({ p: [0, 0], q: [1500, 0] }, [{ id: "s", a: "p", b: "q", rating: W60 }])).labels;
+  check("a run shorter than one interval gets exactly one label at its middle",
+    short.length === 1 && Math.abs(short[0]!.at.x - 750) < 1e-6, String(short.length));
   check("a degenerate run yields no labels",
-    fireLabels({ rating: W30, pts: [{ x: 0, y: 0 }], wallIds: [], lengthMm: 0 }).length === 0
-    && fireLabels({ rating: W30, pts: [{ x: 0, y: 0 }, { x: 0, y: 0 }], wallIds: [], lengthMm: 0 }).length === 0);
+    layoutOf(plan({ p: [0, 0], q: [0, 0] }, [{ id: "z", a: "p", b: "q", rating: W30 }])).labels.length === 0);
+}
+
+{
+  const f = plan({ p: [0, 0], q: [0, 3000] }, [{ id: "v", a: "p", b: "q", rating: W30 }]);
+  const { labels } = layoutOf(f);
+  check("a vertical run reads at -90 degrees", labels.length === 1 && labels[0]!.angleDeg === -90,
+    labels.map(l => l.angleDeg).join());
+}
+
+{
+  const doc = seedDoc();
+  const f = doc.floors[0]!;
+  for (const w of f.walls) w.fireRating = W30;
+  const resolved = resolveFloor(f);
+  const rooms = detectRooms(f);
+  const { runs, labels } = fireLayout(f, resolved, rooms);
+  check("seed plan: every run has a label", runs.length > 0 && runs.every(r => r.lengthMm > 0) && labels.length >= runs.length,
+    `${runs.length} runs, ${labels.length} labels`);
+  const rects = labels.map(l => rectOf(l));
+  let pair = 0;
+  for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) {
+    if (shapesOverlap(rects[i]!, rects[j]!)) pair++;
+  }
+  check("seed plan: no two labels overlap", pair === 0, String(pair));
+  const pieces = [...resolved.walls.values()].flatMap(w => w.pieces.map(p => shapeOf(p.poly, true)));
+  check("seed plan: no label overlaps a wall piece", rects.every(r => pieces.every(p => !shapesOverlap(r, p))));
+  const segs = runs.flatMap(r => r.pts.slice(1).map((p, i) => shapeOf([r.pts[i]!, p], false)));
+  check("seed plan: no label crosses a run line", rects.every(r => segs.every(s => !shapesOverlap(r, s))));
+  const again = fireLayout(f, resolved, rooms);
+  check("the layout is deterministic", JSON.stringify(again) === JSON.stringify({ runs, labels }));
+}
+
+{
+  // A room centred beside the wall: its name and area block is 880 mm tall and
+  // 1300 mm wide at least, so a label at the wall's middle would land in it.
+  const f = plan({ p: [0, 0], q: [3000, 0] }, [{ id: "w", a: "p", b: "q", rating: W30 }]);
+  const room = fakeRoom(1500, 400, "Badkamer");
+  const { labels } = layoutOf(f, [room]);
+  const w = Math.max(textWidth("Badkamer", true) * 220, 1300);
+  const box = shapeOf([
+    { x: 1500 - w / 2, y: 400 - 520 }, { x: 1500 + w / 2, y: 400 - 520 },
+    { x: 1500 + w / 2, y: 400 + 360 }, { x: 1500 - w / 2, y: 400 + 360 },
+  ], true);
+  check("a label stays out of a neighbouring room's label block",
+    labels.length === 1 && labels.every(l => !shapesOverlap(rectOf(l), box)), JSON.stringify(labels));
+}
+
+{
+  // Every position around the run is covered by room label blocks.
+  const f = plan({ p: [0, 0], q: [2000, 0] }, [{ id: "w", a: "p", b: "q", rating: W30 }]);
+  const rooms: Room[] = [];
+  for (let x = -4000; x <= 6000; x += 1000) for (let y = -3000; y <= 3000; y += 600) rooms.push(fakeRoom(x, y, "Kamer"));
+  const { labels } = layoutOf(f, rooms);
+  check("a run with every candidate blocked still yields exactly one label", labels.length === 1, String(labels.length));
+}
+
+{
+  const a = shapeOf([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 8, y: 10 }, { x: 8, y: 2 }, { x: 0, y: 2 }], true);
+  const inNotch = shapeOf([{ x: 2, y: 4 }, { x: 6, y: 4 }, { x: 6, y: 8 }, { x: 2, y: 8 }], true);
+  const across = shapeOf([{ x: 5, y: -1 }, { x: 5, y: 5 }], false);
+  const inside = shapeOf([{ x: 1, y: 0.5 }, { x: 2, y: 0.5 }, { x: 2, y: 1 }, { x: 1, y: 1 }], true);
+  check("a polygon in a concave notch does not overlap", !shapesOverlap(a, inNotch));
+  check("a segment through an edge overlaps", shapesOverlap(a, across));
+  check("a polygon wholly inside overlaps", shapesOverlap(a, inside) && shapesOverlap(inside, a));
 }
 
 {

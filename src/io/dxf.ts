@@ -27,7 +27,7 @@ import { detectRooms, roomSize, sizeLabel, looseRoomNames, roomArea } from "../c
 import { getSymbol } from "../render/symbols";
 import { mountMarkOf } from "../core/mount";
 import { setOutDims } from "../core/setout";
-import { fireRuns, fireLabels } from "../core/fire";
+import { fireLayout, FIRE_LABEL_SIZE_MM } from "../core/fire";
 import { setOutPrims } from "../render/setout";
 import { recordSymbol, Prim } from "./record";
 import { openingMarks, postMarks } from "./marks";
@@ -345,11 +345,17 @@ class DxfWriter {
     }
   }
 
-  text(layer: string, at: Vec, height: number, s: string): void {
+  /**
+   * `rotationDeg` is DXF's own convention, counter-clockwise from +x in y-up
+   * space. Screen angles are clockwise under y-down, so a caller passes the
+   * negated screen angle, as arc() does for its own.
+   */
+  text(layer: string, at: Vec, height: number, s: string, rotationDeg = 0): void {
     this.begin("TEXT", layer, "AcDbText");
     this.pair(10, num(at.x)); this.pair(20, num(-at.y)); this.pair(30, 0);
     this.pair(40, num(height));
     this.pair(1, sanitise(s));
+    if (rotationDeg !== 0) this.pair(50, num(rotationDeg));
     this.pair(72, 1);            // centred horizontally
     this.pair(11, num(at.x)); this.pair(21, num(-at.y)); this.pair(31, 0);
     // TEXT genuinely repeats its subclass marker before the vertical
@@ -404,6 +410,7 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
   const hasRetour = routesOf(floor).some(r => r.discipline === "heating" && routeHeat(r) === "retour");
   const hasVentAfvoer = routesOf(floor).some(r => r.discipline === "vent" && routeVent(r) === "afvoer");
   const resolved = resolveFloor(floor);
+  const rooms = detectRooms(floor);
   const leaves = resolveLeaves(floor, resolved);
   const w = new DxfWriter();
   w.header();
@@ -469,10 +476,9 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
     for (const rw of resolved.walls.values()) emitPrims(w, LAYER.openings, openingMarks(rw));
 
     if (fireMarksOn(doc)) {
-      for (const run of fireRuns(floor, resolved)) {
-        w.polyline(LAYER.fire, run.pts, false);
-        for (const l of fireLabels(run)) w.text(LAYER.fire, l.at, 120, l.text);
-      }
+      const fire = fireLayout(floor, resolved, rooms);
+      for (const run of fire.runs) w.polyline(LAYER.fire, run.pts, false);
+      for (const l of fire.labels) w.text(LAYER.fire, l.at, FIRE_LABEL_SIZE_MM, l.text, -l.angleDeg);
     }
 
     for (const vd of videsOf(floor)) emitPrims(w, LAYER.vides, videPrims(vd, t("vide.label")));
@@ -542,7 +548,6 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
     // Room areas, in the convention the document says it is using.
     const areaMode = areaModeOf(doc);
     const dim = dimModeOf(doc);
-    const rooms = detectRooms(floor);
     for (const r of rooms) {
       const mm2 = roomArea(r, areaMode);
       // Name over area over clear size, as the canvas and the SVG stack them.

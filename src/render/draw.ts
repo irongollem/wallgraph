@@ -37,7 +37,7 @@ import { gridSteps, GridSteps } from "./grid";
 import { LAYER_OF_CATEGORY, layerAlpha, type LayerFlags, type LayerKey } from "./layers";
 import { mountMarkOf } from "../core/mount";
 import { setOutDims, SetOutDim } from "../core/setout";
-import { fireRuns, fireLabels } from "../core/fire";
+import { fireLayout, FIRE_LABEL_SIZE_MM } from "../core/fire";
 import { setOutLines } from "./setout";
 import { resolveBoard, BOARD_TYPE } from "../core/board";
 import { groupPoles } from "../model/board";
@@ -848,17 +848,25 @@ export function drawScene(
     // figure would grow with the zoom until the line covered the wall.
     ctx.lineWidth = 3 * px;
     ctx.lineJoin = "round";
-    ctx.font = "120px system-ui, sans-serif";
+    ctx.font = `${FIRE_LABEL_SIZE_MM}px system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    for (const run of fireRuns(floor, resolved)) {
+    const fire = fireLayout(floor, resolved, rooms);
+    for (const run of fire.runs) {
       if (run.pts.length < 2) continue;
       ctx.setLineDash([...FIRE_DASH]);
       ctx.beginPath();
       run.pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
       ctx.stroke();
-      ctx.setLineDash([]);
-      for (const l of fireLabels(run)) ctx.fillText(l.text, l.at.x, l.at.y);
+    }
+    ctx.setLineDash([]);
+    // Labels turn with their run; angleDeg is clockwise under y-down.
+    for (const l of fire.labels) {
+      ctx.save();
+      ctx.translate(l.at.x, l.at.y);
+      ctx.rotate((l.angleDeg * Math.PI) / 180);
+      ctx.fillText(l.text, 0, 0);
+      ctx.restore();
     }
     ctx.restore();
   }

@@ -286,5 +286,29 @@ check("declares a DXF version with LWPOLYLINE", (dxf ?? "").includes("AC1015"));
   check("the file keeps three sections", on.split("\r\n").filter(l => l === "SECTION").length === 3);
 }
 
+// Fire labels carry DXF's counter-clockwise rotation.
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.nodes.push({ id: "vn0", x: 0, y: 0 }, { id: "vn1", x: 0, y: 4000 });
+  f.walls.push({ id: "vw1", a: "vn0", b: "vn1", thickness: 100, bulge: 0, openings: [], fireRating: { kind: "wbdbo", minutes: 30 } });
+  doc.fireMarks = true;
+  const lines = (toDxf(doc, 0) ?? "").split("\r\n");
+  const label = (ls: string[]): string[] => {
+    const i = ls.indexOf("WBDBO 30");
+    return ls.slice(i, i + 4);
+  };
+  const v = label(lines);
+  check("a vertical run's TEXT carries group 50 = 90", v[1] === "50" && Number(v[2]) === 90, v.join("|"));
+  const h = emptyDoc();
+  const hf = h.floors[0]!;
+  hf.nodes.push({ id: "hn0", x: 0, y: 0 }, { id: "hn1", x: 4000, y: 0 });
+  hf.walls.push({ id: "hw1", a: "hn0", b: "hn1", thickness: 100, bulge: 0, openings: [], fireRating: { kind: "wbdbo", minutes: 30 } });
+  h.fireMarks = true;
+  const hl = label((toDxf(h, 0) ?? "").split("\r\n"));
+  check("a horizontal run's TEXT carries no group 50", hl[1] !== "50", hl.join("|"));
+  check("the rotated file keeps three sections", lines.filter(l => l === "SECTION").length === 3);
+}
+
 console.log(failures === 0 ? "ALL DXF TESTS PASSED" : `${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

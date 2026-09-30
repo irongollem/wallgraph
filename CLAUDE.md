@@ -604,9 +604,14 @@ rule `planNodeDissolve()` already applies when it refuses to merge two walls tha
 WBDBO 30 wall meeting a WBDBO 60 wall is two boundaries. An unrated wall between two rated ones breaks
 the run, and a node where three or more same-rated walls meet ends the runs there, a run being a
 polyline rather than a branch; a closed compartment comes back as one run whose last point is its
-first. `fireLabels()` repeats `fireLabel()` along each run every `FIRE_LABEL_MM`, offset clear of the
-line by a figure sized against the label's WIDTH rather than its height, the text being drawn upright
-whatever direction the run takes. Whether any of it is drawn is `PlanDoc.fireMarks` (`fireMarksOn()`),
+first. `fireLayout()` places `fireLabel()` along each run, turned to the run's direction and never
+upside down (`readableAngleDeg()`: a vertical run reads bottom to top), and SEARCHES for a clear spot
+rather than assuming one: from a nominal position every `FIRE_LABEL_MM` it slides along the run, tries
+both sides and steps the offset outward until the label's rectangle, measured with the PDF's own
+`textWidth()` metric, touches no wall body or skin, no run's line, no room-label block, no fixture,
+stair or structure and no label already placed. A position with no clear spot is dropped, but every run
+keeps one label, the least obstructed. The canvas, the SVG and the DXF all draw the one layout, turned
+through `Style.rotate` in the SVG and PDF and group code 50 in the DXF. Whether any of it is drawn is `PlanDoc.fireMarks` (`fireMarksOn()`),
 a drawing convention beside `areaMode`, `dimMode` and `mountMarks` and absent by default: a dashed line
 over the fabric interferes with reading the bouwkundig plan. It is stored rather than held as editor
 state so the canvas, the PNG, the SVG's `fire` group and the DXF's `FIRE` layer cannot disagree about
@@ -936,9 +941,10 @@ before changing one:
   band, a build-up board and a frame zone keep the fill they had.
 - A compartment boundary draws the ratings the walls state and checks none of them: nothing asks whether
   a wall's construction achieves its rating, whether the compartments a plan draws are closed, or whether
-  a door in a rated wall carries a rating of its own. Labels repeat at a fixed interval with no regard to
-  what lies under them, so one can land on a room name or a fixture, and they are upright rather than
-  turned along the run, as every other label in this codebase is.
+  a door in a rated wall carries a rating of its own. Label placement avoids the room-label blocks at the
+  size the exports draw them, which the canvas's constant-screen-size room labels exceed only when zoomed
+  far out; a door swing, a mounting-height mark and the outline of a vide or deck are not obstacles. A run
+  whose every candidate is obstructed still carries its least-obstructed label.
 - The energy figure is transmission-only at one fixed degree-day figure. The insulation and glazing
   presets are indicative table values, not a per-year tabulation of the regulations, and nothing
   checks a stated Rc or U against what the Bbl requires.

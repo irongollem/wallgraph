@@ -36,7 +36,8 @@ import {
 } from "../model/materials";
 import { text, line, group, type Item } from "./scene";
 import { sceneSvg } from "./svg";
-import { pdfDocument, pdfBytes, textWidth } from "./pdf";
+import { pdfDocument, pdfBytes } from "./pdf";
+import { textWidth } from "../render/textwidth";
 import { saveViaHost, downloadBlob } from "./save";
 import { t, language, formatNumber } from "../i18n";
 

@@ -205,5 +205,26 @@ for (const id of ["rooms", "walls", "openings", "symbols", "labels"])
   check("no NaN reaches the fire group", !out.includes("NaN") && !out.includes("Infinity"));
 }
 
+// Fire labels turn along their run.
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.nodes.push({ id: "vn0", x: 0, y: 0 }, { id: "vn1", x: 0, y: 4000 });
+  f.walls.push({ id: "vw1", a: "vn0", b: "vn1", thickness: 100, bulge: 0, openings: [], fireRating: { kind: "wbdbo", minutes: 30 } });
+  doc.fireMarks = true;
+  const out = toSvg(doc, 0) ?? "";
+  const at = out.indexOf("WBDBO");
+  const before = out.slice(0, at);
+  check("a vertical run's label is rotated", before.slice(before.lastIndexOf("<g")).includes("rotate(-90 "), before.slice(-200));
+  const h = emptyDoc();
+  const hf = h.floors[0]!;
+  hf.nodes.push({ id: "hn0", x: 0, y: 0 }, { id: "hn1", x: 4000, y: 0 });
+  hf.walls.push({ id: "hw1", a: "hn0", b: "hn1", thickness: 100, bulge: 0, openings: [], fireRating: { kind: "wbdbo", minutes: 30 } });
+  h.fireMarks = true;
+  const ho = toSvg(h, 0) ?? "";
+  check("a horizontal run's label is emitted unrotated", ho.includes("WBDBO") && !ho.includes("rotate("));
+  check("fire off emits no fire group", !(toSvg({ ...doc, fireMarks: false }, 0) ?? "").includes('id="fire"'));
+}
+
 console.log(failures === 0 ? "ALL SVG TESTS PASSED" : `${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

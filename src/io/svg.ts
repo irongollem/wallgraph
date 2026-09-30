@@ -26,7 +26,7 @@ import { ROOF_DASH } from "../render/roof";
 import { getSymbol } from "../render/symbols";
 import { mountMarkOf } from "../core/mount";
 import { setOutDims } from "../core/setout";
-import { fireRuns, fireLabels } from "../core/fire";
+import { fireLayout, FIRE_LABEL_SIZE_MM } from "../core/fire";
 import { setOutPrims } from "../render/setout";
 import { COLORS, FIRE_DASH, routeInk, routeMapLabel, symbolInk, wallPen, junctionPen, type WallPen } from "../render/draw";
 import { wallHatch, hatchSegments, hatchedFill, junctionHatch } from "../render/hatch";
@@ -633,11 +633,11 @@ export function planScene(
   // renderer emits it only there; the labels sit in a nested group that resets
   // it, since resolve() inherits dash down the tree.
   if (fireMarksOn(doc)) {
-    const runs = fireRuns(floor, resolved);
+    const { runs, labels } = fireLayout(floor, resolved, rooms);
     if (runs.length > 0) {
       out.push(group([
         ...runs.map(run => poly(run.pts, false)),
-        group(runs.flatMap(run => fireLabels(run).map(l => text(l.at, 120, l.text))),
+        group(labels.map(l => group([text(l.at, FIRE_LABEL_SIZE_MM, l.text)], { rotate: l.angleDeg })),
           { dash: [], fill: COLORS.fire, ink: "none", family: LABEL_FONT, anchor: "middle", baseline: "central" }),
       ], { ink: COLORS.fire, fill: "none", width: W_SYMBOL, dash: FIRE_DASH, cap: "butt", join: "round" }, "fire"));
     }

@@ -27,7 +27,8 @@ import { frameSheetHeightsMm, wallElevation, type WallElevation } from "../core/
 import { drawElevation } from "../render/frame";
 import { recordSymbol } from "./record";
 import { group, line, place, rect, text, type Item } from "./scene";
-import { pdfBytes, pdfDocument, textWidth, type PdfPage } from "./pdf";
+import { pdfBytes, pdfDocument, type PdfPage } from "./pdf";
+import { textWidth } from "../render/textwidth";
 import { saveViaHost, downloadBlob } from "./save";
 import { t, language, formatNumber } from "../i18n";
 

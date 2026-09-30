@@ -7,7 +7,8 @@ import { seedDoc } from "../src/seed";
 import { emptyDoc, newId, type PlanDoc } from "../src/model/doc";
 import { permitLayout, sharedSheet } from "../src/core/permit";
 import { permitPdf, permitSvg } from "../src/io/permit";
-import { pdfBytes, pdfText, textWidth } from "../src/io/pdf";
+import { pdfBytes } from "../src/io/pdf";
+import { pdfText, textWidth } from "../src/render/textwidth";
 import { stairDefaults } from "../src/model/stair";
 
 let failures = 0;
@@ -203,6 +204,27 @@ check("an accented letter measures as its base letter",
   // on a structural sheet would lose which factor a figure is.
   check("gamma is spelled out for the PDF", pdfText("γ_M 1,3 · γG 1,2") === "gamma_M 1,3 · gammaG 1,2");
   check("a spelled-out letter is measured as written", textWidth("γ", false) === textWidth("gamma", false));
+}
+
+// A fire label turns with its run: a vertical wall's text matrix is rotated.
+{
+  const mk = (b: { x: number; y: number }): string => {
+    const doc = emptyDoc();
+    const f = doc.floors[0]!;
+    f.nodes.push({ id: "fn0", x: 0, y: 0 }, { id: "fn1", ...b });
+    f.walls.push({ id: "fw1", a: "fn0", b: "fn1", thickness: 100, bulge: 0, openings: [], fireRating: { kind: "wbdbo", minutes: 30 } });
+    doc.fireMarks = true;
+    return permitPdf(doc, [0]) ?? "";
+  };
+  const tm = (out: string): string[] =>
+    [...out.matchAll(/\(WBDBO 30\) Tj/g)].map(m => out.slice(Math.max(0, m.index! - 120), m.index!));
+  const v = mk({ x: 0, y: 4000 });
+  check("the vertical fire label is in the PDF", /\(WBDBO 30\) Tj/.test(v));
+  check("the vertical fire label has a rotated text matrix",
+    tm(v).some(c => /0 -1 -1 0 [-\d.]+ [-\d.]+ Tm/.test(c)), tm(v).join("|"));
+  const h = mk({ x: 4000, y: 0 });
+  check("the horizontal fire label keeps the upright matrix",
+    tm(h).some(c => /1 0 0 -1 [-\d.]+ [-\d.]+ Tm/.test(c)), tm(h).join("|"));
 }
 
 console.log(failures === 0 ? "ALL PDF TESTS PASSED" : `${failures} FAILURES`);
