@@ -11,6 +11,7 @@
 // and core/roof.ts's profileFromRoof() can propose a wall's profile back from
 // a plane the same way.
 import type { Id } from "./doc";
+import type { AppearanceOverride } from "./appearance";
 import { polygonArea } from "../geometry/vec";
 
 /**
@@ -35,6 +36,8 @@ export interface RoofPlane {
   /** Structural roof build-up thickness, mm, measured SQUARE TO THE PLANE
    *  (not vertically). Absent means not stated; core/roof.ts's default. */
   thicknessMm?: number;
+  /** 3D look; absent means the built-in default (model/appearance.ts). */
+  appearance?: AppearanceOverride;
 }
 
 /** A floor's roof planes. Absent means none, not an error -- a plan drawn

@@ -81,15 +81,18 @@ async function pipe(bytes: Uint8Array, stream: CompressionStream | Decompression
  * channel with a real size limit -- browsers and chat clients alike start
  * truncating or rejecting a URL well under a megabyte. A share link carries
  * the drawing, not the scan; JSON export/import keeps it (see io/json.ts).
+ * `PlanDoc.textures` are left out for the same reason; an override naming one
+ * then falls back to its colour and pattern.
  */
 export async function encodePlan(doc: PlanDoc): Promise<string> {
+  const { textures: _textures, ...bare } = doc;
   const stripped: PlanDoc = doc.floors.some(f => f.underlay)
-    ? { ...doc, floors: doc.floors.map(f => {
+    ? { ...bare, floors: doc.floors.map(f => {
         if (!f.underlay) return f;
         const { underlay: _drop, ...rest } = f;
         return rest;
       }) }
-    : doc;
+    : bare;
   const json = new TextEncoder().encode(JSON.stringify(stripped));
   return DEFLATED + toBase64Url(await pipe(json, new CompressionStream("deflate-raw")));
 }

@@ -368,6 +368,46 @@ same difference as between a stair's stepped body here and the single flight sol
 What both read from one place is `furnishingZ0()`: on the floor, or `OVERHEAD_Z0_MM` for the wall
 cabinet and the afzuigkap that hang.
 
+**An appearance is looked up, and overridden only where the plan says so.** Every vertex
+`buildSceneMesh()` emits carries its part (`MESH_PARTS`, `Mesh3D.parts`) and a surface: colour, roughness
+and pattern resolved by `resolveAppearance()` in [appearance.ts](src/model/appearance.ts) from what the
+plan already states — wall material, board kind, frame material, fit-out material — with the element's
+own `appearance` override applied. A wall stating no material stays neutral with no pattern: a brick
+look on it would claim a fact the plan does not state. The override (`Wall.appearance`,
+`facadeAppearance`, `FaceBuildUp.appearance` for the outermost board, and `appearance` on an opening, roof
+plane, stair, deck, structural element and fit-out piece) is not the element's `color`: `color` is the
+plan's pen — existing, new, to be removed — and stays a 2D and phase statement; the override is how the
+thing looks when built. Tests identify geometry by part, never by colour, since a colour is now an
+authored figure. Verified by [tests/appearance.test.ts](tests/appearance.test.ts) and
+[tests/mesh3d.test.ts](tests/mesh3d.test.ts).
+
+**A pattern is drawn at its real size, in the shader.** [patterns.ts](src/render3d/patterns.ts) states
+each pattern's figures in mm and generates the GLSL from them, so the two cannot disagree; nothing is
+loaded, and the bundle stays self-contained. Coordinates come from a tangent frame on the face normal, so
+a vertical face courses horizontally and a sloped roof courses along its eave. A joint thinner than a
+pixel fades to its average tone rather than aliasing. A pattern modulates the resolved colour and never
+replaces it, so an overridden colour tints it. The figures are this repository's own, not a product's.
+
+**A texture is an image the plan carries, at the size it covers.** `PlanDoc.textures` holds images the
+user loaded (downscaled to `TEXTURE_MAX_EDGE`, JPEG data URLs) with the real width and height in mm one
+image covers; an override naming one replaces the pattern and takes the image's own colours. Like the
+underlay it is left out of the share link, and `removeTexture()` clears every override naming it in the
+same mutation, so no override is left naming nothing. The renderer holds them in one texture array and
+draws a face neutral until its image has decoded. Verified by [tests/texture.test.ts](tests/texture.test.ts).
+
+**The sun is placed from the north arrow; it is not a sun study.** `sunDirection()` in
+[sun.ts](src/render3d/sun.ts) puts a fixed afternoon sun (south-west, 35°) through `northDeg`, north up
+where the plan states none, and the renderer draws a shadow map fitted to the mesh, re-rendered only when
+the mesh or the sun changes. The light is a presentation choice: no date, time, latitude or daylight
+figure is computed, and none should be read into the shadows. Verified by
+[tests/sun.test.ts](tests/sun.test.ts).
+
+**Phase colours are a view, not a document convention.** `Tools.view3dPhase` colours each element by its
+pen through `phasePen()`: existing grey, new red, to be removed amber and translucent, skins and openings
+following their wall. It is editor state because it changes nothing any export states. The 3D still export
+(`export3dPng()` in [image3d.ts](src/io/image3d.ts)) renders offscreen from the view's own camera and
+mode, the way the PNG plan export re-renders through `drawScene`, and never reads the screen canvas.
+
 **`envelopeTakeoff()`** — the geometric input of a BENG-berekening (NTA 8800), read off the same
 graph: verliesoppervlak Als, gebruiksoppervlak Ag, the compactness Als/Ag, bruto inhoud per storey and
 glazing per compass sector. **A wall is in the thermal envelope exactly when it states a facade.**
@@ -828,8 +868,10 @@ before changing one:
 - A build-up's body is massing: a frame zone is one prism rather than studs, and a board band one prism
   per piece rather than sheets. A column casing's bands are offset per edge and not mitered, so each
   outer corner carries a gap about its own depth wide, and a casing's own frame contributes board area
-  only — no stud count. The 3D view gives boards and frame one flat colour each — per-material
-  appearance, facade prisms and lighting are #75.
+  only — no stud count.
+- The 3D view is a presentation, not a render of a specified product: appearances and patterns are
+  indicative, an image texture is stretched to a square before it tiles, a window frame has no body to
+  carry its override, and nothing computes daylight or a sun position for a date.
 - A wall's top profile is read by the wall surface, 3D, IFC, energy, the frame and the materials
   takeoff. A roof plane over it is a separate statement: a wall that pierces the roof's underside, or
   states a profile that disagrees with it, is reported (`roofWallMismatches()`) and never repaired; a

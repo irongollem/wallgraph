@@ -91,6 +91,9 @@ export function splitWall(f: Floor, w: Wall, tMm: number): PlanNode | null {
     ...w,
     id: newId("w"), a: mid.id, b: w.b, bulge: bulge2, openings: [],
     ...(w.fireRating ? { fireRating: { ...w.fireRating } } : {}),
+    // Appearance overrides are copied for the same reason as fireRating.
+    ...(w.appearance ? { appearance: { ...w.appearance } } : {}),
+    ...(w.facadeAppearance ? { facadeAppearance: { ...w.facadeAppearance } } : {}),
     // Frame breaks are HEIGHTS, not positions -- both halves stand at the
     // same heights the whole wall did, so they carry over unchanged. Cloned
     // rather than shared: the panel edits a break by index in place (the

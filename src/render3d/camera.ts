@@ -93,6 +93,18 @@ export class OrbitCamera {
     this.pitch = DEFAULT_PITCH;
   }
 
+  /** The eye in mesh space (y down), mm — the position viewProjection() looks from. */
+  eye(): [number, number, number] {
+    const [tx, ty, tz] = this.target;
+    const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
+    // The working frame negates document y; undo that for the mesh-space eye.
+    return [
+      tx + this.distance * cp * Math.cos(this.yaw),
+      ty - this.distance * cp * Math.sin(this.yaw),
+      tz + this.distance * sp,
+    ];
+  }
+
   /**
    * Perspective times view, taking mesh-space mm to clip space. Near and far
    * scale with the distance so mm-scale scenes keep depth precision at any

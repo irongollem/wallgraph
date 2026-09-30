@@ -6,6 +6,7 @@
 // the reason a vide is. The box is the clear span between the supports; each
 // joist bears `bearingMm` beyond it at both ends.
 import type { Id } from "./doc";
+import type { AppearanceOverride } from "./appearance";
 
 export interface Deck {
   id: Id;
@@ -37,6 +38,8 @@ export interface Deck {
   label?: string;
   /** Pen colour "#rrggbb"; absent means the plan's default ink. */
   color?: string;
+  /** 3D look; absent means the built-in default (model/appearance.ts). */
+  appearance?: AppearanceOverride;
 }
 
 /** The figures the next deck is placed with. */

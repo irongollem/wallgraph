@@ -10,6 +10,7 @@ import type { Route } from "./route";
 import type { RouteContinuation } from "./continuation";
 import type { RoomName } from "./room";
 import type { RoofPlane } from "./roof";
+import type { AppearanceOverride, Texture } from "./appearance";
 import type { EnergyAssumptions } from "./energy";
 import type { MaterialAssumptions } from "./materials";
 import { newDocGuid } from "./guid";
@@ -110,6 +111,8 @@ export interface Opening {
    * sash — a double door has one rating, not two. See FireKind.
    */
   fireRating?: FireRating;
+  /** 3D look of the door leaf and window frame; absent means the built-in default (model/appearance.ts). */
+  appearance?: AppearanceOverride;
   /** Material of the kozijn, doors and windows. Absent means not stated; read via frameMaterialOf(). */
   frameMaterial?: OpeningFrameMaterial;
   /** Construction of the door leaf, doors only. Absent means not stated; read via leafMaterialOf(). */
@@ -241,6 +244,8 @@ export interface FaceBuildUp {
    * normalizeFaceRuns(), the one place that is done.
    */
   runs?: FaceRun[];
+  /** 3D look of the outermost board's visible face; absent means the board kind's default. */
+  appearance?: AppearanceOverride;
 }
 
 /**
@@ -256,6 +261,7 @@ export function cloneFaceBuildUp(fu: FaceBuildUp): FaceBuildUp {
     ...(fu.frame ? { frame: { ...fu.frame } } : {}),
     boards: fu.boards.map(b => ({ ...b })),
     ...(fu.runs ? { runs: fu.runs.map(r => ({ ...r })) } : {}),
+    ...(fu.appearance ? { appearance: { ...fu.appearance } } : {}),
   };
 }
 
@@ -364,6 +370,10 @@ export interface Wall {
    * as a wall is redrawn or a room stops closing. Absent means "left".
    */
   facadeSide?: "left" | "right";
+  /** 3D look of the cladding; absent means the default facade. */
+  facadeAppearance?: AppearanceOverride;
+  /** 3D look of the structural body; absent means the default for `material`. */
+  appearance?: AppearanceOverride;
   /**
    * Thermal resistance of the whole construction, m²K/W. Absent means not
    * stated; read via wallRcOf(), which always returns this value where
@@ -1099,6 +1109,9 @@ export interface PlanDoc {
    * stated; see model/materials.ts and core/materials.ts.
    */
   materials?: MaterialAssumptions;
+  /** Images an appearance may tile over a surface (model/appearance.ts). Like
+   *  a floor's underlay, left out of the share link. Absent means none. */
+  textures?: Texture[];
   /** Storeys, lowest first: floors[0] is the ground floor, the storey picker
    *  and floorElevation() both rely on that order. */
   floors: Floor[];

@@ -54,10 +54,11 @@ function hasTransparency(ctx: CanvasRenderingContext2D, w: number, h: number): b
  * Downscale `file` to at most UNDERLAY_MAX_EDGE on its long edge and
  * re-encode it as a data URL: JPEG at ~0.8 quality, unless the source is a
  * format that can carry transparency AND actually uses it, in which case PNG
- * keeps it. Null when the file could not be read as an image.
+ * keeps it. `opts.maxEdge` overrides the size cap; `opts.jpegOnly` always
+ * writes JPEG (texture images). Null when the file could not be read as an image.
  */
 export async function prepareUnderlayImage(
-  file: Blob,
+  file: Blob, opts: { maxEdge?: number; jpegOnly?: boolean } = {},
 ): Promise<{ dataUrl: string; width: number; height: number } | null> {
   let src: string;
   try { src = await readAsDataUrl(file); } catch { return null; }
@@ -65,16 +66,18 @@ export async function prepareUnderlayImage(
   try { img = await loadImage(src); } catch { return null; }
   const longest = Math.max(img.naturalWidth, img.naturalHeight);
   if (longest === 0) return null;
-  const scale = Math.min(1, UNDERLAY_MAX_EDGE / longest);
+  const scale = Math.min(1, (opts.maxEdge ?? UNDERLAY_MAX_EDGE) / longest);
   const w = Math.max(1, Math.round(img.naturalWidth * scale));
   const h = Math.max(1, Math.round(img.naturalHeight * scale));
   const canvas = document.createElement("canvas");
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
+  // A JPEG-only result has no alpha; transparent pixels land on white.
+  if (opts.jpegOnly) { ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h); }
   ctx.drawImage(img, 0, 0, w, h);
   const sourceCanCarryAlpha = /^image\/(png|gif|webp)$/.test(file.type);
-  const keepPng = sourceCanCarryAlpha && hasTransparency(ctx, w, h);
+  const keepPng = !opts.jpegOnly && sourceCanCarryAlpha && hasTransparency(ctx, w, h);
   const dataUrl = keepPng
     ? canvas.toDataURL("image/png")
     : canvas.toDataURL("image/jpeg", UNDERLAY_JPEG_QUALITY);

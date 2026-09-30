@@ -654,5 +654,53 @@ function perpDist(p: { x: number; y: number }, A: { x: number; y: number }, B: {
     JSON.stringify(peakVerts));
 }
 
+// ── facade skin ─────────────────────────────────────────────────────────────
+
+{
+  const f = rectFloor();
+  const w = f.walls[0]!; // runs +x along y = 0; "right" is -y
+  w.facadeMm = 100; w.facadeSide = "right";
+  const fs = floorSolids(emptyDocWith(f), 0)!;
+  const ws = fs.walls.find(x => x.wallId === w.id)!;
+  const ys = ws.facade.flatMap(p => p.poly.map(pt => pt.y));
+  check("a facade wall yields facade prisms", ws.facade.length > 0);
+  check("the facade stands at half..half+100 on its side",
+    near(Math.min(...ys), -150, 0.5) && near(Math.max(...ys), -50, 0.5), `${Math.min(...ys)}..${Math.max(...ys)}`);
+  check("a flat wall's facade is flat at wallHeight()",
+    ws.facade.every(p => p.top === undefined && p.z0 === 0 && near(p.z1, wallHeight(f, w), 0.5)));
+  const other = fs.walls.find(x => x.wallId === f.walls[1]!.id)!;
+  check("a wall stating no facade has none", other.facade.length === 0);
+}
+
+{
+  const f = rectFloor();
+  const w = f.walls[0]!;
+  w.facadeMm = 100; w.facadeSide = "right";
+  w.openings.push(opening({ kind: "window", t: 2000, width: 1000, sillHeight: 900, height: 1200 }));
+  const fs = floorSolids(emptyDocWith(f), 0)!;
+  const ws = fs.walls.find(x => x.wallId === w.id)!;
+  const over = ws.facade.filter(p => p.poly.every(pt => pt.x >= 1500 - 0.5 && pt.x <= 2500 + 0.5));
+  check("a window adds a facade band under its sill",
+    over.some(p => p.z0 === 0 && near(p.z1, 900, 0.5)), JSON.stringify(over.map(p => [p.z0, p.z1])));
+  check("...and one over its head",
+    over.some(p => near(p.z0, 2100, 0.5) && near(p.z1, wallHeight(f, w), 0.5)));
+  check("...none across the glazing",
+    over.every(p => p.z1 <= 900.5 || p.z0 >= 2099.5));
+}
+
+{
+  const f = rectFloor();
+  const w = f.walls[0]!;
+  w.facadeMm = 100; w.facadeSide = "right";
+  const base = wallHeight(f, w);
+  w.profile = [{ t: 2000, height: base + 1000 }];
+  const fs = floorSolids(emptyDocWith(f), 0)!;
+  const ws = fs.walls.find(x => x.wallId === w.id)!;
+  check("a profiled wall's facade carries per-vertex tops",
+    ws.facade.length >= 2 && ws.facade.every(p => p.top !== undefined && p.top.length === p.poly.length));
+  const peak = ws.facade.flatMap(p => p.poly.map((pt, i) => ({ x: pt.x, h: p.top![i]! }))).filter(pv => near(pv.x, 2000, 1));
+  check("the facade meets the ridge height", peak.length >= 2 && peak.every(pv => near(pv.h, base + 1000, 1)));
+}
+
 console.log(failures === 0 ? "ALL SOLIDS TESTS PASSED" : `${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

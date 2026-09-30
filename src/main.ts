@@ -127,6 +127,7 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
     revision: () => store.revision,
     insets: () => panel.canvasInsets(),
     hidden: () => tools.view3dHidden,
+    phase: () => tools.view3dPhase,
   });
   view3d.canvas.classList.add("view3d");
   canvasWrap.append(view3d.canvas);
@@ -140,6 +141,7 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
   };
   tools.onView3dFit = () => view3d.fit();
   tools.onView3dScene = () => view3d.requestRender();
+  tools.onView3dSnapshot = () => (view3d.active ? view3d.snapshot() : null);
   onI18n("languageChanged", () => floors3d.refresh());
 
   function render(): void {

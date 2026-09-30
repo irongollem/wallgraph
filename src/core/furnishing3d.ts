@@ -21,6 +21,7 @@ import {
   furnishingFront, furnishingHeight, furnishingKind, furnishingOverhead, rackBays, showerTray,
   toiletCistern, CHAIR_SEAT_MM,
 } from "../model/furnishing";
+import type { FitoutMaterial } from "../model/appearance";
 import { Vec, v, clipHalfPlane, polygonArea } from "../geometry/vec";
 import { worldPoint } from "./placed";
 import {
@@ -28,12 +29,11 @@ import {
 } from "./furnishing";
 
 /**
- * What a part is made of. The mesh maps these to colours; nothing here states a
- * finish. Casework is board and timber, worktop the blad over it, appliance the
+ * What a part is made of (FitoutMaterial, model/appearance.ts). The mesh maps
+ * these to appearances; nothing here states a finish. Casework is board and timber, worktop the blad over it, appliance the
  * steel of a toestel, sanitary the porcelain of a fixture, soft a mattress or
  * upholstery.
  */
-export type FitoutMaterial = "casework" | "worktop" | "appliance" | "sanitary" | "soft";
 
 /** One vertical prism of a furnishing: a footprint over a z-band. */
 export interface FurnishingPart {

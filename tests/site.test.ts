@@ -62,20 +62,24 @@ ck("validates the demo plan", validate(schema, seedDoc()).length === 0, validate
 // Exercise every optional document field in one valid fixture.
 const full: PlanDoc = {
   version: 1, unit: "mm", gridMm: 50, areaMode: "centerline", dimMode: "both",
+  textures: [{ id: "tx1", name: "Baksteen", dataUrl: "data:image/jpeg;base64,AAAA", widthMm: 215, heightMm: 65 }],
   floors: [{
     id: "f1", name: "Begane grond",
     nodes: [{ id: "n1", x: 0, y: 0 }, { id: "n2", x: 4000, y: 0 }, { id: "n3", x: 4000, y: 3000 }],
     walls: [{
       id: "w1", a: "n1", b: "n2", thickness: 300, bulge: 0.25,
       material: "aerated", blockMm: { length: 600, height: 250 },
-      buildUp: { left: { boards: [{ kind: "osb", mm: 18 }, { kind: "gypsum", mm: 12 }] }, right: { boards: [{ kind: "gypsum", mm: 12 }] } },
+      buildUp: { left: { boards: [{ kind: "osb", mm: 18 }, { kind: "gypsum", mm: 12 }] }, right: { boards: [{ kind: "gypsum", mm: 12 }], appearance: { color: "#ffffff" } } },
       panelMm: 1000,
+      appearance: { color: "#a05040", pattern: "brick", texture: "tx1" },
+      facadeAppearance: { pattern: "tile" },
       profile: [{ t: 2000, height: 3800 }],
       openings: [{
         id: "o1", kind: "door", t: 2000, width: 1800,
         glazed: true, powered: true, selfClosing: true,
         fireRating: { kind: "wbd", minutes: 30 },
         sillHeight: 0, height: 2300,
+        appearance: { color: "#8a6a4a", pattern: "timber" },
         sashes: [
           { width: 900, action: "turn", hinge: "a", outward: true, bars: 6 },
           { action: "revolve", spin: "cw", slideTo: "a", hinge: "sill" },
@@ -86,6 +90,26 @@ const full: PlanDoc = {
       material: "calciumsilicate", postMm: 900, noggingRows: 2, insulated: true,
       openings: [],
     }],
+    roofPlanes: [{
+      id: "rp1", outline: [{ x: 0, y: 0 }, { x: 4000, y: 0 }, { x: 4000, y: 3000 }], eaveEdge: 0, eaveMm: 2600, pitchDeg: 30,
+      appearance: { color: "#444444", pattern: "tile" },
+    }],
+    decks: [{
+      id: "dk1", x: 1000, y: 1000, rotation: 0, width: 2000, depth: 1500, joistAxis: "x", joistMm: 400,
+      appearance: { pattern: "timber" },
+    }],
+    structure: [{
+      id: "st1", kind: "column", shape: "rect", x: 500, y: 500, rotation: 0, width: 300, depth: 300,
+      appearance: { color: "#999999", pattern: "concrete" },
+    } as never],
+    stairs: [{
+      id: "sr1", kind: "steektrap", x: 2000, y: 2000, rotation: 0, width: 900, going: 250, treads: 12,
+      appearance: { pattern: "timber" },
+    } as never],
+    furnishings: [{
+      id: "fn1", form: "cabinet", x: 1000, y: 300, rotation: 0, width: 600, depth: 600,
+      appearance: { color: "#cccccc", pattern: "none" },
+    } as never],
     symbols: [{
       id: "s1", type: SYMBOL_TYPES[0]!, x: 100, y: -200,
       rotation: 1.5707963, mirrored: true, wallId: "w1", color: "#e05d2d",
@@ -115,6 +139,20 @@ rejects("rejects a build-up with more than six boards", d => {
 });
 rejects("rejects an unknown symbol type", d => { d.floors[0]!.symbols[0]!.type = "teleporter"; });
 rejects("rejects a bad colour", d => { d.floors[0]!.symbols[0]!.color = "red"; });
+rejects("rejects a malformed appearance colour", d => { d.floors[0]!.walls[0]!.appearance = { color: "brick-red" }; });
+rejects("rejects an unknown appearance pattern", d => { d.floors[0]!.walls[0]!.appearance = { pattern: "marble" as never }; });
+rejects("rejects a non-integer texture size", d => { d.textures![0]!.widthMm = 215.5; });
+rejects("rejects a zero texture size", d => { d.textures![0]!.heightMm = 0; });
+rejects("rejects an unknown texture property", d => { (d.textures![0]! as unknown as Record<string, unknown>).tint = 1; });
+rejects("rejects an unknown appearance property", d => {
+  d.floors[0]!.walls[0]!.facadeAppearance = { gloss: 1 } as never;
+});
+rejects("rejects a bad appearance colour on a build-up", d => {
+  d.floors[0]!.walls[0]!.buildUp!.left!.appearance = { color: "#12345" };
+});
+rejects("rejects an unknown appearance pattern on an opening", d => {
+  d.floors[0]!.walls[0]!.openings[0]!.appearance = { pattern: "wood" as never };
+});
 rejects("rejects an unknown sash action", d => { d.floors[0]!.walls[0]!.openings[0]!.sashes[0]!.action = "wobble" as never; });
 rejects("rejects version 2", d => { (d as unknown as Record<string, unknown>).version = 2; });
 

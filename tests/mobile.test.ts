@@ -84,7 +84,7 @@ function check(name: string, cond: boolean, detail = ""): void {
     "wallStart", "wallChain", "wallTyped",
     "wallRect", "wallRectTo", "wallCircle", "wallCircleTo", "wallPolygon", "wallPolygonTo",
     "door", "window", "passage", "symbol", "stair", "structure", "structureSpan", "structureSpanTo",
-    "furnishing", "route", "zoom", "measure", "measureTo", "measured", "view3d",
+    "furnishing", "route", "zoom", "measure", "measureTo", "measured", "view3d", "phase3d",
   ];
   const touchKey = (base: string): string => `touch${base[0]!.toUpperCase()}${base.slice(1)}`;
 
@@ -116,7 +116,7 @@ function check(name: string, cond: boolean, detail = ""): void {
     "shortSelect", "shortWall", "shortDoor", "shortWindow", "shortPassage",
     "shortStair", "shortStructure",
     "shortFurnishing", "shortRoute", "shortZoom", "shortMeasure",
-    "shortGridSnap", "shortAngleSnap", "shortMeasurements", "short3d",
+    "shortGridSnap", "shortAngleSnap", "shortMeasurements", "short3d", "shortPhase3d",
   ];
   for (const lang of ["nl", "en"] as const) {
     const tool = resources[lang].translation.tool as Record<string, string | undefined>;

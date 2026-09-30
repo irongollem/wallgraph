@@ -11,6 +11,7 @@ import { v, norm, sub, add, scale, dot, perp, dist, distToSeg, type Vec } from "
 import { exportJson, copyJson, importJsonFile, parseDoc, clearAutosave } from "../io/json";
 import { pickUnderlayImage, prepareUnderlayImage, initialUnderlay, imageFromClipboard } from "../io/underlay";
 import { exportPng } from "../io/image";
+import { export3dPng, type Size3d } from "../io/image3d";
 import { exportDxf } from "../io/dxf";
 import { exportIfc } from "../io/ifc";
 import { exportMaterialsCsv } from "../io/materials";
@@ -34,6 +35,7 @@ import {
   openingBearing, OPENING_BEARING_DEFAULT_MM, clampOpeningBearing, clampLintelSection, clampLintelLoad,
   type AreaMode, type DimMode, type Sash, type HingeEdge, type Opening, type Wall, type Floor, type FireKind,
   type ProjectMeta, type Id, type WallMaterial, type PlanDoc,
+  newId,
 } from "../model/doc";
 import type { Column } from "../model/structure";
 import { columnProtrusions, proposedGapMm, buildUpClashes, proposedRuns } from "../core/leafclash";
@@ -50,6 +52,9 @@ import { categoriesIn, getSymbol, type SymbolCategory } from "../render/symbols"
 import { LAYER_KEYS, LAYER_OF_CATEGORY, type LayerKey } from "../render/layers";
 import { renderStairTool, renderStairProps, renderStairBulk, type PaneRows } from "./stairs";
 import { renderFaceBuildUp, wallHasBuildUp, faceLabel } from "./buildup";
+import { renderAppearanceRows, writeOverride } from "./appearance";
+import type { AppearanceOverride, Texture } from "../model/appearance";
+import { TEXTURE_DEFAULT_MM, TEXTURE_LIMIT, TEXTURE_MAX_EDGE, removeTexture, texturesOf } from "../model/appearance";
 import { routeTakesSymbol } from "../core/attach";
 import { incompleteDevices } from "../core/port";
 import { renderFurnishingTool, renderFurnishingProps } from "./furnishing";
@@ -276,6 +281,10 @@ export class Panel {
    *  from under the pointer. main.ts redraws the canvas independently, so
    *  the drawing still tracks the drag. */
   private scrubbing = false;
+  /** A picked texture image waiting for its real size; shown under the appearance row named by `label`. */
+  private pendingTexture: {
+    label: string; name: string; dataUrl: string; widthMm: number; heightMm: number; apply: (id: string) => void;
+  } | null = null;
 
   constructor(root: HTMLElement, private store: Store, private tools: Tools) {
     this.root = root;
@@ -594,7 +603,14 @@ export class Panel {
     // nothing and places nothing, it changes what the canvas shows.
     const three = modeBtn("view3d", "view3d", this.tools.view3d, t("tool.view3d"), "3", t("tool.short3d"));
     three.onclick = () => this.toggleMode("view3d", () => { this.tools.setView3d(!this.tools.view3d); }, false);
-    this.modesEl.replaceChildren(grid, angle, dims, three);
+    // The phase colouring only means something while the 3D view is on.
+    const modes = [grid, angle, dims, three];
+    if (this.tools.view3d) {
+      const phase = modeBtn("phase3d", "phase3d", this.tools.view3dPhase, t("tool.phase3d"), "P", t("tool.shortPhase3d"));
+      phase.onclick = () => this.toggleMode("phase3d", () => { this.tools.setView3dPhase(!this.tools.view3dPhase); }, false);
+      modes.push(phase);
+    }
+    this.modesEl.replaceChildren(...modes);
 
     const undo = el("button", "rail-btn") as HTMLButtonElement;
     undo.type = "button";
@@ -648,6 +664,11 @@ export class Panel {
       { kind: "sep" },
       { kind: "item", icon: "docSave", label: t("action.save"), hint: "JSON", onPick: () => { void exportJson(this.store.doc); } },
       { kind: "item", icon: "docPng", label: t("action.png"), hint: "PNG", onPick: () => { void this.savePng(); } },
+      ...(this.tools.view3d ? [
+        { kind: "item", icon: "docPng", label: t("action.png3dWindow"), hint: "PNG", onPick: () => { void this.savePng3d("window"); } },
+        { kind: "item", icon: "docPng", label: t("action.png3dHd"), hint: "PNG", onPick: () => { void this.savePng3d("hd"); } },
+        { kind: "item", icon: "docPng", label: t("action.png3d4k"), hint: "PNG", onPick: () => { void this.savePng3d("4k"); } },
+      ] as MenuEntry[] : []),
       { kind: "item", icon: "docSvg", label: t("action.svg"), hint: "SVG", onPick: () => { void this.saveSvg(); } },
       { kind: "item", icon: "docDxf", label: t("action.dxf"), hint: "DXF", onPick: () => { void this.saveDxf(); } },
       { kind: "item", icon: "docDxf", label: t("action.ifc"), hint: "IFC", onPick: () => { void this.saveIfc(); } },
@@ -692,6 +713,16 @@ export class Panel {
       : result === "copied" ? "status.pngCopied"
       : result === "empty" ? "status.pngEmpty"
       : "status.pngFailed"));
+  }
+
+  /** The 3D view rendered offscreen from its current camera. */
+  private async savePng3d(size: Size3d): Promise<void> {
+    const snap = this.tools.onView3dSnapshot?.() ?? null;
+    const result = snap ? await export3dPng(this.store.doc, snap, size) : "empty";
+    this.flash(t(result === "saved" ? "status.png3dSaved"
+      : result === "copied" ? "status.png3dCopied"
+      : result === "empty" ? "status.png3dEmpty"
+      : "status.png3dFailed"));
   }
 
   /** Vector artwork. Same shape as savePng: one flash, keys spelled out. */
@@ -852,6 +883,7 @@ export class Panel {
       this.store.floor.ceilingMm ?? "", d.groundMm ?? "", this.tools.lastThickness,
       JSON.stringify(d.project ?? null), d.northDeg ?? "", JSON.stringify(d.energy ?? null),
       JSON.stringify(d.materials ?? null), JSON.stringify(this.store.floor.roofPlanes ?? null),
+      (d.textures ?? []).map(x => `${x.id}\u0000${x.name}\u0000${x.widthMm}\u0000${x.heightMm}`).join("\u0001"),
       this.store.floor.underlay ? "u1" : "u0", this.tools.calibrating ? "c1" : "c0",
       // The Plan section's per-discipline toggles only show once the floor
       // has routes, so a route being added or removed has to rebuild it too.
@@ -1406,6 +1438,18 @@ export class Panel {
       o.lintel ? `${o.lintel.w} × ${o.lintel.d} mm` : undefined,
       (w, d) => mutOpening(o2 => { o2.lintel = { w, d }; }));
 
+    // 3D look of the leaf or frame; a passage has nothing to colour. The key
+    // follows the mesh: a steel leaf is steel, anything else the door default.
+    if (o.kind !== "passage") {
+      rows.secHead(t("appearance.head"), { later: true });
+      renderAppearanceRows(rows, o.kind === "door" ? t("appearance.leaf") : t("appearance.frame"),
+        leafMaterialOf(o) === "steel" ? { part: "frame", material: "steel" } : { part: "door" }, o.appearance,
+        next => this.store.mutate(d => {
+          const o2 = this.store.floorOf(d).walls.find(x => x.id === wid)?.openings.find(x => x.id === sel.id);
+          if (o2) writeOverride(o2, "appearance", next);
+        }, "appearance:" + sel.id));
+    }
+
     rows.dangerRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());
   }
 
@@ -1658,6 +1702,49 @@ export class Panel {
       row.append(chips);
       p.append(row);
     };
+    /**
+     * The 3D look of one element: a colour input showing the resolved colour, a
+     * chip that clears the override and a pattern select. The colour input holds
+     * the pane rebuild off while its picker is open, like colorRow's custom one.
+     */
+    const appearanceRow = (
+      label: string, colorHex: string, isSet: boolean, pattern: string,
+      patternOptions: Array<[string, string]>,
+      on: { color(hex: string): void; pattern(p: string): void; texture(id: string): void; clear(): void },
+      opts: { mixed?: boolean; texture?: string } = {},
+    ): void => {
+      const row = el("div", "prop-row appearance-row");
+      const head = el("div", "appearance-head");
+      head.append(Object.assign(el("span"), { textContent: label }));
+      const box = el("div", "appearance-ctl");
+      const color = el("input", "ink ink-custom") as HTMLInputElement;
+      color.type = "color";
+      color.value = colorHex;
+      color.title = label;
+      color.setAttribute("aria-label", label);
+      color.onfocus = () => { this.scrubbing = true; };
+      color.onblur = () => { this.scrubbing = false; this.refreshToolbar(); };
+      color.oninput = () => on.color(color.value);
+      const sel = el("select") as HTMLSelectElement;
+      sel.setAttribute("aria-label", label + " " + t("appearance.patternLabel"));
+      for (const [value, text] of patternOptions) {
+        const o = el("option") as HTMLOptionElement;
+        o.value = value; o.textContent = text;
+        sel.append(o);
+      }
+      sel.value = opts.mixed ? "" : pattern;
+      sel.onchange = () => on.pattern(sel.value);
+      const clear = el("button", "chip appearance-default") as HTMLButtonElement;
+      clear.type = "button";
+      clear.textContent = t("appearance.default");
+      clear.disabled = !isSet && !opts.mixed;
+      clear.onclick = () => on.clear();
+      head.append(clear);
+      box.append(color, sel);
+      row.append(head, box);
+      p.append(row);
+      this.textureRows(p, label, opts.texture ?? "", on);
+    };
     /** `key` is shown beside the label and `title` explains the button; neither
      *  is part of the label, which has to read the same without a keyboard. */
     const btnRow = (label: string, fn: () => void, title?: string, key?: string): void => {
@@ -1726,7 +1813,7 @@ export class Panel {
       p.append(row);
     };
 
-    return { numRow, selRow, textRow, infoRow, noteRow, warnRow, btnRow, colorRow, chipRow, checkRow };
+    return { numRow, selRow, textRow, infoRow, noteRow, warnRow, btnRow, colorRow, chipRow, checkRow, appearanceRow };
   }
 
   /**
@@ -1776,7 +1863,7 @@ export class Panel {
       () => t("panel.planSummary", { h: floorHeight(this.store.floor) }),
       next => { this.planOpen = next; });
 
-    const { numRow, selRow, noteRow, checkRow } = this.rowKit(inner);
+    const { numRow, selRow, noteRow, checkRow, textRow, btnRow } = this.rowKit(inner);
     numRow(t("panel.grid"), this.store.doc.gridMm, n => this.store.mutate(d => { d.gridMm = Math.max(1, n); }), 10);
     // Storey height belongs to the floor, not to each stair on it: a stair
     // connects two storeys, so changing this moves every stair that follows it.
@@ -1866,6 +1953,8 @@ export class Panel {
       }
     }
 
+    this.textureListRows({ textRow, numRow, btnRow, noteRow });
+
     return wrap;
   }
 
@@ -1914,6 +2003,106 @@ export class Panel {
     }
 
     return wrap;
+  }
+
+  /**
+   * The image half of an appearance: a select over the plan's textures and a
+   * button that loads another. A loaded file waits in `pendingTexture` until
+   * its real size is stated in the two fields under the row (a prompt is not
+   * available in sandboxed hosting); Add stores it and assigns it.
+   */
+  private textureRows(
+    p: HTMLElement, label: string, current: string, on: { texture(id: string): void },
+  ): void {
+    const row = el("div", "prop-row appearance-row");
+    const head = el("div", "appearance-head");
+    head.append(Object.assign(el("span"), { textContent: t("appearance.texture") }));
+    const box = el("div", "appearance-ctl");
+    const sel = el("select") as HTMLSelectElement;
+    sel.setAttribute("aria-label", label + " " + t("appearance.texture"));
+    for (const [value, text] of [["", t("appearance.textureNone")] as [string, string],
+      ...texturesOf(this.store.doc).map((x): [string, string] => [x.id, x.name])]) {
+      const o = el("option") as HTMLOptionElement;
+      o.value = value; o.textContent = text;
+      sel.append(o);
+    }
+    sel.value = current;
+    sel.onchange = () => on.texture(sel.value);
+    const load = el("button", "chip appearance-default") as HTMLButtonElement;
+    load.type = "button";
+    load.textContent = t("appearance.textureLoad");
+    load.onclick = () => pickUnderlayImage(file => { void this.loadTextureFile(file, label); });
+    head.append(load);
+    box.append(sel);
+    row.append(head, box);
+    p.append(row);
+    const pend = this.pendingTexture;
+    if (!pend || pend.label !== label) return;
+    pend.apply = on.texture;
+    const size = el("div", "prop-row appearance-row");
+    size.title = t("appearance.textureSizeHelp");
+    size.append(Object.assign(el("span"), { textContent: pend.name }));
+    const ctl = el("div", "appearance-ctl appearance-size");
+    const field = (aria: string, value: number, set: (n: number) => void): HTMLInputElement => {
+      const input = el("input") as HTMLInputElement;
+      input.type = "number"; input.min = "1"; input.step = "1";
+      input.value = String(value);
+      input.setAttribute("aria-label", aria);
+      input.title = aria;
+      input.oninput = () => { const n = Math.round(parseFloat(input.value)); if (isFinite(n) && n > 0) set(n); };
+      return input;
+    };
+    const w = field(t("appearance.textureWidth"), pend.widthMm, n => { pend.widthMm = n; });
+    const h = field(t("appearance.textureHeight"), pend.heightMm, n => { pend.heightMm = n; });
+    const add = el("button", "chip appearance-default") as HTMLButtonElement;
+    add.type = "button";
+    add.textContent = t("appearance.textureAdd");
+    add.onclick = () => {
+      const id = newId("tx");
+      const tex: Texture = { id, name: pend.name, dataUrl: pend.dataUrl, widthMm: pend.widthMm, heightMm: pend.heightMm };
+      this.pendingTexture = null;
+      this.store.mutate(d => { (d.textures ?? (d.textures = [])).push(tex); });
+      pend.apply(id);
+    };
+    const cancel = el("button", "chip appearance-default") as HTMLButtonElement;
+    cancel.type = "button";
+    cancel.textContent = t("appearance.textureCancel");
+    cancel.onclick = () => { this.pendingTexture = null; this.refreshToolbar(); };
+    ctl.append(w, h, add, cancel);
+    size.append(ctl);
+    p.append(size);
+  }
+
+  /** Downscale a picked image to a texture and open the size fields under the row that asked. */
+  private async loadTextureFile(file: File, label: string): Promise<void> {
+    if (texturesOf(this.store.doc).length >= TEXTURE_LIMIT) {
+      this.flash(t("status.textureLimit", { n: TEXTURE_LIMIT }));
+      return;
+    }
+    const prepared = await prepareUnderlayImage(file, { maxEdge: TEXTURE_MAX_EDGE, jpegOnly: true });
+    if (!prepared) { this.flash(t("status.underlayFailed")); return; }
+    const name = file.name.replace(/\.[^.]*$/, "") || t("appearance.texture");
+    this.pendingTexture = {
+      label, name, dataUrl: prepared.dataUrl,
+      widthMm: TEXTURE_DEFAULT_MM.widthMm, heightMm: TEXTURE_DEFAULT_MM.heightMm, apply: () => {},
+    };
+    this.refreshToolbar();
+  }
+
+  /** The plan's textures: rename, real size and removal. Removing one clears
+   *  every override naming it in the same mutation. */
+  private textureListRows(rows: Pick<PaneRows, "textRow" | "numRow" | "btnRow" | "noteRow">): void {
+    const list = texturesOf(this.store.doc);
+    if (list.length === 0) return;
+    rows.noteRow(t("panel.textures"));
+    for (const tx of list) {
+      const edit = (write: (x: Texture) => void) => (): void =>
+        this.store.mutate(d => { const x = d.textures?.find(y => y.id === tx.id); if (x) write(x); });
+      rows.textRow(t("panel.textureName"), tx.name, v => edit(x => { x.name = v; })());
+      rows.numRow(t("panel.textureWidth"), tx.widthMm, n => edit(x => { x.widthMm = Math.max(1, Math.round(n)); })(), 5);
+      rows.numRow(t("panel.textureHeight"), tx.heightMm, n => edit(x => { x.heightMm = Math.max(1, Math.round(n)); })(), 5);
+      rows.btnRow(t("panel.textureRemove", { name: tx.name }), () => this.store.mutate(d => { removeTexture(d, tx.id); }));
+    }
   }
 
   /** Downscale, place and store a freshly picked or pasted underlay image. */
@@ -2099,8 +2288,8 @@ export class Panel {
       },
       next => { this.roofOpen = next; this.syncRoofTakeoff(); });
 
-    const { numRow, checkRow, infoRow, noteRow, warnRow, btnRow } = this.rowKit(inner);
-    renderRoof({ secHead: this.secHeadLater(inner), numRow, checkRow, infoRow, noteRow, warnRow, btnRow },
+    const { numRow, checkRow, infoRow, noteRow, warnRow, btnRow, appearanceRow } = this.rowKit(inner);
+    renderRoof({ secHead: this.secHeadLater(inner), numRow, checkRow, infoRow, noteRow, warnRow, btnRow, appearanceRow },
       this.store, this.store.floor, this.roofProposal);
 
     this.roofTakeoffEl = el("div");
@@ -2386,6 +2575,14 @@ export class Panel {
         }
       }, "wallcolor:" + group.join(","));
     }, { mixed: colorMixed });
+    // 3D body look: shows the first wall's, marked mixed when they differ.
+    const lookMixed = isMixed(walls, w => JSON.stringify(w.appearance ?? null));
+    renderAppearanceRows(rows, t("appearance.wall"), { part: "wall", material: first.material }, first.appearance,
+      next => this.store.mutate(d => {
+        for (const w of this.store.floorOf(d).walls) {
+          if (group.includes(w.id)) writeOverride(w, "appearance", next);
+        }
+      }, "appearance:body:" + group.join(",")), { mixed: lookMixed });
     this.renderWallJoin(rows, group);
     rows.dangerRow(t("panel.deleteWall"), () => this.tools.deleteSelected());
   }
@@ -2649,7 +2846,7 @@ export class Panel {
     p.replaceChildren();
     const sel = this.store.sel;
     const f = this.store.floor;
-    const { numRow, selRow, textRow, infoRow, noteRow, warnRow, btnRow, colorRow, chipRow, checkRow } = this.rowKit(p);
+    const { numRow, selRow, textRow, infoRow, noteRow, warnRow, btnRow, colorRow, chipRow, checkRow, appearanceRow } = this.rowKit(p);
 
     const secHead = (label: string, opts: { sel?: boolean; later?: boolean; mode?: boolean } = {}): void => {
       const wrap = el("div", "sec" + (opts.later ? " sec-later" : ""));
@@ -2697,7 +2894,7 @@ export class Panel {
 
     const rows: PaneRows = {
       secHead, numRow, selRow, textRow, infoRow, noteRow, warnRow, colorRow, btnRow,
-      dangerRow, checkRow, chipRow,
+      dangerRow, checkRow, chipRow, appearanceRow,
     };
 
     // The storey-management pane, opened from the button beside the picker.
@@ -3084,6 +3281,33 @@ export class Panel {
           const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
           if (wall) setFaceBuildUp(wall, side, next);
         }), { standOff, ownPosts: w.postMm !== undefined, runs });
+      }
+      // The 3D look: body, facade skin where stated and the outermost board of
+      // each face. Stored as an override next to the fact it colours.
+      secHead(t("appearance.head"), { later: true });
+      const setAppearance = (write: (wall: Wall, next: AppearanceOverride | undefined) => void,
+                             tag: string) => (next: AppearanceOverride | undefined): void => {
+        this.store.mutate(d => {
+          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+          if (wall) write(wall, next);
+        }, "appearance:" + tag + ":" + sel.id);
+      };
+      renderAppearanceRows(rows, t("appearance.wall"), { part: "wall", material: w.material }, w.appearance,
+        setAppearance((wall, next) => writeOverride(wall, "appearance", next), "body"));
+      if (w.facadeMm !== undefined) {
+        renderAppearanceRows(rows, t("appearance.facade"), { part: "facade" }, w.facadeAppearance,
+          setAppearance((wall, next) => writeOverride(wall, "facadeAppearance", next), "facade"));
+      }
+      for (const side of ["left", "right"] as const) {
+        const fu = buildUpOf(w, side);
+        const outer = fu?.boards[fu.boards.length - 1];
+        if (!fu || !outer) continue;
+        renderAppearanceRows(rows, t("appearance.finish", { face: faceLabel(side) }),
+          { part: "board", kind: outer.kind }, fu.appearance,
+          setAppearance((wall, next) => {
+            const face = buildUpOf(wall, side);
+            if (face) writeOverride(face, "appearance", next);
+          }, "board" + side));
       }
       // Columns that still reach into this wall's own build-up -- reported,
       // never repaired, the stance topMismatches() and roofWallMismatches()

@@ -10,6 +10,10 @@
 // fitted out: a kitchen is drawn in one pass, then the bathroom. Which rows
 // appear under it follows the form — a bed has a size and nothing else, a
 // cabinet has a front and a hinge side.
+import { renderAppearanceRows, writeOverride } from "./appearance";
+import { furnishingSolids } from "../core/furnishing3d";
+import { polygonArea } from "../geometry/vec";
+import type { FitoutMaterial } from "../model/appearance";
 import { Store } from "../model/store";
 import { Tools } from "../input/tools";
 import { furnishingsOf } from "../model/doc";
@@ -115,6 +119,21 @@ export function renderFurnishingTool(
 }
 
 /** Properties of the selected furnishing. */
+/**
+ * The fit-out material most of a piece is made of: the material whose parts
+ * have the largest summed volume (footprint area x height) in furnishingSolids().
+ * It only picks which default the row shows; the override applies to every part.
+ */
+function dominantFitout(piece: Furnishing): FitoutMaterial {
+  const volume = new Map<FitoutMaterial, number>();
+  for (const p of furnishingSolids(piece)) {
+    volume.set(p.material, (volume.get(p.material) ?? 0) + Math.abs(polygonArea(p.poly)) * (p.z1 - p.z0));
+  }
+  let best: FitoutMaterial = "casework", bestV = -1;
+  for (const [m, v] of volume) if (v > bestV) { best = m; bestV = v; }
+  return best;
+}
+
 export function renderFurnishingProps(store: Store, tools: Tools, rows: PaneRows, id: string): void {
   const piece = furnishingsOf(store.floor).find(x => x.id === id);
   if (!piece) return;
@@ -182,6 +201,18 @@ export function renderFurnishingProps(store: Store, tools: Tools, rows: PaneRows
     if (group.length > 1) mutAll(f => { if (hex) f.color = hex; else delete f.color; });
     else mut(f => { if (hex) f.color = hex; else delete f.color; }, "color:" + id);
   }, { mixed: group.length > 1 && isMixed(groupPieces, f => f.color ?? "") });
+  // 3D look. The key names the material most of the piece is made of, which is
+  // what its default colour and pattern show; an override recolours every part.
+  rows.secHead(t("appearance.head"), { later: true });
+  renderAppearanceRows(rows, t("appearance.furnishing"), { part: "fitout", material: dominantFitout(piece) },
+    piece.appearance, next => {
+      const write = (f: Furnishing): void => writeOverride(f, "appearance", next);
+      const key = "appearance:" + group.join(",");
+      if (group.length > 1) store.mutate(d => {
+        for (const f of furnishingsOf(store.floorOf(d))) if (group.includes(f.id)) write(f);
+      }, key);
+      else mut(write, key);
+    }, { mixed: group.length > 1 && isMixed(groupPieces, f => JSON.stringify(f.appearance ?? null)) });
   rows.btnRow(t("panel.mirror"), () => mutAll(f => { f.mirrored = !f.mirrored; }),
     t("panel.mirrorTitle"), "M");
   rows.infoRow(t("panel.furnishingFootprint"),

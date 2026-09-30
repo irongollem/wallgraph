@@ -15,6 +15,7 @@ import {
 } from "../model/doc";
 import { Vec, v, add, sub, scale, dist, norm, perp, lineIntersect } from "../geometry/vec";
 import { arcTangentAt } from "../geometry/arc";
+import type { AppearanceOverride } from "../model/appearance";
 import {
   nodeAt, mergeNodes, wallLength, flipWall, cleanOrphanNodes, clampOpening, deleteWall,
 } from "../model/ops";
@@ -232,6 +233,8 @@ export function planNodeDissolve(f: Floor, nodeId: Id): NodeDissolveResult | nul
   // (see FaceFrame in model/doc.ts). Field-by-field equality is therefore the
   // whole rule, the same shape gridPhaseMatches() below applies to the
   // wall's own posts.
+  const sameAppearance = (a: AppearanceOverride | undefined, b: AppearanceOverride | undefined): boolean =>
+    a?.color === b?.color && a?.pattern === b?.pattern && a?.texture === b?.texture;
   const sameFrame = (a: FaceFrame | undefined, b: FaceFrame | undefined): boolean => {
     if (!a && !b) return true;
     if (!a || !b) return false;
@@ -254,7 +257,8 @@ export function planNodeDissolve(f: Floor, nodeId: Id): NodeDissolveResult | nul
     return sameFrame(a.frame, b.frame)
       && a.boards.length === b.boards.length
       && a.boards.every((x, i) => x.kind === b.boards[i]!.kind && x.mm === b.boards[i]!.mm)
-      && (a.runs === undefined) === (b.runs === undefined);
+      && (a.runs === undefined) === (b.runs === undefined)
+      && sameAppearance(a.appearance, b.appearance);
   };
   const [w2Left, w2Right] = sameDirection
     ? [buildUpOf(w2, "left"), buildUpOf(w2, "right")]
@@ -284,6 +288,8 @@ export function planNodeDissolve(f: Floor, nodeId: Id): NodeDissolveResult | nul
     && w1.loadBearing === w2.loadBearing
     && w1.material === w2.material
     && w1.color === w2.color
+    && sameAppearance(w1.appearance, w2.appearance)
+    && sameAppearance(w1.facadeAppearance, w2.facadeAppearance)
     && w1.postMm === w2.postMm
     && w1.postWidthMm === w2.postWidthMm
     && w1.facadeMm === w2.facadeMm

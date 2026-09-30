@@ -5,14 +5,19 @@
 // z is height above Peil (mm, positive up); a renderer maps axes itself. Pure
 // and uncached like the rest of the derived geometry — callers cache against
 // the store revision.
-import { PlanDoc, Floor, Id, floorElevation, floorHeight, stairsOf, furnishingsOf, decksOf, structureOf } from "../model/doc";
-import { floorSolids, FloorSolids, roofSlabSolids, glazedLeafParts } from "../core/solids";
+import { PlanDoc, Floor, Id, floorElevation, floorHeight, stairsOf, furnishingsOf, decksOf, structureOf, type Wall, type DoorLeafMaterial } from "../model/doc";
+import { roofPlanesOf } from "../model/roof";
+import { floorSolids, FloorSolids, roofSlabSolids, glazedLeafParts, type BuildUpPrism } from "../core/solids";
 import { structureSolids, columnCasingPieces, columnHeight } from "../core/structure";
 import { resolveFloor } from "../core/resolve";
 import { deckSolids } from "../core/deck";
 import { deckJoistLayout } from "../core/trimmer";
 import { stairSteps, StairStep } from "../core/stair3d";
-import { furnishingSolids, type FitoutMaterial } from "../core/furnishing3d";
+import { furnishingSolids } from "../core/furnishing3d";
+import {
+  PATTERN_IDS, TEXTURE_LIMIT, texturesOf, type Texture, defaultAppearance, resolveAppearance, parseHexColor, type Appearance, type AppearanceOverride, type PatternId,
+} from "../model/appearance";
+import { INKS } from "../render/draw";
 import { Vec, v, dist, polygonArea, mid, norm, add, sub, scale } from "../geometry/vec";
 import { triangulatePolygon, triangulateWithHoles } from "./triangulate";
 
@@ -41,6 +46,11 @@ export interface Mesh3D {
   colors: Float32Array;
   /** Per-vertex index into MESH_PARTS, one entry per vertex of `positions`. */
   parts: Uint8Array;
+  /**
+   * Per-vertex surface, vec4: x roughness 0..1, y index into PATTERN_IDS,
+   * z reserved (0), w layer in `textures` (-1, none).
+   */
+  surfaces: Float32Array;
   /** Outline segments for GL_LINES rendering: consecutive xyz vertex pairs, mm. */
   edges: Float32Array;
   /**
@@ -53,61 +63,22 @@ export interface Mesh3D {
   glassColors: Float32Array;
   /** Per-vertex index into MESH_PARTS, one entry per vertex of `glassPositions`. */
   glassParts: Uint8Array;
+  /** Same layout as `surfaces`, one vec4 per vertex of `glassPositions`. */
+  glassSurfaces: Float32Array;
+  /** The plan textures the surface layers index, in layer order: at most
+   *  TEXTURE_LIMIT, each with a valid size. The renderer uploads these. */
+  textures: readonly Texture[];
   /** Null when the document yields no geometry. */
   bounds: Bounds3 | null;
 }
 
-type Rgb = readonly [number, number, number];
+export {
+  WALL_COLOR, SLAB_COLOR, ROOF_COLOR, STAIR_COLOR, DOOR_COLOR, GLASS_COLOR, PANEL_COLOR, BOARD_COLOR,
+  FRAME_COLOR, FACADE_COLOR, STEEL_COLOR, CASEWORK_COLOR, WORKTOP_COLOR, APPLIANCE_COLOR,
+  SANITARY_COLOR, SOFT_COLOR,
+} from "../model/appearance";
 
-/** Wall prisms: light warm grey, reading against the #f4f2ec canvas ground. */
-export const WALL_COLOR: Rgb = [0.93, 0.92, 0.9];
-/** Slab prisms: a step darker than the walls they carry. */
-export const SLAB_COLOR: Rgb = [0.8, 0.79, 0.77];
-/** Roof plane slabs: a warm tone told apart from the flat slabs beneath. */
-export const ROOF_COLOR: Rgb = [0.64, 0.49, 0.4];
-/** Stair steps: muted warm tone. */
-export const STAIR_COLOR: Rgb = [0.85, 0.8, 0.72];
-/** Door leaves: timber, told from wall and stair at a glance. */
-export const DOOR_COLOR: Rgb = [0.78, 0.71, 0.6];
-/** Window panes and glazed wall bodies: the cool wash the 2D glassFill uses,
- *  drawn translucent. */
-export const GLASS_COLOR: Rgb = [0.875, 0.91, 0.933];
-/** Sandwich-panel wall bodies: the 2D panelFill's warm band, opaque. */
-export const PANEL_COLOR: Rgb = [0.906, 0.882, 0.827];
-/** A face's board stack: pale plasterboard, told from the masonry body it is
- *  fixed to. One flat tone for every board kind — see mesh.ts's build-up
- *  massing note. */
-export const BOARD_COLOR: Rgb = [0.88, 0.85, 0.78];
-/** A voorzetwand's own stud zone: massing only, not the individual studs a
- *  takeoff or elevation draws — a darker timber tone than a door leaf so the
- *  frame reads as structure standing off the wall behind it. */
-export const FRAME_COLOR: Rgb = [0.65, 0.55, 0.42];
-/** A facade skin: a neutral brick tone. */
-export const FACADE_COLOR: Rgb = [0.72, 0.5, 0.42];
-/** Steel structure: a cool mid grey, told from the masonry it carries. */
-export const STEEL_COLOR: Rgb = [0.62, 0.64, 0.67];
-/** Fit-out casework: cabinet carcasses, fronts, table tops, shelving. */
-export const CASEWORK_COLOR: Rgb = [0.74, 0.65, 0.52];
-/** The blad over a run: darker than the casework it rests on. */
-export const WORKTOP_COLOR: Rgb = [0.42, 0.41, 0.4];
-/** A fixed appliance: darker than STEEL_COLOR, so a toestel in a run is told
- *  from a column standing in it. */
-export const APPLIANCE_COLOR: Rgb = [0.52, 0.55, 0.58];
-/** Sanitary fixtures: porcelain, the lightest thing in the scene. */
-export const SANITARY_COLOR: Rgb = [0.97, 0.97, 0.96];
-/** Mattresses and upholstery. */
-export const SOFT_COLOR: Rgb = [0.68, 0.7, 0.74];
-
-/** What each fit-out material is drawn in. core/furnishing3d.ts says what a
- *  part is made of; the colour is this module's, as it is for everything else
- *  in the scene. */
-const FITOUT_COLORS: Record<FitoutMaterial, Rgb> = {
-  casework: CASEWORK_COLOR,
-  worktop: WORKTOP_COLOR,
-  appliance: APPLIANCE_COLOR,
-  sanitary: SANITARY_COLOR,
-  soft: SOFT_COLOR,
-};
+const PATTERN_INDEX = Object.fromEntries(PATTERN_IDS.map((n, i) => [n, i])) as Record<PatternId, number>;
 
 /** Door leaf thickness, mm. */
 const DOOR_LEAF_MM = 40;
@@ -150,10 +121,40 @@ const AREA_EPS = 1e-6;
  */
 const EDGE_TURN_COS = Math.cos(Math.PI / 6);
 
+/** Fraction each pen colour is blended toward white in phase mode, so flat shading stays readable. */
+export const PHASE_LIGHTEN = 0.35;
+/** An element stating no pen, or the default ink, in phase mode: light neutral grey. */
+export const PHASE_EXISTING_COLOR: readonly [number, number, number] = [0.8, 0.8, 0.8];
+/** The "remove" ink in phase mode. Not lightened: it is drawn at the glass alpha, which already pales it. */
+export const PHASE_REMOVE_COLOR: readonly [number, number, number] = [1.0, 0.45, 0.0];
+
+const PHASE_HEX = /^#[0-9a-fA-F]{6}$/;
+const INK_HEX = (id: string): string => (INKS.find(i => i.id === id)?.hex ?? "").toLowerCase();
+
+/**
+ * The phase-mode look of one pen: the pen colour lightened by PHASE_LIGHTEN, no
+ * pattern. `remove` marks the "remove" ink, whose geometry is emitted into the
+ * translucent glass soup (drawn at the renderer's fixed glass alpha) and takes
+ * PHASE_REMOVE_COLOR instead of the lightened pen.
+ * Absent, invalid or default pens read as existing.
+ */
+export function phasePen(hex: string | undefined): { look: Appearance; remove: boolean } {
+  const flat = (color: readonly [number, number, number]): Appearance => ({ color, roughness: 0.9, pattern: "none" });
+  const rgb = hex && PHASE_HEX.test(hex) ? parseHexColor(hex) : null;
+  if (!hex || !rgb) return { look: flat(PHASE_EXISTING_COLOR), remove: false };
+  if (hex.toLowerCase() === INK_HEX("remove")) return { look: flat(PHASE_REMOVE_COLOR), remove: true };
+  const k = PHASE_LIGHTEN;
+  const light: [number, number, number] = [rgb[0] + (1 - rgb[0]) * k, rgb[1] + (1 - rgb[1]) * k, rgb[2] + (1 - rgb[2]) * k];
+  return { look: flat(light), remove: false };
+}
+
 interface MeshAcc {
   positions: number[]; normals: number[]; colors: number[]; edges: number[];
   glassPositions: number[]; glassNormals: number[]; glassColors: number[];
   parts: number[]; glassParts: number[];
+  surfaces: number[]; glassSurfaces: number[];
+  /** Texture id to its layer in `Mesh3D.textures`. */
+  layers: Map<Id, number>;
 }
 
 /**
@@ -170,11 +171,25 @@ interface MeshAcc {
  * toggle. A hidden storey also withholds its plate, so the storey below is
  * shown unseated (see PLATE_SEAT_MM) and open from above.
  */
-export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Mesh3D {
+export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>, opts?: { phase?: boolean }): Mesh3D {
+  const phase = opts?.phase === true;
+  // Phase mode: colour by pen instead of appearance. `sty` swaps in the pen's
+  // look and moves a "remove" element into the glass soup; parts stay truthful.
+  const sty = (look: Appearance, glass: boolean, pen: string | undefined): [Appearance, boolean] => {
+    if (!phase) return [look, glass];
+    const p = phasePen(pen);
+    return [p.look, glass || p.remove];
+  };
+  const noPen = (look: Appearance): Appearance => (phase ? phasePen(undefined).look : look);
+  const textures = texturesOf(doc)
+    .filter(x => Number.isInteger(x.widthMm) && x.widthMm > 0 && Number.isInteger(x.heightMm) && x.heightMm > 0)
+    .slice(0, TEXTURE_LIMIT);
   const acc: MeshAcc = {
     positions: [], normals: [], colors: [], edges: [],
     glassPositions: [], glassNormals: [], glassColors: [],
     parts: [], glassParts: [],
+    surfaces: [], glassSurfaces: [],
+    layers: new Map(textures.map((x, i) => [x.id, i] as const)),
   };
   const solids: (FloorSolids | null)[] = doc.floors.map((_, i) => floorSolids(doc, i));
 
@@ -197,9 +212,10 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
     // Structure stands on its own: a column under a vide or a beam across an
     // open hall needs no wall on the storey, so it is emitted before the
     // wall-and-slab geometry that floorSolids() gates on walls.
-    for (const s of structureSolids(f)) {
-      const color = s.material === "steel" ? STEEL_COLOR : s.material === "timber" ? DOOR_COLOR : WALL_COLOR;
-      emitPrism(acc, s.poly, [], elev + s.z0, elev + seat(s.z1), color, "structure");
+    const structure = structureOf(f);
+    for (const [si, s] of structureSolids(f).entries()) {
+      const look = resolveAppearance({ part: "wall", ...(s.material ? { material: s.material } : {}) }, structure[si]?.appearance);
+      emitPrism(acc, s.poly, [], elev + s.z0, elev + seat(s.z1), sty(look, false, structure[si]?.color)[0], "structure", sty(look, false, structure[si]?.color)[1]);
     }
 
     // A column's casing (Column.casing), the same flat massing style as
@@ -211,18 +227,22 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
     // kind, since 3D massing does not distinguish board kinds the way the
     // plan's own fills do.
     const casingWalls = [...resolveFloor(f).walls.values()];
-    for (const el of structureOf(f)) {
+    for (const el of structure) {
       if (el.kind !== "column" || !el.casing) continue;
       const z1 = columnHeight(f, el);
       for (const piece of columnCasingPieces(el, casingWalls)) {
-        emitPrism(acc, piece.poly, [], elev, elev + seat(z1), piece.kind === "frame" ? FRAME_COLOR : BOARD_COLOR, "casing");
+        const look = piece.kind === "frame"
+          ? defaultAppearance({ part: "frame", material: el.casing.frame?.material ?? "timber" })
+          : defaultAppearance({ part: "board", kind: piece.kind });
+        emitPrism(acc, piece.poly, [], elev, elev + seat(z1), sty(look, false, el.color)[0], "casing", sty(look, false, el.color)[1]);
       }
     }
 
     // A deck stands on its own for the same reason: a vliering is built into a
     // storey whether or not its walls are drawn. Timber, like a door leaf.
     for (const dk of decksOf(f)) {
-      for (const s of deckSolids(dk, deckJoistLayout(f, dk))) emitPrism(acc, s.poly, [], elev + s.z0, elev + s.z1, DOOR_COLOR, "deck");
+      const look = resolveAppearance({ part: "deck" }, dk.appearance);
+      for (const s of deckSolids(dk, deckJoistLayout(f, dk))) emitPrism(acc, s.poly, [], elev + s.z0, elev + s.z1, sty(look, false, dk.color)[0], "deck", sty(look, false, dk.color)[1]);
     }
 
     // The inrichting stands on its own for the same reason: each piece as the
@@ -232,14 +252,16 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
     for (const fn of furnishingsOf(f)) {
       for (const part of furnishingSolids(fn)) {
         emitPrism(acc, part.poly, part.holes ?? [], elev + part.z0, elev + part.z1,
-          FITOUT_COLORS[part.material], "fitout");
+          sty(resolveAppearance({ part: "fitout", material: part.material }, fn.appearance), false, fn.color)[0], "fitout", sty(resolveAppearance({ part: "fitout", material: part.material }, fn.appearance), false, fn.color)[1]);
       }
     }
     // Roof planes stand on their own for the same reason as structure and
     // decks: authored independently of the wall graph (model/roof.ts), a
     // plane can cover a storey with no walls at all.
+    const planes = new Map(roofPlanesOf(f).map(pl => [pl.id, pl] as const));
     for (const rs of roofSlabSolids(f)) {
-      emitRoofSlab(acc, rs.poly, rs.bottom.map(h => elev + h), rs.top.map(h => elev + h), ROOF_COLOR, "roof");
+      const look = resolveAppearance({ part: "roof" }, planes.get(rs.planeId)?.appearance);
+      emitRoofSlab(acc, rs.poly, rs.bottom.map(h => elev + h), rs.top.map(h => elev + h), noPen(look), "roof");
     }
     if (!fs) continue;
 
@@ -249,25 +271,29 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
     const axes = wallAxes(f);
     const cuts = stairCuts(axes, stepLists);
 
-    const matById = new Map(f.walls.map(wl => [wl.id, wl.material] as const));
+    const wallById = new Map(f.walls.map(wl => [wl.id, wl] as const));
     for (const w of fs.walls) {
       const ax = axes.get(w.wallId);
       const spans = cuts.get(w.wallId);
       // An infill wall keeps its 2D reading: a glazed body is glass and drawn
       // translucent, a sandwich body the warm panel band; the posts carrying
       // either are solid frame.
-      const mat = matById.get(w.wallId);
-      const bodyColor = mat === "glass" ? GLASS_COLOR : mat === "sandwich" ? PANEL_COLOR : WALL_COLOR;
-      const glass = mat === "glass";
+      const wallRec = wallById.get(w.wallId);
+      const mat = wallRec?.material;
+      const [bodyLook, glass] = sty(
+        resolveAppearance({ part: "wall", ...(mat ? { material: mat } : {}) }, wallRec?.appearance),
+        mat === "glass", wallRec?.color);
+      const [postLook] = sty(defaultAppearance({ part: "post" }), false, wallRec?.color);
+      const skinGlass = phase && phasePen(wallRec?.color).remove;
       for (const p of w.body) {
         // A sloped piece is seated per vertex: only the vertices that would
         // actually meet a plate above are pulled down, so a gable that only
         // touches the roof near its peak keeps its eaves at their own height.
         const top = p.top?.map(seat);
         const z1 = top ? Math.max(...top) : seat(p.z1);
-        emitWallPrism(acc, p.poly, elev, p.z0, z1, ax, spans, bodyColor, "wall", glass, top);
+        emitWallPrism(acc, p.poly, elev, p.z0, z1, ax, spans, bodyLook, "wall", glass, top);
       }
-      for (const p of w.posts) emitWallPrism(acc, p.poly, elev, p.z0, seat(p.z1), ax, spans, WALL_COLOR, "post", false);
+      for (const p of w.posts) emitWallPrism(acc, p.poly, elev, p.z0, seat(p.z1), ax, spans, postLook, "post", skinGlass);
       // A face's board stack and its voorzetwand's own frame zone: massing
       // outside the structural body, cut by the same stair shadow and seated
       // against the same plate above, one flat colour per part (no per-board
@@ -275,13 +301,13 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
       for (const p of w.buildUp) {
         const top = p.top?.map(seat);
         const z1 = top ? Math.max(...top) : seat(p.z1);
-        emitWallPrism(acc, p.poly, elev, p.z0, z1, ax, spans, p.part === "frame" ? FRAME_COLOR : BOARD_COLOR, p.part === "frame" ? "frame" : "board", false, top);
+        emitWallPrism(acc, p.poly, elev, p.z0, z1, ax, spans, sty(buildUpLook(wallRec, p), false, wallRec?.color)[0], p.part === "frame" ? "frame" : "board", skinGlass, top);
       }
       // The cladding: same cut and seat as the build-up, one flat colour.
       for (const p of w.facade) {
         const top = p.top?.map(seat);
         const z1 = top ? Math.max(...top) : seat(p.z1);
-        emitWallPrism(acc, p.poly, elev, p.z0, z1, ax, spans, FACADE_COLOR, "facade", false, top);
+        emitWallPrism(acc, p.poly, elev, p.z0, z1, ax, spans, sty(resolveAppearance({ part: "facade" }, wallRec?.facadeAppearance), false, wallRec?.color)[0], "facade", skinGlass, top);
       }
       // The resolved pieces are the solid intervals BETWEEN openings, cut at
       // full wall height. The band below a sill and the band above a head put
@@ -296,51 +322,61 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
         // same way it lowers the wall around them.
         const lid = ax && spans ? spanTopAt(spans, midT(ax, o.poly)) : Infinity;
         const sillTop = Math.min(o.z0, lid);
-        if (sillTop > H_EPS) emitPrism(acc, o.poly, [], elev, elev + sillTop, bodyColor, "wall", glass);
+        if (sillTop > H_EPS) emitPrism(acc, o.poly, [], elev, elev + sillTop, bodyLook, "wall", glass);
         if (o.above) {
           for (const p of o.above) {
             const top = p.top?.map(z => seat(Math.min(z, lid)));
             const z1 = top ? Math.max(...top) : seat(Math.min(p.z1, lid));
-            if (z1 > o.z1 + H_EPS) emitWallPrism(acc, p.poly, elev, o.z1, z1, ax, spans, bodyColor, "wall", glass, top);
+            if (z1 > o.z1 + H_EPS) emitWallPrism(acc, p.poly, elev, o.z1, z1, ax, spans, bodyLook, "wall", glass, top);
           }
         } else if (o.z1 < h - H_EPS && lid > o.z1) {
-          emitPrism(acc, o.poly, [], elev + o.z1, elev + Math.min(h, lid), bodyColor, "wall", glass);
+          emitPrism(acc, o.poly, [], elev + o.z1, elev + Math.min(h, lid), bodyLook, "wall", glass);
         }
         // What fills the hole: a leaf for a door, a pane for a window,
         // nothing for a passage. A thin slice on the centerline, so it reads
         // through the opening from both sides.
         if (o.kind !== "passage") {
+          const openingLook = wallRec?.openings.find(op => op.id === o.openingId)?.appearance;
           const slice = fillerQuad(o.poly, o.kind === "door" ? DOOR_LEAF_MM : GLASS_MM);
           const fillTop = Math.min(o.z1, lid);
           if (o.glazedLeaves) {
             const pane = fillerQuad(o.poly, GLASS_MM);
             if (slice && pane && fillTop > o.z0 + H_EPS) {
               emitGlazedLeaves(acc, slice, pane, o.glazedLeaves, elev + o.z0, elev + fillTop,
-                o.leafMaterial === "steel" ? STEEL_COLOR : DOOR_COLOR);
+                sty(leafLook(o.leafMaterial, openingLook), false, wallRec?.color)[0]);
             }
           } else if (slice && fillTop > o.z0 + H_EPS) {
+            const leaf = o.kind === "door";
             emitPrism(acc, slice, [], elev + o.z0, elev + fillTop,
-              o.kind === "door" ? (o.leafMaterial === "steel" ? STEEL_COLOR : DOOR_COLOR) : GLASS_COLOR,
-              o.kind === "door" ? "door" : "glass", o.kind === "window");
+              leaf ? sty(leafLook(o.leafMaterial, openingLook), false, wallRec?.color)[0] : defaultAppearance({ part: "glass" }),
+              leaf ? "door" : "glass", o.kind === "window" || (leaf && skinGlass));
           }
         }
       }
     }
-    for (const j of fs.junctions) {
-      const color = j.material === "glass" ? GLASS_COLOR : j.material === "sandwich" ? PANEL_COLOR : WALL_COLOR;
-      emitPrism(acc, j.poly, [], elev + j.z0, elev + seat(j.z1), color, "junction", j.material === "glass");
+    const junctionWalls = phase ? resolveFloor(f).junctions : [];
+    for (const [ji, j] of fs.junctions.entries()) {
+      // A junction belongs to no wall: it takes the pen its meeting walls share, else none.
+      const pens = new Set((junctionWalls[ji]?.walls ?? []).map(id => wallById.get(id)?.color?.toLowerCase() ?? ""));
+      const jPen = pens.size === 1 ? [...pens][0] || undefined : undefined;
+      const look0 = j.material === "glass" || j.material === "sandwich"
+        ? defaultAppearance({ part: "wall", material: j.material })
+        : defaultAppearance({ part: "junction" });
+      const [look, jGlass] = sty(look0, j.material === "glass", jPen);
+      emitPrism(acc, j.poly, [], elev + j.z0, elev + seat(j.z1), look, "junction", jGlass);
     }
 
     if (fs.slab) {
-      emitPrism(acc, fs.slab.outline, fs.slab.holes, elev + fs.slab.z0, elev + fs.slab.z1, SLAB_COLOR, "slab");
+      emitPrism(acc, fs.slab.outline, fs.slab.holes, elev + fs.slab.z0, elev + fs.slab.z1, noPen(defaultAppearance({ part: "slab" })), "slab");
     }
     if (fs.terrace) {
-      emitPrism(acc, fs.terrace.outline, fs.terrace.holes, elev + fs.terrace.z0, elev + fs.terrace.z1, SLAB_COLOR, "terrace");
+      emitPrism(acc, fs.terrace.outline, fs.terrace.holes, elev + fs.terrace.z0, elev + fs.terrace.z1, noPen(defaultAppearance({ part: "terrace" })), "terrace");
     }
 
-    for (const steps of stepLists) {
+    for (const [si, steps] of stepLists.entries()) {
+      const look = resolveAppearance({ part: "stair" }, stairsOf(f)[si]?.appearance);
       for (const step of steps) {
-        emitPrism(acc, step.poly, [], elev + step.z0, elev + seat(step.z1), STAIR_COLOR, "stair");
+        emitPrism(acc, step.poly, [], elev + step.z0, elev + seat(step.z1), sty(look, false, stairsOf(f)[si]?.color)[0], "stair", sty(look, false, stairsOf(f)[si]?.color)[1]);
       }
     }
   }
@@ -355,6 +391,9 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
     glassColors: new Float32Array(acc.glassColors),
     parts: new Uint8Array(acc.parts),
     glassParts: new Uint8Array(acc.glassParts),
+    surfaces: new Float32Array(acc.surfaces),
+    glassSurfaces: new Float32Array(acc.glassSurfaces),
+    textures,
     bounds: boundsOf(acc.positions, acc.glassPositions),
   };
 }
@@ -376,7 +415,7 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>): Me
  * since the flat-topped case (`top` absent) is exactly the prior code path.
  */
 function emitPrism(
-  acc: MeshAcc, footprint: Vec[], holes: Vec[][], z0: number, z1: number, color: Rgb, part: MeshPart, glass = false,
+  acc: MeshAcc, footprint: Vec[], holes: Vec[][], z0: number, z1: number, look: Appearance, part: MeshPart, glass = false,
   top?: number[],
 ): void {
   if (!(z1 - z0 > H_EPS)) return;
@@ -409,8 +448,8 @@ function emitPrism(
     const za = outerTop && holeRings.length === 0 ? outerTop[ia]! : z1;
     const zb = outerTop && holeRings.length === 0 ? outerTop[ib]! : z1;
     const zc = outerTop && holeRings.length === 0 ? outerTop[ic]! : z1;
-    pushTri(acc, a.x, a.y, za, b.x, b.y, zb, c.x, c.y, zc, color, part, glass);
-    pushTri(acc, a.x, a.y, z0, c.x, c.y, z0, b.x, b.y, z0, color, part, glass);
+    pushTri(acc, a.x, a.y, za, b.x, b.y, zb, c.x, c.y, zc, look, part, glass);
+    pushTri(acc, a.x, a.y, z0, c.x, c.y, z0, b.x, b.y, z0, look, part, glass);
   }
 
   // Sides and outline edges. With the outer ring positive and hole rings
@@ -423,8 +462,8 @@ function emitPrism(
     for (let i = 0; i < n; i++) {
       const p = ring[i]!, q = ring[(i + 1) % n]!;
       const zp = rTop ? rTop[i]! : z1, zq = rTop ? rTop[(i + 1) % n]! : z1;
-      pushTri(acc, p.x, p.y, z0, q.x, q.y, z0, q.x, q.y, zq, color, part, glass);
-      pushTri(acc, p.x, p.y, z0, q.x, q.y, zq, p.x, p.y, zp, color, part, glass);
+      pushTri(acc, p.x, p.y, z0, q.x, q.y, z0, q.x, q.y, zq, look, part, glass);
+      pushTri(acc, p.x, p.y, z0, q.x, q.y, zq, p.x, p.y, zp, look, part, glass);
       acc.edges.push(p.x, p.y, z0, q.x, q.y, z0);
       acc.edges.push(p.x, p.y, zp, q.x, q.y, zq);
     }
@@ -445,7 +484,7 @@ function emitPrism(
  * read at both heights (reversed winding for the bottom, which faces -z);
  * sides and outline edges follow the same per-edge shape emitPrism() uses.
  */
-function emitRoofSlab(acc: MeshAcc, footprint: Vec[], bottomIn: number[], topIn: number[], color: Rgb, part: MeshPart): void {
+function emitRoofSlab(acc: MeshAcc, footprint: Vec[], bottomIn: number[], topIn: number[], look: Appearance, part: MeshPart): void {
   const ring: Vec[] = [], bottom: number[] = [], top: number[] = [];
   for (let i = 0; i < footprint.length; i++) {
     const p = footprint[i]!;
@@ -460,16 +499,16 @@ function emitRoofSlab(acc: MeshAcc, footprint: Vec[], bottomIn: number[], topIn:
   for (let i = 0; i + 2 < tris.length; i += 3) {
     const ia = tris[i]!, ib = tris[i + 1]!, ic = tris[i + 2]!;
     const a = ring[ia]!, b = ring[ib]!, c = ring[ic]!;
-    pushTri(acc, a.x, a.y, top[ia]!, b.x, b.y, top[ib]!, c.x, c.y, top[ic]!, color, part);
-    pushTri(acc, a.x, a.y, bottom[ia]!, c.x, c.y, bottom[ic]!, b.x, b.y, bottom[ib]!, color, part);
+    pushTri(acc, a.x, a.y, top[ia]!, b.x, b.y, top[ib]!, c.x, c.y, top[ic]!, look, part);
+    pushTri(acc, a.x, a.y, bottom[ia]!, c.x, c.y, bottom[ic]!, b.x, b.y, bottom[ib]!, look, part);
   }
 
   const n = ring.length;
   for (let i = 0; i < n; i++) {
     const p = ring[i]!, q = ring[(i + 1) % n]!;
     const pb = bottom[i]!, qb = bottom[(i + 1) % n]!, pt = top[i]!, qt = top[(i + 1) % n]!;
-    pushTri(acc, p.x, p.y, pb, q.x, q.y, qb, q.x, q.y, qt, color, part);
-    pushTri(acc, p.x, p.y, pb, q.x, q.y, qt, p.x, p.y, pt, color, part);
+    pushTri(acc, p.x, p.y, pb, q.x, q.y, qb, q.x, q.y, qt, look, part);
+    pushTri(acc, p.x, p.y, pb, q.x, q.y, qt, p.x, p.y, pt, look, part);
     acc.edges.push(p.x, p.y, pb, q.x, q.y, qb);
     acc.edges.push(p.x, p.y, pt, q.x, q.y, qt);
   }
@@ -487,7 +526,7 @@ function pushTri(
   ax: number, ay: number, az: number,
   bx: number, by: number, bz: number,
   cx: number, cy: number, cz: number,
-  color: Rgb, part: MeshPart, glass = false,
+  look: Appearance, part: MeshPart, glass = false,
 ): void {
   const ux = bx - ax, uy = by - ay, uz = bz - az;
   const vx = cx - ax, vy = cy - ay, vz = cz - az;
@@ -497,12 +536,21 @@ function pushTri(
   const pos = glass ? acc.glassPositions : acc.positions;
   const nrm = glass ? acc.glassNormals : acc.normals;
   const col = glass ? acc.glassColors : acc.colors;
+  const srf = glass ? acc.glassSurfaces : acc.surfaces;
   const prt = glass ? acc.glassParts : acc.parts;
+  // A held texture replaces pattern and colour: the image is the albedo.
+  const layer = look.texture === undefined ? undefined : acc.layers.get(look.texture);
   pos.push(ax, ay, az, bx, by, bz, cx, cy, cz);
   for (let k = 0; k < 3; k++) {
     prt.push(PART_INDEX[part]);
     nrm.push(nx / l, ny / l, nz / l);
-    col.push(color[0], color[1], color[2]);
+    if (layer === undefined) {
+      col.push(look.color[0], look.color[1], look.color[2]);
+      srf.push(look.roughness, PATTERN_INDEX[look.pattern], 0, -1);
+    } else {
+      col.push(1, 1, 1);
+      srf.push(look.roughness, PATTERN_INDEX.none, 0, layer);
+    }
   }
 }
 
@@ -524,14 +572,37 @@ function fillerQuad(poly: Vec[], t: number): Vec[] | null {
   ];
 }
 
+/**
+ * A door leaf's look: timber by default, steel where the leaf is steel, with the
+ * opening's own override applied over either.
+ */
+function leafLook(material: DoorLeafMaterial | undefined, override: AppearanceOverride | undefined): Appearance {
+  return material === "steel"
+    ? resolveAppearance({ part: "frame", material: "steel" }, override)
+    : resolveAppearance({ part: "door" }, override);
+}
+
+/**
+ * A wall's build-up piece: the frame zone by its material, a board by its kind.
+ * The outermost board of a face also takes that face's authored appearance.
+ */
+function buildUpLook(w: Wall | undefined, p: BuildUpPrism): Appearance {
+  if (p.part === "frame") {
+    const side = w?.buildUp?.[p.side];
+    return defaultAppearance({ part: "frame", material: side?.frame?.material ?? "timber" });
+  }
+  const key = { part: "board", kind: p.kind ?? "gypsum" } as const;
+  return p.outermost ? resolveAppearance(key, w?.buildUp?.[p.side]?.appearance) : defaultAppearance(key);
+}
+
 /** A glazed door's leaves: rim in the leaf colour, glass pane (core/solids.ts). */
 function emitGlazedLeaves(
   acc: MeshAcc, leaf: Vec[], pane: Vec[], leaves: ReadonlyArray<{ s0: number; s1: number }>, z0: number, z1: number,
-  rimColor: Rgb,
+  rimLook: Appearance,
 ): void {
   const parts = glazedLeafParts(leaf, pane, leaves, z0, z1);
-  for (const p of parts.frame) emitPrism(acc, p.poly, [], p.z0, p.z1, rimColor, "door");
-  for (const p of parts.glass) emitPrism(acc, p.poly, [], p.z0, p.z1, GLASS_COLOR, "glass", true);
+  for (const p of parts.frame) emitPrism(acc, p.poly, [], p.z0, p.z1, rimLook, "door");
+  for (const p of parts.glass) emitPrism(acc, p.poly, [], p.z0, p.z1, defaultAppearance({ part: "glass" }), "glass", true);
 }
 
 /** A wall's frame for the stair cuts: origin at node a, unit chord direction,
@@ -615,11 +686,11 @@ const CUT_EPS = 0.01;
  */
 function emitWallPrism(
   acc: MeshAcc, poly: Vec[], elev: number, z0: number, z1: number,
-  ax: WallAxis | undefined, spans: CutSpan[] | undefined, color: Rgb, part: MeshPart, glass: boolean,
+  ax: WallAxis | undefined, spans: CutSpan[] | undefined, look: Appearance, part: MeshPart, glass: boolean,
   top?: number[],
 ): void {
   if (!ax || !spans || spans.length === 0) {
-    emitPrism(acc, poly, [], elev + z0, elev + z1, color, part, glass, top?.map(z => elev + z));
+    emitPrism(acc, poly, [], elev + z0, elev + z1, look, part, glass, top?.map(z => elev + z));
     return;
   }
   let p0 = Infinity, p1 = -Infinity;
@@ -651,7 +722,7 @@ function emitWallPrism(
       piece = r.poly; partTop = r.top;
     }
     const cappedTop = partTop.map(h => Math.min(h, cap));
-    emitPrism(acc, piece, [], elev + z0, elev + Math.max(z0, ...cappedTop), color, part, glass,
+    emitPrism(acc, piece, [], elev + z0, elev + Math.max(z0, ...cappedTop), look, part, glass,
       top ? cappedTop.map(h => elev + h) : undefined);
   }
 }

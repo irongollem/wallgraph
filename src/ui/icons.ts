@@ -28,7 +28,7 @@ export type IconName =
   | "select" | "wall" | "door" | "window" | "passage" | "stair" | "structure"
   | "cabinet" | "route" | "zoom" | "measure" | "rename"
   | "shapeLine" | "shapeRect" | "shapeCircle" | "shapePoly"
-  | "gridSnap" | "angleSnap" | "dimensions" | "view3d"
+  | "gridSnap" | "angleSnap" | "dimensions" | "view3d" | "phase3d"
   | "undo" | "redo" | "dots" | "grip" | "chevron" | "plus" | "minus" | "close"
   | "trash" | "search" | "floors" | "backspace" | "confirm"
   | "docNew" | "docDemo" | "docOpen" | "docSave" | "docPng" | "docDxf" | "docSvg" | "docCsv" | "docCopy" | "docPaste"
@@ -103,6 +103,11 @@ const ICONS: Record<IconName, Shape[]> = {
   view3d: [
     P("M10 3.2 L16 6.6 V13.4 L10 16.8 L4 13.4 V6.6 Z"),
     P("M4 6.6 L10 10 L16 6.6 M10 10 V16.8"),
+  ],
+  // Two overlapping volumes, one drawn solid and one dashed: existing and new work.
+  phase3d: [
+    P("M4 8 H11 V16 H4 Z"),
+    P("M9 4 H16 V12 H9 Z M9 4 L11 8"),
   ],
   undo: [P("M8.2 5.6 L4.2 9.6 L8.2 13.6 M4.2 9.6 H12.4 A4.2 4.2 0 0 1 12.4 18 H8.6")],
   redo: [P("M11.8 5.6 L15.8 9.6 L11.8 13.6 M15.8 9.6 H7.6 A4.2 4.2 0 0 0 7.6 18 H11.4")],

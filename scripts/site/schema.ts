@@ -4,6 +4,7 @@ import { SYMBOL_TYPES } from "../../src/render/symbols";
 import { STAIR_KINDS, STAIR_USES } from "../../src/model/stair";
 import { STAIR_FIGURES } from "../../src/core/stair";
 import { COLUMN_SHAPES, STRUCTURE_LIMITS } from "../../src/model/structure";
+import { PATTERN_IDS } from "../../src/model/appearance";
 import { WALL_MATERIALS, BOARD_KINDS, MAX_BOARDS } from "../../src/model/doc";
 import {
   DISCIPLINES, ROUTE_KINDS, ROUTE_WATERS, ROUTE_HEATS, ROUTE_VENTS, ROUTE_INSTALLATIONS,
@@ -92,6 +93,11 @@ export function planSchema(siteUrl: string): JsonSchema {
         description:
           "Elevation of the ground floor (floors[0]) above project zero (Peil), mm. " +
           "May be negative. Absent means 0.",
+      },
+      textures: {
+        type: "array",
+        items: { $ref: "#/$defs/texture" },
+        description: "Images an appearance may tile over a surface. Absent means none.",
       },
       energy: {
         type: "object",
@@ -443,6 +449,8 @@ export function planSchema(siteUrl: string): JsonSchema {
               "than derived from which side the rooms are on, because that probe flips as soon " +
               "as a wall is redrawn.",
           },
+          facadeAppearance: { $ref: "#/$defs/appearance" },
+          appearance: { $ref: "#/$defs/appearance" },
           color: {
             type: "string", pattern: "^#[0-9a-fA-F]{6}$",
             description:
@@ -540,6 +548,7 @@ export function planSchema(siteUrl: string): JsonSchema {
             enum: ["honeycomb", "tubularChipboard", "solidTimber", "steel"],
             description: "Construction of the door leaf. Doors only; absent means not stated.",
           },
+          appearance: { $ref: "#/$defs/appearance" },
           sillHeight: mm(
             "mm above the floor. Only meaningful for a window; absent means 900 " +
             "(borstwering) for a window, 0 for a door or passage.",
@@ -578,6 +587,40 @@ export function planSchema(siteUrl: string): JsonSchema {
               "above the opening. Added to the wall's own self-weight above the head. " +
               "Absent means none.",
           },
+        },
+      },
+      appearance: {
+        type: "object",
+        description:
+          "An authored 3D look for one element. Absent fields fall back to the built-in " +
+          "default for what the element is made of; separate from the 2D pen colour.",
+        additionalProperties: false,
+        properties: {
+          color: { type: "string", pattern: "^#[0-9a-fA-F]{6}$", description: "Surface colour as #rrggbb." },
+          pattern: { enum: [...PATTERN_IDS], description: "Surface pattern." },
+          texture: {
+            $ref: "#/$defs/id",
+            description:
+              "The id of an entry in the plan's textures. It replaces the pattern and is not " +
+              "tinted; an id the plan does not hold falls back to colour and pattern.",
+          },
+        },
+      },
+      texture: {
+        type: "object",
+        description:
+          "An image tiled over a surface at its real size. Left out of share links, like an underlay.",
+        required: ["id", "name", "dataUrl", "widthMm", "heightMm"],
+        additionalProperties: false,
+        properties: {
+          id: { $ref: "#/$defs/id" },
+          name: { type: "string", description: "Label shown in the editor." },
+          dataUrl: {
+            type: "string", pattern: "^data:image/",
+            description: "The image, downscaled to at most 512 px on the long side and stored as JPEG.",
+          },
+          widthMm: { type: "integer", minimum: 1, description: "Real-world width one image covers, mm." },
+          heightMm: { type: "integer", minimum: 1, description: "Real-world height one image covers, mm." },
         },
       },
       profilePoint: {
@@ -621,6 +664,7 @@ export function planSchema(siteUrl: string): JsonSchema {
               "face; a voorzetwand stopped either side of a column it cases separately, " +
               "or a finish that is not full length, states this instead.",
           },
+          appearance: { $ref: "#/$defs/appearance" },
         },
       },
       faceRun: {
@@ -754,6 +798,7 @@ export function planSchema(siteUrl: string): JsonSchema {
             description: "Variable load, N/m². Absent means not stated.",
           },
           label: { type: "string", description: "What the deck is called on the drawing. Absent means the plain word." },
+          appearance: { $ref: "#/$defs/appearance" },
           color: {
             type: "string", pattern: "^#[0-9a-fA-F]{6}$",
             description: "Pen colour; absent means the plan's default ink.",
@@ -789,6 +834,7 @@ export function planSchema(siteUrl: string): JsonSchema {
             type: "integer", exclusiveMinimum: 0, maximum: 2000,
             description: "Structural roof build-up thickness, mm, measured square to the plane. Absent means not stated; 200 is the reported placeholder.",
           },
+          appearance: { $ref: "#/$defs/appearance" },
         },
       },
       structural: {
@@ -826,6 +872,7 @@ export function planSchema(siteUrl: string): JsonSchema {
           },
           label: { type: "string", description: "Designation written on the drawing. Absent means none." },
           color: { type: "string", pattern: "^#[0-9a-fA-F]{6}$", description: "Pen colour; absent means the plan's default ink." },
+          appearance: { $ref: "#/$defs/appearance" },
           material: { enum: [...WALL_MATERIALS], description: "Absent means not stated." },
           casing: {
             type: "object",
@@ -875,6 +922,7 @@ export function planSchema(siteUrl: string): JsonSchema {
           },
           label: { type: "string", description: "Designation written on the drawing, e.g. \"HEA 200\". Absent means none." },
           color: { type: "string", pattern: "^#[0-9a-fA-F]{6}$", description: "Pen colour; absent means the plan's default ink." },
+          appearance: { $ref: "#/$defs/appearance" },
           material: { enum: [...WALL_MATERIALS], description: "Absent means not stated." },
           loadKNm: {
             type: "number",
@@ -901,6 +949,7 @@ export function planSchema(siteUrl: string): JsonSchema {
           postMm: { type: "integer", minimum: 0, maximum: STRUCTURE_LIMITS.post.max, description: "Post centres along the run, mm. 0 means no posts drawn." },
           label: { type: "string", description: "Designation written on the drawing. Absent means none." },
           color: { type: "string", pattern: "^#[0-9a-fA-F]{6}$", description: "Pen colour; absent means the plan's default ink." },
+          appearance: { $ref: "#/$defs/appearance" },
           material: { enum: [...WALL_MATERIALS], description: "Absent means not stated." },
         },
       },
@@ -1166,6 +1215,7 @@ export function planSchema(siteUrl: string): JsonSchema {
               "means 300.",
           },
           label: { type: "string", description: "What the piece is called on the drawing." },
+          appearance: { $ref: "#/$defs/appearance" },
           color: {
             type: "string", pattern: "^#[0-9a-fA-F]{6}$",
             description: "Pen colour; absent means the plan's default ink.",
@@ -1283,6 +1333,7 @@ export function planSchema(siteUrl: string): JsonSchema {
             type: "string", pattern: "^#[0-9a-fA-F]{6}$",
             description: "Pen colour; absent means the plan's default ink.",
           },
+          appearance: { $ref: "#/$defs/appearance" },
         },
       },
       symbol: {

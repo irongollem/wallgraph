@@ -13,6 +13,7 @@
 import { Store } from "../model/store";
 import { t } from "../i18n";
 import type { PaneRows } from "./stairs";
+import { renderAppearanceRows, writeOverride } from "./appearance";
 import { sqm } from "./walls";
 import { wallLength } from "../model/ops";
 import type { Floor } from "../model/doc";
@@ -53,7 +54,7 @@ function summarize(s: RoofSuggestion): string {
   return t("roof.suggestSummaryMixed", { n });
 }
 
-type RoofRows = Pick<PaneRows, "secHead" | "numRow" | "checkRow" | "infoRow" | "noteRow" | "warnRow" | "btnRow">;
+type RoofRows = Pick<PaneRows, "secHead" | "numRow" | "checkRow" | "infoRow" | "noteRow" | "warnRow" | "btnRow" | "appearanceRow">;
 
 /**
  * No planes yet: the suggestion (once asked for) plus the three ways to
@@ -115,6 +116,11 @@ export function renderRoof(rows: RoofRows, store: Store, floor: Floor, proposal:
       rows.noteRow(t("roof.thicknessNote", { mm: ROOF_THICKNESS_DEFAULT_MM }));
     }
     rows.infoRow(t("roof.area"), sqm(roofPlaneArea(plane)));
+    renderAppearanceRows(rows, t("appearance.roof"), { part: "roof" }, plane.appearance,
+      next => store.mutate(d => {
+        const p = roofPlanesOf(store.floorOf(d)).find(x => x.id === plane.id);
+        if (p) writeOverride(p, "appearance", next);
+      }, "appearance:" + plane.id));
     rows.btnRow(t("roof.deletePlane"), () => store.mutate(d => {
       const f = store.floorOf(d);
       f.roofPlanes = roofPlanesOf(f).filter(x => x.id !== plane.id);

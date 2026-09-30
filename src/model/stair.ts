@@ -29,6 +29,7 @@
 // descends from this storey is the same object turned around, so there is no
 // direction flag to disagree with the geometry.
 import type { Id } from "./doc";
+import type { AppearanceOverride } from "./appearance";
 
 /**
  * Anchor convention, shared with the symbol library so one hit-test and one
@@ -121,6 +122,8 @@ export interface Stair {
   use?: StairUse;
   /** Pen colour "#rrggbb"; absent means the plan's default ink. */
   color?: string;
+  /** 3D look; absent means the built-in default (model/appearance.ts). */
+  appearance?: AppearanceOverride;
 }
 
 /**

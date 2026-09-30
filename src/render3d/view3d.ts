@@ -7,6 +7,7 @@ import type { PlanDoc } from "../model/doc";
 import { buildSceneMesh, Mesh3D } from "./mesh";
 import { OrbitCamera } from "./camera";
 import { GLRenderer } from "./gl";
+import { sunDirection } from "./sun";
 
 /** Orbit speed: radians of yaw/pitch per pixel of drag. */
 const ORBIT_RAD_PER_PX = 0.008;
@@ -31,6 +32,14 @@ interface Pointer {
   moved: boolean;
 }
 
+export interface View3DSnapshot {
+  camera: OrbitCamera;
+  hidden: ReadonlySet<string> | undefined;
+  phase: boolean;
+  cssWidth: number;
+  cssHeight: number;
+}
+
 export class View3D {
   /** The caller appends this; it fills its parent and starts hidden. */
   readonly canvas: HTMLCanvasElement;
@@ -39,6 +48,7 @@ export class View3D {
   private readonly revisionFn: () => number;
   private readonly insetsFn: (() => { top: number; right: number; bottom: number; left: number }) | null;
   private readonly hiddenFn: (() => ReadonlySet<string>) | null;
+  private readonly phaseFn: (() => boolean) | null;
   private readonly cam = new OrbitCamera();
   private renderer: GLRenderer | null = null;
   private mesh: Mesh3D | null = null;
@@ -59,11 +69,14 @@ export class View3D {
     /** Floor ids the 3D scene leaves out — the per-storey toggles. Part of
      *  the mesh cache key alongside the revision. */
     hidden?: () => ReadonlySet<string>;
+    /** Colour by construction phase instead of material; part of the mesh cache key. */
+    phase?: () => boolean;
   }) {
     this.docFn = opts.doc;
     this.revisionFn = opts.revision;
     this.insetsFn = opts.insets ?? null;
     this.hiddenFn = opts.hidden ?? null;
+    this.phaseFn = opts.phase ?? null;
     const c = document.createElement("canvas");
     this.canvas = c;
     c.style.position = "absolute";
@@ -97,7 +110,9 @@ export class View3D {
     if (!on) return true;
     if (!this.renderer) {
       try {
-        this.renderer = new GLRenderer(this.canvas, () => this.requestRender());
+        this.renderer = new GLRenderer(this.canvas, () => this.requestRender(), {
+          onTexturesReady: () => this.requestRender(),
+        });
       } catch {
         this.on = false;
         this.canvas.hidden = true;
@@ -132,6 +147,23 @@ export class View3D {
     this.requestRender();
   }
 
+  /** What an offscreen render needs: the camera, the mesh inputs and the on-screen size. */
+  snapshot(): View3DSnapshot {
+    const cam = new OrbitCamera();
+    cam.target = [...this.cam.target];
+    cam.distance = this.cam.distance;
+    cam.yaw = this.cam.yaw;
+    cam.pitch = this.cam.pitch;
+    const hidden = this.hiddenFn?.();
+    return {
+      camera: cam,
+      hidden: hidden ? new Set(hidden) : undefined,
+      phase: this.phaseFn?.() ?? false,
+      cssWidth: this.canvas.clientWidth,
+      cssHeight: this.canvas.clientHeight,
+    };
+  }
+
   /** Coalesced redraw; a no-op while inactive. The frame itself rebuilds the
    *  mesh when revision() moved, exactly like the 2D derived() cache. */
   requestRender(): void {
@@ -145,10 +177,11 @@ export class View3D {
 
   private refreshMesh(): Mesh3D {
     const hidden = this.hiddenFn?.();
-    const key = this.revisionFn() + ":" + (hidden ? [...hidden].sort().join("|") : "");
+    const phase = this.phaseFn?.() ?? false;
+    const key = this.revisionFn() + ":" + (hidden ? [...hidden].sort().join("|") : "") + ":" + (phase ? "phase" : "");
     if (!this.mesh || key !== this.meshKey) {
       this.meshKey = key;
-      this.mesh = buildSceneMesh(this.docFn(), hidden);
+      this.mesh = buildSceneMesh(this.docFn(), hidden, { phase });
       this.generation++;
     }
     return this.mesh;
@@ -169,8 +202,8 @@ export class View3D {
       this.canvas.style.height = rect.height + "px";
     }
     if (!this.renderer) return;
-    this.renderer.upload(this.refreshMesh(), this.generation);
-    this.renderer.draw(this.cam.viewProjection(w / h));
+    this.renderer.upload(this.refreshMesh(), this.generation, sunDirection(this.docFn().northDeg));
+    this.renderer.draw(this.cam.viewProjection(w / h), this.cam.eye());
   }
 
   // ── gestures ──────────────────────────────────────────────────────────────

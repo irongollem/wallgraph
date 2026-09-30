@@ -13,6 +13,7 @@
 // per-discipline vocabularies. `form` says which drawing and which of those
 // fields apply; FURNISHING_PRESETS names the ordinary combinations.
 import type { Id } from "./doc";
+import type { AppearanceOverride } from "./appearance";
 import type { ServicePort } from "./service";
 
 /**
@@ -220,6 +221,8 @@ export interface Furnishing {
   label?: string;
   /** Pen colour "#rrggbb"; absent means the plan's default ink. */
   color?: string;
+  /** 3D look; absent means the built-in default (model/appearance.ts). */
+  appearance?: AppearanceOverride;
 }
 
 /**

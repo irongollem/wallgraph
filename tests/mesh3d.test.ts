@@ -7,11 +7,12 @@ import { floorSolids, SLAB_DEFAULT_MM, GLAZED_RIM_MM } from "../src/core/solids"
 import {
   buildSceneMesh, Mesh3D, WALL_COLOR, SLAB_COLOR, STAIR_COLOR,
   DOOR_COLOR, GLASS_COLOR, PANEL_COLOR, PLATE_SEAT_MM, STAIR_CLEAR_MM,
-  BOARD_COLOR, FRAME_COLOR,
+  FACADE_COLOR, MESH_PARTS, type MeshPart,
 } from "../src/render3d/mesh";
 import { triangulatePolygon, triangulateWithHoles } from "../src/render3d/triangulate";
 import { v, Vec, polygonArea } from "../src/geometry/vec";
 import { seedDoc } from "../src/seed";
+import { PATTERN_IDS } from "../src/model/appearance";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ""): void {
@@ -65,13 +66,16 @@ function trisArea(verts: Vec[], tris: number[]): number {
  */
 function volumeOf(
   m: Mesh3D, rgb?: readonly [number, number, number], zMin = -Infinity,
-  soup: "opaque" | "glass" = "opaque",
+  soup: "opaque" | "glass" = "opaque", part?: MeshPart,
 ): number {
   let s = 0;
   const dz = isFinite(zMin) ? zMin : 0;
   const P = soup === "glass" ? m.glassPositions : m.positions;
   const C = soup === "glass" ? m.glassColors : m.colors;
+  const K = soup === "glass" ? m.glassParts : m.parts;
+  const pi = part !== undefined ? MESH_PARTS.indexOf(part) : -1;
   for (let i = 0; i + 8 < P.length; i += 9) {
+    if (pi >= 0 && K[i / 3] !== pi) continue;
     if (rgb && (Math.abs(C[i]! - rgb[0]) > 1e-3 || Math.abs(C[i + 1]! - rgb[1]) > 1e-3
       || Math.abs(C[i + 2]! - rgb[2]) > 1e-3)) continue;
     if (P[i + 2]! < zMin - 0.5 || P[i + 5]! < zMin - 0.5 || P[i + 8]! < zMin - 0.5) continue;
@@ -679,10 +683,10 @@ const RING_AREA = 1400000;
     String(solid.buildUp.length));
 
   const m = buildSceneMesh(doc);
-  const boardVol = volumeOf(m, BOARD_COLOR);
-  check("boards reach the mesh at BOARD_COLOR, matching their own volume",
+  const boardVol = volumeOf(m, undefined, -Infinity, "opaque", "board");
+  check("boards reach the board part, matching their own volume",
     nearRel(boardVol, expected), `${boardVol} vs ${expected}`);
-  check("no frame prisms without a voorzetwand", volumeOf(m, FRAME_COLOR) === 0);
+  check("no frame prisms without a voorzetwand", volumeOf(m, undefined, -Infinity, "opaque", "frame") === 0);
   check("the wall body's own volume is unaffected by the board on its face",
     nearRel(volumeOf(m, WALL_COLOR), rectWallVol, 1e-3));
 }
@@ -710,12 +714,194 @@ const RING_AREA = 1400000;
     `${expectedFrame} / ${expectedBoards}`);
 
   const m = buildSceneMesh(doc);
-  const frameVol = volumeOf(m, FRAME_COLOR);
-  const boardVol = volumeOf(m, BOARD_COLOR);
-  check("the frame zone reaches the mesh at FRAME_COLOR, matching its own volume",
+  const frameVol = volumeOf(m, undefined, -Infinity, "opaque", "frame");
+  const boardVol = volumeOf(m, undefined, -Infinity, "opaque", "board");
+  check("the frame zone reaches the frame part, matching its own volume",
     nearRel(frameVol, expectedFrame), `${frameVol} vs ${expectedFrame}`);
-  check("the board on it reaches the mesh at BOARD_COLOR, matching its own volume",
+  check("the board on it reaches the board part, matching its own volume",
     nearRel(boardVol, expectedBoards), `${boardVol} vs ${expectedBoards}`);
+}
+
+// ── parts and the facade ───────────────────────────────────────────────────
+
+{
+  const f = rectFloor();
+  const w = f.walls[0]!;
+  w.facadeMm = 100; w.facadeSide = "right";
+  w.openings.push(opening({ kind: "window", t: 2000, width: 1000, sillHeight: 900, height: 1200 }));
+  f.walls[2]!.openings.push(opening({ kind: "door", t: 2000, width: 900, glazed: true }));
+  const doc = emptyDocWith(f);
+  const m = buildSceneMesh(doc);
+  check("every opaque vertex has a part", m.parts.length === m.positions.length / 3);
+  check("every glass vertex has a part", m.glassParts.length === m.glassPositions.length / 3);
+  check("part indices index MESH_PARTS",
+    [...m.parts, ...m.glassParts].every(k => k < MESH_PARTS.length));
+  const fs = floorSolids(doc, 0)!;
+  const prisms = fs.walls.flatMap(x => x.facade);
+  const expected = prisms.reduce((n, p) => n + Math.abs(polygonArea(p.poly)) * (p.z1 - p.z0), 0);
+  check("facade volume equals its prisms' volume",
+    nearRel(volumeOf(m, undefined, -Infinity, "opaque", "facade"), expected),
+    `${volumeOf(m, undefined, -Infinity, "opaque", "facade")} vs ${expected}`);
+  check("the facade part carries FACADE_COLOR",
+    nearRel(volumeOf(m, FACADE_COLOR), volumeOf(m, undefined, -Infinity, "opaque", "facade")));
+  check("window panes are glass-part", volumeOf(m, undefined, -Infinity, "glass", "glass") > 0);
+  check("door rims are door-part", volumeOf(m, undefined, -Infinity, "opaque", "door") > 0);
+  check("the slab is slab-part", volumeOf(m, SLAB_COLOR) > 0
+    && nearRel(volumeOf(m, undefined, -Infinity, "opaque", "slab"), volumeOf(m, SLAB_COLOR)));
+}
+
+// ── appearance (issue #89) ──────────────────────────────────────────────────
+
+{
+  const surfaceAt = (m: Mesh3D, i: number): number[] => [...m.surfaces.slice(i * 4, i * 4 + 4)];
+  const patternsOf = (m: Mesh3D, part: MeshPart): Set<number> => {
+    const out = new Set<number>();
+    for (let i = 0; i < m.parts.length; i++) if (m.parts[i] === MESH_PARTS.indexOf(part)) out.add(m.surfaces[i * 4 + 1]!);
+    return out;
+  };
+  const m0 = buildSceneMesh(emptyDocWith(rectFloor()));
+  check("surfaces carry a vec4 per opaque vertex", m0.surfaces.length === (m0.positions.length / 3) * 4);
+  check("glassSurfaces carry a vec4 per glass vertex", m0.glassSurfaces.length === (m0.glassPositions.length / 3) * 4);
+  check("a surface vertex reserves z and has no texture layer",
+    surfaceAt(m0, 0)[2] === 0 && surfaceAt(m0, 0)[3] === -1);
+  check("an unstated-material wall stays neutral with pattern none",
+    volumeOf(m0, WALL_COLOR, -Infinity, "opaque", "wall") > 0
+    && [...patternsOf(m0, "wall")].every(p => p === PATTERN_IDS.indexOf("none")));
+
+  const fb = rectFloor();
+  fb.walls[0]!.material = "masonry";
+  const mb = buildSceneMesh(emptyDocWith(fb));
+  check("a masonry wall body carries the brick pattern",
+    patternsOf(mb, "wall").has(PATTERN_IDS.indexOf("brick")));
+
+  // An own colour applies to that wall's body only.
+  const fc = rectFloor();
+  fc.walls[0]!.appearance = { color: "#ff0000" };
+  fc.walls[0]!.facadeMm = 100; fc.walls[0]!.facadeSide = "right";
+  const mc = buildSceneMesh(emptyDocWith(fc));
+  const redBody = volumeOf(mc, [1, 0, 0], -Infinity, "opaque", "wall");
+  const bodyOnly = volumeOf(mc, undefined, -Infinity, "opaque", "wall");
+  check("an authored wall colour reaches its body", redBody > 0 && redBody < bodyOnly, `${redBody} of ${bodyOnly}`);
+  check("an authored wall colour leaves the facade alone",
+    volumeOf(mc, [1, 0, 0], -Infinity, "opaque", "facade") === 0
+    && volumeOf(mc, [1, 0, 0], -Infinity, "opaque", "post") === 0);
+
+  // The facade override reaches the facade only.
+  delete fc.walls[0]!.appearance;
+  fc.walls[0]!.facadeAppearance = { color: "#00ff00" };
+  const md = buildSceneMesh(emptyDocWith(fc));
+  const facadeVol = volumeOf(md, undefined, -Infinity, "opaque", "facade");
+  check("an authored facade colour reaches the facade only",
+    facadeVol > 0 && nearRel(volumeOf(md, [0, 1, 0]), facadeVol));
+
+  // Only the outermost board takes the face's appearance.
+  const fe = rectFloor();
+  fe.walls[0]!.buildUp = {
+    right: { boards: [{ kind: "gypsum", mm: 12 }, { kind: "osb", mm: 15 }], appearance: { color: "#0000ff" } },
+  };
+  const me = buildSceneMesh(emptyDocWith(fe));
+  const blue = volumeOf(me, [0, 0, 1], -Infinity, "opaque", "board");
+  const boards = volumeOf(me, undefined, -Infinity, "opaque", "board");
+  check("a build-up appearance reaches the outermost board only", blue > 0 && blue < boards, `${blue} of ${boards}`);
+}
+
+// ── outward normals ─────────────────────────────────────────────────────────
+
+/** Every triangle of `part` faces away from the centroid of that part's vertices; the pieces tested are convex. */
+function outwardFraction(m: Mesh3D, part: MeshPart, skipX?: number): { n: number; outward: number } {
+  const pi = MESH_PARTS.indexOf(part);
+  let cx = 0, cy = 0, cz = 0, cnt = 0;
+  for (let i = 0; i < m.parts.length; i++) {
+    if (m.parts[i] !== pi) continue;
+    cx += m.positions[i * 3]!; cy += m.positions[i * 3 + 1]!; cz += m.positions[i * 3 + 2]!; cnt++;
+  }
+  cx /= cnt; cy /= cnt; cz /= cnt;
+  let n = 0, outward = 0;
+  for (let t = 0; t < m.parts.length; t += 3) {
+    if (m.parts[t] !== pi) continue;
+    const P = m.positions, N = m.normals;
+    const mx = (P[t * 3]! + P[t * 3 + 3]! + P[t * 3 + 6]!) / 3 - cx;
+    const my = (P[t * 3 + 1]! + P[t * 3 + 4]! + P[t * 3 + 7]!) / 3 - cy;
+    const mz = (P[t * 3 + 2]! + P[t * 3 + 5]! + P[t * 3 + 8]!) / 3 - cz;
+    // Faces where two pieces of one wall meet are interior to the whole.
+    if (skipX !== undefined && [0, 3, 6].every(k => Math.abs(P[t * 3 + k]! - skipX) < 1e-3)) continue;
+    n++;
+    if (mx * N[t * 3]! + my * N[t * 3 + 1]! + mz * N[t * 3 + 2]! > 0) outward++;
+  }
+  return { n, outward };
+}
+
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  const a = newId("n"), b = newId("n");
+  f.nodes.push({ id: a, x: 0, y: 0 }, { id: b, x: 4000, y: 0 });
+  f.walls = [{ id: newId("w"), a, b, thickness: 100, bulge: 0, openings: [], profile: [{ t: 2000, height: FLOOR_HEIGHT_DEFAULT + 1000 }] }];
+  const g = outwardFraction(buildSceneMesh(doc), "wall", 2000);
+  check("a sloped wall prism's triangle normals all point away from its centroid (ridge split excluded)", g.n > 0 && g.outward === g.n, `${g.outward}/${g.n}`);
+  f.walls[0]!.profile = undefined;
+  const flat = outwardFraction(buildSceneMesh(doc), "wall");
+  check("a flat wall prism's triangle normals all point away from its centroid", flat.n > 0 && flat.outward === flat.n, `${flat.outward}/${flat.n}`);
+}
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  const outline = [v(0, 0), v(6000, 0), v(6000, 4000), v(0, 4000)];
+  f.roofPlanes = [{ id: "p1", outline, eaveEdge: 0, eaveMm: 2600, pitchDeg: 30 }];
+  const g = outwardFraction(buildSceneMesh(doc), "roof");
+  check("a roof slab's triangle normals all point away from its centroid (ridge split excluded)", g.n > 0 && g.outward === g.n, `${g.outward}/${g.n}`);
+}
+{
+  const m = buildSceneMesh(rectDoc);
+  let bad = 0;
+  for (let i = 0; i + 2 < m.normals.length; i += 3) {
+    const l = Math.hypot(m.normals[i]!, m.normals[i + 1]!, m.normals[i + 2]!);
+    if (Math.abs(l - 1) > 1e-4) bad++;
+  }
+  check("every emitted normal is unit length", bad === 0, `${bad}`);
+  check("the whole mesh has positive signed volume (outward winding)", volumeOf(m) > 0);
+}
+
+// --- phase mode: colour by pen ---
+{
+  const mk = (color?: string) => {
+    const f = rectFloor();
+    const w = f.walls[0]!;
+    if (color) w.color = color;
+    w.facadeMm = 100; w.facadeSide = "right";
+    w.buildUp = { left: { boards: [{ kind: "gypsum", mm: 12 }] } };
+    return emptyDocWith(f);
+  };
+  const colorsOf = (m: Mesh3D, part: MeshPart, glass = false): number[][] => {
+    const cols = glass ? m.glassColors : m.colors, parts = glass ? m.glassParts : m.parts;
+    const out: number[][] = [];
+    for (let i = 0; i < parts.length; i++) if (MESH_PARTS[parts[i]!] === part) out.push([cols[i * 3]!, cols[i * 3 + 1]!, cols[i * 3 + 2]!]);
+    return out;
+  };
+  const reddish = (c: number[]): boolean => c[0]! > c[1]! + 0.1 && c[0]! > c[2]! + 0.1;
+  const neutral = (c: number[]): boolean => Math.abs(c[0]! - c[1]!) < 1e-6 && Math.abs(c[1]! - c[2]!) < 1e-6;
+
+  const red = buildSceneMesh(mk("#d0342c"), undefined, { phase: true });
+  for (const part of ["wall", "facade", "board"] as const) {
+    const c = colorsOf(red, part);
+    check(`phase: a "new" wall's ${part} vertices are red-ish`, c.length > 0 && (part === "wall" ? c.some(reddish) && c.some(neutral) : c.every(reddish)));
+  }
+  check("phase: the new ink is lightened toward white", colorsOf(red, "facade").every(c => c[1]! > 0x34 / 255));
+  const grey = buildSceneMesh(mk(), undefined, { phase: true });
+  check("phase: a wall with no pen is neutral grey", colorsOf(grey, "wall").every(neutral));
+  check("phase: slab has no pen and reads as existing grey", colorsOf(grey, "slab").every(neutral));
+
+  const gone = buildSceneMesh(mk("#C58A10"), undefined, { phase: true });
+  check("phase: a \"remove\" wall lands in the glass soup (matched case-insensitively)",
+    colorsOf(gone, "wall", true).length > 0 && colorsOf(gone, "wall", true).every(c => c[0]! > c[2]! + 0.1));
+  check("phase: a \"remove\" wall's skins are translucent too",
+    colorsOf(gone, "facade", true).length > 0 && colorsOf(gone, "board", true).length > 0);
+
+  const off = buildSceneMesh(mk("#d0342c"));
+  check("phase off: appearance colours return", colorsOf(off, "wall").some(c => !reddish(c)));
+  let noPattern = true;
+  for (let i = 1; i < red.surfaces.length; i += 4) if (red.surfaces[i] !== PATTERN_IDS.indexOf("none")) noPattern = false;
+  check("phase: every pattern is none", noPattern);
 }
 
 console.log(failures === 0 ? "ALL MESH3D TESTS PASSED" : `${failures} FAILURES`);

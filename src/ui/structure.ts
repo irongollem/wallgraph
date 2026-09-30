@@ -6,6 +6,7 @@
 // the same terms: a section, a run, a height, a material and a designation.
 // The vide and the deck keep their own rows (ui/vide.ts, ui/deck.ts); this pane
 // only hosts them under the shared picker.
+import { renderAppearanceRows, writeOverride } from "./appearance";
 import { Store } from "../model/store";
 import { Tools, type StructureTarget } from "../input/tools";
 import {
@@ -247,6 +248,10 @@ export function renderStructureProps(store: Store, tools: Tools, rows: PaneRows,
     tools.symbolColor = hex;
     mut(elm.kind, e => { if (hex) e.color = hex; else delete e.color; }, "color:" + id);
   });
+  rows.secHead(t("appearance.head"), { later: true });
+  renderAppearanceRows(rows, t("appearance.structure"),
+    { part: "wall", ...(elm.material ? { material: elm.material } : {}) }, elm.appearance,
+    next => mut(elm.kind, e => writeOverride(e, "appearance", next), "appearance:" + id));
   rows.noteRow(t(elm.kind === "column" ? "panel.columnNote" : elm.kind === "beam" ? "panel.beamNote" : "panel.railingNote"));
   rows.dangerRow(t("panel.deleteOpening"), () => tools.deleteSelected());
 }
@@ -268,6 +273,11 @@ export function renderStructureBulk(store: Store, tools: Tools, rows: PaneRows, 
       for (const x of structureOf(store.floorOf(d))) if (ids.includes(x.id)) { if (hex) x.color = hex; else delete x.color; }
     }, "color:" + ids.join(","));
   }, { mixed });
+  renderAppearanceRows(rows, t("appearance.structure"),
+    { part: "wall", ...(first.material ? { material: first.material } : {}) }, first.appearance,
+    next => store.mutate(d => {
+      for (const x of structureOf(store.floorOf(d))) if (ids.includes(x.id)) writeOverride(x, "appearance", next);
+    }, "appearance:" + ids.join(",")), { mixed: isMixed(els, x => JSON.stringify(x.appearance ?? null)) });
   rows.dangerRow(t("panel.deleteOpening"), () => tools.deleteSelected());
 }
 

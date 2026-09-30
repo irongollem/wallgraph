@@ -1,5 +1,6 @@
 // Tool state machine + snapping + typed-mm input. Owns pointer/keyboard handling
 // for the canvas; rendering of previews goes through getPreview()/getSnap().
+import type { View3DSnapshot } from "../render3d/view3d";
 import { Store, MULTI_SELECT_KINDS, type Selection } from "../model/store";
 import { marqueePick, type MarqueeRect } from "./marquee";
 import {
@@ -504,11 +505,18 @@ export class Tools {
    * harmless.
    */
   readonly view3dHidden = new Set<string>();
+  /**
+   * The 3D view coloured by construction phase (the plan's pens) rather than by
+   * material. Editor state: no export reads it.
+   */
+  view3dPhase = false;
   /** Host hooks for the 3D view: show/hide it, reframe it on F, and redraw
    *  it when the scene selection above changes. */
   onView3d: ((on: boolean) => void) | null = null;
   onView3dFit: (() => void) | null = null;
   onView3dScene: (() => void) | null = null;
+  /** The 3D view's camera and mesh inputs, for an offscreen render; null while it is off. */
+  onView3dSnapshot: (() => View3DSnapshot | null) | null = null;
   /** Shift, as the last pointer or key event reported it. */
   private shiftKey = false;
   /** Alt at the last press: a drag that starts under it copies rather than moves. */
@@ -2371,6 +2379,15 @@ export class Tools {
     this.onView3dScene?.();
   }
 
+  /** Switch the 3D view between material and construction-phase colouring. */
+  setView3dPhase(on: boolean): void {
+    if (this.view3dPhase === on) return;
+    this.view3dPhase = on;
+    this.updateHint();
+    this.onToolChange();
+    this.onView3dScene?.();
+  }
+
   /** Enter or leave the 3D view. Cancels any half-made gesture first: the
    *  canvas it was drawing on is about to stop taking the pointer. */
   setView3d(on: boolean): void {
@@ -3748,6 +3765,7 @@ export class Tools {
     if (this.view3d) {
       if (e.key === "Escape" || e.key === "3") this.setView3d(false);
       else if (e.key === "f" || e.key === "F") this.onView3dFit?.();
+      else if (e.key === "p" || e.key === "P") this.setView3dPhase(!this.view3dPhase);
       return;
     }
 
@@ -4109,7 +4127,7 @@ export class Tools {
     const h = (base: string, vars?: Record<string, string | number>): string => t(this.hintKey(base), vars);
     // The 3D view replaces the canvas, so its navigation wording wins over
     // whatever tool stays armed underneath it.
-    if (this.view3d) { this.hint = h("view3d"); return; }
+    if (this.view3d) { this.hint = h(this.view3dPhase ? "phase3d" : "view3d"); return; }
     // Calibration overrides whatever the active tool would say: it captures
     // on top of it, so its own next-step instruction has to win.
     if (this.calibArmed) {

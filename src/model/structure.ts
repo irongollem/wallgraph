@@ -11,6 +11,7 @@
 // it and drawn with poché; a railing stands below it and is drawn in outline;
 // a beam runs above it and is drawn dashed. See CUT_PLANE_MM.
 import type { Id, WallMaterial, Board } from "./doc";
+import type { AppearanceOverride } from "./appearance";
 
 export type StructureKind = "column" | "beam" | "railing";
 
@@ -48,6 +49,8 @@ interface StructuralBase {
    * wall's material carries, and draws as masonry either way.
    */
   material?: WallMaterial;
+  /** 3D look; absent means the built-in default (model/appearance.ts). */
+  appearance?: AppearanceOverride;
 }
 
 export interface Column extends StructuralBase {

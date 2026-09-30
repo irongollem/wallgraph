@@ -736,6 +736,27 @@ scrollen zoomt, <kbd>Shift</kbd>+slepen verschuift;
 <kbd>F</kbd> brengt alles in beeld en <kbd>Esc</kbd> of nogmaals <kbd>3</kbd> keert terug naar de
 plattegrond. Net als de ruimtes is het beeld afgeleid: er staat niets driedimensionaals in het
 document.</p>
+<p>De gevelbekleding, de plaatstapels en de voorzetwand worden in 3D als eigen lichamen getekend.
+Elk element toont het uiterlijk van zijn materiaal: kleur, oppervlak en een patroon op ware grootte
+(baksteen, blokken, beton, hout, sandwichpaneel, dakpannen, stucwerk, staal). Een muur zonder
+opgegeven materiaal blijft neutraal.</p>
+<ul>
+<li><b>Uiterlijk per element.</b> In het paneel van een element staan onder <b>3D</b> een kleur en een
+patroon die het standaarduiterlijk vervangen; <b>Standaard</b> zet het weer terug. De keuze wordt in
+het plan bewaard en staat los van de tekenkleur van het element (bestaand, nieuw, te slopen).</li>
+<li><b>Afbeelding.</b> Onder <b>Afbeelding laden…</b> kan een afbeelding als textuur worden gekozen;
+daarbij wordt de werkelijke breedte en hoogte in mm opgegeven die de afbeelding beslaat. De
+afbeeldingen staan in het Plan-paneel onder <b>Afbeeldingen voor 3D</b>, met naam, maat en
+verwijderen. Ze worden, net als de onderlegger, in het plan bewaard en niet meegenomen in een
+deellink; grote afbeeldingen gebruiken opslagruimte van de browser.</li>
+<li><b>Licht.</b> De zon staat volgens de noordpijl van het plan (zonder noordpijl: noord boven) en
+werpt schaduw. Het is een presentatie en geen zonnestudie of daglichtberekening.</li>
+<li><b>Fasering.</b> <b>Fasering in 3D: bestaand, nieuw en te slopen</b> (<kbd>P</kbd>) kleurt de
+elementen naar hun tekenkleur: bestaand grijs, nieuw rood, te slopen doorschijnend oranje.</li>
+<li><b>3D-afbeelding.</b> Zolang de 3D-weergave open is, biedt het documentmenu <b>3D-afbeelding
+(venster)</b>, <b>3D-afbeelding (HD)</b> (1920 × 1080) en <b>3D-afbeelding (4K)</b> (3840 × 2160)
+aan.</li>
+</ul>
 
 <h2 id="ruimtenamen">Ruimtenamen</h2>
 <p>Een naam wordt in die lijst geschreven, of door op de tekening op de oppervlakte van een ruimte te
@@ -792,6 +813,7 @@ applicatieserver vereist. De plattegrond blijft na het sluiten van het tabblad b
 <tr><td><kbd>F</kbd></td><td>alles in beeld</td></tr>
 <tr><td><kbd>Shift</kbd>+<kbd>F</kbd></td><td>selectie in beeld</td></tr>
 <tr><td><kbd>3</kbd></td><td>3D-weergave aan/uit</td></tr>
+<tr><td><kbd>P</kbd></td><td>fasering in 3D aan/uit (alleen in de 3D-weergave)</td></tr>
 <tr><td><kbd>O</kbd></td><td>hoeksnapping aan/uit</td></tr>
 <tr><td><kbd>Shift</kbd></td><td>hoek vasthouden tijdens het tekenen</td></tr>
 <tr><td><kbd>G</kbd></td><td>rastersnapping aan/uit</td></tr>
@@ -1279,6 +1301,25 @@ their worktops, fixtures with their tubs and bowls, furniture on its legs), ever
 level. Dragging orbits, scrolling zooms, <kbd>Shift</kbd>+drag pans; <kbd>F</kbd> fits everything
 and <kbd>Esc</kbd> or <kbd>3</kbd> again returns to the plan. Like the rooms, the view is derived:
 nothing three-dimensional is stored in the document.</p>
+<p>The facade cladding, board stacks and voorzetwand are drawn as bodies of their own in 3D. Each
+element shows the appearance of its material: colour, surface and a pattern drawn at real size (brick,
+blocks, concrete, timber, sandwich panel, roof tiles, plaster, steel). A wall with no stated material
+stays neutral.</p>
+<ul>
+<li><b>Appearance per element.</b> An element's pane holds a colour and a pattern under <b>3D</b> that
+replace the default appearance; <b>Default</b> restores it. The choice is saved in the plan and is
+separate from the element's pen colour (existing, new, to be removed).</li>
+<li><b>Image.</b> <b>Load image…</b> adds an image as a texture and asks for the real width and height
+in mm that the image covers. The images are listed in the Plan panel under <b>Images for 3D</b>, with
+rename, size and remove. Like the underlay, they are stored in the plan and left out of a share link;
+large images take browser storage.</li>
+<li><b>Light.</b> The sun is placed from the plan's north arrow (north up when none is set) and casts
+shadows. It is a presentation, not a sun or daylight study.</li>
+<li><b>Phases.</b> <b>Construction phase in 3D: existing, new and to be removed</b> (<kbd>P</kbd>)
+colours elements by their pen colour: existing grey, new red, to be removed translucent amber.</li>
+<li><b>3D image.</b> While the 3D view is open, the document menu offers <b>3D image (window)</b>,
+<b>3D image (HD)</b> (1920 × 1080) and <b>3D image (4K)</b> (3840 × 2160).</li>
+</ul>
 
 <h2 id="roomnames">Room names</h2>
 <p>A name is written in that list, or by clicking a room's area figure on the drawing, which opens the
@@ -1334,6 +1375,7 @@ server. The plan remains available after the tab is closed.</p>
 <tr><td><kbd>F</kbd></td><td>fit everything in view</td></tr>
 <tr><td><kbd>Shift</kbd>+<kbd>F</kbd></td><td>fit the selection</td></tr>
 <tr><td><kbd>3</kbd></td><td>3D view on/off</td></tr>
+<tr><td><kbd>P</kbd></td><td>construction phase colours in 3D on/off (3D view only)</td></tr>
 <tr><td><kbd>O</kbd></td><td>angle snap on/off</td></tr>
 <tr><td><kbd>Shift</kbd></td><td>hold the angle while drawing</td></tr>
 <tr><td><kbd>G</kbd></td><td>grid snap on/off</td></tr>
