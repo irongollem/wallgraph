@@ -16,7 +16,7 @@
 // context (see recordSymbol) because the library draws them with canvas calls;
 // their arcs flatten to polylines, which is exact enough at symbol scale and
 // avoids guessing how a mirrored, rotated transform maps onto an ARC.
-import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, stairsOf, videsOf, decksOf, structureOf, furnishingsOf, routesOf, roomNamesOf, Wall, wallGlazed, wallInfill } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, fireMarksOn, stairsOf, videsOf, decksOf, structureOf, furnishingsOf, routesOf, roomNamesOf, Wall, wallGlazed, wallInfill } from "../model/doc";
 import { deckJoistLayout } from "../core/trimmer";
 import { Vec } from "../geometry/vec";
 import { roofPlanesOf } from "../model/roof";
@@ -27,6 +27,7 @@ import { detectRooms, roomSize, sizeLabel, looseRoomNames, roomArea } from "../c
 import { getSymbol } from "../render/symbols";
 import { mountMarkOf } from "../core/mount";
 import { setOutDims } from "../core/setout";
+import { fireRuns, fireLabels } from "../core/fire";
 import { setOutPrims } from "../render/setout";
 import { recordSymbol, Prim } from "./record";
 import { openingMarks, postMarks } from "./marks";
@@ -158,6 +159,10 @@ const LAYER = {
   // Reserved space beside a piece (a chair's pull-out zone): a reservation, not
   // furniture, and dashed on the canvas, which a layer states instead.
   furnishingClearance: "FURNISHING-CLEARANCE",
+  // Fire compartment boundary. Dashed on the canvas and in the SVG; the
+  // recorder drops dash patterns (io/record.ts), so the layer carries the
+  // distinction, as DECKS-OVERHEAD and ROUTES-WATER-AFVOER do.
+  fire: "FIRE",
 } as const;
 
 /** The layer a furnishing lands on: its trade, and whether it is overhead. */
@@ -222,7 +227,7 @@ const ROUTE_HEAT_RETOUR_LAYER = "ROUTES-HEATING-RETOUR";
 /** ACI colour indices — 7 is "by background", i.e. black on white paper. */
 const LAYER_COLOR: Record<string, number> = {
   WALLS: 7, GLAZING: 4, PANELS: 8, POSTS: 7, FACADE: 8, LINING: 8, FRAMES: 8, ROOF: 8, OPENINGS: 7, SYMBOLS: 4, SETOUT: 5, STAIRS: 3, VOIDS: 5, DECKS: 3, "DECKS-OVERHEAD": 3, ROOMS: 8,
-  COLUMNS: 7, BEAMS: 7, RAILINGS: 8,
+  COLUMNS: 7, BEAMS: 7, RAILINGS: 8, FIRE: 1,
   CABINETS: 6, "CABINETS-OVERHEAD": 6,
   // 9 (light grey) is otherwise unused: the hatch sits over the poché and
   // must read as texture, not compete with the outlines drawn in 7/8.
@@ -462,6 +467,13 @@ export function toDxf(doc: PlanDoc, floorIndex = 0): string | null {
     }
 
     for (const rw of resolved.walls.values()) emitPrims(w, LAYER.openings, openingMarks(rw));
+
+    if (fireMarksOn(doc)) {
+      for (const run of fireRuns(floor, resolved)) {
+        w.polyline(LAYER.fire, run.pts, false);
+        for (const l of fireLabels(run)) w.text(LAYER.fire, l.at, 120, l.text);
+      }
+    }
 
     for (const vd of videsOf(floor)) emitPrims(w, LAYER.vides, videPrims(vd, t("vide.label")));
     for (const dk of decksOf(floor)) {

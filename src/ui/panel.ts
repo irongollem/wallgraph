@@ -22,7 +22,7 @@ import { exportEngineerPackage } from "../io/package";
 import { permitChecklist, PermitCheck } from "../core/permit";
 import { seedDoc } from "../seed";
 import {
-  emptyDoc, areaModeOf, dimModeOf, mountMarksOn, floorHeight, storeyCeiling, CEILING_DEFAULT_MM,
+  emptyDoc, areaModeOf, dimModeOf, mountMarksOn, fireMarksOn, floorHeight, storeyCeiling, CEILING_DEFAULT_MM,
   wallHeight, openingSill, openingHeight, projectOf,
   OPENING_FRAME_MATERIALS, DOOR_LEAF_MATERIALS, frameMaterialOf, leafMaterialOf, leafFireConcern,
   type OpeningFrameMaterial, type DoorLeafMaterial,
@@ -881,7 +881,7 @@ export class Panel {
     // store change, or placing a symbol would yank focus out of an open field.
     if (this.pendingTexture && this.pendingTexture.selSig !== selSig) this.pendingTexture = null;
     const paneSig = [this.store.activeFloor, d.floors.map(fl => `${fl.id}\u0000${fl.name}`).join("\u0001"),
-      d.gridMm, areaModeOf(d), floorHeight(this.store.floor),
+      d.gridMm, areaModeOf(d), fireMarksOn(d) ? "f1" : "f0", floorHeight(this.store.floor),
       this.store.floor.ceilingMm ?? "", d.groundMm ?? "", this.tools.lastThickness,
       JSON.stringify(d.project ?? null), d.northDeg ?? "", JSON.stringify(d.energy ?? null),
       JSON.stringify(d.materials ?? null), JSON.stringify(this.store.floor.roofPlanes ?? null),
@@ -1930,6 +1930,11 @@ export class Panel {
     // PNG carry the same annotation the screen does -- see mountMarksOn().
     checkRow(t("panel.showHeights"), mountMarksOn(this.store.doc), on =>
       this.store.mutate(d => { if (on) d.mountMarks = true; else delete d.mountMarks; }));
+    // Whether the plan draws the fire compartment boundaries it states. A
+    // document convention for the same reason as the toggle above -- see
+    // fireMarksOn().
+    checkRow(t("panel.showFire"), fireMarksOn(this.store.doc), on =>
+      this.store.mutate(d => { if (on) d.fireMarks = true; else delete d.fireMarks; }));
     // Editor state rather than a document convention: a pulse is something to
     // notice while working and means nothing on paper, so it never reaches an
     // export. See Tools.requireComplete.

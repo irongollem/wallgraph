@@ -268,5 +268,23 @@ check("declares a DXF version with LWPOLYLINE", (dxf ?? "").includes("AC1015"));
   check("opening metadata is exported", labels.join(",") === "E,Z,WBD 60", labels.join(","));
 }
 
+// Fire compartment boundary: the layer is always declared, entities only when on.
+{
+  const onLayer = (out: string, layer: string): number =>
+    out.split("\r\n").filter(l => l === layer).length;
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.nodes.push({ id: "fn0", x: 0, y: 0 }, { id: "fn1", x: 3000, y: 0 }, { id: "fn2", x: 6000, y: 0 });
+  for (const [id, a, b] of [["fw1", "fn0", "fn1"], ["fw2", "fn1", "fn2"]] as const)
+    f.walls.push({ id, a, b, thickness: 100, bulge: 0, openings: [], fireRating: { kind: "wbdbo", minutes: 30 } });
+  const off = toDxf(doc, 0) ?? "";
+  check("FIRE is declared with the convention off", onLayer(off, "FIRE") === 1, String(onLayer(off, "FIRE")));
+  doc.fireMarks = true;
+  const on = toDxf(doc, 0) ?? "";
+  check("fireMarks puts entities on FIRE", onLayer(on, "FIRE") > 1, String(onLayer(on, "FIRE")));
+  check("the compartment label reaches DXF", on.includes("\r\nWBDBO 30\r\n"));
+  check("the file keeps three sections", on.split("\r\n").filter(l => l === "SECTION").length === 3);
+}
+
 console.log(failures === 0 ? "ALL DXF TESTS PASSED" : `${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

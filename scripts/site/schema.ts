@@ -61,6 +61,13 @@ export function planSchema(siteUrl: string): JsonSchema {
           "the drawing says so. The figure itself is derived -- a symbol's own height " +
           "if it states one, otherwise the conventional height for its type.",
       },
+      fireMarks: {
+        type: "boolean",
+        description:
+          "Draw the fire compartment boundaries the document states, as a dashed " +
+          "line over the plan. Absent means off. It shows what the document states " +
+          "and makes no statement about compliance.",
+      },
       project: {
         type: "object",
         additionalProperties: false,

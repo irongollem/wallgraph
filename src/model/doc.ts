@@ -1074,6 +1074,8 @@ export interface PlanDoc {
   dimMode?: DimMode;
   /** Write each device's mounting height beside it. See mountMarksOn(). */
   mountMarks?: boolean;
+  /** Draw the fire compartment boundaries the document states. See fireMarksOn(). */
+  fireMarks?: boolean;
   /** Title-block data. Absent means nothing has been filled in. */
   project?: ProjectMeta;
   /**
@@ -1144,6 +1146,17 @@ export const dimModeOf = (d: PlanDoc): DimMode => d.dimMode ?? DIM_MODE_DEFAULT;
  * plattegrond is not an installatietekening until someone says it is.
  */
 export const mountMarksOn = (d: PlanDoc): boolean => d.mountMarks === true;
+
+/**
+ * Whether the plan draws the fire compartment boundaries the document states.
+ * A drawing convention like `areaMode`, `dimMode` and `mountMarks`, and stored
+ * for the same reason: an export has no editor to ask. Absent means off -- a
+ * red dashed line over the fabric interferes with reading the bouwkundig plan,
+ * and a plattegrond is not a brandveiligheidstekening until the drawing says
+ * so. It shows what the document STATES, not a compliance claim: the WBDBO is a
+ * property of the boundary between two spaces, not of one wall.
+ */
+export const fireMarksOn = (d: PlanDoc): boolean => d.fireMarks === true;
 
 let seq = 0;
 export const newId = (p: string): Id => `${p}${(++seq).toString(36)}${Date.now().toString(36).slice(-4)}`;

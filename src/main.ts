@@ -10,7 +10,7 @@ import { Tools } from "./input/tools";
 import { Panel } from "./ui/panel";
 import { tryLoadAutosave, scheduleAutosave, watchAutosave } from "./io/json";
 import { seedDoc } from "./seed";
-import { areaModeOf, dimModeOf, mountMarksOn, PlanDoc } from "./model/doc";
+import { areaModeOf, dimModeOf, mountMarksOn, fireMarksOn, PlanDoc } from "./model/doc";
 import { incompleteMarks } from "./core/port";
 import type { Vec } from "./geometry/vec";
 import { riserMarks } from "./core/continuation";
@@ -171,7 +171,7 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
       requestRedraw: requestRender,
       selectMode: tools.selectModeBadge(),
       preview: (c, viewport) => tools.drawPreview(c, viewport),
-    }, store.doc.gridMm, areaModeOf(store.doc), dimModeOf(store.doc), mountMarksOn(store.doc));
+    }, store.doc.gridMm, areaModeOf(store.doc), dimModeOf(store.doc), mountMarksOn(store.doc), fireMarksOn(store.doc));
     renderLoupe(rect, dpr, resolved, leaves, rooms, ghost);
     // A pulse is the one thing here that changes without a mutation, so it is
     // the one thing that asks for the next frame itself. Nothing incomplete,
@@ -230,7 +230,7 @@ export function mountWallgraph(app: HTMLElement): Wallgraph {
       showUnderlay: tools.showUnderlay,
       layers: tools.layers,
       dimLayers: tools.dimLayers(),
-    }, store.doc.gridMm, areaModeOf(store.doc), dimModeOf(store.doc), mountMarksOn(store.doc));
+    }, store.doc.gridMm, areaModeOf(store.doc), dimModeOf(store.doc), mountMarksOn(store.doc), fireMarksOn(store.doc));
     // Crosshair at the exact point, drawn last so nothing covers it.
     lctx.strokeStyle = COLORS.snap;
     lctx.lineWidth = 1;

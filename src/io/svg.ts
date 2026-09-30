@@ -13,7 +13,7 @@
 // The drawing itself is assembled as a scene (io/scene.ts) rather than as
 // markup, because io/pdf.ts renders the same scene onto the permit sheet.
 // This module is the SVG renderer for it plus the scene the plan makes.
-import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, stairsOf, videsOf, decksOf, furnishingsOf, structureOf, roomNamesOf, BOARD_KINDS, type BoardKind } from "../model/doc";
+import { PlanDoc, Floor, areaModeOf, dimModeOf, mountMarksOn, fireMarksOn, stairsOf, videsOf, decksOf, furnishingsOf, structureOf, roomNamesOf, BOARD_KINDS, type BoardKind } from "../model/doc";
 import { deckJoistLayout } from "../core/trimmer";
 import { Vec, add, sub, scale, perp, norm, polygonCentroid } from "../geometry/vec";
 import { arcPointAt } from "../geometry/arc";
@@ -26,8 +26,9 @@ import { ROOF_DASH } from "../render/roof";
 import { getSymbol } from "../render/symbols";
 import { mountMarkOf } from "../core/mount";
 import { setOutDims } from "../core/setout";
+import { fireRuns, fireLabels } from "../core/fire";
 import { setOutPrims } from "../render/setout";
-import { COLORS, routeInk, routeMapLabel, symbolInk, wallPen, junctionPen, type WallPen } from "../render/draw";
+import { COLORS, FIRE_DASH, routeInk, routeMapLabel, symbolInk, wallPen, junctionPen, type WallPen } from "../render/draw";
 import { wallHatch, hatchSegments, hatchedFill, junctionHatch } from "../render/hatch";
 import {
   ROUTE_DATA_DASH, ROUTE_AFVOER_DASH, ROUTE_AFVOER_EXTRA_MM, ROUTE_VENT_EXTRA_MM, LINE_WIDTH_MM,
@@ -626,6 +627,20 @@ export function planScene(
       fill: COLORS.roomLabel, ink: "none", family: LABEL_FONT,
       anchor: "middle", baseline: "alphabetic",
     }, "labels"));
+  }
+
+  // Fire compartment boundaries. The dash rides on the group, as the SVG
+  // renderer emits it only there; the labels sit in a nested group that resets
+  // it, since resolve() inherits dash down the tree.
+  if (fireMarksOn(doc)) {
+    const runs = fireRuns(floor, resolved);
+    if (runs.length > 0) {
+      out.push(group([
+        ...runs.map(run => poly(run.pts, false)),
+        group(runs.flatMap(run => fireLabels(run).map(l => text(l.at, 120, l.text))),
+          { dash: [], fill: COLORS.fire, ink: "none", family: LABEL_FONT, anchor: "middle", baseline: "central" }),
+      ], { ink: COLORS.fire, fill: "none", width: W_SYMBOL, dash: FIRE_DASH, cap: "butt", join: "round" }, "fire"));
+    }
   }
 
   return out;

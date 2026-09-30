@@ -186,5 +186,24 @@ for (const id of ["rooms", "walls", "openings", "symbols", "labels"])
   check("a plan of only glass walls emits no hatch group", !glassOut.includes('id="hatch"'));
 }
 
+// Fire compartment boundary: a document convention, off unless stated.
+{
+  const doc = emptyDoc();
+  const f = doc.floors[0]!;
+  f.nodes.push({ id: "fn0", x: 0, y: 0 }, { id: "fn1", x: 3000, y: 0 }, { id: "fn2", x: 6000, y: 0 });
+  for (const [id, a, b] of [["fw1", "fn0", "fn1"], ["fw2", "fn1", "fn2"]] as const)
+    f.walls.push({ id, a, b, thickness: 100, bulge: 0, openings: [], fireRating: { kind: "wbdbo", minutes: 30 } });
+  check("no fire group while fireMarks is absent", !(toSvg(doc, 0) ?? "").includes('id="fire"'));
+  doc.fireMarks = true;
+  const out = toSvg(doc, 0) ?? "";
+  const start = out.indexOf('id="fire"');
+  check("a fire group is emitted once fireMarks is on", start >= 0);
+  const tag = out.slice(out.lastIndexOf("<g", start), out.indexOf(">", start));
+  check("the fire group carries a dash", tag.includes("stroke-dasharray"), tag);
+  check("the fire group carries the fire colour", tag.includes(`stroke="${COLORS.fire}"`), tag);
+  check("the compartment label is emitted", out.includes("WBDBO 30"));
+  check("no NaN reaches the fire group", !out.includes("NaN") && !out.includes("Infinity"));
+}
+
 console.log(failures === 0 ? "ALL SVG TESTS PASSED" : `${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

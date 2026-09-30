@@ -37,6 +37,7 @@ import { gridSteps, GridSteps } from "./grid";
 import { LAYER_OF_CATEGORY, layerAlpha, type LayerFlags, type LayerKey } from "./layers";
 import { mountMarkOf } from "../core/mount";
 import { setOutDims, SetOutDim } from "../core/setout";
+import { fireRuns, fireLabels } from "../core/fire";
 import { setOutLines } from "./setout";
 import { resolveBoard, BOARD_TYPE } from "../core/board";
 import { groupPoles } from "../model/board";
@@ -106,6 +107,14 @@ export const COLORS = {
    * in red and survives an export that loses the colour.
    */
   stairWarn: "#b3261e",
+  /**
+   * Fire compartment boundary. The application's own annotation, not a pen the
+   * drawer chose, so it is a COLORS entry and not an INKS lookup -- the same
+   * split stairWarn makes. The value is the red INKS offers for new work, which
+   * keeps the sheet in one red vocabulary, and is lighter than stairWarn so a
+   * boundary does not read as a warning.
+   */
+  fire: "#d0342c",
   /**
    * Default ink per discipline, chosen to sit clearly apart from each other,
    * from the selection orange, and from the snap/dimension blue -- print-safe
@@ -189,6 +198,13 @@ export function routeMapLabel(route: Route): string {
  * Yellow is drawn as amber because true yellow on the paper-coloured background
  * is a line you cannot see.
  */
+/**
+ * Dash of a fire compartment boundary, in mm: longer than BEAM_DASH ([120, 80])
+ * and ROOF_DASH ([200, 120]), so a boundary along a wall is not read as
+ * overhead work.
+ */
+export const FIRE_DASH: readonly number[] = [400, 160];
+
 export const INKS: ReadonlyArray<{ id: string; hex: string | null }> = [
   { id: "default", hex: null },
   { id: "new",     hex: "#d0342c" },
@@ -455,6 +471,10 @@ export function drawScene(
   floor: Floor, resolved: Resolved, leaves: Leaves, rooms: Room[], sel: Selection | null,
   extras: DrawExtras, gridMm: number, areaMode: AreaMode, dimMode: DimMode,
   mountMarks: boolean,
+  // A drawing convention read from the document (fireMarksOn), not editor
+  // state, so it is a parameter and not a DrawExtras field: exports drop every
+  // DrawExtras field, and a compartment boundary has to survive them.
+  fireMarks: boolean,
 ): void {
   // True for the primary selection AND every member `extras.selMore` carries
   // alongside it -- a shift-click, a touch hold, or a marquee's catch all
@@ -816,6 +836,31 @@ export function drawScene(
       select: COLORS.select, wash: COLORS.selectWash,
       backing: COLORS.stairWash, warn: COLORS.stairWarn,
     });
+  }
+
+  // Fire compartment boundaries over the fabric, in world space.
+  if (fireMarks) {
+    ctx.save();
+    ctx.strokeStyle = COLORS.fire;
+    ctx.fillStyle = COLORS.fire;
+    // Heavier than the wall outline's 1 * px so the boundary reads over the
+    // poché, and constant on screen like every other annotation here: a world
+    // figure would grow with the zoom until the line covered the wall.
+    ctx.lineWidth = 3 * px;
+    ctx.lineJoin = "round";
+    ctx.font = "120px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    for (const run of fireRuns(floor, resolved)) {
+      if (run.pts.length < 2) continue;
+      ctx.setLineDash([...FIRE_DASH]);
+      ctx.beginPath();
+      run.pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+      ctx.stroke();
+      ctx.setLineDash([]);
+      for (const l of fireLabels(run)) ctx.fillText(l.text, l.at.x, l.at.y);
+    }
+    ctx.restore();
   }
 
   // Tool preview (world space).
