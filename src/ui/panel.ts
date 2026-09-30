@@ -52,8 +52,8 @@ import { categoriesIn, getSymbol, type SymbolCategory } from "../render/symbols"
 import { LAYER_KEYS, LAYER_OF_CATEGORY, type LayerKey } from "../render/layers";
 import { renderStairTool, renderStairProps, renderStairBulk, type PaneRows } from "./stairs";
 import { renderFaceBuildUp, wallHasBuildUp, faceLabel } from "./buildup";
-import { renderAppearanceRows, writeOverride } from "./appearance";
-import type { AppearanceOverride, Texture } from "../model/appearance";
+import { appearanceTarget, patchOverride, renderAppearanceRows } from "./appearance";
+import type { AppearancePatch, Texture } from "../model/appearance";
 import { TEXTURE_DEFAULT_MM, TEXTURE_LIMIT, TEXTURE_MAX_EDGE, removeTexture, texturesOf } from "../model/appearance";
 import { routeTakesSymbol } from "../core/attach";
 import { incompleteDevices } from "../core/port";
@@ -281,9 +281,10 @@ export class Panel {
    *  from under the pointer. main.ts redraws the canvas independently, so
    *  the drawing still tracks the drag. */
   private scrubbing = false;
-  /** A picked texture image waiting for its real size; shown under the appearance row named by `label`. */
+  /** A picked texture image waiting for its real size; shown under the appearance row whose
+   *  `target` (see appearanceTarget()) it was loaded for, and dropped when the selection changes. */
   private pendingTexture: {
-    label: string; name: string; dataUrl: string; widthMm: number; heightMm: number; apply: (id: string) => void;
+    target: string; selSig: string; name: string; dataUrl: string; widthMm: number; heightMm: number;
   } | null = null;
 
   constructor(root: HTMLElement, private store: Store, private tools: Tools) {
@@ -878,12 +879,15 @@ export class Panel {
     // Plan rows and the storey picker read from the document, so they have to
     // rebuild when an undo changes a value under them -- but not on every
     // store change, or placing a symbol would yank focus out of an open field.
+    if (this.pendingTexture && this.pendingTexture.selSig !== selSig) this.pendingTexture = null;
     const paneSig = [this.store.activeFloor, d.floors.map(fl => `${fl.id}\u0000${fl.name}`).join("\u0001"),
       d.gridMm, areaModeOf(d), floorHeight(this.store.floor),
       this.store.floor.ceilingMm ?? "", d.groundMm ?? "", this.tools.lastThickness,
       JSON.stringify(d.project ?? null), d.northDeg ?? "", JSON.stringify(d.energy ?? null),
       JSON.stringify(d.materials ?? null), JSON.stringify(this.store.floor.roofPlanes ?? null),
-      (d.textures ?? []).map(x => `${x.id}\u0000${x.name}\u0000${x.widthMm}\u0000${x.heightMm}`).join("\u0001"),
+      texturesOf(d).map(x => `${x.id}\u0000${x.name}\u0000${x.widthMm}\u0000${x.heightMm}`).join("\u0001"),
+      // The size row under a pending texture lives in whichever section owns its target.
+      this.pendingTexture ? `pt:${this.pendingTexture.target}:${this.pendingTexture.name}` : "",
       this.store.floor.underlay ? "u1" : "u0", this.tools.calibrating ? "c1" : "c0",
       // The Plan section's per-discipline toggles only show once the floor
       // has routes, so a route being added or removed has to rebuild it too.
@@ -1438,16 +1442,17 @@ export class Panel {
       o.lintel ? `${o.lintel.w} × ${o.lintel.d} mm` : undefined,
       (w, d) => mutOpening(o2 => { o2.lintel = { w, d }; }));
 
-    // 3D look of the leaf or frame; a passage has nothing to colour. The key
-    // follows the mesh: a steel leaf is steel, anything else the door default.
-    if (o.kind !== "passage") {
+    // 3D look of a door leaf. A window is drawn as glass with no frame body, and a
+    // passage has nothing to colour. The key follows the mesh's leafLook(): a steel
+    // leaf is steel, anything else the door default.
+    if (o.kind === "door") {
       rows.secHead(t("appearance.head"), { later: true });
-      renderAppearanceRows(rows, o.kind === "door" ? t("appearance.leaf") : t("appearance.frame"),
+      renderAppearanceRows(rows, t("appearance.leaf"), appearanceTarget("opening", sel.id, "appearance"),
         leafMaterialOf(o) === "steel" ? { part: "frame", material: "steel" } : { part: "door" }, o.appearance,
-        next => this.store.mutate(d => {
+        (patch, key) => this.store.mutate(d => {
           const o2 = this.store.floorOf(d).walls.find(x => x.id === wid)?.openings.find(x => x.id === sel.id);
-          if (o2) writeOverride(o2, "appearance", next);
-        }, "appearance:" + sel.id));
+          if (o2) patchOverride(o2, "appearance", patch);
+        }, key));
     }
 
     rows.dangerRow(t("panel.deleteOpening"), () => this.tools.deleteSelected());
@@ -1711,7 +1716,7 @@ export class Panel {
       label: string, colorHex: string, isSet: boolean, pattern: string,
       patternOptions: Array<[string, string]>,
       on: { color(hex: string): void; pattern(p: string): void; texture(id: string): void; clear(): void },
-      opts: { mixed?: boolean; texture?: string } = {},
+      opts: { mixed?: boolean; texture?: string; target?: string; coalesceKey?: string } = {},
     ): void => {
       const row = el("div", "prop-row appearance-row");
       const head = el("div", "appearance-head");
@@ -1743,7 +1748,7 @@ export class Panel {
       box.append(color, sel);
       row.append(head, box);
       p.append(row);
-      this.textureRows(p, label, opts.texture ?? "", on);
+      this.textureRows(p, label, opts.target ?? label, opts.coalesceKey ?? "appearance:" + label, opts.texture ?? "", on);
     };
     /** `key` is shown beside the label and `title` explains the button; neither
      *  is part of the label, which has to read the same without a keyboard. */
@@ -2012,7 +2017,7 @@ export class Panel {
    * available in sandboxed hosting); Add stores it and assigns it.
    */
   private textureRows(
-    p: HTMLElement, label: string, current: string, on: { texture(id: string): void },
+    p: HTMLElement, label: string, target: string, coalesceKey: string, current: string, on: { texture(id: string): void },
   ): void {
     const row = el("div", "prop-row appearance-row");
     const head = el("div", "appearance-head");
@@ -2031,14 +2036,13 @@ export class Panel {
     const load = el("button", "chip appearance-default") as HTMLButtonElement;
     load.type = "button";
     load.textContent = t("appearance.textureLoad");
-    load.onclick = () => pickUnderlayImage(file => { void this.loadTextureFile(file, label); });
+    load.onclick = () => pickUnderlayImage(file => { void this.loadTextureFile(file, target); });
     head.append(load);
     box.append(sel);
     row.append(head, box);
     p.append(row);
     const pend = this.pendingTexture;
-    if (!pend || pend.label !== label) return;
-    pend.apply = on.texture;
+    if (!pend || pend.target !== target) return;
     const size = el("div", "prop-row appearance-row");
     size.title = t("appearance.textureSizeHelp");
     size.append(Object.assign(el("span"), { textContent: pend.name }));
@@ -2061,8 +2065,9 @@ export class Panel {
       const id = newId("tx");
       const tex: Texture = { id, name: pend.name, dataUrl: pend.dataUrl, widthMm: pend.widthMm, heightMm: pend.heightMm };
       this.pendingTexture = null;
-      this.store.mutate(d => { (d.textures ?? (d.textures = [])).push(tex); });
-      pend.apply(id);
+      // One undo step for the stored image and its assignment: both edits share the row's coalesce key.
+      this.store.mutate(d => { (d.textures ?? (d.textures = [])).push(tex); }, coalesceKey);
+      on.texture(id);
     };
     const cancel = el("button", "chip appearance-default") as HTMLButtonElement;
     cancel.type = "button";
@@ -2074,7 +2079,7 @@ export class Panel {
   }
 
   /** Downscale a picked image to a texture and open the size fields under the row that asked. */
-  private async loadTextureFile(file: File, label: string): Promise<void> {
+  private async loadTextureFile(file: File, target: string): Promise<void> {
     if (texturesOf(this.store.doc).length >= TEXTURE_LIMIT) {
       this.flash(t("status.textureLimit", { n: TEXTURE_LIMIT }));
       return;
@@ -2083,8 +2088,8 @@ export class Panel {
     if (!prepared) { this.flash(t("status.underlayFailed")); return; }
     const name = file.name.replace(/\.[^.]*$/, "") || t("appearance.texture");
     this.pendingTexture = {
-      label, name, dataUrl: prepared.dataUrl,
-      widthMm: TEXTURE_DEFAULT_MM.widthMm, heightMm: TEXTURE_DEFAULT_MM.heightMm, apply: () => {},
+      target, selSig: this.lastSelSig, name, dataUrl: prepared.dataUrl,
+      widthMm: TEXTURE_DEFAULT_MM.widthMm, heightMm: TEXTURE_DEFAULT_MM.heightMm,
     };
     this.refreshToolbar();
   }
@@ -2577,12 +2582,13 @@ export class Panel {
     }, { mixed: colorMixed });
     // 3D body look: shows the first wall's, marked mixed when they differ.
     const lookMixed = isMixed(walls, w => JSON.stringify(w.appearance ?? null));
-    renderAppearanceRows(rows, t("appearance.wall"), { part: "wall", material: first.material }, first.appearance,
-      next => this.store.mutate(d => {
+    renderAppearanceRows(rows, t("appearance.wall"), appearanceTarget("walls", group, "appearance"),
+      { part: "wall", material: first.material }, first.appearance,
+      (patch, key) => this.store.mutate(d => {
         for (const w of this.store.floorOf(d).walls) {
-          if (group.includes(w.id)) writeOverride(w, "appearance", next);
+          if (group.includes(w.id)) patchOverride(w, "appearance", patch);
         }
-      }, "appearance:body:" + group.join(",")), { mixed: lookMixed });
+      }, key), { mixed: lookMixed });
     this.renderWallJoin(rows, group);
     rows.dangerRow(t("panel.deleteWall"), () => this.tools.deleteSelected());
   }
@@ -3285,29 +3291,32 @@ export class Panel {
       // The 3D look: body, facade skin where stated and the outermost board of
       // each face. Stored as an override next to the fact it colours.
       secHead(t("appearance.head"), { later: true });
-      const setAppearance = (write: (wall: Wall, next: AppearanceOverride | undefined) => void,
-                             tag: string) => (next: AppearanceOverride | undefined): void => {
-        this.store.mutate(d => {
-          const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
-          if (wall) write(wall, next);
-        }, "appearance:" + tag + ":" + sel.id);
-      };
-      renderAppearanceRows(rows, t("appearance.wall"), { part: "wall", material: w.material }, w.appearance,
-        setAppearance((wall, next) => writeOverride(wall, "appearance", next), "body"));
+      const setAppearance = (write: (wall: Wall, patch: AppearancePatch | null) => void) =>
+        (patch: AppearancePatch | null, key: string): void => {
+          this.store.mutate(d => {
+            const wall = this.store.floorOf(d).walls.find(x => x.id === sel.id);
+            if (wall) write(wall, patch);
+          }, key);
+        };
+      renderAppearanceRows(rows, t("appearance.wall"), appearanceTarget("wall", sel.id, "appearance"),
+        { part: "wall", material: w.material }, w.appearance,
+        setAppearance((wall, patch) => patchOverride(wall, "appearance", patch)));
       if (w.facadeMm !== undefined) {
-        renderAppearanceRows(rows, t("appearance.facade"), { part: "facade" }, w.facadeAppearance,
-          setAppearance((wall, next) => writeOverride(wall, "facadeAppearance", next), "facade"));
+        renderAppearanceRows(rows, t("appearance.facade"), appearanceTarget("wall", sel.id, "facadeAppearance"),
+          { part: "facade" }, w.facadeAppearance,
+          setAppearance((wall, patch) => patchOverride(wall, "facadeAppearance", patch)));
       }
       for (const side of ["left", "right"] as const) {
         const fu = buildUpOf(w, side);
         const outer = fu?.boards[fu.boards.length - 1];
         if (!fu || !outer) continue;
         renderAppearanceRows(rows, t("appearance.finish", { face: faceLabel(side) }),
+          appearanceTarget("wall", sel.id, "buildUp." + side),
           { part: "board", kind: outer.kind }, fu.appearance,
-          setAppearance((wall, next) => {
+          setAppearance((wall, patch) => {
             const face = buildUpOf(wall, side);
-            if (face) writeOverride(face, "appearance", next);
-          }, "board" + side));
+            if (face) patchOverride(face, "appearance", patch);
+          }));
       }
       // Columns that still reach into this wall's own build-up -- reported,
       // never repaired, the stance topMismatches() and roofWallMismatches()

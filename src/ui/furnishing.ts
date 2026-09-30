@@ -10,7 +10,7 @@
 // fitted out: a kitchen is drawn in one pass, then the bathroom. Which rows
 // appear under it follows the form — a bed has a size and nothing else, a
 // cabinet has a front and a hinge side.
-import { renderAppearanceRows, writeOverride } from "./appearance";
+import { appearanceTarget, patchOverride, renderAppearanceRows } from "./appearance";
 import { furnishingSolids } from "../core/furnishing3d";
 import { polygonArea } from "../geometry/vec";
 import type { FitoutMaterial } from "../model/appearance";
@@ -204,10 +204,10 @@ export function renderFurnishingProps(store: Store, tools: Tools, rows: PaneRows
   // 3D look. The key names the material most of the piece is made of, which is
   // what its default colour and pattern show; an override recolours every part.
   rows.secHead(t("appearance.head"), { later: true });
-  renderAppearanceRows(rows, t("appearance.furnishing"), { part: "fitout", material: dominantFitout(piece) },
-    piece.appearance, next => {
-      const write = (f: Furnishing): void => writeOverride(f, "appearance", next);
-      const key = "appearance:" + group.join(",");
+  renderAppearanceRows(rows, t("appearance.furnishing"), appearanceTarget("furnishing", group, "appearance"),
+    { part: "fitout", material: dominantFitout(piece) },
+    piece.appearance, (patch, key) => {
+      const write = (f: Furnishing): void => patchOverride(f, "appearance", patch);
       if (group.length > 1) store.mutate(d => {
         for (const f of furnishingsOf(store.floorOf(d))) if (group.includes(f.id)) write(f);
       }, key);

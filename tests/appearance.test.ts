@@ -1,11 +1,13 @@
 // The 3D appearance table, its overrides, and how the document fields travel
 // through wall split, flip and merge.
 import {
-  PATTERN_IDS, defaultAppearance, resolveAppearance, parseHexColor, FITOUT_MATERIALS,
+  PATTERN_IDS, patchAppearance, defaultAppearance, resolveAppearance, parseHexColor, FITOUT_MATERIALS,
   WALL_COLOR, GLASS_COLOR, type AppearanceKey,
 } from "../src/model/appearance";
 import { WALL_MATERIALS, BOARD_KINDS, emptyDoc, newId, type Wall } from "../src/model/doc";
 import { MESH_PARTS } from "../src/render3d/mesh";
+import { patchOverride } from "../src/ui/appearance";
+import { Store } from "../src/model/store";
 import { splitWall, flipWall } from "../src/model/ops";
 import { planNodeDissolve, isDissolvePlan, applyNodeDissolve } from "../src/core/join";
 
@@ -118,6 +120,40 @@ function pair(): { f: ReturnType<typeof emptyDoc>["floors"][number]; w: Wall } {
   check("a flip moves a face's appearance with its face",
     w.buildUp?.right?.appearance?.color === "#445566" && w.buildUp?.left?.appearance === undefined);
   check("a flip leaves the body appearance", w.appearance?.color === "#112233");
+}
+
+// A patch describes one field; a bulk edit keeps each member's other fields.
+{
+  const a: { appearance?: import("../src/model/appearance").AppearanceOverride } = { appearance: { color: "#111111", texture: "t1" } };
+  const b: typeof a = { appearance: { color: "#222222", pattern: "brick" } };
+  const c: typeof a = {};
+  for (const w of [a, b, c]) patchOverride(w, "appearance", { pattern: "tile" });
+  check("a pattern patch keeps each member's colour and texture",
+    a.appearance?.color === "#111111" && a.appearance.texture === "t1" && a.appearance.pattern === "tile"
+    && b.appearance?.color === "#222222" && b.appearance.pattern === "tile"
+    && c.appearance?.pattern === "tile" && c.appearance.color === undefined);
+  for (const w of [a, b, c]) patchOverride(w, "appearance", { pattern: null });
+  check("a null field clears only that field",
+    a.appearance?.color === "#111111" && a.appearance.pattern === undefined && b.appearance?.color === "#222222");
+  check("an override that empties is deleted", (() => { patchOverride(c, "appearance", { pattern: null }); return !("appearance" in c); })());
+  patchOverride(a, "appearance", null);
+  check("a null patch clears the whole override", !("appearance" in a));
+  check("patchAppearance with an empty patch changes nothing", patchAppearance({ color: "#333333" }, {})?.color === "#333333");
+}
+
+// Adding a texture and assigning it under one coalesce key is one undo step.
+{
+  const store = new Store();
+  store.replace(emptyDoc());
+  const w = store.floor.walls;
+  w.push({ id: "w1", a: "n1", b: "n2", thickness: 100, bulge: 0, openings: [] });
+  const before = JSON.stringify(store.doc);
+  const key = "appearance:wall:w1:appearance";
+  store.mutate(d => { (d.textures ?? (d.textures = [])).push({ id: "tx1", name: "x", dataUrl: "data:image/png;base64,AA", widthMm: 1, heightMm: 1 }); }, key);
+  store.mutate(d => { patchOverride(store.floorOf(d).walls[0]!, "appearance", { texture: "tx1" }); }, key);
+  check("the texture and its assignment landed", store.doc.textures?.length === 1 && store.floor.walls[0]!.appearance?.texture === "tx1");
+  store.undo();
+  check("one undo removes both", JSON.stringify(store.doc) === before);
 }
 
 console.log(failures === 0 ? "ALL APPEARANCE TESTS PASSED" : `${failures} FAILURES`);

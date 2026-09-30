@@ -8,8 +8,8 @@
 import { PlanDoc, Floor, Id, floorElevation, floorHeight, stairsOf, furnishingsOf, decksOf, structureOf, type Wall, type DoorLeafMaterial } from "../model/doc";
 import { roofPlanesOf } from "../model/roof";
 import { floorSolids, FloorSolids, roofSlabSolids, glazedLeafParts, type BuildUpPrism } from "../core/solids";
-import { structureSolids, columnCasingPieces, columnHeight } from "../core/structure";
 import { resolveFloor } from "../core/resolve";
+import { structureSolids, columnCasingPieces, columnHeight } from "../core/structure";
 import { deckSolids } from "../core/deck";
 import { deckJoistLayout } from "../core/trimmer";
 import { stairSteps, StairStep } from "../core/stair3d";
@@ -72,11 +72,6 @@ export interface Mesh3D {
   bounds: Bounds3 | null;
 }
 
-export {
-  WALL_COLOR, SLAB_COLOR, ROOF_COLOR, STAIR_COLOR, DOOR_COLOR, GLASS_COLOR, PANEL_COLOR, BOARD_COLOR,
-  FRAME_COLOR, FACADE_COLOR, STEEL_COLOR, CASEWORK_COLOR, WORKTOP_COLOR, APPLIANCE_COLOR,
-  SANITARY_COLOR, SOFT_COLOR,
-} from "../model/appearance";
 
 const PATTERN_INDEX = Object.fromEntries(PATTERN_IDS.map((n, i) => [n, i])) as Record<PatternId, number>;
 
@@ -182,7 +177,6 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>, opt
   };
   const noPen = (look: Appearance): Appearance => (phase ? phasePen(undefined).look : look);
   const textures = texturesOf(doc)
-    .filter(x => Number.isInteger(x.widthMm) && x.widthMm > 0 && Number.isInteger(x.heightMm) && x.heightMm > 0)
     .slice(0, TEXTURE_LIMIT);
   const acc: MeshAcc = {
     positions: [], normals: [], colors: [], edges: [],
@@ -343,7 +337,7 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>, opt
             const pane = fillerQuad(o.poly, GLASS_MM);
             if (slice && pane && fillTop > o.z0 + H_EPS) {
               emitGlazedLeaves(acc, slice, pane, o.glazedLeaves, elev + o.z0, elev + fillTop,
-                sty(leafLook(o.leafMaterial, openingLook), false, wallRec?.color)[0]);
+                sty(leafLook(o.leafMaterial, openingLook), false, wallRec?.color)[0], skinGlass);
             }
           } else if (slice && fillTop > o.z0 + H_EPS) {
             const leaf = o.kind === "door";
@@ -354,10 +348,9 @@ export function buildSceneMesh(doc: PlanDoc, hiddenFloors?: ReadonlySet<Id>, opt
         }
       }
     }
-    const junctionWalls = phase ? resolveFloor(f).junctions : [];
-    for (const [ji, j] of fs.junctions.entries()) {
+    for (const j of fs.junctions) {
       // A junction belongs to no wall: it takes the pen its meeting walls share, else none.
-      const pens = new Set((junctionWalls[ji]?.walls ?? []).map(id => wallById.get(id)?.color?.toLowerCase() ?? ""));
+      const pens = new Set(j.walls.map(id => wallById.get(id)?.color?.toLowerCase() ?? ""));
       const jPen = pens.size === 1 ? [...pens][0] || undefined : undefined;
       const look0 = j.material === "glass" || j.material === "sandwich"
         ? defaultAppearance({ part: "wall", material: j.material })
@@ -598,10 +591,10 @@ function buildUpLook(w: Wall | undefined, p: BuildUpPrism): Appearance {
 /** A glazed door's leaves: rim in the leaf colour, glass pane (core/solids.ts). */
 function emitGlazedLeaves(
   acc: MeshAcc, leaf: Vec[], pane: Vec[], leaves: ReadonlyArray<{ s0: number; s1: number }>, z0: number, z1: number,
-  rimLook: Appearance,
+  rimLook: Appearance, rimGlass: boolean,
 ): void {
   const parts = glazedLeafParts(leaf, pane, leaves, z0, z1);
-  for (const p of parts.frame) emitPrism(acc, p.poly, [], p.z0, p.z1, rimLook, "door");
+  for (const p of parts.frame) emitPrism(acc, p.poly, [], p.z0, p.z1, rimLook, "door", rimGlass);
   for (const p of parts.glass) emitPrism(acc, p.poly, [], p.z0, p.z1, defaultAppearance({ part: "glass" }), "glass", true);
 }
 

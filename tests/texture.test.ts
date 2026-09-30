@@ -35,6 +35,34 @@ check("no textures reads as empty", texturesOf(d0).length === 0 && textureById(d
 const named = resolveAppearance({ part: "wall", material: "masonry" }, { pattern: "tile", texture: "gone" });
 check("an override keeps its pattern beside a texture id", named.pattern === "tile" && named.texture === "gone");
 
+// Validated read: malformed and remote entries never reach a consumer.
+{
+  const bad = docWithWall({ texture: "remote" });
+  const good = tex("ok");
+  bad.textures = [
+    good,
+    { ...tex("remote"), dataUrl: "https://example.com/x.png" },
+    { ...tex("svg"), dataUrl: "data:image/svg+xml;base64,AAAA" },
+    { ...tex("frac"), widthMm: 215.5 },
+    { ...tex("zero"), heightMm: 0 },
+    { ...tex("noname"), name: undefined as unknown as string },
+    { id: 5 as unknown as string, name: "n", dataUrl: "data:image/png;base64,AA", widthMm: 1, heightMm: 1 },
+    null as unknown as Texture,
+    { ...tex("png"), dataUrl: "data:image/png;base64,AAAA" },
+  ];
+  check("texturesOf keeps only valid entries", texturesOf(bad).map(x => x.id).join() === "ok,png",
+    texturesOf(bad).map(x => x.id).join());
+  check("textureById does not find a remote entry", textureById(bad, "remote") === undefined);
+  let m2: ReturnType<typeof buildSceneMesh> | null = null;
+  let threw = false;
+  try { m2 = buildSceneMesh(bad); } catch { threw = true; }
+  check("a mesh from malformed textures does not throw", !threw && m2 !== null);
+  check("the mesh lists only the valid textures", m2 !== null && m2.textures.map(x => x.id).join() === "ok,png");
+  let layered = false;
+  if (m2) for (let i = 3; i < m2.surfaces.length; i += 4) if (m2.surfaces[i]! >= 0) layered = true;
+  check("an override naming a remote texture uses no layer", !layered);
+}
+
 // Mesh layers.
 const held = docWithWall({ texture: "t1" });
 held.textures = [tex("t1")];

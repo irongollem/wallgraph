@@ -1,7 +1,7 @@
 // The deck pane: the figures the next deck is placed with, and the properties
 // of a placed one. Same shape as the vide pane; the tool rows are hosted by the
 // structure pane, where the deck is one of its kinds.
-import { renderAppearanceRows, writeOverride } from "./appearance";
+import { appearanceTarget, patchOverride, renderAppearanceRows } from "./appearance";
 import { Store } from "../model/store";
 import { Tools } from "../input/tools";
 import { decksOf, floorHeight, videsOf } from "../model/doc";
@@ -83,8 +83,8 @@ export function renderDeckProps(store: Store, tools: Tools, rows: PaneRows, id: 
     mut(d => { if (hex) d.color = hex; else delete d.color; }, "color:" + id);
   });
   rows.secHead(t("appearance.head"), { later: true });
-  renderAppearanceRows(rows, t("appearance.deck"), { part: "deck" }, deck.appearance,
-    next => mut(d => writeOverride(d, "appearance", next), "appearance:" + id));
+  renderAppearanceRows(rows, t("appearance.deck"), appearanceTarget("deck", id, "appearance"), { part: "deck" }, deck.appearance,
+    (patch, key) => mut(d => patchOverride(d, "appearance", patch), key));
   rows.infoRow(t("panel.deckArea"), `${((deck.width * deck.depth) / 1e6).toFixed(2)} m²`);
   rows.infoRow(t("panel.deckSpan"), `${deckSpanMm(deck)} mm`);
   rows.infoRow(t("panel.deckJoists"), String(deckJoistsLocal(deck).length));
@@ -179,8 +179,8 @@ export function renderDeckBulk(store: Store, tools: Tools, rows: PaneRows, ids: 
     tools.symbolColor = hex;
     each(d => { if (hex) d.color = hex; else delete d.color; }, "color:" + ids.join(","));
   }, { mixed: isMixed(decks, d => d.color ?? "") });
-  renderAppearanceRows(rows, t("appearance.deck"), { part: "deck" }, first.appearance,
-    next => each(d => writeOverride(d, "appearance", next), "appearance:" + ids.join(",")),
+  renderAppearanceRows(rows, t("appearance.deck"), appearanceTarget("decks", ids, "appearance"), { part: "deck" }, first.appearance,
+    (patch, key) => each(d => patchOverride(d, "appearance", patch), key),
     { mixed: isMixed(decks, d => JSON.stringify(d.appearance ?? null)) });
   loadRows(rows, first, each, {
     use: isMixed(decks, d => deckUseOf(d)),

@@ -6,7 +6,8 @@ import {
   emptyDoc, frameMaterialOf, leafMaterialOf, leafFireConcern, type Opening, type PlanDoc,
 } from "../src/model/doc";
 import { toIfc } from "../src/io/ifc";
-import { buildSceneMesh, DOOR_COLOR, STEEL_COLOR, type Mesh3D } from "../src/render3d/mesh";
+import { buildSceneMesh, type Mesh3D } from "../src/render3d/mesh";
+import { DOOR_COLOR, STEEL_COLOR } from "../src/model/appearance";
 
 const require = createRequire(import.meta.url);
 const webifc = require("web-ifc") as typeof WebIFC;

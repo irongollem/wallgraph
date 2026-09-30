@@ -5,7 +5,7 @@
 // object whose size is edited, so it needs a row per parameter in two places:
 // once for the stair about to be placed and once for the one selected. The
 // panel hands in its row builders, so the pane keeps one appearance.
-import { renderAppearanceRows, writeOverride } from "./appearance";
+import { appearanceTarget, patchOverride, renderAppearanceRows } from "./appearance";
 import { Store } from "../model/store";
 import { Tools } from "../input/tools";
 import { stairsOf, floorHeight } from "../model/doc";
@@ -64,7 +64,7 @@ export interface PaneRows {
   appearanceRow(label: string, colorHex: string, isSet: boolean, pattern: string,
                 patternOptions: Array<[string, string]>,
                 on: { color(hex: string): void; pattern(p: string): void; texture(id: string): void; clear(): void },
-                opts?: { mixed?: boolean; texture?: string }): void;
+                opts?: { mixed?: boolean; texture?: string; target?: string; coalesceKey?: string }): void;
   /** `key` is drawn beside the label where there is a keyboard, `title`
    *  explains the button; the label reads the same without either. */
   btnRow(label: string, fn: () => void, title?: string, key?: string): void;
@@ -218,8 +218,8 @@ export function renderStairProps(store: Store, tools: Tools, rows: PaneRows, id:
     mut(s => { if (hex) s.color = hex; else delete s.color; }, "color:" + id);
   });
   rows.secHead(t("appearance.head"), { later: true });
-  renderAppearanceRows(rows, t("appearance.stair"), { part: "stair" }, stair.appearance,
-    next => mut(s => writeOverride(s, "appearance", next), "appearance:" + id));
+  renderAppearanceRows(rows, t("appearance.stair"), appearanceTarget("stair", id, "appearance"), { part: "stair" }, stair.appearance,
+    (patch, key) => mut(s => patchOverride(s, "appearance", patch), key));
   turnRows(rows, stair, mut);
   metricRows(rows, stair);
   // The roof over the flight, where there is one: the same free-height
@@ -254,10 +254,10 @@ export function renderStairBulk(store: Store, tools: Tools, rows: PaneRows, ids:
       for (const s of stairsOf(store.floorOf(d))) if (ids.includes(s.id)) { if (hex) s.color = hex; else delete s.color; }
     }, "color:" + ids.join(","));
   }, { mixed });
-  renderAppearanceRows(rows, t("appearance.stair"), { part: "stair" }, first.appearance,
-    next => store.mutate(d => {
-      for (const s of stairsOf(store.floorOf(d))) if (ids.includes(s.id)) writeOverride(s, "appearance", next);
-    }, "appearance:" + ids.join(",")), { mixed: isMixed(stairs, s => JSON.stringify(s.appearance ?? null)) });
+  renderAppearanceRows(rows, t("appearance.stair"), appearanceTarget("stairs", ids, "appearance"), { part: "stair" }, first.appearance,
+    (patch, key) => store.mutate(d => {
+      for (const s of stairsOf(store.floorOf(d))) if (ids.includes(s.id)) patchOverride(s, "appearance", patch);
+    }, key), { mixed: isMixed(stairs, s => JSON.stringify(s.appearance ?? null)) });
   useRow(rows, first.use, use => store.mutate(d => {
     for (const s of stairsOf(store.floorOf(d))) if (ids.includes(s.id)) { if (use) s.use = use; else delete s.use; }
   }), { mixed: isMixed(stairs, s => s.use ?? "") });

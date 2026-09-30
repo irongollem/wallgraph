@@ -8,7 +8,8 @@ import {
 import { furnishingSolids, furnishingZ0, FurnishingPart, OVERHEAD_Z0_MM } from "../src/core/furnishing3d";
 import { furnishingBox, WORKTOP_OVERHANG } from "../src/core/furnishing";
 import { localPoint } from "../src/core/placed";
-import { buildSceneMesh, CASEWORK_COLOR, WORKTOP_COLOR, SANITARY_COLOR } from "../src/render3d/mesh";
+import { buildSceneMesh } from "../src/render3d/mesh";
+import { CASEWORK_COLOR, WORKTOP_COLOR, SANITARY_COLOR } from "../src/model/appearance";
 import { polygonArea, v } from "../src/geometry/vec";
 import { emptyDoc, newId, floorElevation, type Floor, type PlanDoc } from "../src/model/doc";
 

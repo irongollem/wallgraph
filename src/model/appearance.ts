@@ -46,7 +46,22 @@ export const TEXTURE_LIMIT = 32;
 /** Real size assumed for a new texture: a Dutch waalformaat brick face, mm. */
 export const TEXTURE_DEFAULT_MM = { widthMm: 215, heightMm: 65 } as const;
 
-export const texturesOf = (d: PlanDoc): readonly Texture[] => d.textures ?? [];
+const TEXTURE_DATA_URL = /^data:image\/(png|jpeg|webp);base64,/;
+
+const validTexture = (x: unknown): x is Texture => {
+  if (typeof x !== "object" || x === null) return false;
+  const t = x as Record<string, unknown>;
+  return typeof t.id === "string" && typeof t.name === "string"
+    && typeof t.dataUrl === "string" && TEXTURE_DATA_URL.test(t.dataUrl)
+    && Number.isInteger(t.widthMm) && (t.widthMm as number) > 0
+    && Number.isInteger(t.heightMm) && (t.heightMm as number) > 0;
+};
+
+/** The plan's textures: the one validated read. An entry with a missing field,
+ *  a non-positive size or a `dataUrl` that is not an embedded image (a remote
+ *  URL included) is dropped, so no consumer loads or sizes it. */
+export const texturesOf = (d: PlanDoc): readonly Texture[] =>
+  Array.isArray(d.textures) ? d.textures.filter(validTexture) : [];
 export const textureById = (d: PlanDoc, id: Id | undefined): Texture | undefined =>
   id === undefined ? undefined : texturesOf(d).find(x => x.id === id);
 
@@ -193,6 +208,25 @@ export function resolveAppearance(key: AppearanceKey, override?: AppearanceOverr
     color, roughness: base.roughness, pattern,
     ...(typeof override.texture === "string" && override.texture !== "" ? { texture: override.texture } : {}),
   };
+}
+
+/** A change to one override: a field set to a value, or to null to clear it;
+ *  an absent field is left as it is. */
+export interface AppearancePatch {
+  color?: string | null;
+  pattern?: PatternId | null;
+  texture?: Id | null;
+}
+
+/** `current` with `patch` applied. A null patch clears the whole override; an
+ *  override left with no field is undefined. */
+export function patchAppearance(current: AppearanceOverride | undefined, patch: AppearancePatch | null): AppearanceOverride | undefined {
+  if (patch === null) return undefined;
+  const next: AppearanceOverride = { ...current };
+  if (patch.color !== undefined) { if (patch.color === null) delete next.color; else next.color = patch.color; }
+  if (patch.pattern !== undefined) { if (patch.pattern === null) delete next.pattern; else next.pattern = patch.pattern; }
+  if (patch.texture !== undefined) { if (patch.texture === null) delete next.texture; else next.texture = patch.texture; }
+  return next.color === undefined && next.pattern === undefined && next.texture === undefined ? undefined : next;
 }
 
 /** Every element that carries an `AppearanceOverride`, on every storey. */

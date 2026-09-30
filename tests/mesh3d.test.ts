@@ -5,14 +5,14 @@ import {
 } from "../src/model/doc";
 import { floorSolids, SLAB_DEFAULT_MM, GLAZED_RIM_MM } from "../src/core/solids";
 import {
-  buildSceneMesh, Mesh3D, WALL_COLOR, SLAB_COLOR, STAIR_COLOR,
-  DOOR_COLOR, GLASS_COLOR, PANEL_COLOR, PLATE_SEAT_MM, STAIR_CLEAR_MM,
-  FACADE_COLOR, MESH_PARTS, type MeshPart,
+  buildSceneMesh, Mesh3D, PLATE_SEAT_MM, STAIR_CLEAR_MM, MESH_PARTS, type MeshPart,
 } from "../src/render3d/mesh";
 import { triangulatePolygon, triangulateWithHoles } from "../src/render3d/triangulate";
 import { v, Vec, polygonArea } from "../src/geometry/vec";
 import { seedDoc } from "../src/seed";
-import { PATTERN_IDS } from "../src/model/appearance";
+import {
+  PATTERN_IDS, WALL_COLOR, SLAB_COLOR, STAIR_COLOR, DOOR_COLOR, GLASS_COLOR, PANEL_COLOR, FACADE_COLOR,
+} from "../src/model/appearance";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ""): void {
@@ -902,6 +902,34 @@ function outwardFraction(m: Mesh3D, part: MeshPart, skipX?: number): { n: number
   let noPattern = true;
   for (let i = 1; i < red.surfaces.length; i += 4) if (red.surfaces[i] !== PATTERN_IDS.indexOf("none")) noPattern = false;
   check("phase: every pattern is none", noPattern);
+}
+
+// --- phase mode: a glazed door on a "remove" wall is translucent, rim included ---
+{
+  const f = rectFloor();
+  f.walls[0]!.color = "#C58A10";
+  f.walls[0]!.openings.push(opening({ kind: "door", t: 1500, width: 830, glazed: true }));
+  const m = buildSceneMesh(emptyDocWith(f), undefined, { phase: true });
+  check("phase: a glazed door's rim on a \"remove\" wall is in the glass soup",
+    volumeOf(m, undefined, -Infinity, "glass", "door") > 0);
+  check("phase: it leaves no opaque door part on a \"remove\" wall",
+    volumeOf(m, undefined, -Infinity, "opaque", "door") === 0);
+  const plain = buildSceneMesh(emptyDocWith((() => {
+    const g = rectFloor();
+    g.walls[0]!.openings.push(opening({ kind: "door", t: 1500, width: 830, glazed: true }));
+    return g;
+  })()), undefined, { phase: true });
+  check("phase: a glazed door on an existing wall keeps an opaque rim",
+    volumeOf(plain, undefined, -Infinity, "opaque", "door") > 0);
+}
+
+// --- junctions carry the walls that meet there ---
+{
+  const doc = seedDoc();
+  const fs = floorSolids(doc, 0)!;
+  const ids = new Set(doc.floors[0]!.walls.map(w => w.id));
+  check("every junction lists at least three known walls",
+    fs.junctions.length > 0 && fs.junctions.every(j => j.walls.length >= 3 && j.walls.every(id => ids.has(id))));
 }
 
 console.log(failures === 0 ? "ALL MESH3D TESTS PASSED" : `${failures} FAILURES`);

@@ -507,7 +507,8 @@ export class Tools {
   readonly view3dHidden = new Set<string>();
   /**
    * The 3D view coloured by construction phase (the plan's pens) rather than by
-   * material. Editor state: no export reads it.
+   * material. Editor state: no plan export reads it; the 3D still is a picture
+   * of the view and takes the mode with it.
    */
   view3dPhase = false;
   /** Host hooks for the 3D view: show/hide it, reframe it on F, and redraw

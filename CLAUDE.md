@@ -404,9 +404,10 @@ figure is computed, and none should be read into the shadows. Verified by
 
 **Phase colours are a view, not a document convention.** `Tools.view3dPhase` colours each element by its
 pen through `phasePen()`: existing grey, new red, to be removed amber and translucent, skins and openings
-following their wall. It is editor state because it changes nothing any export states. The 3D still export
-(`export3dPng()` in [image3d.ts](src/io/image3d.ts)) renders offscreen from the view's own camera and
-mode, the way the PNG plan export re-renders through `drawScene`, and never reads the screen canvas.
+following their wall. It is editor state because no plan export (PNG, SVG, DXF, IFC, the permit PDF)
+reads it. The 3D still export (`export3dPng()` in [image3d.ts](src/io/image3d.ts)) is a picture of the
+view, so it takes the view's camera and mode; it renders offscreen, the way the PNG plan export
+re-renders through `drawScene`, and never reads the screen canvas.
 
 **`envelopeTakeoff()`** — the geometric input of a BENG-berekening (NTA 8800), read off the same
 graph: verliesoppervlak Als, gebruiksoppervlak Ag, the compactness Als/Ag, bruto inhoud per storey and

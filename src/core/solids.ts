@@ -107,7 +107,11 @@ export interface SpaceSolid { name?: string; poly: Vec[]; z0: 0; z1: number }
 
 export interface SlabSolid { outline: Vec[]; holes: Vec[][]; z0: number; z1: 0 }
 
-export interface JunctionSolid extends Prism { material?: WallMaterial }
+export interface JunctionSolid extends Prism {
+  material?: WallMaterial;
+  /** The walls meeting at the node. */
+  walls: Id[];
+}
 
 export interface FloorSolids {
   walls: WallSolid[];
@@ -190,7 +194,7 @@ export function floorSolids(doc: PlanDoc, floorIndex: number): FloorSolids | nul
     const material = first && j.walls.every(id => wallById.get(id)?.material === first.material)
       ? first.material : undefined;
     return {
-      poly: j.poly, z0: 0, z1: isFinite(h) ? h : floorHeight(f),
+      poly: j.poly, z0: 0, z1: isFinite(h) ? h : floorHeight(f), walls: [...j.walls],
       ...(material !== undefined ? { material } : {}),
     };
   });

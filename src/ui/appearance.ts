@@ -2,8 +2,8 @@
 // built-in default. The default comes from model/appearance.ts; what is stored
 // is only the difference from it.
 import { t } from "../i18n";
-import { PATTERN_IDS, defaultAppearance, resolveAppearance } from "../model/appearance";
-import type { AppearanceKey, AppearanceOverride, PatternId, Rgb } from "../model/appearance";
+import { PATTERN_IDS, defaultAppearance, patchAppearance, resolveAppearance } from "../model/appearance";
+import type { AppearanceKey, AppearanceOverride, AppearancePatch, PatternId, Rgb } from "../model/appearance";
 import type { PaneRows } from "./stairs";
 
 export function patternName(id: PatternId): string {
@@ -15,20 +15,12 @@ export function rgbToHex(c: Rgb): string {
   return "#" + h(c[0]) + h(c[1]) + h(c[2]);
 }
 
-/** An override with neither field is no override. */
-export function normalizeOverride(o: AppearanceOverride): AppearanceOverride | undefined {
-  const out: AppearanceOverride = {};
-  if (o.color !== undefined) out.color = o.color;
-  if (o.pattern !== undefined) out.pattern = o.pattern;
-  if (o.texture !== undefined) out.texture = o.texture;
-  return out.color === undefined && out.pattern === undefined && out.texture === undefined ? undefined : out;
-}
-
-/** Writes `next` onto `holder[field]`, deleting the field when it is empty. */
-export function writeOverride<K extends string>(
-  holder: { [P in K]?: AppearanceOverride }, field: K, next: AppearanceOverride | undefined,
+/** Applies `patch` to `holder[field]`'s own override, deleting the field when it ends up empty. */
+export function patchOverride<K extends string>(
+  holder: { [P in K]?: AppearanceOverride }, field: K, patch: AppearancePatch | null,
 ): void {
-  if (next) holder[field] = { ...next }; else delete holder[field];
+  const next = patchAppearance(holder[field], patch);
+  if (next) holder[field] = next; else delete holder[field];
 }
 
 export interface AppearanceOpts {
@@ -36,14 +28,19 @@ export interface AppearanceOpts {
   mixed?: boolean;
 }
 
+/** Applies one edit to the element(s) behind a row. `coalesceKey` is the undo key for the edit. */
+export type AppearanceCommit = (patch: AppearancePatch | null, coalesceKey: string) => void;
+
 /**
  * One row group: colour (showing the resolved colour), a Default chip that
- * clears the override, and a pattern select. `onCommit` receives the whole next
- * override, or undefined when nothing differs from the default.
+ * clears the override, a pattern select and the texture rows. `target` names
+ * the thing the row edits, stable across rebuilds and unique on the pane (see
+ * `appearanceTarget`). `onCommit` receives only the edited field, so a bulk
+ * edit leaves each member's other fields alone; a null patch clears everything.
  */
 export function renderAppearanceRows(
-  rows: Pick<PaneRows, "appearanceRow">, label: string, key: AppearanceKey, override: AppearanceOverride | undefined,
-  onCommit: (next: AppearanceOverride | undefined) => void, opts: AppearanceOpts = {},
+  rows: Pick<PaneRows, "appearanceRow">, label: string, target: string, key: AppearanceKey,
+  override: AppearanceOverride | undefined, onCommit: AppearanceCommit, opts: AppearanceOpts = {},
 ): void {
   const resolved = resolveAppearance(key, override);
   const fallback = defaultAppearance(key);
@@ -51,20 +48,17 @@ export function renderAppearanceRows(
     ["", t("appearance.patternAuto", { name: patternName(fallback.pattern) })],
     ...PATTERN_IDS.map((id): [string, string] => [id, patternName(id)]),
   ];
-  rows.appearanceRow(label, rgbToHex(resolved.color), normalizeOverride(override ?? {}) !== undefined,
+  const coalesceKey = "appearance:" + target;
+  rows.appearanceRow(label, rgbToHex(resolved.color), patchAppearance(override, {}) !== undefined,
     override?.pattern ?? "", patternOptions,
     {
-      color: hex => onCommit(normalizeOverride({ ...override, color: hex })),
-      texture: id => {
-        const next: AppearanceOverride = { ...override };
-        if (id === "") delete next.texture; else next.texture = id;
-        onCommit(normalizeOverride(next));
-      },
-      pattern: p => {
-        const next: AppearanceOverride = { ...override };
-        if (p === "") delete next.pattern; else next.pattern = p as PatternId;
-        onCommit(normalizeOverride(next));
-      },
-      clear: () => onCommit(undefined),
-    }, { ...opts, texture: opts.mixed ? "" : override?.texture ?? "" });
+      color: hex => onCommit({ color: hex }, coalesceKey),
+      texture: id => onCommit({ texture: id === "" ? null : id }, coalesceKey),
+      pattern: p => onCommit({ pattern: p === "" ? null : p as PatternId }, coalesceKey),
+      clear: () => onCommit(null, coalesceKey),
+    }, { ...opts, target, coalesceKey, texture: opts.mixed ? "" : override?.texture ?? "" });
 }
+
+/** A stable name for what an appearance row edits: kind, element id(s) and the field it lives in. */
+export const appearanceTarget = (kind: string, ids: string | readonly string[], field: string): string =>
+  `${kind}:${typeof ids === "string" ? ids : ids.join(",")}:${field}`;
